@@ -91,6 +91,17 @@ Process only the specified bead instead of all ready beads.
 | `--limit` | `-n` | Maximum number of beads to process (0 = unlimited) |
 | `--dry-run` | | Show plan without executing |
 | `--no-merge` | | Create PRs but don't merge them |
+| `--deps` | | Also process open dependencies of the specified bead (requires bead ID) |
+
+### Processing Dependencies
+
+When processing a specific bead, use `--deps` to also process its open dependencies first:
+
+```bash
+ac run ac-xyz --deps
+```
+
+This recursively resolves dependencies and processes them in the correct order before processing the target bead.
 
 ### Feature Branch Workflow
 
