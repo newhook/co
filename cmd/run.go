@@ -96,6 +96,15 @@ func runTasks(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		// Allow retrying failed tasks
+		if t.Status == db.StatusFailed {
+			fmt.Printf("Task %s previously failed. Resetting to pending for retry...\n", taskID)
+			if err := database.ResetTaskStatus(t.ID); err != nil {
+				return fmt.Errorf("failed to reset task status: %w", err)
+			}
+			t.Status = db.StatusPending
+		}
+
 		if t.Status != db.StatusPending {
 			return fmt.Errorf("task %s is not pending (status: %s)", taskID, t.Status)
 		}
