@@ -211,7 +211,7 @@ func processBead(bead beads.Bead, workDir string) error {
 	// Run Claude
 	fmt.Println("Running Claude Code...")
 	ctx := context.Background()
-	if err := claude.Run(ctx, prompt, workDir); err != nil {
+	if err := claude.Run(ctx, bead.ID, prompt, workDir); err != nil {
 		// Cleanup on failure
 		git.Checkout(flagBranch)
 		git.DeleteBranch(branchName)
@@ -334,10 +334,12 @@ Description:
 %s
 
 Instructions:
-1. Implement the changes described above
-2. Make commits as you work (with clear commit messages)
-3. Do NOT create a PR - that will be handled separately
-4. Do NOT close the bead - that will be handled separately
+1. First, check git log and git status to see if there is existing work on this branch from a previous session
+2. If there is existing work, review it and continue from where it left off
+3. Implement the changes described above
+4. Make commits as you work (with clear commit messages)
+5. Do NOT create a PR - that will be handled separately
+6. Do NOT close the bead - that will be handled separately
 
 Focus on implementing the task correctly and completely.`, bead.ID, bead.Title, bead.Description)
 
