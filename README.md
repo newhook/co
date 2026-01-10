@@ -1,6 +1,6 @@
-# Auto Claude (ac)
+# Claude Orchestrator (co)
 
-A Go CLI tool that orchestrates Claude Code to automatically process development tasks from a beads-based issue tracking system. It automates the workflow of fetching ready work items, invoking Claude Code to implement changes, and creating/merging pull requests.
+A Go CLI tool that orchestrates Claude Code to process issues, creating PRs for each.
 
 ## Prerequisites
 
@@ -20,24 +20,24 @@ The following CLI tools must be installed and available in your PATH:
 ```bash
 git clone https://github.com/newhook/autoclaude.git
 cd autoclaude
-go build -o ac .
+go build -o co .
 ```
 
 Move the binary to your PATH:
 
 ```bash
-mv ac /usr/local/bin/
+mv co /usr/local/bin/
 ```
 
 ### Verify Installation
 
 ```bash
-ac --help
+co --help
 ```
 
 ## Configuration
 
-Auto Claude requires minimal configuration. It relies on:
+Claude Orchestrator requires minimal configuration. It relies on:
 
 - **System PATH** to locate required CLI tools
 - **Git configuration** for repository operations (user.name, user.email)
@@ -56,9 +56,9 @@ Auto Claude requires minimal configuration. It relies on:
    gh auth status
    ```
 
-3. Run Auto Claude from your project root:
+3. Run Claude Orchestrator from your project root:
    ```bash
-   ac run
+   co run
    ```
 
 ## Usage
@@ -66,7 +66,7 @@ Auto Claude requires minimal configuration. It relies on:
 ### Process Ready Beads
 
 ```bash
-ac run
+co run
 ```
 
 This command:
@@ -78,7 +78,7 @@ This command:
 ### Process a Specific Bead
 
 ```bash
-ac run <bead-id>
+co run <bead-id>
 ```
 
 Process only the specified bead instead of all ready beads.
@@ -98,17 +98,17 @@ Process only the specified bead instead of all ready beads.
 When processing a specific bead, use `--deps` to also process its open dependencies first:
 
 ```bash
-ac run ac-xyz --deps
+co run ac-xyz --deps
 ```
 
 This recursively resolves dependencies and processes them in the correct order before processing the target bead.
 
 ### Feature Branch Workflow
 
-When `--branch` specifies a branch other than `main`, Auto Claude uses a feature branch workflow:
+When `--branch` specifies a branch other than `main`, Claude Orchestrator uses a feature branch workflow:
 
 ```bash
-ac run --branch feature/my-epic
+co run --branch feature/my-epic
 ```
 
 1. Creates/switches to the feature branch
@@ -120,11 +120,11 @@ This is useful for grouping related work before merging to main.
 
 ## How It Works
 
-Auto Claude orchestrates a complete development workflow:
+Claude Orchestrator orchestrates a complete development workflow:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        ac run                                   │
+│                        co run                                   │
 ├─────────────────────────────────────────────────────────────────┤
 │  1. Query ready beads                                           │
 │     └─ bd ready --json                                          │
@@ -156,7 +156,7 @@ Auto Claude orchestrates a complete development workflow:
 ## Project Structure
 
 ```
-ac/
+co/
 ├── main.go              # CLI entry point
 ├── cmd/
 │   ├── root.go          # Root command
@@ -179,7 +179,7 @@ go test ./...
 ### Build
 
 ```bash
-go build -o ac .
+go build -o co .
 ```
 
 ## Troubleshooting

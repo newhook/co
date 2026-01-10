@@ -1,11 +1,11 @@
-# Auto Claude (ac)
+# Claude Orchestrator (co)
 
-Go CLI tool that orchestrates Claude Code to process beads, creating PRs for each.
+Go CLI tool that orchestrates Claude Code to process issues, creating PRs for each.
 
 ## Build & Test
 
 ```bash
-go build -o ac .
+go build -o co .
 go test ./...
 ```
 

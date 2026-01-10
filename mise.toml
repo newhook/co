@@ -6,8 +6,8 @@ go = "1.25"
 GOPATH = "{{env.HOME}}/go"
 
 [tasks.build]
-description = "Build the ac binary"
-run = "go build -o ac ."
+description = "Build the co binary"
+run = "go build -o co ."
 
 [tasks.test]
 description = "Run tests"

@@ -5,13 +5,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "ac",
-	Short: "Auto Claude - orchestrates Claude Code to process beads",
-	Long: `Auto Claude (ac) is a CLI tool that orchestrates Claude Code to process beads,
-creating PRs for each task.
-
-It queries ready beads, invokes Claude Code to implement changes,
-and manages the PR workflow automatically.`,
+	Use:   "co",
+	Short: "Claude Orchestrator - orchestrates Claude Code to process issues",
+	Long:  `Claude Orchestrator (co) is a CLI tool that orchestrates Claude Code to process issues, creating PRs for each.`,
 }
 
 func Execute() error {

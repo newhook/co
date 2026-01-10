@@ -40,7 +40,7 @@ func Run(ctx context.Context, beadID, prompt string, workDir string) error {
 	}
 
 	// Create completion file path
-	completionFile := filepath.Join(os.TempDir(), fmt.Sprintf("ac-done-%s", beadID))
+	completionFile := filepath.Join(os.TempDir(), fmt.Sprintf("co-done-%s", beadID))
 	os.Remove(completionFile) // Remove if exists from previous run
 
 	// Send the prompt with completion file instruction
