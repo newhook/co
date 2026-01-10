@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/newhook/autoclaude/internal/project"
-	"github.com/newhook/autoclaude/internal/worktree"
+	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/worktree"
 	"github.com/spf13/cobra"
 )
 

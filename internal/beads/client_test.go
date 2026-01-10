@@ -5,7 +5,7 @@ import (
 )
 
 func TestGetReadyBeads(t *testing.T) {
-	beads, err := GetReadyBeads()
+	beads, err := GetReadyBeadsInDir("")
 	if err != nil {
 		t.Skipf("bd not available or no beads: %v", err)
 	}

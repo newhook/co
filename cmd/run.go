@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/newhook/autoclaude/internal/beads"
-	"github.com/newhook/autoclaude/internal/claude"
-	"github.com/newhook/autoclaude/internal/db"
-	"github.com/newhook/autoclaude/internal/git"
-	"github.com/newhook/autoclaude/internal/github"
-	"github.com/newhook/autoclaude/internal/project"
-	"github.com/newhook/autoclaude/internal/worktree"
+	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/claude"
+	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/git"
+	"github.com/newhook/co/internal/github"
+	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/worktree"
 	"github.com/spf13/cobra"
 )
 

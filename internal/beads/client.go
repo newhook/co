@@ -30,11 +30,6 @@ type BeadWithDeps struct {
 	Dependencies []Dependency `json:"dependencies"`
 }
 
-// GetReadyBeads queries the beads system for work items that are ready to be processed.
-func GetReadyBeads() ([]Bead, error) {
-	return GetReadyBeadsInDir("")
-}
-
 // GetReadyBeadsInDir queries beads in a specific directory.
 func GetReadyBeadsInDir(dir string) ([]Bead, error) {
 	cmd := exec.Command("bd", "ready", "--json")
@@ -52,11 +47,6 @@ func GetReadyBeadsInDir(dir string) ([]Bead, error) {
 	}
 
 	return beads, nil
-}
-
-// GetBead retrieves a single bead by ID.
-func GetBead(id string) (*Bead, error) {
-	return GetBeadInDir(id, "")
 }
 
 // GetBeadInDir retrieves a single bead by ID in a specific directory.
@@ -82,11 +72,6 @@ func GetBeadInDir(id, dir string) (*Bead, error) {
 	return &beads[0], nil
 }
 
-// GetBeadWithDeps retrieves a single bead by ID including its dependencies.
-func GetBeadWithDeps(id string) (*BeadWithDeps, error) {
-	return GetBeadWithDepsInDir(id, "")
-}
-
 // GetBeadWithDepsInDir retrieves a single bead by ID including its dependencies in a specific directory.
 func GetBeadWithDepsInDir(id, dir string) (*BeadWithDeps, error) {
 	cmd := exec.Command("bd", "show", id, "--json")
@@ -108,13 +93,4 @@ func GetBeadWithDepsInDir(id, dir string) (*BeadWithDeps, error) {
 	}
 
 	return &beads[0], nil
-}
-
-// CloseBead marks a bead as complete with the given reason.
-func CloseBead(id, reason string) error {
-	cmd := exec.Command("bd", "close", id, "--reason", reason)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to close bead %s: %w", id, err)
-	}
-	return nil
 }

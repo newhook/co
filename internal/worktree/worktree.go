@@ -25,16 +25,6 @@ func Create(repoPath, worktreePath, branch string) error {
 	return nil
 }
 
-// CreateFromBranch creates a new worktree at worktreePath from an existing branch.
-// Uses: git -C <repo> worktree add <path> <branch>
-func CreateFromBranch(repoPath, worktreePath, branch string) error {
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "add", worktreePath, branch)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create worktree: %w\n%s", err, output)
-	}
-	return nil
-}
-
 // Remove removes a worktree.
 // Uses: git -C <repo> worktree remove <path>
 func Remove(repoPath, worktreePath string) error {
@@ -110,21 +100,6 @@ func parseWorktreeList(output string) ([]Worktree, error) {
 	return worktrees, scanner.Err()
 }
 
-// Exists checks if a worktree exists at the given path.
-func Exists(repoPath, worktreePath string) bool {
-	worktrees, err := List(repoPath)
-	if err != nil {
-		return false
-	}
-
-	for _, wt := range worktrees {
-		if wt.Path == worktreePath {
-			return true
-		}
-	}
-	return false
-}
-
 // ExistsPath checks if the worktree path exists on disk.
 func ExistsPath(worktreePath string) bool {
 	info, err := os.Stat(worktreePath)
@@ -132,14 +107,4 @@ func ExistsPath(worktreePath string) bool {
 		return false
 	}
 	return info.IsDir()
-}
-
-// Prune removes worktree administrative files for worktrees that no longer exist.
-// Uses: git -C <repo> worktree prune
-func Prune(repoPath string) error {
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "prune")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to prune worktrees: %w\n%s", err, output)
-	}
-	return nil
 }

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/newhook/autoclaude/internal/db"
-	"github.com/newhook/autoclaude/internal/project"
+	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
 )
 
