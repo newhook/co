@@ -17,6 +17,7 @@ var (
 	flagLimit   int
 	flagDryRun  bool
 	flagNoMerge bool
+	flagDeps    bool
 )
 
 var runCmd = &cobra.Command{
@@ -43,6 +44,7 @@ func init() {
 	runCmd.Flags().IntVarP(&flagLimit, "limit", "n", 0, "maximum number of beads to process (0 = unlimited)")
 	runCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "show plan without executing")
 	runCmd.Flags().BoolVar(&flagNoMerge, "no-merge", false, "create PRs but don't merge them")
+	runCmd.Flags().BoolVar(&flagDeps, "deps", false, "also process open dependencies of the specified bead")
 }
 
 func runBeads(cmd *cobra.Command, args []string) error {
@@ -118,8 +120,11 @@ func runBeads(cmd *cobra.Command, args []string) error {
 }
 
 func getBeadsToProcess(beadID string) ([]beads.Bead, error) {
-	// If specific bead requested, get just that one
+	// If specific bead requested, get just that one (optionally with deps)
 	if beadID != "" {
+		if flagDeps {
+			return getBeadWithDeps(beadID)
+		}
 		bead, err := beads.GetBead(beadID)
 		if err != nil {
 			return nil, err
@@ -127,8 +132,44 @@ func getBeadsToProcess(beadID string) ([]beads.Bead, error) {
 		return []beads.Bead{*bead}, nil
 	}
 
+	// --deps requires a bead ID
+	if flagDeps {
+		return nil, fmt.Errorf("--deps requires a bead ID argument")
+	}
+
 	// Otherwise get all ready beads
 	return beads.GetReadyBeads()
+}
+
+// getBeadWithDeps returns open dependencies followed by the bead itself.
+func getBeadWithDeps(beadID string) ([]beads.Bead, error) {
+	beadWithDeps, err := beads.GetBeadWithDeps(beadID)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []beads.Bead
+
+	// Add open dependencies first (in order they appear)
+	for _, dep := range beadWithDeps.Dependencies {
+		if dep.DependencyType == "depends_on" && dep.Status == "open" {
+			// Recursively get this dependency with its own deps
+			depBeads, err := getBeadWithDeps(dep.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get dependency %s: %w", dep.ID, err)
+			}
+			result = append(result, depBeads...)
+		}
+	}
+
+	// Add the requested bead last
+	result = append(result, beads.Bead{
+		ID:          beadWithDeps.ID,
+		Title:       beadWithDeps.Title,
+		Description: beadWithDeps.Description,
+	})
+
+	return result, nil
 }
 
 func ensureFeatureBranch(branch string) error {
