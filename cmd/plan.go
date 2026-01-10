@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
@@ -43,7 +42,7 @@ func init() {
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
-	proj, err := findPlanProject()
+	proj, err := project.FindWithFlag(flagPlanProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -222,13 +221,3 @@ func getBeadsWithDepsForPlan(beadList []beads.Bead, dir string) ([]beads.BeadWit
 	return result, nil
 }
 
-func findPlanProject() (*project.Project, error) {
-	if flagPlanProject != "" {
-		return project.Find(flagPlanProject)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	return project.Find(cwd)
-}

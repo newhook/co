@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
@@ -55,7 +54,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		taskID = args[0]
 	}
 
-	proj, err := findProject()
+	proj, err := project.FindWithFlag(flagProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -403,18 +402,6 @@ func createPartialPR(t task.Task, result *claude.TaskResult, branchName, worktre
 	}
 
 	return prURL, nil
-}
-
-// findProject finds the project from --project flag or current directory.
-func findProject() (*project.Project, error) {
-	if flagProject != "" {
-		return project.Find(flagProject)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	return project.Find(cwd)
 }
 
 func ensureFeatureBranch(branch, dir string) error {
