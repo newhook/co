@@ -3,20 +3,20 @@ package claude
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/newhook/autoclaude/internal/db"
 )
 
-const (
-	sessionName = "autoclaude"
-)
+// SessionName is the zellij session name used for Claude instances.
+const SessionName = "autoclaude"
 
 // Run invokes Claude Code with the given prompt in the specified working directory.
 // Uses zellij to run Claude in a proper terminal environment.
-func Run(ctx context.Context, beadID, prompt string, workDir string) error {
+// Polls the database for completion status.
+func Run(ctx context.Context, database *db.DB, beadID, prompt string, workDir string) error {
 	// Ensure autoclaude session exists
 	if err := ensureSession(ctx); err != nil {
 		return err
@@ -27,7 +27,7 @@ func Run(ctx context.Context, beadID, prompt string, workDir string) error {
 		fmt.Printf("Pane %s already exists, skipping claude launch\n", beadID)
 	} else {
 		// Run Claude in a new pane in the autoclaude session
-		runArgs := []string{"-s", sessionName, "run", "--name", beadID, "--cwd", workDir, "--", "claude", "--dangerously-skip-permissions"}
+		runArgs := []string{"-s", SessionName, "run", "--name", beadID, "--cwd", workDir, "--", "claude", "--dangerously-skip-permissions"}
 		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
 		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
 		if err := runCmd.Run(); err != nil {
@@ -39,16 +39,9 @@ func Run(ctx context.Context, beadID, prompt string, workDir string) error {
 		time.Sleep(3 * time.Second)
 	}
 
-	// Create completion file path
-	completionFile := filepath.Join(os.TempDir(), fmt.Sprintf("co-done-%s", beadID))
-	os.Remove(completionFile) // Remove if exists from previous run
-
-	// Send the prompt with completion file instruction
-	fullPrompt := prompt + fmt.Sprintf("\n\nWhen you have fully completed this task, create the file: %s", completionFile)
-
 	// Send text to the pane
-	writeArgs := []string{"-s", sessionName, "action", "write-chars", fullPrompt}
-	fmt.Printf("Running: zellij -s %s action write-chars <prompt>\n", sessionName)
+	writeArgs := []string{"-s", SessionName, "action", "write-chars", prompt}
+	fmt.Printf("Running: zellij -s %s action write-chars <prompt>\n", SessionName)
 	writeCmd := exec.CommandContext(ctx, "zellij", writeArgs...)
 	if err := writeCmd.Run(); err != nil {
 		return fmt.Errorf("failed to send prompt: %w", err)
@@ -58,7 +51,7 @@ func Run(ctx context.Context, beadID, prompt string, workDir string) error {
 	time.Sleep(500 * time.Millisecond)
 
 	// Send Enter to submit
-	enterArgs := []string{"-s", sessionName, "action", "write", "13"}
+	enterArgs := []string{"-s", SessionName, "action", "write", "13"}
 	fmt.Printf("Running: zellij %s\n", strings.Join(enterArgs, " "))
 	enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
 	if err := enterCmd.Run(); err != nil {
@@ -71,23 +64,26 @@ func Run(ctx context.Context, beadID, prompt string, workDir string) error {
 
 	fmt.Println("Prompt sent to Claude")
 
-	// Monitor for completion file
-	fmt.Printf("Waiting for completion file: %s\n", completionFile)
+	// Monitor for completion via database polling
+	fmt.Printf("Polling database for completion of bead: %s\n", beadID)
 	for {
 		time.Sleep(2 * time.Second)
 
-		if _, err := os.Stat(completionFile); err == nil {
-			fmt.Println("Completion file found!")
+		completed, err := database.IsCompleted(beadID)
+		if err != nil {
+			fmt.Printf("Warning: failed to check completion status: %v\n", err)
+			continue
+		}
 
-			// Clean up the file
-			os.Remove(completionFile)
+		if completed {
+			fmt.Println("Bead marked as completed!")
 
 			// Send /exit to close Claude
 			time.Sleep(500 * time.Millisecond)
-			exitArgs := []string{"-s", sessionName, "action", "write-chars", "/exit"}
+			exitArgs := []string{"-s", SessionName, "action", "write-chars", "/exit"}
 			exec.CommandContext(ctx, "zellij", exitArgs...).Run()
 			time.Sleep(100 * time.Millisecond)
-			exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
+			exec.CommandContext(ctx, "zellij", "-s", SessionName, "action", "write", "13").Run()
 
 			fmt.Println("Sent /exit to Claude")
 			break
@@ -99,7 +95,7 @@ func Run(ctx context.Context, beadID, prompt string, workDir string) error {
 
 func paneExists(ctx context.Context, paneName string) bool {
 	// Use zellij action to list panes and check if one with this name exists
-	cmd := exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "query-tab-names")
+	cmd := exec.CommandContext(ctx, "zellij", "-s", SessionName, "action", "query-tab-names")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -117,7 +113,7 @@ func ensureSession(ctx context.Context) error {
 	}
 
 	// Check if autoclaude session exists
-	if strings.Contains(string(output), sessionName) {
+	if strings.Contains(string(output), SessionName) {
 		return nil
 	}
 
@@ -126,7 +122,7 @@ func ensureSession(ctx context.Context) error {
 
 func createSession(ctx context.Context) error {
 	// Start session detached
-	cmd := exec.CommandContext(ctx, "zellij", "-s", sessionName)
+	cmd := exec.CommandContext(ctx, "zellij", "-s", SessionName)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to create zellij session: %w", err)
 	}

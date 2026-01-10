@@ -21,6 +21,10 @@ go test ./...
 
 Uses CLI tools: `bd`, `claude`, `gh`, `git`
 
+## PR Requirements
+
+All PRs must be squash merged.
+
 ## Workflow
 
 1. Query ready beads via `bd ready --json`

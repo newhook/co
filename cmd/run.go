@@ -7,6 +7,7 @@ import (
 
 	"github.com/newhook/autoclaude/internal/beads"
 	"github.com/newhook/autoclaude/internal/claude"
+	"github.com/newhook/autoclaude/internal/db"
 	"github.com/newhook/autoclaude/internal/git"
 	"github.com/newhook/autoclaude/internal/github"
 	"github.com/spf13/cobra"
@@ -80,6 +81,13 @@ func runBeads(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Open tracking database
+	database, err := db.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open tracking database: %w", err)
+	}
+	defer database.Close()
+
 	// Get current working directory for Claude
 	workDir, err := os.Getwd()
 	if err != nil {
@@ -96,7 +104,14 @@ func runBeads(cmd *cobra.Command, args []string) error {
 	// Process each bead
 	processedCount := 0
 	for _, bead := range beadList {
-		if err := processBead(bead, workDir); err != nil {
+		// Record bead as processing in database
+		if err := database.StartBead(bead.ID, bead.Title, claude.SessionName, bead.ID); err != nil {
+			return fmt.Errorf("failed to record bead start: %w", err)
+		}
+
+		if err := processBead(database, bead, workDir); err != nil {
+			// Record failure in database
+			database.FailBead(bead.ID, err.Error())
 			return fmt.Errorf("failed to process bead %s: %w", bead.ID, err)
 		}
 		processedCount++
@@ -187,7 +202,7 @@ func ensureFeatureBranch(branch string) error {
 	return nil
 }
 
-func processBead(bead beads.Bead, workDir string) error {
+func processBead(database *db.DB, bead beads.Bead, workDir string) error {
 	fmt.Printf("\n=== Processing bead %s: %s ===\n", bead.ID, bead.Title)
 
 	branchName := fmt.Sprintf("bead/%s", bead.ID)
@@ -206,7 +221,7 @@ func processBead(bead beads.Bead, workDir string) error {
 	// Run Claude - it will implement, create PR, close bead, and merge
 	fmt.Println("Running Claude Code...")
 	ctx := context.Background()
-	if err := claude.Run(ctx, bead.ID, prompt, workDir); err != nil {
+	if err := claude.Run(ctx, database, bead.ID, prompt, workDir); err != nil {
 		return fmt.Errorf("claude failed: %w", err)
 	}
 
@@ -286,8 +301,9 @@ Instructions:
 5. When implementation is complete, push the branch and create a PR targeting %s
 6. Close the bead with: bd close %s --reason "<brief summary of what was implemented>"
 7. Merge the PR using: gh pr merge --squash --delete-branch
+8. Mark completion by running: co complete %s --pr <PR_URL>
 
-Focus on implementing the task correctly and completely.`, bead.ID, bead.Title, branchName, baseBranch, bead.Description, baseBranch, bead.ID)
+Focus on implementing the task correctly and completely.`, bead.ID, bead.Title, branchName, baseBranch, bead.Description, baseBranch, bead.ID, bead.ID)
 
 	return prompt
 }
