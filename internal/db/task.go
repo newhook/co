@@ -10,6 +10,7 @@ import (
 type Task struct {
 	ID               string
 	Status           string
+	TaskType         string
 	ComplexityBudget int
 	ActualComplexity int
 	ZellijSession    string
@@ -30,7 +31,7 @@ type TaskBead struct {
 }
 
 // CreateTask creates a new task with the given beads.
-func (db *DB) CreateTask(id string, beadIDs []string, complexityBudget int) error {
+func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexityBudget int) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -39,9 +40,9 @@ func (db *DB) CreateTask(id string, beadIDs []string, complexityBudget int) erro
 
 	// Insert task
 	_, err = tx.Exec(`
-		INSERT INTO tasks (id, status, complexity_budget)
-		VALUES (?, ?, ?)
-	`, id, StatusPending, complexityBudget)
+		INSERT INTO tasks (id, status, task_type, complexity_budget)
+		VALUES (?, ?, ?, ?)
+	`, id, StatusPending, taskType, complexityBudget)
 	if err != nil {
 		return fmt.Errorf("failed to create task %s: %w", id, err)
 	}
@@ -134,7 +135,8 @@ func (db *DB) FailTask(id, errMsg string) error {
 // GetTask retrieves a task by ID.
 func (db *DB) GetTask(id string) (*Task, error) {
 	row := db.QueryRow(`
-		SELECT id, status, complexity_budget, actual_complexity, zellij_session, zellij_pane,
+		SELECT id, status, COALESCE(task_type, 'implement') as task_type,
+		       complexity_budget, actual_complexity, zellij_session, zellij_pane,
 		       worktree_path, pr_url, error_message, started_at, completed_at, created_at
 		FROM tasks WHERE id = ?
 	`, id)
@@ -144,7 +146,7 @@ func (db *DB) GetTask(id string) (*Task, error) {
 	var session, pane, worktree, prURL, errMsg sql.NullString
 	var startedAt, completedAt sql.NullTime
 
-	err := row.Scan(&t.ID, &t.Status, &budget, &actual, &session, &pane,
+	err := row.Scan(&t.ID, &t.Status, &t.TaskType, &budget, &actual, &session, &pane,
 		&worktree, &prURL, &errMsg, &startedAt, &completedAt, &t.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -285,13 +287,15 @@ func (db *DB) ListTasks(statusFilter string) ([]*Task, error) {
 
 	if statusFilter == "" {
 		rows, err = db.Query(`
-			SELECT id, status, complexity_budget, actual_complexity, zellij_session, zellij_pane,
+			SELECT id, status, COALESCE(task_type, 'implement') as task_type,
+			       complexity_budget, actual_complexity, zellij_session, zellij_pane,
 			       worktree_path, pr_url, error_message, started_at, completed_at, created_at
 			FROM tasks ORDER BY created_at DESC
 		`)
 	} else {
 		rows, err = db.Query(`
-			SELECT id, status, complexity_budget, actual_complexity, zellij_session, zellij_pane,
+			SELECT id, status, COALESCE(task_type, 'implement') as task_type,
+			       complexity_budget, actual_complexity, zellij_session, zellij_pane,
 			       worktree_path, pr_url, error_message, started_at, completed_at, created_at
 			FROM tasks WHERE status = ? ORDER BY created_at DESC
 		`, statusFilter)
@@ -308,7 +312,7 @@ func (db *DB) ListTasks(statusFilter string) ([]*Task, error) {
 		var session, pane, worktree, prURL, errMsg sql.NullString
 		var startedAt, completedAt sql.NullTime
 
-		err := rows.Scan(&t.ID, &t.Status, &budget, &actual, &session, &pane,
+		err := rows.Scan(&t.ID, &t.Status, &t.TaskType, &budget, &actual, &session, &pane,
 			&worktree, &prURL, &errMsg, &startedAt, &completedAt, &t.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
