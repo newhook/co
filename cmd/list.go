@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
@@ -22,12 +21,7 @@ func init() {
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	proj, err := project.Find(cwd)
+	proj, err := project.FindWithFlag("")
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
