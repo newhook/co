@@ -33,6 +33,16 @@ Uses CLI tools: `bd`, `claude`, `gh`, `git`, `mise` (optional), `zellij`
 
 **NEVER push directly to main.** All changes must go through a PR.
 
+### Correct PR Workflow
+
+When implementing changes:
+1. Create a feature branch: `git checkout -b feature-name`
+2. Make and commit changes on the feature branch
+3. Push the feature branch: `git push -u origin feature-name`
+4. Create a PR: `gh pr create --title "..." --body "..."`
+5. Merge the PR: `gh pr merge --squash`
+6. Delete the branch: `git branch -d feature-name`
+
 All PRs must be squash merged.
 
 ## Project Model
