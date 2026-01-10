@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -166,6 +167,14 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 
 	// Create planner with complexity estimator
 	estimator := task.NewLLMEstimator(database, proj.MainRepoPath(), proj.Config.Project.Name)
+
+	// Estimate complexity for all beads in batch
+	fmt.Println("Estimating complexity for beads...")
+	ctx := context.Background()
+	if err := estimator.EstimateBatch(ctx, beadList); err != nil {
+		return fmt.Errorf("failed to estimate complexity: %w", err)
+	}
+
 	planner := task.NewDefaultPlanner(estimator)
 
 	// Plan tasks
