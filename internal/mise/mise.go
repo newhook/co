@@ -9,16 +9,20 @@ import (
 )
 
 // IsEnabled checks if mise is configured in the given directory.
-// Returns true if .mise.toml or .tool-versions exists.
+// Returns true if any mise config file exists.
 func IsEnabled(dir string) bool {
-	miseToml := filepath.Join(dir, ".mise.toml")
-	if _, err := os.Stat(miseToml); err == nil {
-		return true
+	configFiles := []string{
+		".mise.toml",
+		"mise.toml",
+		".mise/config.toml",
+		".tool-versions",
 	}
 
-	toolVersions := filepath.Join(dir, ".tool-versions")
-	if _, err := os.Stat(toolVersions); err == nil {
-		return true
+	for _, file := range configFiles {
+		path := filepath.Join(dir, file)
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
 	}
 
 	return false
