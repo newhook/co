@@ -22,26 +22,21 @@ var (
 
 var runCmd = &cobra.Command{
 	Use:   "run [bead-id]",
-	Short: "Process ready beads with Claude Code",
-	Long: `Run processes all ready beads by invoking Claude Code to implement
-each task and creating PRs for the changes.
+	Short: "Process ready issues with Claude Code",
+	Long: `Run processes ready issues by invoking Claude Code to implement
+each one and creating PRs for the changes.
 
-If a bead ID is provided as an argument, only that bead will be processed.
+If a bead ID is provided, only that issue will be processed.
 
 When --branch is specified (not "main"), PRs target that feature branch.
-After all beads complete, a final PR is created from the feature branch to main.
-
-The workflow for each bead:
-1. Claude Code creates a branch and implements the changes
-2. A PR is created and merged
-3. The bead is closed with a summary`,
+After all issues complete, a final PR is created from the feature branch to main.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runBeads,
 }
 
 func init() {
 	runCmd.Flags().StringVarP(&flagBranch, "branch", "b", "main", "target branch for PRs")
-	runCmd.Flags().IntVarP(&flagLimit, "limit", "n", 0, "maximum number of beads to process (0 = unlimited)")
+	runCmd.Flags().IntVarP(&flagLimit, "limit", "n", 0, "maximum number of issues to process (0 = unlimited)")
 	runCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "show plan without executing")
 	runCmd.Flags().BoolVar(&flagNoMerge, "no-merge", false, "create PRs but don't merge them")
 	runCmd.Flags().BoolVar(&flagDeps, "deps", false, "also process open dependencies of the specified bead")
