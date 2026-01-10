@@ -1,0 +1,178 @@
+# Auto Claude (ac)
+
+A Go CLI tool that orchestrates Claude Code to automatically process development tasks from a beads-based issue tracking system. It automates the workflow of fetching ready work items, invoking Claude Code to implement changes, and creating/merging pull requests.
+
+## Prerequisites
+
+The following CLI tools must be installed and available in your PATH:
+
+| Tool | Purpose | Installation |
+|------|---------|--------------|
+| `bd` | Beads issue tracking | `curl -sSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh \| bash` |
+| `claude` | Claude Code CLI | [docs.anthropic.com/claude-code](https://docs.anthropic.com/en/docs/claude-code) |
+| `gh` | GitHub CLI | [cli.github.com](https://cli.github.com/) |
+| `git` | Version control | Usually pre-installed |
+
+## Installation
+
+### Build from Source
+
+```bash
+git clone https://github.com/newhook/autoclaude.git
+cd autoclaude
+go build -o ac .
+```
+
+Move the binary to your PATH:
+
+```bash
+mv ac /usr/local/bin/
+```
+
+### Verify Installation
+
+```bash
+ac --help
+```
+
+## Configuration
+
+Auto Claude requires minimal configuration. It relies on:
+
+- **System PATH** to locate required CLI tools
+- **Git configuration** for repository operations (user.name, user.email)
+- **GitHub CLI authentication** (`gh auth login`)
+- **Beads initialization** in your project (`.beads/` directory)
+
+### Project Setup
+
+1. Initialize beads in your project:
+   ```bash
+   bd init
+   ```
+
+2. Ensure GitHub CLI is authenticated:
+   ```bash
+   gh auth status
+   ```
+
+3. Run Auto Claude from your project root:
+   ```bash
+   ac run
+   ```
+
+## Usage
+
+### Process Ready Beads
+
+```bash
+ac run
+```
+
+This command:
+1. Queries for ready beads (`bd ready --json`)
+2. For each bead, invokes Claude Code to implement the changes
+3. Closes the bead with an implementation summary
+4. Creates and merges a pull request
+
+## How It Works
+
+Auto Claude orchestrates a complete development workflow:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        ac run                                   │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Query ready beads                                           │
+│     └─ bd ready --json                                          │
+│                                                                 │
+│  2. For each bead:                                              │
+│     ├─ Invoke Claude Code with bead description                 │
+│     │  └─ claude --dangerously-skip-permissions -p "<prompt>"   │
+│     │     • Creates feature branch                              │
+│     │     • Implements changes                                  │
+│     │     • Commits to branch                                   │
+│     │                                                           │
+│     ├─ Close bead (while context is fresh)                      │
+│     │  └─ bd close <id> --reason "<summary>"                    │
+│     │                                                           │
+│     ├─ Create pull request                                      │
+│     │  └─ gh pr create --head <branch> --base main ...          │
+│     │                                                           │
+│     └─ Merge pull request                                       │
+│        └─ gh pr merge <url> --merge --delete-branch             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+- **Beads closed before PR merge**: This preserves implementation context for accurate close reasons
+- **Claude handles branching**: Branch creation and commits are delegated to Claude Code
+- **Streaming output**: Claude Code output streams to stdout/stderr for visibility
+
+## Project Structure
+
+```
+ac/
+├── main.go              # CLI entry point
+├── cmd/
+│   ├── root.go          # Root command
+│   └── run.go           # Run command
+└── internal/
+    ├── beads/           # Beads client (bd CLI wrapper)
+    ├── claude/          # Claude Code invocation
+    ├── github/          # PR creation/merging (gh CLI)
+    └── git/             # Git operations
+```
+
+## Development
+
+### Run Tests
+
+```bash
+go test ./...
+```
+
+### Build
+
+```bash
+go build -o ac .
+```
+
+## Troubleshooting
+
+### "bd: command not found"
+
+Install beads:
+```bash
+curl -sSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+```
+
+### "gh: command not found"
+
+Install GitHub CLI:
+- macOS: `brew install gh`
+- Linux: See [cli.github.com/manual/installation](https://cli.github.com/manual/installation)
+
+### "not logged into any GitHub hosts"
+
+Authenticate with GitHub:
+```bash
+gh auth login
+```
+
+### No beads found
+
+Ensure you have ready beads in your project:
+```bash
+bd ready
+```
+
+If empty, create work items:
+```bash
+bd create --title "Your task" --type task
+```
+
+## License
+
+MIT
