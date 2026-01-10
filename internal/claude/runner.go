@@ -41,16 +41,22 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		return nil, err
 	}
 
-	// Check if pane with this task name already exists
-	if paneExists(ctx, sessionName, paneName) {
-		fmt.Printf("Pane %s already exists, skipping claude launch\n", paneName)
+	// Check if tab with this task name already exists
+	if TabExists(ctx, sessionName, paneName) {
+		fmt.Printf("Tab %s already exists, skipping claude launch\n", paneName)
 	} else {
-		// Run Claude in a new pane in the session
-		runArgs := []string{"-s", sessionName, "run", "--name", paneName, "--cwd", workDir, "--", "claude", "--dangerously-skip-permissions"}
-		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
-		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
-		if err := runCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to run claude in zellij pane: %w", err)
+		// Create a new tab and run Claude directly
+		tabArgs := []string{
+			"-s", sessionName, "action", "new-tab",
+			"--cwd", workDir,
+			"--name", paneName,
+			"-r", "claude",
+			"-x", "--dangerously-skip-permissions",
+		}
+		fmt.Printf("Running: zellij %s\n", strings.Join(tabArgs, " "))
+		tabCmd := exec.CommandContext(ctx, "zellij", tabArgs...)
+		if err := tabCmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to create tab and run claude: %w", err)
 		}
 
 		// Wait for Claude to initialize
@@ -85,7 +91,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 
 	// Monitor for task completion via database polling
 	fmt.Printf("Polling database for completion of task: %s (%d beads)\n", taskID, len(taskBeads))
-	paneExitCount := 0
+	tabExitCount := 0
 	for {
 		time.Sleep(2 * time.Second)
 
@@ -116,12 +122,12 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			break
 		}
 
-		// Check if pane has exited (Claude crashed or finished without marking complete)
-		if !paneExists(ctx, sessionName, paneName) {
-			paneExitCount++
+		// Check if tab has exited (Claude crashed or finished without marking complete)
+		if !TabExists(ctx, sessionName, paneName) {
+			tabExitCount++
 			// Wait a few cycles to confirm it's really gone (not just a transient state)
-			if paneExitCount >= 3 {
-				fmt.Println("Claude pane exited without completing task - checking for partial completion")
+			if tabExitCount >= 3 {
+				fmt.Println("Claude tab exited without completing task - checking for partial completion")
 
 				// Determine which beads completed and which failed
 				result.CompletedBeads, result.FailedBeads = getTaskBeadStatus(database, taskID, taskBeads)
@@ -145,7 +151,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 				break
 			}
 		} else {
-			paneExitCount = 0
+			tabExitCount = 0
 		}
 	}
 
@@ -215,14 +221,14 @@ Focus on implementing all tasks correctly and completely.`, branchName, baseBran
 	return sb.String()
 }
 
-func paneExists(ctx context.Context, sessionName, paneName string) bool {
-	// Use zellij action to list panes and check if one with this name exists
+func TabExists(ctx context.Context, sessionName, tabName string) bool {
+	// Use zellij action to list tabs and check if one with this name exists
 	cmd := exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "query-tab-names")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(output), paneName)
+	return strings.Contains(string(output), tabName)
 }
 
 func ensureSession(ctx context.Context, sessionName string) error {

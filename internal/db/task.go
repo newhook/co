@@ -132,6 +132,29 @@ func (db *DB) FailTask(id, errMsg string) error {
 	return nil
 }
 
+// ResetTaskStatus resets a stuck task from processing back to pending.
+func (db *DB) ResetTaskStatus(id string) error {
+	result, err := db.Exec(`
+		UPDATE tasks
+		SET status = ?, zellij_session = NULL, zellij_pane = NULL,
+		    started_at = NULL, error_message = NULL
+		WHERE id = ?
+	`, StatusPending, id)
+	if err != nil {
+		return fmt.Errorf("failed to reset task %s to pending: %w", id, err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("task %s not found", id)
+	}
+
+	return nil
+}
+
 // GetTask retrieves a task by ID.
 func (db *DB) GetTask(id string) (*Task, error) {
 	row := db.QueryRow(`

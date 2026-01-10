@@ -79,6 +79,23 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		if t == nil {
 			return fmt.Errorf("task %s not found", taskID)
 		}
+
+		// Check if task is stuck in processing state without an active tab
+		if t.Status == db.StatusProcessing {
+			sessionName := fmt.Sprintf("co-%s", proj.Config.Project.Name)
+			paneName := fmt.Sprintf("task-%s", t.ID)
+
+			// A processing task must have both a session and an active tab
+			ctx := context.Background()
+			if t.ZellijSession == "" || !claude.TabExists(ctx, sessionName, paneName) {
+				fmt.Printf("Task %s was marked as processing but no active tab found. Resetting to pending...\n", taskID)
+				if err := database.ResetTaskStatus(t.ID); err != nil {
+					return fmt.Errorf("failed to reset task status: %w", err)
+				}
+				t.Status = db.StatusPending
+			}
+		}
+
 		if t.Status != db.StatusPending {
 			return fmt.Errorf("task %s is not pending (status: %s)", taskID, t.Status)
 		}
