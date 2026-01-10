@@ -2,12 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
 )
+
+var flagStatusProject string
 
 var statusCmd = &cobra.Command{
 	Use:   "status [bead-id]",
@@ -20,13 +21,12 @@ Without ID: Show all beads currently processing with their session/pane.`,
 	RunE: runStatus,
 }
 
-func runStatus(cmd *cobra.Command, args []string) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
+func init() {
+	statusCmd.Flags().StringVar(&flagStatusProject, "project", "", "project directory (default: auto-detect from cwd)")
+}
 
-	proj, err := project.Find(cwd)
+func runStatus(cmd *cobra.Command, args []string) error {
+	proj, err := project.Find(flagStatusProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}

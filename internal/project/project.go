@@ -34,9 +34,22 @@ type Project struct {
 	DB     *db.DB  // Tracking database (lazy loaded)
 }
 
-// Find walks up from startDir looking for a .co/ directory.
+// Find finds a project from a flag value or current directory.
+// If flagValue is non-empty, uses that path; otherwise uses cwd.
+func Find(flagValue string) (*Project, error) {
+	if flagValue != "" {
+		return find(flagValue)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	return find(cwd)
+}
+
+// find walks up from startDir looking for a .co/ directory.
 // Returns the project if found, or an error if not found.
-func Find(startDir string) (*Project, error) {
+func find(startDir string) (*Project, error) {
 	dir, err := filepath.Abs(startDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve path: %w", err)

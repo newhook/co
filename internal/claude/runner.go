@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 )
 
@@ -15,25 +16,41 @@ func SessionNameForProject(projectName string) string {
 	return fmt.Sprintf("co-%s", projectName)
 }
 
-// RunInProject invokes Claude Code with the given prompt using project-specific session naming.
-func RunInProject(ctx context.Context, database *db.DB, beadID, prompt string, workDir, projectName string) error {
+// TaskResult contains the result of a task execution.
+type TaskResult struct {
+	TaskID         string
+	Completed      bool
+	PartialFailure bool
+	CompletedBeads []string
+	FailedBeads    []string
+	Error          error
+}
+
+// Run invokes Claude Code for a task (group of beads) using project-specific session naming.
+// Returns a TaskResult indicating which beads completed and which failed.
+func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string) (*TaskResult, error) {
 	sessionName := SessionNameForProject(projectName)
+	paneName := fmt.Sprintf("task-%s", taskID)
+
+	result := &TaskResult{
+		TaskID: taskID,
+	}
 
 	// Ensure session exists
 	if err := ensureSession(ctx, sessionName); err != nil {
-		return err
+		return nil, err
 	}
 
-	// Check if pane with this bead name already exists
-	if paneExists(ctx, sessionName, beadID) {
-		fmt.Printf("Pane %s already exists, skipping claude launch\n", beadID)
+	// Check if pane with this task name already exists
+	if paneExists(ctx, sessionName, paneName) {
+		fmt.Printf("Pane %s already exists, skipping claude launch\n", paneName)
 	} else {
 		// Run Claude in a new pane in the session
-		runArgs := []string{"-s", sessionName, "run", "--name", beadID, "--cwd", workDir, "--", "claude", "--dangerously-skip-permissions"}
+		runArgs := []string{"-s", sessionName, "run", "--name", paneName, "--cwd", workDir, "--", "claude", "--dangerously-skip-permissions"}
 		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
 		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
 		if err := runCmd.Run(); err != nil {
-			return fmt.Errorf("failed to run claude in zellij pane: %w", err)
+			return nil, fmt.Errorf("failed to run claude in zellij pane: %w", err)
 		}
 
 		// Wait for Claude to initialize
@@ -46,7 +63,7 @@ func RunInProject(ctx context.Context, database *db.DB, beadID, prompt string, w
 	fmt.Printf("Running: zellij -s %s action write-chars <prompt>\n", sessionName)
 	writeCmd := exec.CommandContext(ctx, "zellij", writeArgs...)
 	if err := writeCmd.Run(); err != nil {
-		return fmt.Errorf("failed to send prompt: %w", err)
+		return nil, fmt.Errorf("failed to send prompt: %w", err)
 	}
 
 	// Wait a moment for the text to be received
@@ -57,7 +74,7 @@ func RunInProject(ctx context.Context, database *db.DB, beadID, prompt string, w
 	fmt.Printf("Running: zellij %s\n", strings.Join(enterArgs, " "))
 	enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
 	if err := enterCmd.Run(); err != nil {
-		return fmt.Errorf("failed to send enter: %w", err)
+		return nil, fmt.Errorf("failed to send enter: %w", err)
 	}
 
 	// Send another Enter just to be sure
@@ -66,19 +83,27 @@ func RunInProject(ctx context.Context, database *db.DB, beadID, prompt string, w
 
 	fmt.Println("Prompt sent to Claude")
 
-	// Monitor for completion via database polling
-	fmt.Printf("Polling database for completion of bead: %s\n", beadID)
+	// Monitor for task completion via database polling
+	fmt.Printf("Polling database for completion of task: %s (%d beads)\n", taskID, len(taskBeads))
+	paneExitCount := 0
 	for {
 		time.Sleep(2 * time.Second)
 
-		completed, err := database.IsCompleted(beadID)
+		// Check if task is completed (all beads done)
+		task, err := database.GetTask(taskID)
 		if err != nil {
-			fmt.Printf("Warning: failed to check completion status: %v\n", err)
+			fmt.Printf("Warning: failed to check task status: %v\n", err)
 			continue
 		}
 
-		if completed {
-			fmt.Println("Bead marked as completed!")
+		if task != nil && (task.Status == db.StatusCompleted || task.Status == db.StatusFailed) {
+			if task.Status == db.StatusCompleted {
+				fmt.Println("Task marked as completed!")
+				result.Completed = true
+			} else {
+				fmt.Printf("Task marked as failed: %s\n", task.ErrorMessage)
+				result.Error = fmt.Errorf("task failed: %s", task.ErrorMessage)
+			}
 
 			// Send /exit to close Claude
 			time.Sleep(500 * time.Millisecond)
@@ -90,9 +115,104 @@ func RunInProject(ctx context.Context, database *db.DB, beadID, prompt string, w
 			fmt.Println("Sent /exit to Claude")
 			break
 		}
+
+		// Check if pane has exited (Claude crashed or finished without marking complete)
+		if !paneExists(ctx, sessionName, paneName) {
+			paneExitCount++
+			// Wait a few cycles to confirm it's really gone (not just a transient state)
+			if paneExitCount >= 3 {
+				fmt.Println("Claude pane exited without completing task - checking for partial completion")
+
+				// Determine which beads completed and which failed
+				result.CompletedBeads, result.FailedBeads = getTaskBeadStatus(database, taskID, taskBeads)
+
+				if len(result.CompletedBeads) > 0 && len(result.FailedBeads) > 0 {
+					result.PartialFailure = true
+					result.Error = fmt.Errorf("partial failure: %d beads completed, %d beads failed",
+						len(result.CompletedBeads), len(result.FailedBeads))
+
+					// Mark remaining beads as failed in database
+					for _, beadID := range result.FailedBeads {
+						database.FailTaskBead(taskID, beadID)
+					}
+				} else if len(result.CompletedBeads) == len(taskBeads) {
+					// All completed but task not marked - auto-complete
+					result.Completed = true
+				} else {
+					// All failed
+					result.Error = fmt.Errorf("task failed: no beads completed")
+				}
+				break
+			}
+		} else {
+			paneExitCount = 0
+		}
 	}
 
-	return nil
+	// Populate completed/failed beads if not already set
+	if len(result.CompletedBeads) == 0 && len(result.FailedBeads) == 0 {
+		result.CompletedBeads, result.FailedBeads = getTaskBeadStatus(database, taskID, taskBeads)
+	}
+
+	return result, nil
+}
+
+// getTaskBeadStatus returns lists of completed and failed bead IDs for a task.
+func getTaskBeadStatus(database *db.DB, taskID string, taskBeads []beads.Bead) ([]string, []string) {
+	var completed, failed []string
+
+	for _, b := range taskBeads {
+		// Check task_beads table for status
+		var status string
+		err := database.QueryRow(`
+			SELECT status FROM task_beads WHERE task_id = ? AND bead_id = ?
+		`, taskID, b.ID).Scan(&status)
+
+		if err != nil || status != db.StatusCompleted {
+			failed = append(failed, b.ID)
+		} else {
+			completed = append(completed, b.ID)
+		}
+	}
+
+	return completed, failed
+}
+
+// BuildTaskPrompt builds a prompt for a task with multiple beads.
+func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBranch string) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("You are working on Task %s which includes the following issues:\n\n", taskID))
+
+	for i, bead := range taskBeads {
+		sb.WriteString(fmt.Sprintf("## Issue %d: %s - %s\n", i+1, bead.ID, bead.Title))
+		if bead.Description != "" {
+			sb.WriteString(bead.Description)
+		}
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString(fmt.Sprintf(`Branch: %s
+Base Branch: %s
+
+Instructions:
+1. First, check git log and git status to see if there is existing work on this branch from a previous session
+2. If there is existing work, review it and continue from where it left off
+3. Implement ALL issues in this task
+4. Make logical commits grouping related changes
+5. For EACH issue as you complete it:
+   - Close the bead: bd close <id> --reason "<brief summary>"
+   - Mark complete: co complete <id>
+6. When ALL issues are complete:
+   - Push the branch and create a PR targeting %s
+   - Merge the PR using: gh pr merge --squash --delete-branch
+   - Mark the final bead complete with PR: co complete <last-id> --pr <PR_URL>
+
+Note: co complete auto-detects your task. When all beads in the task are marked complete, the task itself is marked complete.
+
+Focus on implementing all tasks correctly and completely.`, branchName, baseBranch, baseBranch))
+
+	return sb.String()
 }
 
 func paneExists(ctx context.Context, sessionName, paneName string) bool {

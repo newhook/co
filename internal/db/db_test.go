@@ -316,3 +316,95 @@ func TestTimestamps(t *testing.T) {
 		t.Error("StartedAt not within expected range")
 	}
 }
+
+func TestTasksTableExists(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Verify tasks table was created
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM tasks").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to query tasks table: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 tasks, got %d", count)
+	}
+
+	// Insert a task to verify schema
+	_, err = db.Exec(`
+		INSERT INTO tasks (id, status, complexity_budget, actual_complexity)
+		VALUES ('task-1', 'pending', 100, 50)
+	`)
+	if err != nil {
+		t.Fatalf("failed to insert task: %v", err)
+	}
+
+	// Verify insertion
+	var id, status string
+	var budget, actual int
+	err = db.QueryRow("SELECT id, status, complexity_budget, actual_complexity FROM tasks WHERE id = 'task-1'").
+		Scan(&id, &status, &budget, &actual)
+	if err != nil {
+		t.Fatalf("failed to query task: %v", err)
+	}
+	if id != "task-1" || status != "pending" || budget != 100 || actual != 50 {
+		t.Errorf("unexpected task values: id=%s, status=%s, budget=%d, actual=%d", id, status, budget, actual)
+	}
+}
+
+func TestTaskBeadsTableExists(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Create a task first (foreign key reference)
+	_, err := db.Exec(`INSERT INTO tasks (id, status) VALUES ('task-1', 'pending')`)
+	if err != nil {
+		t.Fatalf("failed to insert task: %v", err)
+	}
+
+	// Insert task_beads entries
+	_, err = db.Exec(`
+		INSERT INTO task_beads (task_id, bead_id, status)
+		VALUES ('task-1', 'bead-1', 'pending'), ('task-1', 'bead-2', 'completed')
+	`)
+	if err != nil {
+		t.Fatalf("failed to insert task_beads: %v", err)
+	}
+
+	// Verify count
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM task_beads WHERE task_id = 'task-1'").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to query task_beads: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 task_beads, got %d", count)
+	}
+}
+
+func TestComplexityCacheTableExists(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Insert complexity cache entry
+	_, err := db.Exec(`
+		INSERT INTO complexity_cache (bead_id, description_hash, complexity_score, estimated_tokens)
+		VALUES ('bead-1', 'abc123hash', 5, 1000)
+	`)
+	if err != nil {
+		t.Fatalf("failed to insert complexity_cache: %v", err)
+	}
+
+	// Verify insertion
+	var beadID, hash string
+	var score, tokens int
+	err = db.QueryRow("SELECT bead_id, description_hash, complexity_score, estimated_tokens FROM complexity_cache WHERE bead_id = 'bead-1'").
+		Scan(&beadID, &hash, &score, &tokens)
+	if err != nil {
+		t.Fatalf("failed to query complexity_cache: %v", err)
+	}
+	if beadID != "bead-1" || hash != "abc123hash" || score != 5 || tokens != 1000 {
+		t.Errorf("unexpected complexity_cache values: bead_id=%s, hash=%s, score=%d, tokens=%d", beadID, hash, score, tokens)
+	}
+}
