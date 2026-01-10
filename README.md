@@ -77,90 +77,93 @@ This creates the project structure with `main/` pointing to your repository.
 
 All commands must be run from within a project directory (or subdirectory).
 
-### Process Ready Beads
+Claude Orchestrator uses a two-phase workflow: **plan** then **run**.
+
+### Phase 1: Plan - Create Tasks from Beads
 
 ```bash
-cd ~/myproject
-co run
+co plan                              # One task per ready bead (default)
+co plan --auto-group                 # LLM groups beads by complexity
+co plan bead-1,bead-2 bead-3         # Manual: task1=[bead-1,bead-2], task2=[bead-3]
 ```
 
-This command:
-1. Queries for ready beads from `main/.beads/`
-2. For each bead, creates an isolated worktree
-3. Invokes Claude Code to implement the changes
-4. Closes the bead with an implementation summary
-5. Creates and merges a pull request
-6. Cleans up the worktree on success (keeps on failure for debugging)
+The plan command creates tasks in the database for later execution.
 
-### Process a Specific Bead
+**Manual grouping syntax:**
+- `bead-1,bead-2` - beads separated by commas are grouped into one task
+- Space-separated arguments create separate tasks
+- Example: `co plan a,b c,d e` creates 3 tasks: [a,b], [c,d], [e]
+
+### Phase 2: Run - Execute Pending Tasks
 
 ```bash
-co run <bead-id>
+co run                               # Execute all pending tasks
+co run task-id                       # Execute specific task
 ```
 
-Process only the specified bead instead of all ready beads.
+Tasks are executed in dependency order (derived from bead dependencies).
 
-### Command Flags
+### Plan Command Flags
+
+| Flag | Description |
+|------|-------------|
+| `--auto-group` | Automatically group beads by complexity using LLM estimation |
+| `--budget` | Complexity budget per task (1-100, default: 70, used with `--auto-group`) |
+| `--project` | Specify project directory (default: auto-detect from cwd) |
+
+### Run Command Flags
 
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--branch` | `-b` | Target branch for PRs (default: `main`). When not `main`, uses feature branch workflow |
-| `--limit` | `-n` | Maximum number of beads to process (0 = unlimited) |
-| `--dry-run` | | Show plan without executing |
+| `--limit` | `-n` | Maximum number of tasks to process (0 = unlimited) |
+| `--dry-run` | | Show execution plan without running |
 | `--no-merge` | | Create PRs but don't merge them |
-| `--deps` | | Also process open dependencies of the specified bead (requires bead ID) |
 | `--project` | | Specify project directory (default: auto-detect from cwd) |
-| `--auto-group` | | Automatically group beads by complexity using LLM estimation |
-| `--budget` | | Complexity budget per task (1-100, default: 70, used with `--auto-group`) |
-
-### Processing Dependencies
-
-When processing a specific bead, use `--deps` to also process its open dependencies first:
-
-```bash
-co run ac-xyz --deps
-```
-
-This recursively resolves dependencies and processes them in the correct order before processing the target bead.
 
 ### Feature Branch Workflow
 
 When `--branch` specifies a branch other than `main`, Claude Orchestrator uses a feature branch workflow:
 
 ```bash
+co plan
 co run --branch feature/my-epic
 ```
 
 1. Creates/switches to the feature branch in the main repo
-2. Processes beads, with each PR targeting the feature branch
-3. After all beads complete, creates a final PR from the feature branch to `main`
+2. Executes tasks, with each PR targeting the feature branch
+3. After all tasks complete, creates a final PR from the feature branch to `main`
 4. Merges the final PR
 
 This is useful for grouping related work before merging to main.
 
 ### Auto-Grouping
 
-Use `--auto-group` to have the LLM automatically group beads by complexity, allowing Claude to process multiple related beads in a single session:
+Use `--auto-group` during planning to have the LLM automatically group beads by complexity:
 
 ```bash
-co run --auto-group
+co plan --auto-group
+co run
 ```
 
 This mode:
 1. Estimates complexity for each bead using an LLM
 2. Groups beads into tasks using bin-packing algorithm (respecting dependencies)
-3. Processes each task in a single Claude session
+3. Each task is processed in a single Claude session
 4. Handles partial failures gracefully (creates partial PRs for completed work)
 
 Control the grouping with `--budget`:
 ```bash
-co run --auto-group --budget 50  # Smaller tasks (fewer beads per task)
-co run --auto-group --budget 90  # Larger tasks (more beads per task)
+co plan --auto-group --budget 50  # Smaller tasks (fewer beads per task)
+co plan --auto-group --budget 90  # Larger tasks (more beads per task)
 ```
 
-The budget (1-100) represents target complexity per task. Lower values create more granular tasks, higher values group more beads together.
+### Task Dependencies
 
-Without `--auto-group`, each bead is processed as its own task (one bead per task).
+Task dependencies are derived automatically from bead dependencies:
+- If bead A depends on bead B, and they're in different tasks, task(A) depends on task(B)
+- `co run` executes tasks in the correct dependency order
+- Cycles are detected and reported as errors
 
 ### Other Commands
 
@@ -172,28 +175,37 @@ Without `--auto-group`, each bead is processed as its own task (one bead per tas
 
 ## How It Works
 
-Claude Orchestrator orchestrates a complete development workflow with worktree isolation:
+Claude Orchestrator uses a two-phase workflow with worktree isolation:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
+│                        co plan                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Query ready beads from main/.beads/ (bd ready --json)       │
+│  2. Create tasks from beads:                                    │
+│     • Default: one task per bead                                │
+│     • --auto-group: LLM estimates complexity, bin-packs         │
+│     • Manual: user specifies groupings                          │
+│  3. Store tasks in tracking database                            │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
 │                        co run                                   │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. Find project context (.co/ directory)                       │
-│                                                                 │
-│  2. Query ready beads from main/.beads/                         │
-│     └─ bd ready --json                                          │
-│                                                                 │
-│  3. For each bead:                                              │
+│  1. Load pending tasks from database                            │
+│  2. Derive task dependencies from bead dependencies             │
+│  3. Sort tasks in dependency order (topological sort)           │
+│  4. For each task:                                              │
 │     ├─ Create worktree                                          │
-│     │  └─ git worktree add ../<bead-id> -b bead/<bead-id>       │
+│     │  └─ git worktree add ../<task-id> -b task/<task-id>       │
 │     │                                                           │
 │     ├─ Run Claude Code in zellij session (co-<project>)         │
 │     │  └─ zellij run -- claude --dangerously-skip-permissions   │
 │     │     Claude receives prompt and autonomously:              │
-│     │     • Implements the changes                              │
+│     │     • Implements all beads in the task                    │
 │     │     • Commits to branch                                   │
 │     │     • Pushes and creates PR (gh pr create)                │
-│     │     • Closes bead (bd close <id> --reason "...")          │
+│     │     • Closes beads (bd close <id> --reason "...")         │
 │     │     • Merges PR (gh pr merge --squash --delete-branch)    │
 │     │     • Signals completion (co complete <id>)               │
 │     │                                                           │
@@ -206,6 +218,9 @@ Claude Orchestrator orchestrates a complete development workflow with worktree i
 
 ### Key Design Decisions
 
+- **Two-phase workflow**: Planning (co plan) and execution (co run) are separate
+- **Task abstraction**: Beads are grouped into tasks; tasks are the unit of execution
+- **Dependency derivation**: Task dependencies derived at runtime from bead dependencies
 - **Project isolation**: Each project has its own tracking database in `.co/`
 - **Worktree isolation**: Each task runs in its own git worktree, preventing conflicts
 - **Claude handles full workflow**: Implementation, PR creation, bead closing, and merging are all done by Claude
@@ -219,7 +234,8 @@ co/
 ├── main.go              # CLI entry point
 ├── cmd/
 │   ├── root.go          # Root command
-│   ├── run.go           # Run command
+│   ├── plan.go          # Plan command (create tasks from beads)
+│   ├── run.go           # Run command (execute pending tasks)
 │   ├── proj.go          # Project management commands
 │   ├── status.go        # Status command
 │   ├── list.go          # List command
