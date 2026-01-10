@@ -9,6 +9,7 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/github"
+	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
 	"github.com/newhook/co/internal/worktree"
@@ -314,6 +315,12 @@ func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task
 		fmt.Printf("Creating worktree at %s...\n", worktreePath)
 		if err := worktree.Create(mainRepoPath, worktreePath, branchName); err != nil {
 			return nil, fmt.Errorf("failed to create worktree: %w", err)
+		}
+
+		// Initialize mise in worktree (optional - warn on error)
+		// Note: bd init/hooks NOT needed - worktrees share .beads/ with main
+		if err := mise.Initialize(worktreePath); err != nil {
+			fmt.Printf("Warning: mise initialization in worktree failed: %v\n", err)
 		}
 	}
 
