@@ -15,17 +15,16 @@ The following CLI tools must be installed and available in your PATH:
 
 ## Installation
 
-### Build from Source
-
 ```bash
-git clone https://github.com/newhook/autoclaude.git
-cd autoclaude
-go build -o co .
+go install github.com/newhook/co@latest
 ```
 
-Move the binary to your PATH:
+### Build from Source (Alternative)
 
 ```bash
+git clone https://github.com/newhook/co.git
+cd co
+go build -o co .
 mv co /usr/local/bin/
 ```
 
@@ -130,28 +129,28 @@ Claude Orchestrator orchestrates a complete development workflow:
 │     └─ bd ready --json                                          │
 │                                                                 │
 │  2. For each bead:                                              │
-│     ├─ Invoke Claude Code with bead description                 │
-│     │  └─ claude --dangerously-skip-permissions -p "<prompt>"   │
-│     │     • Creates feature branch                              │
-│     │     • Implements changes                                  │
+│     ├─ Create feature branch                                    │
+│     │  └─ git checkout -b bead/<id>                             │
+│     │                                                           │
+│     ├─ Run Claude Code in zellij session                        │
+│     │  └─ zellij run -- claude --dangerously-skip-permissions   │
+│     │     Claude receives prompt and autonomously:              │
+│     │     • Implements the changes                              │
 │     │     • Commits to branch                                   │
+│     │     • Pushes and creates PR (gh pr create)                │
+│     │     • Closes bead (bd close <id> --reason "...")          │
+│     │     • Merges PR (gh pr merge --squash --delete-branch)    │
+│     │     • Signals completion (co complete <id>)               │
 │     │                                                           │
-│     ├─ Close bead (while context is fresh)                      │
-│     │  └─ bd close <id> --reason "<summary>"                    │
-│     │                                                           │
-│     ├─ Create pull request                                      │
-│     │  └─ gh pr create --head <branch> --base main ...          │
-│     │                                                           │
-│     └─ Merge pull request                                       │
-│        └─ gh pr merge <url> --merge --delete-branch             │
+│     └─ Manager polls database for completion, then continues    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Design Decisions
 
-- **Beads closed before PR merge**: This preserves implementation context for accurate close reasons
-- **Claude handles branching**: Branch creation and commits are delegated to Claude Code
-- **Streaming output**: Claude Code output streams to stdout/stderr for visibility
+- **Claude handles full workflow**: Implementation, PR creation, bead closing, and merging are all done by Claude
+- **Zellij for terminal management**: Each Claude instance runs in a named zellij pane for proper terminal environment
+- **Database polling**: Manager polls SQLite database for completion signals from Claude
 
 ## Project Structure
 
