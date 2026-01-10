@@ -19,4 +19,5 @@ func init() {
 	rootCmd.AddCommand(completeCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(projCmd)
 }

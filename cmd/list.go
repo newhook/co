@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/newhook/autoclaude/internal/db"
+	"github.com/newhook/autoclaude/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -21,11 +23,26 @@ func init() {
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	database, err := db.Open()
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+	// Try to find project context for database
+	var database *db.DB
+	var closeFunc func() error
+
+	cwd, _ := os.Getwd()
+	if proj, err := project.Find(cwd); err == nil {
+		database, err = proj.OpenDB()
+		if err != nil {
+			return fmt.Errorf("failed to open project database: %w", err)
+		}
+		closeFunc = proj.Close
+	} else {
+		var err error
+		database, err = db.Open()
+		if err != nil {
+			return fmt.Errorf("failed to open database: %w", err)
+		}
+		closeFunc = database.Close
 	}
-	defer database.Close()
+	defer closeFunc()
 
 	beads, err := database.ListBeads(flagStatusFilter)
 	if err != nil {
