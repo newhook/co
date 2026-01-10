@@ -204,25 +204,34 @@ func runTaskMode(proj *project.Project, database *db.DB, beadList []beads.Bead, 
 
 	// Process each task
 	processedCount := 0
+	partialCount := 0
 	for _, t := range tasks {
 		// Create task in database
 		if err := database.CreateTask(t.ID, t.BeadIDs, t.Complexity); err != nil {
 			return fmt.Errorf("failed to create task in database: %w", err)
 		}
 
-		success, err := processTaskWithWorktree(proj, database, t)
+		result, err := processTaskWithWorktree(proj, database, t)
 		if err != nil {
 			// Record failure in database
 			database.FailTask(t.ID, err.Error())
 			return fmt.Errorf("failed to process task %s: %w", t.ID, err)
 		}
 
-		if success {
+		if result.Completed {
 			processedCount++
+		} else if result.PartialFailure {
+			partialCount++
+			// Don't fail the whole run for partial failures
+			fmt.Printf("Task %s had partial failure, continuing with remaining tasks...\n", t.ID)
 		}
 	}
 
-	fmt.Printf("Successfully processed %d task(s)\n", processedCount)
+	if partialCount > 0 {
+		fmt.Printf("Processed %d task(s) successfully, %d task(s) partially completed\n", processedCount, partialCount)
+	} else {
+		fmt.Printf("Successfully processed %d task(s)\n", processedCount)
+	}
 
 	// Create final PR from feature branch to main if applicable
 	if useFeatureBranch && processedCount > 0 && !flagNoMerge {
@@ -253,7 +262,8 @@ func getBeadsWithDeps(beadList []beads.Bead, dir string) ([]beads.BeadWithDeps, 
 }
 
 // processTaskWithWorktree processes a task using an isolated worktree.
-func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task) (bool, error) {
+// Returns the TaskResult and any error encountered.
+func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task) (*claude.TaskResult, error) {
 	fmt.Printf("\n=== Processing task %s (%d beads) ===\n", t.ID, len(t.Beads))
 	for _, b := range t.Beads {
 		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
@@ -270,14 +280,14 @@ func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task
 		// Create worktree from the base branch
 		fmt.Printf("Creating worktree at %s...\n", worktreePath)
 		if err := worktree.Create(mainRepoPath, worktreePath, branchName); err != nil {
-			return false, fmt.Errorf("failed to create worktree: %w", err)
+			return nil, fmt.Errorf("failed to create worktree: %w", err)
 		}
 	}
 
 	// Start task in database
 	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
 	if err := database.StartTask(t.ID, sessionName, t.ID, worktreePath); err != nil {
-		return false, fmt.Errorf("failed to start task in database: %w", err)
+		return nil, fmt.Errorf("failed to start task in database: %w", err)
 	}
 
 	// Build prompt for Claude
@@ -287,19 +297,78 @@ func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task
 	fmt.Println("Running Claude Code...")
 	ctx := context.Background()
 	projectName := proj.Config.Project.Name
-	if err := claude.RunTaskInProject(ctx, database, t.ID, t.Beads, prompt, worktreePath, projectName); err != nil {
+	result, err := claude.RunTaskInProject(ctx, database, t.ID, t.Beads, prompt, worktreePath, projectName)
+	if err != nil {
 		fmt.Printf("Claude failed: %v\n", err)
 		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
-		return false, fmt.Errorf("claude failed: %w", err)
+		return nil, fmt.Errorf("claude failed: %w", err)
 	}
 
-	// Success - clean up worktree
-	fmt.Printf("Cleaning up worktree %s...\n", worktreePath)
-	if err := worktree.Remove(mainRepoPath, worktreePath); err != nil {
-		fmt.Printf("Warning: failed to remove worktree: %v\n", err)
+	// Handle partial failure - create PR with completed work
+	if result.PartialFailure {
+		fmt.Printf("\nPartial failure detected:\n")
+		fmt.Printf("  Completed beads: %v\n", result.CompletedBeads)
+		fmt.Printf("  Failed beads: %v\n", result.FailedBeads)
+
+		// Check if there are commits to create a partial PR
+		hasCommits, err := git.HasCommitsAheadInDir(flagBranch, worktreePath)
+		if err == nil && hasCommits {
+			fmt.Println("Creating partial PR with completed work...")
+			prURL, prErr := createPartialPR(t, result, branchName, worktreePath)
+			if prErr != nil {
+				fmt.Printf("Warning: failed to create partial PR: %v\n", prErr)
+			} else {
+				fmt.Printf("Created partial PR: %s\n", prURL)
+			}
+		}
+
+		// Keep worktree for debugging
+		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
+		fmt.Printf("To retry failed beads, run: co run <failed-bead-id>\n")
+		return result, nil
 	}
 
-	return true, nil
+	// Full success - clean up worktree
+	if result.Completed {
+		fmt.Printf("Cleaning up worktree %s...\n", worktreePath)
+		if err := worktree.Remove(mainRepoPath, worktreePath); err != nil {
+			fmt.Printf("Warning: failed to remove worktree: %v\n", err)
+		}
+	} else {
+		// Full failure - keep worktree
+		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
+	}
+
+	return result, nil
+}
+
+// createPartialPR creates a PR with partial work from a failed task.
+func createPartialPR(t task.Task, result *claude.TaskResult, branchName, worktreePath string) (string, error) {
+	// Push the branch first
+	if err := git.PushInDir(branchName, worktreePath); err != nil {
+		return "", fmt.Errorf("failed to push branch: %w", err)
+	}
+
+	// Build PR body
+	prTitle := fmt.Sprintf("[Partial] Task %s", t.ID)
+	prBody := "## Partial completion - some beads failed\n\n"
+	prBody += "### Completed beads:\n"
+	for _, id := range result.CompletedBeads {
+		prBody += fmt.Sprintf("- %s\n", id)
+	}
+	prBody += "\n### Failed beads (require retry):\n"
+	for _, id := range result.FailedBeads {
+		prBody += fmt.Sprintf("- %s\n", id)
+	}
+	prBody += fmt.Sprintf("\n**Note:** Run `co run <bead-id>` to retry failed beads.\n")
+
+	// Create PR
+	prURL, err := github.CreatePRInDir(branchName, flagBranch, prTitle, prBody, worktreePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create PR: %w", err)
+	}
+
+	return prURL, nil
 }
 
 // findProject finds the project from --project flag or current directory.
