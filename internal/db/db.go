@@ -6,6 +6,7 @@ import (
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
+	"github.com/newhook/co/internal/db/sqlc"
 )
 
 // Status constants for bead tracking.
@@ -16,9 +17,10 @@ const (
 	StatusFailed     = "failed"
 )
 
-// DB wraps the SQLite database connection.
+// DB wraps the SQLite database connection and sqlc queries.
 type DB struct {
 	*sql.DB
+	queries *sqlc.Queries
 }
 
 // OpenPath initializes the database at the specified path and creates the schema.
@@ -33,7 +35,10 @@ func OpenPath(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to create schema: %w", err)
 	}
 
-	return &DB{db}, nil
+	return &DB{
+		DB:      db,
+		queries: sqlc.New(db),
+	}, nil
 }
 
 // createSchema creates the database tables if they don't exist.
