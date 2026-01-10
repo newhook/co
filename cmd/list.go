@@ -7,7 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var flagStatusFilter string
+var (
+	flagListStatus  string
+	flagListProject string
+)
 
 var listCmd = &cobra.Command{
 	Use:   "list",
@@ -17,11 +20,12 @@ var listCmd = &cobra.Command{
 }
 
 func init() {
-	listCmd.Flags().StringVarP(&flagStatusFilter, "status", "s", "", "filter by status (pending, processing, completed, failed)")
+	listCmd.Flags().StringVarP(&flagListStatus, "status", "s", "", "filter by status (pending, processing, completed, failed)")
+	listCmd.Flags().StringVar(&flagListProject, "project", "", "project directory (default: auto-detect from cwd)")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	proj, err := project.FindWithFlag("")
+	proj, err := project.FindWithFlag(flagListProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -32,14 +36,14 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	beads, err := database.ListBeads(flagStatusFilter)
+	beads, err := database.ListBeads(flagListStatus)
 	if err != nil {
 		return fmt.Errorf("failed to list beads: %w", err)
 	}
 
 	if len(beads) == 0 {
-		if flagStatusFilter != "" {
-			fmt.Printf("No beads with status '%s'\n", flagStatusFilter)
+		if flagListStatus != "" {
+			fmt.Printf("No beads with status '%s'\n", flagListStatus)
 		} else {
 			fmt.Println("No beads tracked")
 		}

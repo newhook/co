@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var flagStatusProject string
+
 var statusCmd = &cobra.Command{
 	Use:   "status [bead-id]",
 	Short: "Show bead tracking status",
@@ -19,8 +21,12 @@ Without ID: Show all beads currently processing with their session/pane.`,
 	RunE: runStatus,
 }
 
+func init() {
+	statusCmd.Flags().StringVar(&flagStatusProject, "project", "", "project directory (default: auto-detect from cwd)")
+}
+
 func runStatus(cmd *cobra.Command, args []string) error {
-	proj, err := project.FindWithFlag("")
+	proj, err := project.FindWithFlag(flagStatusProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
