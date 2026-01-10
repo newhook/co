@@ -8,20 +8,29 @@ import (
 	"strings"
 )
 
+// configFiles lists all mise config file locations to check.
+var configFiles = []string{
+	".mise.toml",
+	"mise.toml",
+	".mise/config.toml",
+	".tool-versions",
+}
+
 // IsEnabled checks if mise is configured in the given directory.
-// Returns true if .mise.toml or .tool-versions exists.
+// Returns true if any mise config file exists.
 func IsEnabled(dir string) bool {
-	miseToml := filepath.Join(dir, ".mise.toml")
-	if _, err := os.Stat(miseToml); err == nil {
-		return true
-	}
+	return findConfigFile(dir) != ""
+}
 
-	toolVersions := filepath.Join(dir, ".tool-versions")
-	if _, err := os.Stat(toolVersions); err == nil {
-		return true
+// findConfigFile returns the first mise config file found in dir, or empty string if none.
+func findConfigFile(dir string) string {
+	for _, file := range configFiles {
+		path := filepath.Join(dir, file)
+		if _, err := os.Stat(path); err == nil {
+			return file
+		}
 	}
-
-	return false
+	return ""
 }
 
 // Trust runs `mise trust` in the given directory.
@@ -77,24 +86,32 @@ func RunTask(dir, taskName string) error {
 // Returns nil if mise is not enabled in the directory.
 // Errors are returned but callers may choose to treat them as warnings.
 func Initialize(dir string) error {
-	if !IsEnabled(dir) {
+	configFile := findConfigFile(dir)
+	if configFile == "" {
+		fmt.Printf("  Mise: not enabled (no config file found)\n")
 		return nil
 	}
 
+	fmt.Printf("  Mise: found %s\n", configFile)
+
+	fmt.Printf("  Mise: running trust...\n")
 	if err := Trust(dir); err != nil {
 		return err
 	}
 
+	fmt.Printf("  Mise: running install...\n")
 	if err := Install(dir); err != nil {
 		return err
 	}
 
 	// Run setup task if it exists
 	if HasTask(dir, "setup") {
+		fmt.Printf("  Mise: running setup task...\n")
 		if err := RunTask(dir, "setup"); err != nil {
 			return err
 		}
 	}
 
+	fmt.Printf("  Mise: initialization complete\n")
 	return nil
 }
