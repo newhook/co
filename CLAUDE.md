@@ -12,7 +12,8 @@ go test ./...
 ## Project Structure
 
 - `main.go` - CLI entry point (cobra)
-- `cmd/run.go` - Main run command
+- `cmd/plan.go` - Plan command (create tasks from beads)
+- `cmd/run.go` - Run command (execute pending tasks)
 - `cmd/proj.go` - Project management (create/destroy/status)
 - `internal/beads/` - Beads database client (bd CLI wrapper)
 - `internal/claude/` - Claude Code invocation
@@ -47,13 +48,21 @@ All commands require a project context. Projects are created with `co proj creat
 
 ## Workflow
 
+Two-phase workflow: **plan** then **run**.
+
 1. Create project: `co proj create <dir> <repo>`
-2. Query ready beads via `bd ready --json` from `main/`
-3. For each bead:
-   - Create worktree: `git worktree add ../<task-id> -b bead/<task-id>`
-   - Claude Code implements changes in isolated worktree
-   - Close bead with `bd close <id> --reason "..."`
-   - Create PR and merge it
-   - Remove worktree on success (keep on failure for debugging)
+2. Plan tasks from beads:
+   - `co plan` - one task per ready bead
+   - `co plan --auto-group` - LLM groups beads by complexity
+   - `co plan bead-1,bead-2 bead-3` - manual grouping (comma = same task)
+3. Execute tasks: `co run`
+   - Derives task dependencies from bead dependencies
+   - Executes in topological order
+   - For each task:
+     - Create worktree: `git worktree add ../<task-id> -b task/<task-id>`
+     - Claude Code implements changes in isolated worktree
+     - Close beads with `bd close <id> --reason "..."`
+     - Create PR and merge it
+     - Remove worktree on success (keep on failure for debugging)
 
 Zellij sessions are named `co-<project-name>` for isolation between projects.
