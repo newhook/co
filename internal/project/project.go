@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/newhook/autoclaude/internal/db"
+	"github.com/newhook/co/internal/db"
 )
 
 const (
@@ -185,11 +185,6 @@ func (p *Project) MainRepoPath() string {
 // WorktreePath returns the path where a task's worktree should be created.
 func (p *Project) WorktreePath(taskID string) string {
 	return filepath.Join(p.Root, taskID)
-}
-
-// ConfigDirPath returns the path to the .co directory.
-func (p *Project) ConfigDirPath() string {
-	return filepath.Join(p.Root, ConfigDir)
 }
 
 // TrackingDBPath returns the path to the tracking database.

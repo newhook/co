@@ -1,4 +1,4 @@
-module github.com/newhook/autoclaude
+module github.com/newhook/co
 
 go 1.25.5
 

@@ -3,8 +3,6 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
@@ -21,25 +19,6 @@ const (
 // DB wraps the SQLite database connection.
 type DB struct {
 	*sql.DB
-}
-
-// Open initializes the database connection and creates the schema.
-// Uses CO_DB_PATH env var if set, otherwise ~/.config/co/tracking.db.
-func Open() (*DB, error) {
-	dbPath := os.Getenv("CO_DB_PATH")
-	if dbPath == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
-		}
-		configDir := filepath.Join(homeDir, ".config", "co")
-		if err := os.MkdirAll(configDir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create config directory: %w", err)
-		}
-		dbPath = filepath.Join(configDir, "tracking.db")
-	}
-
-	return OpenPath(dbPath)
 }
 
 // OpenPath initializes the database at the specified path and creates the schema.
@@ -103,7 +82,7 @@ func migrateWorktreePath(db *sql.DB) error {
 		var cid int
 		var name, ctype string
 		var notnull, pk int
-		var dfltValue interface{}
+		var dfltValue any
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
 			return fmt.Errorf("failed to scan column info: %w", err)
 		}
