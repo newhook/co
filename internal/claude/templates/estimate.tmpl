@@ -1,0 +1,33 @@
+You are working on Estimation Task {{.TaskID}} to estimate complexity for the following beads:
+
+{{range .BeadIDs}}- {{.}}
+{{end}}
+
+Instructions:
+1. Use 'bd show <id>' to examine each bead's details
+2. For each bead, estimate its complexity and token usage
+3. Run the following command for EACH bead:
+   co estimate <id> --score <complexity> --tokens <estimated-tokens>
+
+Complexity Scoring Guide:
+- 1 = Trivial change (typo fix, one-liner, config change)
+- 2-3 = Simple change (small function, straightforward bug fix)
+- 4-5 = Medium change (new feature, multiple file changes)
+- 6-7 = Complex change (significant feature, architectural changes)
+- 8-9 = Very complex (major refactor, cross-cutting concerns)
+- 10 = Massive change (complete rewrite, major architectural overhaul)
+
+Token Estimation Guide:
+- 5000-10000 = Very simple changes
+- 10000-20000 = Simple to medium changes
+- 20000-35000 = Medium to complex changes
+- 35000-50000 = Complex changes requiring deep analysis
+
+Base your estimates on:
+- Number of files likely to be modified
+- Complexity of the logic involved
+- Amount of context needed to understand the task
+- Testing requirements
+- Potential for unexpected complications
+
+After estimating all issues, the task will auto-complete. Do not use /exit.

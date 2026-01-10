@@ -1,15 +1,24 @@
 package claude
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"os/exec"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 )
+
+//go:embed templates/estimate.tmpl
+var estimateTemplate string
+
+//go:embed templates/task.tmpl
+var taskTemplate string
 
 // SessionNameForProject returns the zellij session name for a specific project.
 func SessionNameForProject(projectName string) string {
@@ -210,39 +219,40 @@ func getTaskBeadStatus(database *db.DB, taskID string, taskBeads []beads.Bead) (
 
 // BuildTaskPrompt builds a prompt for a task with multiple beads.
 func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBranch string) string {
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("You are working on Task %s which includes the following issues:\n\n", taskID))
-
-	for i, bead := range taskBeads {
-		sb.WriteString(fmt.Sprintf("## Issue %d: %s - %s\n", i+1, bead.ID, bead.Title))
-		if bead.Description != "" {
-			sb.WriteString(bead.Description)
-		}
-		sb.WriteString("\n\n")
+	tmpl, err := template.New("task").Parse(taskTemplate)
+	if err != nil {
+		// Fallback to simple string if template parsing fails
+		return fmt.Sprintf("Task %s on branch %s for beads: %v", taskID, branchName, getBeadIDs(taskBeads))
 	}
 
-	sb.WriteString(fmt.Sprintf(`Branch: %s
-Base Branch: %s
+	data := struct {
+		TaskID     string
+		BeadIDs    []string
+		BranchName string
+		BaseBranch string
+	}{
+		TaskID:     taskID,
+		BeadIDs:    getBeadIDs(taskBeads),
+		BranchName: branchName,
+		BaseBranch: baseBranch,
+	}
 
-Instructions:
-1. First, check git log and git status to see if there is existing work on this branch from a previous session
-2. If there is existing work, review it and continue from where it left off
-3. Implement ALL issues in this task
-4. Make logical commits grouping related changes
-5. For EACH issue as you complete it:
-   - Close the bead: bd close <id> --reason "<brief summary>"
-   - Mark complete: co complete <id>
-6. When ALL issues are complete:
-   - Push the branch and create a PR targeting %s
-   - Merge the PR using: gh pr merge --squash --delete-branch
-   - Mark the final bead complete with PR: co complete <last-id> --pr <PR_URL>
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("Task %s on branch %s for beads: %v", taskID, branchName, getBeadIDs(taskBeads))
+	}
 
-Note: co complete auto-detects your task. When all beads in the task are marked complete, the task itself is marked complete.
+	return buf.String()
+}
 
-Focus on implementing all tasks correctly and completely.`, branchName, baseBranch, baseBranch))
-
-	return sb.String()
+// getBeadIDs extracts bead IDs from a slice of beads.
+func getBeadIDs(beads []beads.Bead) []string {
+	ids := make([]string, len(beads))
+	for i, b := range beads {
+		ids[i] = b.ID
+	}
+	return ids
 }
 
 func TabExists(ctx context.Context, sessionName, tabName string) bool {
@@ -285,45 +295,25 @@ func createSession(ctx context.Context, sessionName string) error {
 
 // BuildEstimatePrompt builds a prompt for complexity estimation of beads.
 func BuildEstimatePrompt(taskID string, taskBeads []beads.Bead) string {
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("You are working on Estimation Task %s to estimate complexity for the following issues:\n\n", taskID))
-
-	for i, bead := range taskBeads {
-		sb.WriteString(fmt.Sprintf("## Issue %d: %s - %s\n", i+1, bead.ID, bead.Title))
-		if bead.Description != "" {
-			sb.WriteString(bead.Description)
-		}
-		sb.WriteString("\n\n")
+	tmpl, err := template.New("estimate").Parse(estimateTemplate)
+	if err != nil {
+		// Fallback to simple string if template parsing fails
+		return fmt.Sprintf("Estimation task %s for beads: %v", taskID, getBeadIDs(taskBeads))
 	}
 
-	sb.WriteString(`Instructions:
-1. For each issue above, estimate its complexity and token usage
-2. Run the following command for EACH issue:
-   co estimate <id> --score <complexity> --tokens <estimated-tokens>
+	data := struct {
+		TaskID  string
+		BeadIDs []string
+	}{
+		TaskID:  taskID,
+		BeadIDs: getBeadIDs(taskBeads),
+	}
 
-Complexity Scoring Guide:
-- 1 = Trivial change (typo fix, one-liner, config change)
-- 2-3 = Simple change (small function, straightforward bug fix)
-- 4-5 = Medium change (new feature, multiple file changes)
-- 6-7 = Complex change (significant feature, architectural changes)
-- 8-9 = Very complex (major refactor, cross-cutting concerns)
-- 10 = Massive change (complete rewrite, major architectural overhaul)
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("Estimation task %s for beads: %v", taskID, getBeadIDs(taskBeads))
+	}
 
-Token Estimation Guide:
-- 5000-10000 = Very simple changes
-- 10000-20000 = Simple to medium changes
-- 20000-35000 = Medium to complex changes
-- 35000-50000 = Complex changes requiring deep analysis
-
-Base your estimates on:
-- Number of files likely to be modified
-- Complexity of the logic involved
-- Amount of context needed to understand the task
-- Testing requirements
-- Potential for unexpected complications
-
-After estimating all issues, the task will auto-complete. Do not use /exit.`)
-
-	return sb.String()
+	return buf.String()
 }
