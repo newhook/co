@@ -44,10 +44,15 @@ func Push(branch string) error {
 }
 
 // CreateBranch creates a new branch from the current HEAD and switches to it.
+// If the branch already exists, it checks out the existing branch instead.
 func CreateBranch(branch string) error {
+	// Try to create new branch
 	cmd := exec.Command("git", "checkout", "-b", branch)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create branch %s: %w", branch, err)
+		// Branch likely exists, try to check it out
+		if checkoutErr := Checkout(branch); checkoutErr != nil {
+			return fmt.Errorf("failed to create or checkout branch %s: %w", branch, err)
+		}
 	}
 	return nil
 }
