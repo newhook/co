@@ -30,6 +30,8 @@ Uses CLI tools: `bd`, `claude`, `gh`, `git`, `zellij`
 
 ## PR Requirements
 
+**NEVER push directly to main.** All changes must go through a PR.
+
 All PRs must be squash merged.
 
 ## Project Model
