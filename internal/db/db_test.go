@@ -2,7 +2,6 @@ package db
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -10,25 +9,16 @@ import (
 func setupTestDB(t *testing.T) (*DB, func()) {
 	t.Helper()
 
-	// Create temp directory for test database
-	tmpDir, err := os.MkdirTemp("", "co-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-
-	// Set CO_DB_PATH to use temp database
-	dbPath := filepath.Join(tmpDir, "test.db")
-	os.Setenv("CO_DB_PATH", dbPath)
+	// Use in-memory SQLite database
+	os.Setenv("CO_DB_PATH", ":memory:")
 
 	db, err := Open()
 	if err != nil {
-		os.RemoveAll(tmpDir)
 		t.Fatalf("failed to open database: %v", err)
 	}
 
 	cleanup := func() {
 		db.Close()
-		os.RemoveAll(tmpDir)
 		os.Unsetenv("CO_DB_PATH")
 	}
 
