@@ -252,3 +252,48 @@ func createSession(ctx context.Context, sessionName string) error {
 	time.Sleep(1 * time.Second)
 	return nil
 }
+
+// BuildEstimatePrompt builds a prompt for complexity estimation of beads.
+func BuildEstimatePrompt(taskID string, taskBeads []beads.Bead) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("You are working on Estimation Task %s to estimate complexity for the following issues:\n\n", taskID))
+
+	for i, bead := range taskBeads {
+		sb.WriteString(fmt.Sprintf("## Issue %d: %s - %s\n", i+1, bead.ID, bead.Title))
+		if bead.Description != "" {
+			sb.WriteString(bead.Description)
+		}
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString(`Instructions:
+1. For each issue above, estimate its complexity and token usage
+2. Run the following command for EACH issue:
+   co estimate <id> --score <complexity> --tokens <estimated-tokens>
+
+Complexity Scoring Guide:
+- 1 = Trivial change (typo fix, one-liner, config change)
+- 2-3 = Simple change (small function, straightforward bug fix)
+- 4-5 = Medium change (new feature, multiple file changes)
+- 6-7 = Complex change (significant feature, architectural changes)
+- 8-9 = Very complex (major refactor, cross-cutting concerns)
+- 10 = Massive change (complete rewrite, major architectural overhaul)
+
+Token Estimation Guide:
+- 5000-10000 = Very simple changes
+- 10000-20000 = Simple to medium changes
+- 20000-35000 = Medium to complex changes
+- 35000-50000 = Complex changes requiring deep analysis
+
+Base your estimates on:
+- Number of files likely to be modified
+- Complexity of the logic involved
+- Amount of context needed to understand the task
+- Testing requirements
+- Potential for unexpected complications
+
+After estimating all issues, the task will auto-complete. Do not use /exit.`)
+
+	return sb.String()
+}
