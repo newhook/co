@@ -21,26 +21,21 @@ Without ID: Show all beads currently processing with their session/pane.`,
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	// Try to find project context for database
-	var database *db.DB
-	var closeFunc func() error
-
-	cwd, _ := os.Getwd()
-	if proj, err := project.Find(cwd); err == nil {
-		database, err = proj.OpenDB()
-		if err != nil {
-			return fmt.Errorf("failed to open project database: %w", err)
-		}
-		closeFunc = proj.Close
-	} else {
-		var err error
-		database, err = db.Open()
-		if err != nil {
-			return fmt.Errorf("failed to open database: %w", err)
-		}
-		closeFunc = database.Close
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
 	}
-	defer closeFunc()
+
+	proj, err := project.Find(cwd)
+	if err != nil {
+		return fmt.Errorf("not in a project directory: %w", err)
+	}
+
+	database, err := proj.OpenDB()
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer proj.Close()
 
 	// If specific bead requested
 	if len(args) > 0 {

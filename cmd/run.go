@@ -32,9 +32,8 @@ each one and creating PRs for the changes.
 
 If a bead ID is provided, only that issue will be processed.
 
-When run from a project directory (with .co/), uses worktree isolation:
-- Each task gets its own worktree at <project>/<task-id>/
-- Worktrees are cleaned up on success, kept on failure for debugging
+Each task gets its own worktree at <project>/<task-id>/.
+Worktrees are cleaned up on success, kept on failure for debugging.
 
 When --branch is specified (not "main"), PRs target that feature branch.
 After all issues complete, a final PR is created from the feature branch to main.`,
@@ -52,40 +51,20 @@ func init() {
 }
 
 func runBeads(cmd *cobra.Command, args []string) error {
-	// Check if a specific bead ID was provided as positional argument
 	var beadID string
 	if len(args) > 0 {
 		beadID = args[0]
 	}
 
-	// Try to find project context
 	proj, err := findProject()
 	if err != nil {
-		// No project found - run in legacy mode
-		return runBeadsLegacy(beadID)
+		return fmt.Errorf("not in a project directory: %w", err)
 	}
 
-	return runBeadsWithProject(proj, beadID)
-}
-
-// findProject finds the project from --project flag or current directory.
-func findProject() (*project.Project, error) {
-	if flagProject != "" {
-		return project.Find(flagProject)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	return project.Find(cwd)
-}
-
-// runBeadsWithProject runs beads using project-based worktree isolation.
-func runBeadsWithProject(proj *project.Project, beadID string) error {
 	fmt.Printf("Using project: %s\n", proj.Config.Project.Name)
 
 	// Get beads to process from the main repo directory
-	beadList, err := getBeadsToProcessInDir(beadID, proj.MainRepoPath())
+	beadList, err := getBeadsToProcess(beadID, proj.MainRepoPath())
 	if err != nil {
 		return err
 	}
@@ -125,7 +104,7 @@ func runBeadsWithProject(proj *project.Project, beadID string) error {
 
 	// If using feature branch, ensure it exists in the main repo
 	if useFeatureBranch {
-		if err := ensureFeatureBranchInDir(flagBranch, proj.MainRepoPath()); err != nil {
+		if err := ensureFeatureBranch(flagBranch, proj.MainRepoPath()); err != nil {
 			return fmt.Errorf("failed to setup feature branch: %w", err)
 		}
 	}
@@ -156,7 +135,7 @@ func runBeadsWithProject(proj *project.Project, beadID string) error {
 
 	// Create final PR from feature branch to main if applicable
 	if useFeatureBranch && processedCount > 0 && !flagNoMerge {
-		if err := createFinalPRInDir(flagBranch, beadList, proj.MainRepoPath()); err != nil {
+		if err := createFinalPR(flagBranch, beadList, proj.MainRepoPath()); err != nil {
 			return fmt.Errorf("failed to create final PR: %w", err)
 		}
 	}
@@ -164,8 +143,19 @@ func runBeadsWithProject(proj *project.Project, beadID string) error {
 	return nil
 }
 
+// findProject finds the project from --project flag or current directory.
+func findProject() (*project.Project, error) {
+	if flagProject != "" {
+		return project.Find(flagProject)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	return project.Find(cwd)
+}
+
 // processBeadWithWorktree processes a bead using an isolated worktree.
-// Returns true if successful, false if failed but recoverable.
 func processBeadWithWorktree(proj *project.Project, database *db.DB, bead beads.Bead) (bool, error) {
 	fmt.Printf("\n=== Processing bead %s: %s ===\n", bead.ID, bead.Title)
 
@@ -184,7 +174,7 @@ func processBeadWithWorktree(proj *project.Project, database *db.DB, bead beads.
 		}
 	}
 
-	// Build prompt for Claude (includes branch info so Claude can create PR)
+	// Build prompt for Claude
 	prompt := buildPrompt(bead, branchName, flagBranch)
 
 	// Run Claude in the worktree directory
@@ -201,102 +191,15 @@ func processBeadWithWorktree(proj *project.Project, database *db.DB, bead beads.
 	fmt.Printf("Cleaning up worktree %s...\n", worktreePath)
 	if err := worktree.Remove(mainRepoPath, worktreePath); err != nil {
 		fmt.Printf("Warning: failed to remove worktree: %v\n", err)
-		// Don't fail the whole process for cleanup issues
 	}
 
 	return true, nil
 }
 
-// runBeadsLegacy runs beads without project context (original behavior).
-func runBeadsLegacy(beadID string) error {
-	// Get beads to process
-	beadList, err := getBeadsToProcess(beadID)
-	if err != nil {
-		return err
-	}
-
-	if len(beadList) == 0 {
-		fmt.Println("No beads to process")
-		return nil
-	}
-
-	// Apply limit
-	if flagLimit > 0 && len(beadList) > flagLimit {
-		beadList = beadList[:flagLimit]
-	}
-
-	// Determine if we're using a feature branch workflow
-	useFeatureBranch := flagBranch != "main"
-
-	// Dry run - just show plan
-	if flagDryRun {
-		fmt.Printf("Dry run: would process %d bead(s):\n", len(beadList))
-		for _, b := range beadList {
-			fmt.Printf("  - %s: %s\n", b.ID, b.Title)
-		}
-		if useFeatureBranch {
-			fmt.Printf("\nFeature branch workflow: PRs target '%s', final PR to 'main'\n", flagBranch)
-		}
-		return nil
-	}
-
-	// Open tracking database
-	database, err := db.Open()
-	if err != nil {
-		return fmt.Errorf("failed to open tracking database: %w", err)
-	}
-	defer database.Close()
-
-	// Get current working directory for Claude
-	workDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	// If using feature branch, ensure it exists
-	if useFeatureBranch {
-		if err := ensureFeatureBranch(flagBranch); err != nil {
-			return fmt.Errorf("failed to setup feature branch: %w", err)
-		}
-	}
-
-	// Process each bead
-	processedCount := 0
-	for _, bead := range beadList {
-		// Record bead as processing in database
-		if err := database.StartBead(bead.ID, bead.Title, claude.SessionName, bead.ID); err != nil {
-			return fmt.Errorf("failed to record bead start: %w", err)
-		}
-
-		if err := processBead(database, bead, workDir); err != nil {
-			// Record failure in database
-			database.FailBead(bead.ID, err.Error())
-			return fmt.Errorf("failed to process bead %s: %w", bead.ID, err)
-		}
-		processedCount++
-	}
-
-	fmt.Printf("Successfully processed %d bead(s)\n", processedCount)
-
-	// Create final PR from feature branch to main if applicable
-	if useFeatureBranch && processedCount > 0 && !flagNoMerge {
-		if err := createFinalPR(flagBranch, beadList); err != nil {
-			return fmt.Errorf("failed to create final PR: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func getBeadsToProcess(beadID string) ([]beads.Bead, error) {
-	return getBeadsToProcessInDir(beadID, "")
-}
-
-func getBeadsToProcessInDir(beadID, dir string) ([]beads.Bead, error) {
-	// If specific bead requested, get just that one (optionally with deps)
+func getBeadsToProcess(beadID, dir string) ([]beads.Bead, error) {
 	if beadID != "" {
 		if flagDeps {
-			return getBeadWithDepsInDir(beadID, dir)
+			return getBeadWithDeps(beadID, dir)
 		}
 		bead, err := beads.GetBeadInDir(beadID, dir)
 		if err != nil {
@@ -305,21 +208,14 @@ func getBeadsToProcessInDir(beadID, dir string) ([]beads.Bead, error) {
 		return []beads.Bead{*bead}, nil
 	}
 
-	// --deps requires a bead ID
 	if flagDeps {
 		return nil, fmt.Errorf("--deps requires a bead ID argument")
 	}
 
-	// Otherwise get all ready beads
 	return beads.GetReadyBeadsInDir(dir)
 }
 
-// getBeadWithDeps returns open dependencies followed by the bead itself.
-func getBeadWithDeps(beadID string) ([]beads.Bead, error) {
-	return getBeadWithDepsInDir(beadID, "")
-}
-
-func getBeadWithDepsInDir(beadID, dir string) ([]beads.Bead, error) {
+func getBeadWithDeps(beadID, dir string) ([]beads.Bead, error) {
 	beadWithDeps, err := beads.GetBeadWithDepsInDir(beadID, dir)
 	if err != nil {
 		return nil, err
@@ -327,11 +223,9 @@ func getBeadWithDepsInDir(beadID, dir string) ([]beads.Bead, error) {
 
 	var result []beads.Bead
 
-	// Add open dependencies first (in order they appear)
 	for _, dep := range beadWithDeps.Dependencies {
 		if dep.DependencyType == "depends_on" && dep.Status == "open" {
-			// Recursively get this dependency with its own deps
-			depBeads, err := getBeadWithDepsInDir(dep.ID, dir)
+			depBeads, err := getBeadWithDeps(dep.ID, dir)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get dependency %s: %w", dep.ID, err)
 			}
@@ -339,7 +233,6 @@ func getBeadWithDepsInDir(beadID, dir string) ([]beads.Bead, error) {
 		}
 	}
 
-	// Add the requested bead last
 	result = append(result, beads.Bead{
 		ID:          beadWithDeps.ID,
 		Title:       beadWithDeps.Title,
@@ -349,72 +242,26 @@ func getBeadWithDepsInDir(beadID, dir string) ([]beads.Bead, error) {
 	return result, nil
 }
 
-func ensureFeatureBranch(branch string) error {
-	return ensureFeatureBranchInDir(branch, "")
-}
-
-func ensureFeatureBranchInDir(branch, dir string) error {
-	// Try to checkout existing branch first
+func ensureFeatureBranch(branch, dir string) error {
 	if err := git.CheckoutInDir(branch, dir); err == nil {
 		return nil
 	}
 
-	// Branch doesn't exist, create it from main
 	if err := git.CheckoutInDir("main", dir); err != nil {
 		return fmt.Errorf("failed to checkout main: %w", err)
 	}
 	if err := git.CreateBranchInDir(branch, dir); err != nil {
 		return fmt.Errorf("failed to create branch %s: %w", branch, err)
 	}
-	// Push the new branch to remote
 	if err := git.PushInDir(branch, dir); err != nil {
 		return fmt.Errorf("failed to push branch %s: %w", branch, err)
 	}
 	return nil
 }
 
-func processBead(database *db.DB, bead beads.Bead, workDir string) error {
-	fmt.Printf("\n=== Processing bead %s: %s ===\n", bead.ID, bead.Title)
-
-	branchName := fmt.Sprintf("bead/%s", bead.ID)
-
-	// Create branch from target branch (feature branch or main)
-	if err := git.Checkout(flagBranch); err != nil {
-		return fmt.Errorf("failed to checkout base branch: %w", err)
-	}
-	if err := git.CreateBranch(branchName); err != nil {
-		return fmt.Errorf("failed to create branch: %w", err)
-	}
-
-	// Build prompt for Claude (includes branch info so Claude can create PR)
-	prompt := buildPrompt(bead, branchName, flagBranch)
-
-	// Run Claude - it will implement, create PR, close bead, and merge
-	fmt.Println("Running Claude Code...")
-	ctx := context.Background()
-	if err := claude.Run(ctx, database, bead.ID, prompt, workDir); err != nil {
-		return fmt.Errorf("claude failed: %w", err)
-	}
-
-	// Return to base branch and pull latest (Claude should have merged)
-	if err := git.Checkout(flagBranch); err != nil {
-		return fmt.Errorf("failed to return to base branch: %w", err)
-	}
-	if err := git.Pull(); err != nil {
-		return fmt.Errorf("failed to pull base branch: %w", err)
-	}
-
-	return nil
-}
-
-func createFinalPR(featureBranch string, processedBeads []beads.Bead) error {
-	return createFinalPRInDir(featureBranch, processedBeads, "")
-}
-
-func createFinalPRInDir(featureBranch string, processedBeads []beads.Bead, dir string) error {
+func createFinalPR(featureBranch string, processedBeads []beads.Bead, dir string) error {
 	fmt.Printf("\n=== Creating final PR: %s → main ===\n", featureBranch)
 
-	// Check if there are commits ahead of main
 	hasCommits, err := git.HasCommitsAheadInDir("main", dir)
 	if err != nil {
 		return fmt.Errorf("failed to check commits: %w", err)
@@ -425,10 +272,8 @@ func createFinalPRInDir(featureBranch string, processedBeads []beads.Bead, dir s
 		return nil
 	}
 
-	// Build PR title and body
 	prTitle := fmt.Sprintf("Feature: %s", featureBranch)
-	var prBody string
-	prBody = "## Beads implemented:\n"
+	prBody := "## Beads implemented:\n"
 	for _, b := range processedBeads {
 		prBody += fmt.Sprintf("- %s: %s\n", b.ID, b.Title)
 	}
@@ -446,7 +291,6 @@ func createFinalPRInDir(featureBranch string, processedBeads []beads.Bead, dir s
 	}
 	fmt.Println("Final PR merged successfully")
 
-	// Return to main
 	if err := git.CheckoutInDir("main", dir); err != nil {
 		return fmt.Errorf("failed to checkout main: %w", err)
 	}
@@ -458,7 +302,7 @@ func createFinalPRInDir(featureBranch string, processedBeads []beads.Bead, dir s
 }
 
 func buildPrompt(bead beads.Bead, branchName, baseBranch string) string {
-	prompt := fmt.Sprintf(`You are implementing a task from the beads issue tracker.
+	return fmt.Sprintf(`You are implementing a task from the beads issue tracker.
 
 Bead ID: %s
 Title: %s
@@ -479,6 +323,4 @@ Instructions:
 8. Mark completion by running: co complete %s --pr <PR_URL>
 
 Focus on implementing the task correctly and completely.`, bead.ID, bead.Title, branchName, baseBranch, bead.Description, baseBranch, bead.ID, bead.ID)
-
-	return prompt
 }
