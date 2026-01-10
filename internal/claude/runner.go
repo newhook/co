@@ -45,18 +45,42 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 	if TabExists(ctx, sessionName, paneName) {
 		fmt.Printf("Tab %s already exists, skipping claude launch\n", paneName)
 	} else {
-		// Create a new tab and run Claude directly
+		// Create a new tab with the task name
 		tabArgs := []string{
 			"-s", sessionName, "action", "new-tab",
 			"--cwd", workDir,
 			"--name", paneName,
-			"-r", "claude",
-			"-x", "--dangerously-skip-permissions",
 		}
 		fmt.Printf("Running: zellij %s\n", strings.Join(tabArgs, " "))
 		tabCmd := exec.CommandContext(ctx, "zellij", tabArgs...)
 		if err := tabCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to create tab and run claude: %w", err)
+			return nil, fmt.Errorf("failed to create tab: %w", err)
+		}
+
+		// Wait a moment for tab to be created
+		time.Sleep(500 * time.Millisecond)
+
+		// Switch to the new tab
+		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", paneName}
+		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
+		if err := switchCmd.Run(); err != nil {
+			// Non-fatal: just log it
+			fmt.Printf("Warning: failed to switch to tab: %v\n", err)
+		}
+
+		// Run Claude in the new tab
+		runArgs := []string{"-s", sessionName, "action", "write-chars", "claude --dangerously-skip-permissions"}
+		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
+		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
+		if err := runCmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to write claude command: %w", err)
+		}
+
+		// Send Enter to execute the command
+		enterArgs := []string{"-s", sessionName, "action", "write", "13"}
+		enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
+		if err := enterCmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to execute claude command: %w", err)
 		}
 
 		// Wait for Claude to initialize
