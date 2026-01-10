@@ -1,7 +1,9 @@
 -- Schema for co project tracking database
+-- Reference schema for sqlc code generation
+-- The actual source of truth is in internal/db/migrations/
 
 -- Beads table: tracks individual beads
-CREATE TABLE IF NOT EXISTS beads (
+CREATE TABLE beads (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'pending',
     title TEXT,
@@ -16,10 +18,10 @@ CREATE TABLE IF NOT EXISTS beads (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_beads_status ON beads(status);
+CREATE INDEX idx_beads_status ON beads(status);
 
 -- Tasks table: tracks virtual tasks (groups of beads)
-CREATE TABLE IF NOT EXISTS tasks (
+CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'pending',
     task_type TEXT NOT NULL DEFAULT 'implement',
@@ -35,10 +37,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX idx_tasks_status ON tasks(status);
 
 -- Task-beads junction table: links tasks to their beads
-CREATE TABLE IF NOT EXISTS task_beads (
+CREATE TABLE task_beads (
     task_id TEXT NOT NULL,
     bead_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -46,11 +48,11 @@ CREATE TABLE IF NOT EXISTS task_beads (
     FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_task_beads_task_id ON task_beads(task_id);
-CREATE INDEX IF NOT EXISTS idx_task_beads_bead_id ON task_beads(bead_id);
+CREATE INDEX idx_task_beads_task_id ON task_beads(task_id);
+CREATE INDEX idx_task_beads_bead_id ON task_beads(bead_id);
 
 -- Complexity cache: stores LLM complexity estimates
-CREATE TABLE IF NOT EXISTS complexity_cache (
+CREATE TABLE complexity_cache (
     bead_id TEXT PRIMARY KEY,
     description_hash TEXT NOT NULL,
     complexity_score INT NOT NULL,
@@ -58,4 +60,4 @@ CREATE TABLE IF NOT EXISTS complexity_cache (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_complexity_cache_hash ON complexity_cache(description_hash);
+CREATE INDEX idx_complexity_cache_hash ON complexity_cache(description_hash);
