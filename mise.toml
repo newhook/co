@@ -1,0 +1,14 @@
+[tools]
+go = "1.25"
+"aqua:steveyegge/beads" = "v0.46.0"
+
+[env]
+GOPATH = "{{env.HOME}}/go"
+
+[tasks.build]
+description = "Build the ac binary"
+run = "go build -o ac ."
+
+[tasks.test]
+description = "Run tests"
+run = "go test ./..."
