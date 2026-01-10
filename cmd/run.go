@@ -11,17 +11,20 @@ import (
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/task"
 	"github.com/newhook/co/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
 var (
-	flagBranch  string
-	flagLimit   int
-	flagDryRun  bool
-	flagNoMerge bool
-	flagDeps    bool
-	flagProject string
+	flagBranch   string
+	flagLimit    int
+	flagDryRun   bool
+	flagNoMerge  bool
+	flagDeps     bool
+	flagProject  string
+	flagTaskMode bool
+	flagBudget   int
 )
 
 var runCmd = &cobra.Command{
@@ -48,6 +51,8 @@ func init() {
 	runCmd.Flags().BoolVar(&flagNoMerge, "no-merge", false, "create PRs but don't merge them")
 	runCmd.Flags().BoolVar(&flagDeps, "deps", false, "also process open dependencies of the specified bead")
 	runCmd.Flags().StringVar(&flagProject, "project", "", "project directory (default: auto-detect from cwd)")
+	runCmd.Flags().BoolVar(&flagTaskMode, "task", false, "use task-based mode (group beads by complexity)")
+	runCmd.Flags().IntVar(&flagBudget, "budget", 70, "complexity budget per task (1-100, used with --task)")
 }
 
 func runBeads(cmd *cobra.Command, args []string) error {
@@ -82,7 +87,19 @@ func runBeads(cmd *cobra.Command, args []string) error {
 	// Determine if we're using a feature branch workflow
 	useFeatureBranch := flagBranch != "main"
 
-	// Dry run - just show plan
+	// Open project's tracking database (needed for both dry-run with --task and actual processing)
+	database, err := proj.OpenDB()
+	if err != nil {
+		return fmt.Errorf("failed to open tracking database: %w", err)
+	}
+	defer proj.Close()
+
+	// Task mode: group beads into tasks
+	if flagTaskMode {
+		return runTaskMode(proj, database, beadList, useFeatureBranch)
+	}
+
+	// Dry run - just show plan (legacy mode)
 	if flagDryRun {
 		fmt.Printf("Dry run: would process %d bead(s):\n", len(beadList))
 		for _, b := range beadList {
@@ -95,13 +112,6 @@ func runBeads(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Open project's tracking database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open tracking database: %w", err)
-	}
-	defer proj.Close()
-
 	// If using feature branch, ensure it exists in the main repo
 	if useFeatureBranch {
 		if err := ensureFeatureBranch(flagBranch, proj.MainRepoPath()); err != nil {
@@ -109,7 +119,7 @@ func runBeads(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Process each bead with worktree isolation
+	// Process each bead with worktree isolation (legacy mode)
 	processedCount := 0
 	for _, bead := range beadList {
 		sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
@@ -141,6 +151,155 @@ func runBeads(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// runTaskMode runs the task-based processing mode.
+func runTaskMode(proj *project.Project, database *db.DB, beadList []beads.Bead, useFeatureBranch bool) error {
+	fmt.Println("Task mode enabled: grouping beads by complexity...")
+
+	// Get beads with dependencies for planning
+	beadsWithDeps, err := getBeadsWithDeps(beadList, proj.MainRepoPath())
+	if err != nil {
+		return fmt.Errorf("failed to get bead dependencies: %w", err)
+	}
+
+	// Create planner with complexity estimator
+	estimator := task.NewLLMEstimator(database)
+	planner := task.NewDefaultPlanner(estimator)
+
+	// Plan tasks
+	fmt.Printf("Planning tasks with budget %d...\n", flagBudget)
+	tasks, err := planner.Plan(beadsWithDeps, flagBudget)
+	if err != nil {
+		return fmt.Errorf("failed to plan tasks: %w", err)
+	}
+
+	if len(tasks) == 0 {
+		fmt.Println("No tasks to process")
+		return nil
+	}
+
+	// Dry run - show task assignments
+	if flagDryRun {
+		fmt.Printf("\nDry run: would process %d task(s):\n", len(tasks))
+		for _, t := range tasks {
+			fmt.Printf("\n  Task %s (complexity: %d):\n", t.ID, t.Complexity)
+			for _, b := range t.Beads {
+				fmt.Printf("    - %s: %s\n", b.ID, b.Title)
+			}
+		}
+		if useFeatureBranch {
+			fmt.Printf("\nFeature branch workflow: PRs target '%s', final PR to 'main'\n", flagBranch)
+		}
+		fmt.Printf("\nWorktrees will be created at: %s/<task-id>/\n", proj.Root)
+		return nil
+	}
+
+	// If using feature branch, ensure it exists in the main repo
+	if useFeatureBranch {
+		if err := ensureFeatureBranch(flagBranch, proj.MainRepoPath()); err != nil {
+			return fmt.Errorf("failed to setup feature branch: %w", err)
+		}
+	}
+
+	// Process each task
+	processedCount := 0
+	for _, t := range tasks {
+		// Create task in database
+		if err := database.CreateTask(t.ID, t.BeadIDs, t.Complexity); err != nil {
+			return fmt.Errorf("failed to create task in database: %w", err)
+		}
+
+		success, err := processTaskWithWorktree(proj, database, t)
+		if err != nil {
+			// Record failure in database
+			database.FailTask(t.ID, err.Error())
+			return fmt.Errorf("failed to process task %s: %w", t.ID, err)
+		}
+
+		if success {
+			processedCount++
+		}
+	}
+
+	fmt.Printf("Successfully processed %d task(s)\n", processedCount)
+
+	// Create final PR from feature branch to main if applicable
+	if useFeatureBranch && processedCount > 0 && !flagNoMerge {
+		// Collect all beads from tasks for PR description
+		var allBeads []beads.Bead
+		for _, t := range tasks {
+			allBeads = append(allBeads, t.Beads...)
+		}
+		if err := createFinalPR(flagBranch, allBeads, proj.MainRepoPath()); err != nil {
+			return fmt.Errorf("failed to create final PR: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// getBeadsWithDeps retrieves full dependency information for beads.
+func getBeadsWithDeps(beadList []beads.Bead, dir string) ([]beads.BeadWithDeps, error) {
+	var result []beads.BeadWithDeps
+	for _, b := range beadList {
+		bwd, err := beads.GetBeadWithDepsInDir(b.ID, dir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get deps for %s: %w", b.ID, err)
+		}
+		result = append(result, *bwd)
+	}
+	return result, nil
+}
+
+// processTaskWithWorktree processes a task using an isolated worktree.
+func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task) (bool, error) {
+	fmt.Printf("\n=== Processing task %s (%d beads) ===\n", t.ID, len(t.Beads))
+	for _, b := range t.Beads {
+		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
+	}
+
+	branchName := fmt.Sprintf("task/%s", t.ID)
+	worktreePath := proj.WorktreePath(t.ID)
+	mainRepoPath := proj.MainRepoPath()
+
+	// Check if worktree already exists
+	if worktree.ExistsPath(worktreePath) {
+		fmt.Printf("Worktree already exists at %s, resuming...\n", worktreePath)
+	} else {
+		// Create worktree from the base branch
+		fmt.Printf("Creating worktree at %s...\n", worktreePath)
+		if err := worktree.Create(mainRepoPath, worktreePath, branchName); err != nil {
+			return false, fmt.Errorf("failed to create worktree: %w", err)
+		}
+	}
+
+	// Start task in database
+	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
+	if err := database.StartTask(t.ID, sessionName, t.ID, worktreePath); err != nil {
+		return false, fmt.Errorf("failed to start task in database: %w", err)
+	}
+
+	// Build prompt for Claude
+	prompt := claude.BuildTaskPrompt(t.ID, t.Beads, branchName, flagBranch)
+
+	// Run Claude in the worktree directory
+	fmt.Println("Running Claude Code...")
+	ctx := context.Background()
+	projectName := proj.Config.Project.Name
+	if err := claude.RunTaskInProject(ctx, database, t.ID, t.Beads, prompt, worktreePath, projectName); err != nil {
+		fmt.Printf("Claude failed: %v\n", err)
+		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
+		return false, fmt.Errorf("claude failed: %w", err)
+	}
+
+	// Success - clean up worktree
+	fmt.Printf("Cleaning up worktree %s...\n", worktreePath)
+	if err := worktree.Remove(mainRepoPath, worktreePath); err != nil {
+		fmt.Printf("Warning: failed to remove worktree: %v\n", err)
+	}
+
+	return true, nil
 }
 
 // findProject finds the project from --project flag or current directory.
