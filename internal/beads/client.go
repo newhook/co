@@ -13,6 +13,23 @@ type Bead struct {
 	Description string `json:"description"`
 }
 
+// Dependency represents a dependency relationship.
+type Dependency struct {
+	ID             string `json:"id"`
+	Title          string `json:"title"`
+	Status         string `json:"status"`
+	DependencyType string `json:"dependency_type"`
+}
+
+// BeadWithDeps represents a bead with its dependency information.
+type BeadWithDeps struct {
+	ID           string       `json:"id"`
+	Title        string       `json:"title"`
+	Description  string       `json:"description"`
+	Status       string       `json:"status"`
+	Dependencies []Dependency `json:"dependencies"`
+}
+
 // GetReadyBeads queries the beads system for work items that are ready to be processed.
 func GetReadyBeads() ([]Bead, error) {
 	cmd := exec.Command("bd", "ready", "--json")
@@ -38,6 +55,26 @@ func GetBead(id string) (*Bead, error) {
 	}
 
 	var beads []Bead
+	if err := json.Unmarshal(output, &beads); err != nil {
+		return nil, fmt.Errorf("failed to parse bead %s: %w", id, err)
+	}
+
+	if len(beads) == 0 {
+		return nil, fmt.Errorf("bead %s not found", id)
+	}
+
+	return &beads[0], nil
+}
+
+// GetBeadWithDeps retrieves a single bead by ID including its dependencies.
+func GetBeadWithDeps(id string) (*BeadWithDeps, error) {
+	cmd := exec.Command("bd", "show", id, "--json")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bead %s: %w", id, err)
+	}
+
+	var beads []BeadWithDeps
 	if err := json.Unmarshal(output, &beads); err != nil {
 		return nil, fmt.Errorf("failed to parse bead %s: %w", id, err)
 	}

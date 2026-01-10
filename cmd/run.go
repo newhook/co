@@ -14,36 +14,46 @@ import (
 
 var (
 	flagBranch  string
-	flagBead    string
 	flagLimit   int
 	flagDryRun  bool
 	flagNoMerge bool
 )
 
 var runCmd = &cobra.Command{
-	Use:   "run",
+	Use:   "run [bead-id]",
 	Short: "Process ready beads with Claude Code",
 	Long: `Run processes all ready beads by invoking Claude Code to implement
 each task and creating PRs for the changes.
+
+If a bead ID is provided as an argument, only that bead will be processed.
+
+When --branch is specified (not "main"), PRs target that feature branch.
+After all beads complete, a final PR is created from the feature branch to main.
 
 The workflow for each bead:
 1. Claude Code creates a branch and implements the changes
 2. A PR is created and merged
 3. The bead is closed with a summary`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runBeads,
 }
 
 func init() {
 	runCmd.Flags().StringVarP(&flagBranch, "branch", "b", "main", "target branch for PRs")
-	runCmd.Flags().StringVar(&flagBead, "bead", "", "process only this specific bead ID")
 	runCmd.Flags().IntVarP(&flagLimit, "limit", "n", 0, "maximum number of beads to process (0 = unlimited)")
 	runCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "show plan without executing")
 	runCmd.Flags().BoolVar(&flagNoMerge, "no-merge", false, "create PRs but don't merge them")
 }
 
 func runBeads(cmd *cobra.Command, args []string) error {
+	// Check if a specific bead ID was provided as positional argument
+	var beadID string
+	if len(args) > 0 {
+		beadID = args[0]
+	}
+
 	// Get beads to process
-	beadList, err := getBeadsToProcess()
+	beadList, err := getBeadsToProcess(beadID)
 	if err != nil {
 		return err
 	}
@@ -58,11 +68,17 @@ func runBeads(cmd *cobra.Command, args []string) error {
 		beadList = beadList[:flagLimit]
 	}
 
+	// Determine if we're using a feature branch workflow
+	useFeatureBranch := flagBranch != "main"
+
 	// Dry run - just show plan
 	if flagDryRun {
 		fmt.Printf("Dry run: would process %d bead(s):\n", len(beadList))
 		for _, b := range beadList {
 			fmt.Printf("  - %s: %s\n", b.ID, b.Title)
+		}
+		if useFeatureBranch {
+			fmt.Printf("\nFeature branch workflow: PRs target '%s', final PR to 'main'\n", flagBranch)
 		}
 		return nil
 	}
@@ -73,21 +89,38 @@ func runBeads(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
+	// If using feature branch, ensure it exists
+	if useFeatureBranch {
+		if err := ensureFeatureBranch(flagBranch); err != nil {
+			return fmt.Errorf("failed to setup feature branch: %w", err)
+		}
+	}
+
 	// Process each bead
+	processedCount := 0
 	for _, bead := range beadList {
 		if err := processBead(bead, workDir); err != nil {
 			return fmt.Errorf("failed to process bead %s: %w", bead.ID, err)
 		}
+		processedCount++
 	}
 
-	fmt.Printf("Successfully processed %d bead(s)\n", len(beadList))
+	fmt.Printf("Successfully processed %d bead(s)\n", processedCount)
+
+	// Create final PR from feature branch to main if applicable
+	if useFeatureBranch && processedCount > 0 && !flagNoMerge {
+		if err := createFinalPR(flagBranch, beadList); err != nil {
+			return fmt.Errorf("failed to create final PR: %w", err)
+		}
+	}
+
 	return nil
 }
 
-func getBeadsToProcess() ([]beads.Bead, error) {
+func getBeadsToProcess(beadID string) ([]beads.Bead, error) {
 	// If specific bead requested, get just that one
-	if flagBead != "" {
-		bead, err := beads.GetBead(flagBead)
+	if beadID != "" {
+		bead, err := beads.GetBead(beadID)
 		if err != nil {
 			return nil, err
 		}
@@ -98,12 +131,32 @@ func getBeadsToProcess() ([]beads.Bead, error) {
 	return beads.GetReadyBeads()
 }
 
+func ensureFeatureBranch(branch string) error {
+	// Try to checkout existing branch first
+	if err := git.Checkout(branch); err == nil {
+		return nil
+	}
+
+	// Branch doesn't exist, create it from main
+	if err := git.Checkout("main"); err != nil {
+		return fmt.Errorf("failed to checkout main: %w", err)
+	}
+	if err := git.CreateBranch(branch); err != nil {
+		return fmt.Errorf("failed to create branch %s: %w", branch, err)
+	}
+	// Push the new branch to remote
+	if err := git.Push(branch); err != nil {
+		return fmt.Errorf("failed to push branch %s: %w", branch, err)
+	}
+	return nil
+}
+
 func processBead(bead beads.Bead, workDir string) error {
 	fmt.Printf("\n=== Processing bead %s: %s ===\n", bead.ID, bead.Title)
 
 	branchName := fmt.Sprintf("bead/%s", bead.ID)
 
-	// Create branch from base
+	// Create branch from target branch (feature branch or main)
 	if err := git.Checkout(flagBranch); err != nil {
 		return fmt.Errorf("failed to checkout base branch: %w", err)
 	}
@@ -154,7 +207,7 @@ func processBead(bead beads.Bead, workDir string) error {
 		return fmt.Errorf("failed to close bead: %w", err)
 	}
 
-	// Create PR
+	// Create PR targeting the base branch (feature branch or main)
 	prTitle := fmt.Sprintf("%s: %s", bead.ID, bead.Title)
 	prBody := fmt.Sprintf("Implements bead %s\n\n%s", bead.ID, bead.Description)
 	fmt.Println("Creating PR...")
@@ -173,9 +226,58 @@ func processBead(bead beads.Bead, workDir string) error {
 		fmt.Println("PR merged successfully")
 	}
 
-	// Return to base branch
+	// Return to base branch and pull latest
 	if err := git.Checkout(flagBranch); err != nil {
 		return fmt.Errorf("failed to return to base branch: %w", err)
+	}
+	if err := git.Pull(); err != nil {
+		return fmt.Errorf("failed to pull base branch: %w", err)
+	}
+
+	return nil
+}
+
+func createFinalPR(featureBranch string, processedBeads []beads.Bead) error {
+	fmt.Printf("\n=== Creating final PR: %s → main ===\n", featureBranch)
+
+	// Check if there are commits ahead of main
+	hasCommits, err := git.HasCommitsAhead("main")
+	if err != nil {
+		return fmt.Errorf("failed to check commits: %w", err)
+	}
+
+	if !hasCommits {
+		fmt.Println("No changes to merge to main")
+		return nil
+	}
+
+	// Build PR title and body
+	prTitle := fmt.Sprintf("Feature: %s", featureBranch)
+	var prBody string
+	prBody = "## Beads implemented:\n"
+	for _, b := range processedBeads {
+		prBody += fmt.Sprintf("- %s: %s\n", b.ID, b.Title)
+	}
+
+	fmt.Println("Creating final PR...")
+	prURL, err := github.CreatePR(featureBranch, "main", prTitle, prBody)
+	if err != nil {
+		return fmt.Errorf("failed to create final PR: %w", err)
+	}
+	fmt.Printf("Created final PR: %s\n", prURL)
+
+	fmt.Println("Merging final PR...")
+	if err := github.MergePR(prURL); err != nil {
+		return fmt.Errorf("failed to merge final PR: %w", err)
+	}
+	fmt.Println("Final PR merged successfully")
+
+	// Return to main
+	if err := git.Checkout("main"); err != nil {
+		return fmt.Errorf("failed to checkout main: %w", err)
+	}
+	if err := git.Pull(); err != nil {
+		return fmt.Errorf("failed to pull main: %w", err)
 	}
 
 	return nil

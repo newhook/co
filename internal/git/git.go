@@ -72,3 +72,12 @@ func HasCommitsAhead(base string) (bool, error) {
 	count := strings.TrimSpace(string(output))
 	return count != "0", nil
 }
+
+// Pull pulls the latest changes from the remote for the current branch.
+func Pull() error {
+	cmd := exec.Command("git", "pull")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to pull: %w", err)
+	}
+	return nil
+}
