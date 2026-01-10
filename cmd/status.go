@@ -26,7 +26,7 @@ func init() {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	proj, err := project.FindWithFlag(flagStatusProject)
+	proj, err := project.Find(flagStatusProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}

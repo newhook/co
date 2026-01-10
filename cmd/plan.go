@@ -42,7 +42,7 @@ func init() {
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
-	proj, err := project.FindWithFlag(flagPlanProject)
+	proj, err := project.Find(flagPlanProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}

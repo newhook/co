@@ -54,7 +54,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		taskID = args[0]
 	}
 
-	proj, err := project.FindWithFlag(flagProject)
+	proj, err := project.Find(flagProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}

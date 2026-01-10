@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	flagForce bool
+	flagForce       bool
+	flagProjProject string
 )
 
 var projCmd = &cobra.Command{
@@ -55,6 +56,8 @@ var projStatusCmd = &cobra.Command{
 
 func init() {
 	projDestroyCmd.Flags().BoolVarP(&flagForce, "force", "f", false, "skip confirmation prompt")
+	projDestroyCmd.Flags().StringVar(&flagProjProject, "project", "", "project directory (default: auto-detect from cwd)")
+	projStatusCmd.Flags().StringVar(&flagProjProject, "project", "", "project directory (default: auto-detect from cwd)")
 
 	projCmd.AddCommand(projCreateCmd)
 	projCmd.AddCommand(projDestroyCmd)
@@ -82,13 +85,7 @@ func runProjCreate(cmd *cobra.Command, args []string) error {
 }
 
 func runProjDestroy(cmd *cobra.Command, args []string) error {
-	// Find project from current directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	proj, err := project.Find(cwd)
+	proj, err := project.Find(flagProjProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -147,13 +144,7 @@ func runProjDestroy(cmd *cobra.Command, args []string) error {
 }
 
 func runProjStatus(cmd *cobra.Command, args []string) error {
-	// Find project from current directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	proj, err := project.Find(cwd)
+	proj, err := project.Find(flagProjProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}

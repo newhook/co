@@ -28,7 +28,7 @@ func init() {
 func runComplete(cmd *cobra.Command, args []string) error {
 	beadID := args[0]
 
-	proj, err := project.FindWithFlag(flagCompleteProject)
+	proj, err := project.Find(flagCompleteProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
