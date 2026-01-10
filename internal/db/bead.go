@@ -15,6 +15,7 @@ type TrackedBead struct {
 	ErrorMessage  string
 	ZellijSession string
 	ZellijPane    string
+	WorktreePath  string
 	StartedAt     *time.Time
 	CompletedAt   *time.Time
 	CreatedAt     time.Time
@@ -23,19 +24,25 @@ type TrackedBead struct {
 
 // StartBead marks a bead as processing with session info.
 func (db *DB) StartBead(id, title, zellijSession, zellijPane string) error {
+	return db.StartBeadWithWorktree(id, title, zellijSession, zellijPane, "")
+}
+
+// StartBeadWithWorktree marks a bead as processing with session and worktree info.
+func (db *DB) StartBeadWithWorktree(id, title, zellijSession, zellijPane, worktreePath string) error {
 	now := time.Now()
 	_, err := db.Exec(`
-		INSERT INTO beads (id, status, title, zellij_session, zellij_pane, started_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO beads (id, status, title, zellij_session, zellij_pane, worktree_path, started_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			status = ?,
 			title = ?,
 			zellij_session = ?,
 			zellij_pane = ?,
+			worktree_path = ?,
 			started_at = ?,
 			updated_at = ?
-	`, id, StatusProcessing, title, zellijSession, zellijPane, now, now,
-		StatusProcessing, title, zellijSession, zellijPane, now, now)
+	`, id, StatusProcessing, title, zellijSession, zellijPane, worktreePath, now, now,
+		StatusProcessing, title, zellijSession, zellijPane, worktreePath, now, now)
 	if err != nil {
 		return fmt.Errorf("failed to start bead %s: %w", id, err)
 	}
@@ -88,7 +95,7 @@ func (db *DB) FailBead(id, errMsg string) error {
 func (db *DB) GetBead(id string) (*TrackedBead, error) {
 	row := db.QueryRow(`
 		SELECT id, status, title, pr_url, error_message, zellij_session, zellij_pane,
-		       started_at, completed_at, created_at, updated_at
+		       worktree_path, started_at, completed_at, created_at, updated_at
 		FROM beads WHERE id = ?
 	`, id)
 
@@ -116,13 +123,13 @@ func (db *DB) ListBeads(statusFilter string) ([]*TrackedBead, error) {
 	if statusFilter == "" {
 		rows, err = db.Query(`
 			SELECT id, status, title, pr_url, error_message, zellij_session, zellij_pane,
-			       started_at, completed_at, created_at, updated_at
+			       worktree_path, started_at, completed_at, created_at, updated_at
 			FROM beads ORDER BY created_at DESC
 		`)
 	} else {
 		rows, err = db.Query(`
 			SELECT id, status, title, pr_url, error_message, zellij_session, zellij_pane,
-			       started_at, completed_at, created_at, updated_at
+			       worktree_path, started_at, completed_at, created_at, updated_at
 			FROM beads WHERE status = ? ORDER BY created_at DESC
 		`, statusFilter)
 	}
@@ -159,11 +166,11 @@ func (db *DB) GetBeadSession(id string) (session, pane string, err error) {
 // scanBead scans a single row into a TrackedBead.
 func scanBead(row *sql.Row) (*TrackedBead, error) {
 	var b TrackedBead
-	var prURL, errMsg, session, pane sql.NullString
+	var prURL, errMsg, session, pane, worktreePath sql.NullString
 	var startedAt, completedAt sql.NullTime
 
 	err := row.Scan(&b.ID, &b.Status, &b.Title, &prURL, &errMsg, &session, &pane,
-		&startedAt, &completedAt, &b.CreatedAt, &b.UpdatedAt)
+		&worktreePath, &startedAt, &completedAt, &b.CreatedAt, &b.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -175,6 +182,7 @@ func scanBead(row *sql.Row) (*TrackedBead, error) {
 	b.ErrorMessage = errMsg.String
 	b.ZellijSession = session.String
 	b.ZellijPane = pane.String
+	b.WorktreePath = worktreePath.String
 	if startedAt.Valid {
 		b.StartedAt = &startedAt.Time
 	}
@@ -187,11 +195,11 @@ func scanBead(row *sql.Row) (*TrackedBead, error) {
 // scanBeadRow scans a row from Rows into a TrackedBead.
 func scanBeadRow(rows *sql.Rows) (*TrackedBead, error) {
 	var b TrackedBead
-	var prURL, errMsg, session, pane sql.NullString
+	var prURL, errMsg, session, pane, worktreePath sql.NullString
 	var startedAt, completedAt sql.NullTime
 
 	err := rows.Scan(&b.ID, &b.Status, &b.Title, &prURL, &errMsg, &session, &pane,
-		&startedAt, &completedAt, &b.CreatedAt, &b.UpdatedAt)
+		&worktreePath, &startedAt, &completedAt, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan bead: %w", err)
 	}
@@ -200,6 +208,7 @@ func scanBeadRow(rows *sql.Rows) (*TrackedBead, error) {
 	b.ErrorMessage = errMsg.String
 	b.ZellijSession = session.String
 	b.ZellijPane = pane.String
+	b.WorktreePath = worktreePath.String
 	if startedAt.Valid {
 		b.StartedAt = &startedAt.Time
 	}

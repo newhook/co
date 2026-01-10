@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/newhook/autoclaude/internal/db"
+	"github.com/newhook/autoclaude/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -19,11 +21,21 @@ Without ID: Show all beads currently processing with their session/pane.`,
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	database, err := db.Open()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	proj, err := project.Find(cwd)
+	if err != nil {
+		return fmt.Errorf("not in a project directory: %w", err)
+	}
+
+	database, err := proj.OpenDB()
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
-	defer database.Close()
+	defer proj.Close()
 
 	// If specific bead requested
 	if len(args) > 0 {
@@ -70,6 +82,9 @@ func printBeadDetails(bead *db.TrackedBead) {
 	}
 	if bead.ZellijPane != "" {
 		fmt.Printf("Pane:    %s\n", bead.ZellijPane)
+	}
+	if bead.WorktreePath != "" {
+		fmt.Printf("Worktree: %s\n", bead.WorktreePath)
 	}
 	if bead.PRURL != "" {
 		fmt.Printf("PR:      %s\n", bead.PRURL)

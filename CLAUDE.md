@@ -13,24 +13,46 @@ go test ./...
 
 - `main.go` - CLI entry point (cobra)
 - `cmd/run.go` - Main run command
+- `cmd/proj.go` - Project management (create/destroy/status)
 - `internal/beads/` - Beads database client (bd CLI wrapper)
 - `internal/claude/` - Claude Code invocation
+- `internal/db/` - SQLite tracking database
+- `internal/git/` - Git operations
 - `internal/github/` - PR creation and merging (gh CLI)
+- `internal/project/` - Project discovery and configuration
+- `internal/worktree/` - Git worktree operations
 
 ## External Dependencies
 
-Uses CLI tools: `bd`, `claude`, `gh`, `git`
+Uses CLI tools: `bd`, `claude`, `gh`, `git`, `zellij`
 
 ## PR Requirements
 
 All PRs must be squash merged.
 
+## Project Model
+
+All commands require a project context. Projects are created with `co proj create` and have this structure:
+
+```
+<project-dir>/
+├── .co/
+│   ├── config.toml      # Project configuration
+│   └── tracking.db      # SQLite coordination database
+├── main/                # Symlink (local) or clone (GitHub)
+│   └── .beads/          # Beads issue tracker
+└── <task-id>/           # Worktrees for active tasks
+```
+
 ## Workflow
 
-1. Query ready beads via `bd ready --json`
-2. For each bead:
-   - Claude Code creates branch, implements changes, and commits
-   - Close bead with `bd close <id> --reason "..."` (before PR merge)
+1. Create project: `co proj create <dir> <repo>`
+2. Query ready beads via `bd ready --json` from `main/`
+3. For each bead:
+   - Create worktree: `git worktree add ../<task-id> -b bead/<task-id>`
+   - Claude Code implements changes in isolated worktree
+   - Close bead with `bd close <id> --reason "..."`
    - Create PR and merge it
+   - Remove worktree on success (keep on failure for debugging)
 
-Note: Branch creation and commits are handled by Claude Code, not the manager. Beads are closed before PR merge so the close reason can reference the implementation details while context is fresh.
+Zellij sessions are named `co-<project-name>` for isolation between projects.

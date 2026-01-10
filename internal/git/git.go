@@ -18,7 +18,15 @@ func GetCurrentBranch() (string, error) {
 
 // Checkout switches to the specified branch.
 func Checkout(branch string) error {
+	return CheckoutInDir(branch, "")
+}
+
+// CheckoutInDir switches to the specified branch in a specific directory.
+func CheckoutInDir(branch, dir string) error {
 	cmd := exec.Command("git", "checkout", branch)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to checkout branch %s: %w", branch, err)
 	}
@@ -36,7 +44,15 @@ func DeleteBranch(branch string) error {
 
 // Push pushes the specified branch to origin.
 func Push(branch string) error {
+	return PushInDir(branch, "")
+}
+
+// PushInDir pushes the specified branch to origin in a specific directory.
+func PushInDir(branch, dir string) error {
 	cmd := exec.Command("git", "push", "-u", "origin", branch)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to push branch %s: %w", branch, err)
 	}
@@ -46,11 +62,19 @@ func Push(branch string) error {
 // CreateBranch creates a new branch from the current HEAD and switches to it.
 // If the branch already exists, it checks out the existing branch instead.
 func CreateBranch(branch string) error {
+	return CreateBranchInDir(branch, "")
+}
+
+// CreateBranchInDir creates a new branch in a specific directory.
+func CreateBranchInDir(branch, dir string) error {
 	// Try to create new branch
 	cmd := exec.Command("git", "checkout", "-b", branch)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	if err := cmd.Run(); err != nil {
 		// Branch likely exists, try to check it out
-		if checkoutErr := Checkout(branch); checkoutErr != nil {
+		if checkoutErr := CheckoutInDir(branch, dir); checkoutErr != nil {
 			return fmt.Errorf("failed to create or checkout branch %s: %w", branch, err)
 		}
 	}
@@ -69,7 +93,15 @@ func HasChanges() (bool, error) {
 
 // HasCommitsAhead returns true if the current branch has commits ahead of the given base branch.
 func HasCommitsAhead(base string) (bool, error) {
+	return HasCommitsAheadInDir(base, "")
+}
+
+// HasCommitsAheadInDir returns true if the current branch has commits ahead of the given base branch in a specific directory.
+func HasCommitsAheadInDir(base, dir string) (bool, error) {
 	cmd := exec.Command("git", "rev-list", "--count", base+"..HEAD")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	output, err := cmd.Output()
 	if err != nil {
 		return false, fmt.Errorf("failed to check commits ahead: %w", err)
@@ -80,7 +112,15 @@ func HasCommitsAhead(base string) (bool, error) {
 
 // Pull pulls the latest changes from the remote for the current branch.
 func Pull() error {
+	return PullInDir("")
+}
+
+// PullInDir pulls the latest changes in a specific directory.
+func PullInDir(dir string) error {
 	cmd := exec.Command("git", "pull")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to pull: %w", err)
 	}

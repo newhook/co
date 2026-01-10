@@ -32,7 +32,15 @@ type BeadWithDeps struct {
 
 // GetReadyBeads queries the beads system for work items that are ready to be processed.
 func GetReadyBeads() ([]Bead, error) {
+	return GetReadyBeadsInDir("")
+}
+
+// GetReadyBeadsInDir queries beads in a specific directory.
+func GetReadyBeadsInDir(dir string) ([]Bead, error) {
 	cmd := exec.Command("bd", "ready", "--json")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to run bd ready: %w", err)
@@ -48,7 +56,15 @@ func GetReadyBeads() ([]Bead, error) {
 
 // GetBead retrieves a single bead by ID.
 func GetBead(id string) (*Bead, error) {
+	return GetBeadInDir(id, "")
+}
+
+// GetBeadInDir retrieves a single bead by ID in a specific directory.
+func GetBeadInDir(id, dir string) (*Bead, error) {
 	cmd := exec.Command("bd", "show", id, "--json")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bead %s: %w", id, err)
@@ -68,7 +84,15 @@ func GetBead(id string) (*Bead, error) {
 
 // GetBeadWithDeps retrieves a single bead by ID including its dependencies.
 func GetBeadWithDeps(id string) (*BeadWithDeps, error) {
+	return GetBeadWithDepsInDir(id, "")
+}
+
+// GetBeadWithDepsInDir retrieves a single bead by ID including its dependencies in a specific directory.
+func GetBeadWithDepsInDir(id, dir string) (*BeadWithDeps, error) {
 	cmd := exec.Command("bd", "show", id, "--json")
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bead %s: %w", id, err)
