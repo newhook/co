@@ -79,6 +79,32 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		if t == nil {
 			return fmt.Errorf("task %s not found", taskID)
 		}
+
+		// Check if task is stuck in processing state without an active tab
+		if t.Status == db.StatusProcessing {
+			sessionName := fmt.Sprintf("co-%s", proj.Config.Project.Name)
+			paneName := fmt.Sprintf("task-%s", t.ID)
+
+			// A processing task must have both a session and an active tab
+			ctx := context.Background()
+			if t.ZellijSession == "" || !claude.TabExists(ctx, sessionName, paneName) {
+				fmt.Printf("Task %s was marked as processing but no active tab found. Resetting to pending...\n", taskID)
+				if err := database.ResetTaskStatus(t.ID); err != nil {
+					return fmt.Errorf("failed to reset task status: %w", err)
+				}
+				t.Status = db.StatusPending
+			}
+		}
+
+		// Allow retrying failed tasks
+		if t.Status == db.StatusFailed {
+			fmt.Printf("Task %s previously failed. Resetting to pending for retry...\n", taskID)
+			if err := database.ResetTaskStatus(t.ID); err != nil {
+				return fmt.Errorf("failed to reset task status: %w", err)
+			}
+			t.Status = db.StatusPending
+		}
+
 		if t.Status != db.StatusPending {
 			return fmt.Errorf("task %s is not pending (status: %s)", taskID, t.Status)
 		}
@@ -330,11 +356,25 @@ func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task
 		return nil, fmt.Errorf("failed to start task in database: %w", err)
 	}
 
-	// Build prompt for Claude
-	prompt := claude.BuildTaskPrompt(t.ID, t.Beads, branchName, flagBranch)
+	// Get task type from database to determine which prompt to use
+	dbTask, err := database.GetTask(t.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task type: %w", err)
+	}
+
+	// Build appropriate prompt for Claude based on task type
+	var prompt string
+	if dbTask != nil && dbTask.TaskType == "estimate" {
+		// For estimate tasks, use the estimation prompt
+		prompt = claude.BuildEstimatePrompt(t.ID, t.Beads)
+		fmt.Println("Running Claude Code for estimation task...")
+	} else {
+		// For implementation tasks, use the task prompt
+		prompt = claude.BuildTaskPrompt(t.ID, t.Beads, branchName, flagBranch)
+		fmt.Println("Running Claude Code for implementation task...")
+	}
 
 	// Run Claude in the worktree directory
-	fmt.Println("Running Claude Code...")
 	ctx := context.Background()
 	projectName := proj.Config.Project.Name
 	result, err := claude.Run(ctx, database, t.ID, t.Beads, prompt, worktreePath, projectName)

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -144,7 +145,7 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string) err
 
 	// Create tasks in database
 	for _, t := range tasks {
-		if err := database.CreateTask(t.ID, t.BeadIDs, t.Complexity); err != nil {
+		if err := database.CreateTask(t.ID, "implement", t.BeadIDs, t.Complexity); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
 		fmt.Printf("Created task %s with %d bead(s): %s\n", t.ID, len(t.BeadIDs), strings.Join(t.BeadIDs, ", "))
@@ -165,7 +166,15 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 	}
 
 	// Create planner with complexity estimator
-	estimator := task.NewLLMEstimator(database)
+	estimator := task.NewLLMEstimator(database, proj.MainRepoPath(), proj.Config.Project.Name)
+
+	// Estimate complexity for all beads in batch
+	fmt.Println("Estimating complexity for beads...")
+	ctx := context.Background()
+	if err := estimator.EstimateBatch(ctx, beadList); err != nil {
+		return fmt.Errorf("failed to estimate complexity: %w", err)
+	}
+
 	planner := task.NewDefaultPlanner(estimator)
 
 	// Plan tasks
@@ -182,7 +191,7 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 
 	// Create tasks in database
 	for _, t := range tasks {
-		if err := database.CreateTask(t.ID, t.BeadIDs, t.Complexity); err != nil {
+		if err := database.CreateTask(t.ID, "implement", t.BeadIDs, t.Complexity); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
 		fmt.Printf("Created task %s (complexity: %d) with %d bead(s): %s\n",
@@ -198,7 +207,7 @@ func planSingleBead(_ *project.Project, database *db.DB, beadList []beads.Bead) 
 	fmt.Printf("Creating %d single-bead task(s)...\n", len(beadList))
 
 	for _, bead := range beadList {
-		if err := database.CreateTask(bead.ID, []string{bead.ID}, 0); err != nil {
+		if err := database.CreateTask(bead.ID, "implement", []string{bead.ID}, 0); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", bead.ID, err)
 		}
 		fmt.Printf("Created task %s: %s\n", bead.ID, bead.Title)

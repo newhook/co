@@ -106,6 +106,11 @@ func createSchema(db *sql.DB) error {
 		return err
 	}
 
+	// Migrate existing databases: add task_type column if missing
+	if err := migrateTaskType(db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -137,6 +142,40 @@ func migrateWorktreePath(db *sql.DB) error {
 		_, err := db.Exec("ALTER TABLE beads ADD COLUMN worktree_path TEXT")
 		if err != nil {
 			return fmt.Errorf("failed to add worktree_path column: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateTaskType adds the task_type column if it doesn't exist.
+func migrateTaskType(db *sql.DB) error {
+	// Check if column exists in tasks table
+	rows, err := db.Query("PRAGMA table_info(tasks)")
+	if err != nil {
+		return fmt.Errorf("failed to check table info: %w", err)
+	}
+	defer rows.Close()
+
+	hasTaskType := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("failed to scan column info: %w", err)
+		}
+		if name == "task_type" {
+			hasTaskType = true
+			break
+		}
+	}
+
+	if !hasTaskType {
+		_, err := db.Exec("ALTER TABLE tasks ADD COLUMN task_type TEXT NOT NULL DEFAULT 'implement'")
+		if err != nil {
+			return fmt.Errorf("failed to add task_type column: %w", err)
 		}
 	}
 

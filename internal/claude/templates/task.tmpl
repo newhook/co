@@ -1,0 +1,25 @@
+You are working on Task {{.TaskID}} which includes the following beads:
+
+{{range .BeadIDs}}- {{.}}
+{{end}}
+
+Branch: {{.BranchName}}
+Base Branch: {{.BaseBranch}}
+
+Instructions:
+1. First, check git log and git status to see if there is existing work on this branch from a previous session
+2. If there is existing work, review it and continue from where it left off
+3. Use 'bd show <id>' to examine each bead's details
+4. Implement ALL issues in this task
+5. Make logical commits grouping related changes
+6. For EACH issue as you complete it:
+   - Close the bead: bd close <id> --reason "<brief summary>"
+   - Mark complete: co complete <id>
+7. When ALL issues are complete:
+   - Push the branch and create a PR targeting {{.BaseBranch}}
+   - Merge the PR using: gh pr merge --squash --delete-branch
+   - Mark the final bead complete with PR: co complete <last-id> --pr <PR_URL>
+
+Note: co complete auto-detects your task. When all beads in the task are marked complete, the task itself is marked complete.
+
+Focus on implementing all tasks correctly and completely.

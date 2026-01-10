@@ -1,14 +1,28 @@
 package claude
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"os/exec"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
+)
+
+//go:embed templates/estimate.tmpl
+var estimateTemplateText string
+
+//go:embed templates/task.tmpl
+var taskTemplateText string
+
+var (
+	estimateTmpl = template.Must(template.New("estimate").Parse(estimateTemplateText))
+	taskTmpl     = template.Must(template.New("task").Parse(taskTemplateText))
 )
 
 // SessionNameForProject returns the zellij session name for a specific project.
@@ -41,16 +55,46 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		return nil, err
 	}
 
-	// Check if pane with this task name already exists
-	if paneExists(ctx, sessionName, paneName) {
-		fmt.Printf("Pane %s already exists, skipping claude launch\n", paneName)
+	// Check if tab with this task name already exists
+	if TabExists(ctx, sessionName, paneName) {
+		fmt.Printf("Tab %s already exists, skipping claude launch\n", paneName)
 	} else {
-		// Run Claude in a new pane in the session
-		runArgs := []string{"-s", sessionName, "run", "--name", paneName, "--cwd", workDir, "--", "claude", "--dangerously-skip-permissions"}
+		// Create a new tab with the task name
+		tabArgs := []string{
+			"-s", sessionName, "action", "new-tab",
+			"--cwd", workDir,
+			"--name", paneName,
+		}
+		fmt.Printf("Running: zellij %s\n", strings.Join(tabArgs, " "))
+		tabCmd := exec.CommandContext(ctx, "zellij", tabArgs...)
+		if err := tabCmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to create tab: %w", err)
+		}
+
+		// Wait a moment for tab to be created
+		time.Sleep(500 * time.Millisecond)
+
+		// Switch to the new tab
+		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", paneName}
+		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
+		if err := switchCmd.Run(); err != nil {
+			// Non-fatal: just log it
+			fmt.Printf("Warning: failed to switch to tab: %v\n", err)
+		}
+
+		// Run Claude in the new tab
+		runArgs := []string{"-s", sessionName, "action", "write-chars", "claude --dangerously-skip-permissions"}
 		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
 		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
 		if err := runCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to run claude in zellij pane: %w", err)
+			return nil, fmt.Errorf("failed to write claude command: %w", err)
+		}
+
+		// Send Enter to execute the command
+		enterArgs := []string{"-s", sessionName, "action", "write", "13"}
+		enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
+		if err := enterCmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to execute claude command: %w", err)
 		}
 
 		// Wait for Claude to initialize
@@ -85,7 +129,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 
 	// Monitor for task completion via database polling
 	fmt.Printf("Polling database for completion of task: %s (%d beads)\n", taskID, len(taskBeads))
-	paneExitCount := 0
+	tabExitCount := 0
 	for {
 		time.Sleep(2 * time.Second)
 
@@ -116,12 +160,12 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			break
 		}
 
-		// Check if pane has exited (Claude crashed or finished without marking complete)
-		if !paneExists(ctx, sessionName, paneName) {
-			paneExitCount++
+		// Check if tab has exited (Claude crashed or finished without marking complete)
+		if !TabExists(ctx, sessionName, paneName) {
+			tabExitCount++
 			// Wait a few cycles to confirm it's really gone (not just a transient state)
-			if paneExitCount >= 3 {
-				fmt.Println("Claude pane exited without completing task - checking for partial completion")
+			if tabExitCount >= 3 {
+				fmt.Println("Claude tab exited without completing task - checking for partial completion")
 
 				// Determine which beads completed and which failed
 				result.CompletedBeads, result.FailedBeads = getTaskBeadStatus(database, taskID, taskBeads)
@@ -145,7 +189,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 				break
 			}
 		} else {
-			paneExitCount = 0
+			tabExitCount = 0
 		}
 	}
 
@@ -180,49 +224,44 @@ func getTaskBeadStatus(database *db.DB, taskID string, taskBeads []beads.Bead) (
 
 // BuildTaskPrompt builds a prompt for a task with multiple beads.
 func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBranch string) string {
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("You are working on Task %s which includes the following issues:\n\n", taskID))
-
-	for i, bead := range taskBeads {
-		sb.WriteString(fmt.Sprintf("## Issue %d: %s - %s\n", i+1, bead.ID, bead.Title))
-		if bead.Description != "" {
-			sb.WriteString(bead.Description)
-		}
-		sb.WriteString("\n\n")
+	data := struct {
+		TaskID     string
+		BeadIDs    []string
+		BranchName string
+		BaseBranch string
+	}{
+		TaskID:     taskID,
+		BeadIDs:    getBeadIDs(taskBeads),
+		BranchName: branchName,
+		BaseBranch: baseBranch,
 	}
 
-	sb.WriteString(fmt.Sprintf(`Branch: %s
-Base Branch: %s
+	var buf bytes.Buffer
+	if err := taskTmpl.Execute(&buf, data); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("Task %s on branch %s for beads: %v", taskID, branchName, getBeadIDs(taskBeads))
+	}
 
-Instructions:
-1. First, check git log and git status to see if there is existing work on this branch from a previous session
-2. If there is existing work, review it and continue from where it left off
-3. Implement ALL issues in this task
-4. Make logical commits grouping related changes
-5. For EACH issue as you complete it:
-   - Close the bead: bd close <id> --reason "<brief summary>"
-   - Mark complete: co complete <id>
-6. When ALL issues are complete:
-   - Push the branch and create a PR targeting %s
-   - Merge the PR using: gh pr merge --squash --delete-branch
-   - Mark the final bead complete with PR: co complete <last-id> --pr <PR_URL>
-
-Note: co complete auto-detects your task. When all beads in the task are marked complete, the task itself is marked complete.
-
-Focus on implementing all tasks correctly and completely.`, branchName, baseBranch, baseBranch))
-
-	return sb.String()
+	return buf.String()
 }
 
-func paneExists(ctx context.Context, sessionName, paneName string) bool {
-	// Use zellij action to list panes and check if one with this name exists
+// getBeadIDs extracts bead IDs from a slice of beads.
+func getBeadIDs(beads []beads.Bead) []string {
+	ids := make([]string, len(beads))
+	for i, b := range beads {
+		ids[i] = b.ID
+	}
+	return ids
+}
+
+func TabExists(ctx context.Context, sessionName, tabName string) bool {
+	// Use zellij action to list tabs and check if one with this name exists
 	cmd := exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "query-tab-names")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(output), paneName)
+	return strings.Contains(string(output), tabName)
 }
 
 func ensureSession(ctx context.Context, sessionName string) error {
@@ -251,4 +290,23 @@ func createSession(ctx context.Context, sessionName string) error {
 	// Give it time to start
 	time.Sleep(1 * time.Second)
 	return nil
+}
+
+// BuildEstimatePrompt builds a prompt for complexity estimation of beads.
+func BuildEstimatePrompt(taskID string, taskBeads []beads.Bead) string {
+	data := struct {
+		TaskID  string
+		BeadIDs []string
+	}{
+		TaskID:  taskID,
+		BeadIDs: getBeadIDs(taskBeads),
+	}
+
+	var buf bytes.Buffer
+	if err := estimateTmpl.Execute(&buf, data); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("Estimation task %s for beads: %v", taskID, getBeadIDs(taskBeads))
+	}
+
+	return buf.String()
 }
