@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/mise"
 )
 
 const (
@@ -151,36 +153,53 @@ func Create(dir, repoSource string) (*Project, error) {
 // setupRepo sets up the main/ directory based on the repo source.
 // Returns the repo type ("local" or "github").
 func setupRepo(source, mainPath string) (string, error) {
+	var repoType string
+
 	if isGitHubURL(source) {
 		// Clone from GitHub
 		cmd := exec.Command("git", "clone", source, mainPath)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return "", fmt.Errorf("failed to clone repository: %w\n%s", err, output)
 		}
-		return RepoTypeGitHub, nil
+		repoType = RepoTypeGitHub
+	} else {
+		// Local path - create symlink
+		absSource, err := filepath.Abs(source)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve source path: %w", err)
+		}
+
+		// Verify source exists and is a directory
+		info, err := os.Stat(absSource)
+		if err != nil {
+			return "", fmt.Errorf("source path does not exist: %w", err)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("source path is not a directory: %s", absSource)
+		}
+
+		// Create symlink
+		if err := os.Symlink(absSource, mainPath); err != nil {
+			return "", fmt.Errorf("failed to create symlink: %w", err)
+		}
+		repoType = RepoTypeLocal
 	}
 
-	// Local path - create symlink
-	absSource, err := filepath.Abs(source)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve source path: %w", err)
+	// Initialize beads (required - fail on error)
+	fmt.Printf("Initializing beads in %s...\n", mainPath)
+	if err := beads.InitInDir(mainPath); err != nil {
+		return "", fmt.Errorf("failed to initialize beads: %w", err)
+	}
+	if err := beads.InstallHooksInDir(mainPath); err != nil {
+		return "", fmt.Errorf("failed to install beads hooks: %w", err)
 	}
 
-	// Verify source exists and is a directory
-	info, err := os.Stat(absSource)
-	if err != nil {
-		return "", fmt.Errorf("source path does not exist: %w", err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("source path is not a directory: %s", absSource)
+	// Initialize mise (optional - warn on error)
+	if err := mise.Initialize(mainPath); err != nil {
+		fmt.Printf("Warning: mise initialization failed: %v\n", err)
 	}
 
-	// Create symlink
-	if err := os.Symlink(absSource, mainPath); err != nil {
-		return "", fmt.Errorf("failed to create symlink: %w", err)
-	}
-
-	return RepoTypeLocal, nil
+	return repoType, nil
 }
 
 // isGitHubURL returns true if the source looks like a GitHub URL.
