@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 )
@@ -23,15 +22,6 @@ type LLMEstimator struct {
 // The API key is read from the ANTHROPIC_API_KEY environment variable.
 func NewLLMEstimator(database *db.DB) *LLMEstimator {
 	client := anthropic.NewClient()
-	return &LLMEstimator{
-		client:   client,
-		database: database,
-	}
-}
-
-// NewLLMEstimatorWithKey creates a new LLM-based complexity estimator with an explicit API key.
-func NewLLMEstimatorWithKey(apiKey string, database *db.DB) *LLMEstimator {
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 	return &LLMEstimator{
 		client:   client,
 		database: database,
