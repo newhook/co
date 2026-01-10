@@ -29,6 +29,26 @@ func GetReadyBeads() ([]Bead, error) {
 	return beads, nil
 }
 
+// GetBead retrieves a single bead by ID.
+func GetBead(id string) (*Bead, error) {
+	cmd := exec.Command("bd", "show", id, "--json")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bead %s: %w", id, err)
+	}
+
+	var beads []Bead
+	if err := json.Unmarshal(output, &beads); err != nil {
+		return nil, fmt.Errorf("failed to parse bead %s: %w", id, err)
+	}
+
+	if len(beads) == 0 {
+		return nil, fmt.Errorf("bead %s not found", id)
+	}
+
+	return &beads[0], nil
+}
+
 // CloseBead marks a bead as complete with the given reason.
 func CloseBead(id, reason string) error {
 	cmd := exec.Command("bd", "close", id, "--reason", reason)

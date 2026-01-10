@@ -42,3 +42,33 @@ func Push(branch string) error {
 	}
 	return nil
 }
+
+// CreateBranch creates a new branch from the current HEAD and switches to it.
+func CreateBranch(branch string) error {
+	cmd := exec.Command("git", "checkout", "-b", branch)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create branch %s: %w", branch, err)
+	}
+	return nil
+}
+
+// HasChanges returns true if there are uncommitted changes in the working tree.
+func HasChanges() (bool, error) {
+	cmd := exec.Command("git", "status", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to check git status: %w", err)
+	}
+	return len(strings.TrimSpace(string(output))) > 0, nil
+}
+
+// HasCommitsAhead returns true if the current branch has commits ahead of the given base branch.
+func HasCommitsAhead(base string) (bool, error) {
+	cmd := exec.Command("git", "rev-list", "--count", base+"..HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to check commits ahead: %w", err)
+	}
+	count := strings.TrimSpace(string(output))
+	return count != "0", nil
+}
