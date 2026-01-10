@@ -1,7 +1,6 @@
 package db
 
 import (
-	"os"
 	"testing"
 	"time"
 )
@@ -9,23 +8,19 @@ import (
 func setupTestDB(t *testing.T) (*DB, func()) {
 	t.Helper()
 
-	// Use in-memory SQLite database
-	os.Setenv("CO_DB_PATH", ":memory:")
-
-	db, err := Open()
+	db, err := OpenPath(":memory:")
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
 
 	cleanup := func() {
 		db.Close()
-		os.Unsetenv("CO_DB_PATH")
 	}
 
 	return db, cleanup
 }
 
-func TestOpen(t *testing.T) {
+func TestOpenPath(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -298,34 +293,6 @@ func TestListBeads(t *testing.T) {
 	}
 	if len(beads) != 1 {
 		t.Errorf("expected 1 failed bead, got %d", len(beads))
-	}
-}
-
-func TestGetBeadSession(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	db.StartBead("test-1", "Test", "my-session", "my-pane")
-
-	session, pane, err := db.GetBeadSession("test-1")
-	if err != nil {
-		t.Fatalf("GetBeadSession failed: %v", err)
-	}
-	if session != "my-session" {
-		t.Errorf("expected session 'my-session', got %q", session)
-	}
-	if pane != "my-pane" {
-		t.Errorf("expected pane 'my-pane', got %q", pane)
-	}
-}
-
-func TestGetBeadSessionNotFound(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, _, err := db.GetBeadSession("nonexistent")
-	if err == nil {
-		t.Error("expected error for nonexistent bead")
 	}
 }
 

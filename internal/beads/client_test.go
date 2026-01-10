@@ -4,8 +4,8 @@ import (
 	"testing"
 )
 
-func TestGetReadyBeads(t *testing.T) {
-	beads, err := GetReadyBeads()
+func TestGetReadyBeadsInDir(t *testing.T) {
+	beads, err := GetReadyBeadsInDir("")
 	if err != nil {
 		t.Skipf("bd not available or no beads: %v", err)
 	}

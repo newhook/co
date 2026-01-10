@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/newhook/autoclaude/cmd"
+	"github.com/newhook/co/cmd"
 )
 
 func main() {

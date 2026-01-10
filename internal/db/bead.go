@@ -149,20 +149,6 @@ func (db *DB) ListBeads(statusFilter string) ([]*TrackedBead, error) {
 	return beads, rows.Err()
 }
 
-// GetBeadSession returns the zellij session and pane for a bead.
-func (db *DB) GetBeadSession(id string) (session, pane string, err error) {
-	err = db.QueryRow(`
-		SELECT zellij_session, zellij_pane FROM beads WHERE id = ?
-	`, id).Scan(&session, &pane)
-	if err == sql.ErrNoRows {
-		return "", "", fmt.Errorf("bead %s not found", id)
-	}
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get bead session: %w", err)
-	}
-	return session, pane, nil
-}
-
 // scanBead scans a single row into a TrackedBead.
 func scanBead(row *sql.Row) (*TrackedBead, error) {
 	var b TrackedBead
