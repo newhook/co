@@ -75,6 +75,38 @@ This command:
 3. Closes the bead with an implementation summary
 4. Creates and merges a pull request
 
+### Process a Specific Bead
+
+```bash
+ac run <bead-id>
+```
+
+Process only the specified bead instead of all ready beads.
+
+### Command Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--branch` | `-b` | Target branch for PRs (default: `main`). When not `main`, uses feature branch workflow |
+| `--limit` | `-n` | Maximum number of beads to process (0 = unlimited) |
+| `--dry-run` | | Show plan without executing |
+| `--no-merge` | | Create PRs but don't merge them |
+
+### Feature Branch Workflow
+
+When `--branch` specifies a branch other than `main`, Auto Claude uses a feature branch workflow:
+
+```bash
+ac run --branch feature/my-epic
+```
+
+1. Creates/switches to the feature branch
+2. Processes beads, with each PR targeting the feature branch
+3. After all beads complete, creates a final PR from the feature branch to `main`
+4. Merges the final PR
+
+This is useful for grouping related work before merging to main.
+
 ## How It Works
 
 Auto Claude orchestrates a complete development workflow:
