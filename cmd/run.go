@@ -356,11 +356,25 @@ func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task
 		return nil, fmt.Errorf("failed to start task in database: %w", err)
 	}
 
-	// Build prompt for Claude
-	prompt := claude.BuildTaskPrompt(t.ID, t.Beads, branchName, flagBranch)
+	// Get task type from database to determine which prompt to use
+	dbTask, err := database.GetTask(t.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task type: %w", err)
+	}
+
+	// Build appropriate prompt for Claude based on task type
+	var prompt string
+	if dbTask != nil && dbTask.TaskType == "estimate" {
+		// For estimate tasks, use the estimation prompt
+		prompt = claude.BuildEstimatePrompt(t.ID, t.Beads)
+		fmt.Println("Running Claude Code for estimation task...")
+	} else {
+		// For implementation tasks, use the task prompt
+		prompt = claude.BuildTaskPrompt(t.ID, t.Beads, branchName, flagBranch)
+		fmt.Println("Running Claude Code for implementation task...")
+	}
 
 	// Run Claude in the worktree directory
-	fmt.Println("Running Claude Code...")
 	ctx := context.Background()
 	projectName := proj.Config.Project.Name
 	result, err := claude.Run(ctx, database, t.ID, t.Beads, prompt, worktreePath, projectName)
