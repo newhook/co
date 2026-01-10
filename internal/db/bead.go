@@ -1,10 +1,55 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/newhook/co/internal/db/sqlc"
 )
+
+// Helper functions to convert to SQL nullable types
+func nullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
+func nullTime(t time.Time) sql.NullTime {
+	if t.IsZero() {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: t, Valid: true}
+}
+
+// beadToTracked converts an sqlc.Bead to TrackedBead
+func beadToTracked(b *sqlc.Bead) *TrackedBead {
+	tracked := &TrackedBead{
+		ID:            b.ID,
+		Status:        b.Status,
+		Title:         b.Title.String,
+		PRURL:         b.PrUrl.String,
+		ErrorMessage:  b.ErrorMessage.String,
+		ZellijSession: b.ZellijSession.String,
+		ZellijPane:    b.ZellijPane.String,
+		WorktreePath:  b.WorktreePath.String,
+	}
+	if b.StartedAt.Valid {
+		tracked.StartedAt = &b.StartedAt.Time
+	}
+	if b.CompletedAt.Valid {
+		tracked.CompletedAt = &b.CompletedAt.Time
+	}
+	if b.CreatedAt.Valid {
+		tracked.CreatedAt = b.CreatedAt.Time
+	}
+	if b.UpdatedAt.Valid {
+		tracked.UpdatedAt = b.UpdatedAt.Time
+	}
+	return tracked
+}
 
 // TrackedBead represents a bead tracking record in the database.
 type TrackedBead struct {
@@ -30,19 +75,15 @@ func (db *DB) StartBead(id, title, zellijSession, zellijPane string) error {
 // StartBeadWithWorktree marks a bead as processing with session and worktree info.
 func (db *DB) StartBeadWithWorktree(id, title, zellijSession, zellijPane, worktreePath string) error {
 	now := time.Now()
-	_, err := db.Exec(`
-		INSERT INTO beads (id, status, title, zellij_session, zellij_pane, worktree_path, started_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			status = ?,
-			title = ?,
-			zellij_session = ?,
-			zellij_pane = ?,
-			worktree_path = ?,
-			started_at = ?,
-			updated_at = ?
-	`, id, StatusProcessing, title, zellijSession, zellijPane, worktreePath, now, now,
-		StatusProcessing, title, zellijSession, zellijPane, worktreePath, now, now)
+	err := db.queries.StartBead(context.Background(), sqlc.StartBeadParams{
+		ID:            id,
+		Title:         nullString(title),
+		ZellijSession: nullString(zellijSession),
+		ZellijPane:    nullString(zellijPane),
+		WorktreePath:  nullString(worktreePath),
+		StartedAt:     nullTime(now),
+		UpdatedAt:     nullTime(now),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to start bead %s: %w", id, err)
 	}
@@ -52,17 +93,14 @@ func (db *DB) StartBeadWithWorktree(id, title, zellijSession, zellijPane, worktr
 // CompleteBead marks a bead as completed with a PR URL.
 func (db *DB) CompleteBead(id, prURL string) error {
 	now := time.Now()
-	result, err := db.Exec(`
-		UPDATE beads SET status = ?, pr_url = ?, completed_at = ?, updated_at = ?
-		WHERE id = ?
-	`, StatusCompleted, prURL, now, now, id)
+	rows, err := db.queries.CompleteBead(context.Background(), sqlc.CompleteBeadParams{
+		PrUrl:       nullString(prURL),
+		CompletedAt: nullTime(now),
+		UpdatedAt:   nullTime(now),
+		ID:          id,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to complete bead %s: %w", id, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
 		return fmt.Errorf("bead %s not found", id)
@@ -73,17 +111,14 @@ func (db *DB) CompleteBead(id, prURL string) error {
 // FailBead marks a bead as failed with an error message.
 func (db *DB) FailBead(id, errMsg string) error {
 	now := time.Now()
-	result, err := db.Exec(`
-		UPDATE beads SET status = ?, error_message = ?, completed_at = ?, updated_at = ?
-		WHERE id = ?
-	`, StatusFailed, errMsg, now, now, id)
+	rows, err := db.queries.FailBead(context.Background(), sqlc.FailBeadParams{
+		ErrorMessage: nullString(errMsg),
+		CompletedAt:  nullTime(now),
+		UpdatedAt:    nullTime(now),
+		ID:           id,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to mark bead %s as failed: %w", id, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
 		return fmt.Errorf("bead %s not found", id)
@@ -93,19 +128,19 @@ func (db *DB) FailBead(id, errMsg string) error {
 
 // GetBead retrieves a tracking record by ID.
 func (db *DB) GetBead(id string) (*TrackedBead, error) {
-	row := db.QueryRow(`
-		SELECT id, status, title, pr_url, error_message, zellij_session, zellij_pane,
-		       worktree_path, started_at, completed_at, created_at, updated_at
-		FROM beads WHERE id = ?
-	`, id)
-
-	return scanBead(row)
+	bead, err := db.queries.GetBead(context.Background(), id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get bead: %w", err)
+	}
+	return beadToTracked(&bead), nil
 }
 
 // IsCompleted checks if a bead is completed or failed.
 func (db *DB) IsCompleted(id string) (bool, error) {
-	var status string
-	err := db.QueryRow(`SELECT status FROM beads WHERE id = ?`, id).Scan(&status)
+	status, err := db.queries.GetBeadStatus(context.Background(), id)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -117,89 +152,21 @@ func (db *DB) IsCompleted(id string) (bool, error) {
 
 // ListBeads returns all beads, optionally filtered by status.
 func (db *DB) ListBeads(statusFilter string) ([]*TrackedBead, error) {
-	var rows *sql.Rows
+	var beads []sqlc.Bead
 	var err error
 
 	if statusFilter == "" {
-		rows, err = db.Query(`
-			SELECT id, status, title, pr_url, error_message, zellij_session, zellij_pane,
-			       worktree_path, started_at, completed_at, created_at, updated_at
-			FROM beads ORDER BY created_at DESC
-		`)
+		beads, err = db.queries.ListBeads(context.Background())
 	} else {
-		rows, err = db.Query(`
-			SELECT id, status, title, pr_url, error_message, zellij_session, zellij_pane,
-			       worktree_path, started_at, completed_at, created_at, updated_at
-			FROM beads WHERE status = ? ORDER BY created_at DESC
-		`, statusFilter)
+		beads, err = db.queries.ListBeadsByStatus(context.Background(), statusFilter)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list beads: %w", err)
 	}
-	defer rows.Close()
 
-	var beads []*TrackedBead
-	for rows.Next() {
-		bead, err := scanBeadRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		beads = append(beads, bead)
+	var trackedBeads []*TrackedBead
+	for i := range beads {
+		trackedBeads = append(trackedBeads, beadToTracked(&beads[i]))
 	}
-	return beads, rows.Err()
-}
-
-// scanBead scans a single row into a TrackedBead.
-func scanBead(row *sql.Row) (*TrackedBead, error) {
-	var b TrackedBead
-	var prURL, errMsg, session, pane, worktreePath sql.NullString
-	var startedAt, completedAt sql.NullTime
-
-	err := row.Scan(&b.ID, &b.Status, &b.Title, &prURL, &errMsg, &session, &pane,
-		&worktreePath, &startedAt, &completedAt, &b.CreatedAt, &b.UpdatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan bead: %w", err)
-	}
-
-	b.PRURL = prURL.String
-	b.ErrorMessage = errMsg.String
-	b.ZellijSession = session.String
-	b.ZellijPane = pane.String
-	b.WorktreePath = worktreePath.String
-	if startedAt.Valid {
-		b.StartedAt = &startedAt.Time
-	}
-	if completedAt.Valid {
-		b.CompletedAt = &completedAt.Time
-	}
-	return &b, nil
-}
-
-// scanBeadRow scans a row from Rows into a TrackedBead.
-func scanBeadRow(rows *sql.Rows) (*TrackedBead, error) {
-	var b TrackedBead
-	var prURL, errMsg, session, pane, worktreePath sql.NullString
-	var startedAt, completedAt sql.NullTime
-
-	err := rows.Scan(&b.ID, &b.Status, &b.Title, &prURL, &errMsg, &session, &pane,
-		&worktreePath, &startedAt, &completedAt, &b.CreatedAt, &b.UpdatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan bead: %w", err)
-	}
-
-	b.PRURL = prURL.String
-	b.ErrorMessage = errMsg.String
-	b.ZellijSession = session.String
-	b.ZellijPane = pane.String
-	b.WorktreePath = worktreePath.String
-	if startedAt.Valid {
-		b.StartedAt = &startedAt.Time
-	}
-	if completedAt.Valid {
-		b.CompletedAt = &completedAt.Time
-	}
-	return &b, nil
+	return trackedBeads, nil
 }
