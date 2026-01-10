@@ -26,9 +26,9 @@ type TaskResult struct {
 	Error          error
 }
 
-// RunTaskInProject invokes Claude Code for a task (group of beads) using project-specific session naming.
+// Run invokes Claude Code for a task (group of beads) using project-specific session naming.
 // Returns a TaskResult indicating which beads completed and which failed.
-func RunTaskInProject(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string) (*TaskResult, error) {
+func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string) (*TaskResult, error) {
 	sessionName := SessionNameForProject(projectName)
 	paneName := fmt.Sprintf("task-%s", taskID)
 

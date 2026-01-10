@@ -330,7 +330,7 @@ func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task
 	fmt.Println("Running Claude Code...")
 	ctx := context.Background()
 	projectName := proj.Config.Project.Name
-	result, err := claude.RunTaskInProject(ctx, database, t.ID, t.Beads, prompt, worktreePath, projectName)
+	result, err := claude.Run(ctx, database, t.ID, t.Beads, prompt, worktreePath, projectName)
 	if err != nil {
 		fmt.Printf("Claude failed: %v\n", err)
 		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
