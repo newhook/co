@@ -205,69 +205,17 @@ func processBead(bead beads.Bead, workDir string) error {
 		return fmt.Errorf("failed to create branch: %w", err)
 	}
 
-	// Build prompt for Claude
-	prompt := buildPrompt(bead)
+	// Build prompt for Claude (includes branch info so Claude can create PR)
+	prompt := buildPrompt(bead, branchName, flagBranch)
 
-	// Run Claude
+	// Run Claude - it will implement, create PR, close bead, and merge
 	fmt.Println("Running Claude Code...")
 	ctx := context.Background()
 	if err := claude.Run(ctx, bead.ID, prompt, workDir); err != nil {
-		// Cleanup on failure
-		git.Checkout(flagBranch)
-		git.DeleteBranch(branchName)
 		return fmt.Errorf("claude failed: %w", err)
 	}
 
-	// Check if there are changes to commit
-	hasCommits, err := git.HasCommitsAhead(flagBranch)
-	if err != nil {
-		git.Checkout(flagBranch)
-		git.DeleteBranch(branchName)
-		return fmt.Errorf("failed to check for commits: %w", err)
-	}
-
-	if !hasCommits {
-		fmt.Println("No changes made, skipping PR creation")
-		git.Checkout(flagBranch)
-		git.DeleteBranch(branchName)
-		return nil
-	}
-
-	// Push branch
-	fmt.Println("Pushing branch...")
-	if err := git.Push(branchName); err != nil {
-		git.Checkout(flagBranch)
-		git.DeleteBranch(branchName)
-		return fmt.Errorf("failed to push: %w", err)
-	}
-
-	// Close bead before PR (per workflow spec - close while context is fresh)
-	closeReason := fmt.Sprintf("Implemented in branch %s", branchName)
-	fmt.Printf("Closing bead %s...\n", bead.ID)
-	if err := beads.CloseBead(bead.ID, closeReason); err != nil {
-		return fmt.Errorf("failed to close bead: %w", err)
-	}
-
-	// Create PR targeting the base branch (feature branch or main)
-	prTitle := fmt.Sprintf("%s: %s", bead.ID, bead.Title)
-	prBody := fmt.Sprintf("Implements bead %s\n\n%s", bead.ID, bead.Description)
-	fmt.Println("Creating PR...")
-	prURL, err := github.CreatePR(branchName, flagBranch, prTitle, prBody)
-	if err != nil {
-		return fmt.Errorf("failed to create PR: %w", err)
-	}
-	fmt.Printf("Created PR: %s\n", prURL)
-
-	// Merge PR unless --no-merge
-	if !flagNoMerge {
-		fmt.Println("Merging PR...")
-		if err := github.MergePR(prURL); err != nil {
-			return fmt.Errorf("failed to merge PR: %w", err)
-		}
-		fmt.Println("PR merged successfully")
-	}
-
-	// Return to base branch and pull latest
+	// Return to base branch and pull latest (Claude should have merged)
 	if err := git.Checkout(flagBranch); err != nil {
 		return fmt.Errorf("failed to return to base branch: %w", err)
 	}
@@ -324,11 +272,13 @@ func createFinalPR(featureBranch string, processedBeads []beads.Bead) error {
 	return nil
 }
 
-func buildPrompt(bead beads.Bead) string {
+func buildPrompt(bead beads.Bead, branchName, baseBranch string) string {
 	prompt := fmt.Sprintf(`You are implementing a task from the beads issue tracker.
 
 Bead ID: %s
 Title: %s
+Branch: %s
+Base Branch: %s
 
 Description:
 %s
@@ -338,10 +288,11 @@ Instructions:
 2. If there is existing work, review it and continue from where it left off
 3. Implement the changes described above
 4. Make commits as you work (with clear commit messages)
-5. Do NOT create a PR - that will be handled separately
-6. Do NOT close the bead - that will be handled separately
+5. When implementation is complete, push the branch and create a PR targeting %s
+6. Close the bead with: bd close %s --reason "<brief summary of what was implemented>"
+7. Merge the PR using: gh pr merge --squash --delete-branch
 
-Focus on implementing the task correctly and completely.`, bead.ID, bead.Title, bead.Description)
+Focus on implementing the task correctly and completely.`, bead.ID, bead.Title, branchName, baseBranch, bead.Description, baseBranch, bead.ID)
 
 	return prompt
 }
