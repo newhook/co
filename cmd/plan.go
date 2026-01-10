@@ -165,7 +165,7 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 	}
 
 	// Create planner with complexity estimator
-	estimator := task.NewLLMEstimator(database)
+	estimator := task.NewLLMEstimator(database, proj.MainRepoPath(), proj.Config.Project.Name)
 	planner := task.NewDefaultPlanner(estimator)
 
 	// Plan tasks
