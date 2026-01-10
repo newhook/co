@@ -165,6 +165,19 @@ Task dependencies are derived automatically from bead dependencies:
 - `co run` executes tasks in the correct dependency order
 - Cycles are detected and reported as errors
 
+### Task Management
+
+Manage tasks with the `co task` command:
+
+```bash
+co task list                    # List all tasks
+co task list --status pending   # List pending tasks
+co task list --type estimate    # List estimation tasks
+co task show <task-id>          # Show detailed task information
+co task delete <task-id>        # Delete a task from database
+co task reset <task-id>         # Reset failed/stuck task to pending
+```
+
 ### Other Commands
 
 | Command | Description |
