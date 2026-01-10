@@ -17,6 +17,7 @@ go test ./...
 - `internal/beads/` - Beads database client (bd CLI wrapper)
 - `internal/claude/` - Claude Code invocation
 - `internal/db/` - SQLite tracking database
+- `internal/task/` - Task planning and complexity estimation
 - `internal/git/` - Git operations
 - `internal/github/` - PR creation and merging (gh CLI)
 - `internal/project/` - Project discovery and configuration

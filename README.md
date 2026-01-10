@@ -110,6 +110,8 @@ Process only the specified bead instead of all ready beads.
 | `--no-merge` | | Create PRs but don't merge them |
 | `--deps` | | Also process open dependencies of the specified bead (requires bead ID) |
 | `--project` | | Specify project directory (default: auto-detect from cwd) |
+| `--task` | | Use task-based mode (group beads by complexity) |
+| `--budget` | | Complexity budget per task (1-100, default: 70, used with `--task`) |
 
 ### Processing Dependencies
 
@@ -135,6 +137,28 @@ co run --branch feature/my-epic
 4. Merges the final PR
 
 This is useful for grouping related work before merging to main.
+
+### Task-Based Processing
+
+Use `--task` mode to group beads by complexity, allowing Claude to process multiple related beads in a single session:
+
+```bash
+co run --task
+```
+
+This mode:
+1. Estimates complexity for each bead using an LLM
+2. Groups beads into tasks using bin-packing algorithm (respecting dependencies)
+3. Processes each task in a single Claude session
+4. Handles partial failures gracefully (creates partial PRs for completed work)
+
+Control the grouping with `--budget`:
+```bash
+co run --task --budget 50  # Smaller tasks (fewer beads per task)
+co run --task --budget 90  # Larger tasks (more beads per task)
+```
+
+The budget (1-100) represents target complexity per task. Lower values create more granular tasks, higher values group more beads together.
 
 ### Other Commands
 
@@ -205,6 +229,7 @@ co/
     ├── git/             # Git operations
     ├── github/          # PR creation/merging (gh CLI)
     ├── project/         # Project discovery and config
+    ├── task/            # Task planning and complexity estimation
     └── worktree/        # Git worktree operations
 ```
 
