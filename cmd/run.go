@@ -17,14 +17,14 @@ import (
 )
 
 var (
-	flagBranch   string
-	flagLimit    int
-	flagDryRun   bool
-	flagNoMerge  bool
-	flagDeps     bool
-	flagProject  string
-	flagTaskMode bool
-	flagBudget   int
+	flagBranch    string
+	flagLimit     int
+	flagDryRun    bool
+	flagNoMerge   bool
+	flagDeps      bool
+	flagProject   string
+	flagAutoGroup bool
+	flagBudget    int
 )
 
 var runCmd = &cobra.Command{
@@ -51,8 +51,8 @@ func init() {
 	runCmd.Flags().BoolVar(&flagNoMerge, "no-merge", false, "create PRs but don't merge them")
 	runCmd.Flags().BoolVar(&flagDeps, "deps", false, "also process open dependencies of the specified bead")
 	runCmd.Flags().StringVar(&flagProject, "project", "", "project directory (default: auto-detect from cwd)")
-	runCmd.Flags().BoolVar(&flagTaskMode, "task", false, "use task-based mode (group beads by complexity)")
-	runCmd.Flags().IntVar(&flagBudget, "budget", 70, "complexity budget per task (1-100, used with --task)")
+	runCmd.Flags().BoolVar(&flagAutoGroup, "auto-group", false, "automatically group beads by complexity using LLM estimation")
+	runCmd.Flags().IntVar(&flagBudget, "budget", 70, "complexity budget per task (1-100, used with --auto-group)")
 }
 
 func runBeads(cmd *cobra.Command, args []string) error {
@@ -94,12 +94,18 @@ func runBeads(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Task mode: group beads into tasks
-	if flagTaskMode {
+	// Task mode: group beads into tasks using bin-packing
+	if flagAutoGroup {
 		return runTaskMode(proj, database, beadList, useFeatureBranch)
 	}
 
-	// Dry run - just show plan (legacy mode)
+	// Default mode: create single-bead tasks for each bead
+	return runSingleBeadMode(proj, database, beadList, useFeatureBranch)
+}
+
+// runSingleBeadMode runs the default mode where each bead gets its own task.
+func runSingleBeadMode(proj *project.Project, database *db.DB, beadList []beads.Bead, useFeatureBranch bool) error {
+	// Dry run - just show plan
 	if flagDryRun {
 		fmt.Printf("Dry run: would process %d bead(s):\n", len(beadList))
 		for _, b := range beadList {
@@ -119,29 +125,44 @@ func runBeads(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Process each bead with worktree isolation (legacy mode)
+	// Process each bead as a single-bead task
 	processedCount := 0
+	partialCount := 0
 	for _, bead := range beadList {
-		sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
-
-		// Record bead as processing in database
-		if err := database.StartBead(bead.ID, bead.Title, sessionName, bead.ID); err != nil {
-			return fmt.Errorf("failed to record bead start: %w", err)
+		// Create a task containing just this bead
+		t := task.Task{
+			ID:         bead.ID, // Use bead ID as task ID for single-bead tasks
+			BeadIDs:    []string{bead.ID},
+			Beads:      []beads.Bead{bead},
+			Complexity: 0, // No complexity estimation in single-bead mode
+			Status:     task.StatusPending,
 		}
 
-		success, err := processBeadWithWorktree(proj, database, bead)
+		// Create task in database
+		if err := database.CreateTask(t.ID, t.BeadIDs, t.Complexity); err != nil {
+			return fmt.Errorf("failed to create task in database: %w", err)
+		}
+
+		result, err := processTaskWithWorktree(proj, database, t)
 		if err != nil {
 			// Record failure in database
-			database.FailBead(bead.ID, err.Error())
+			database.FailTask(t.ID, err.Error())
 			return fmt.Errorf("failed to process bead %s: %w", bead.ID, err)
 		}
 
-		if success {
+		if result.Completed {
 			processedCount++
+		} else if result.PartialFailure {
+			partialCount++
+			fmt.Printf("Bead %s had partial failure, continuing with remaining beads...\n", bead.ID)
 		}
 	}
 
-	fmt.Printf("Successfully processed %d bead(s)\n", processedCount)
+	if partialCount > 0 {
+		fmt.Printf("Processed %d bead(s) successfully, %d bead(s) partially completed\n", processedCount, partialCount)
+	} else {
+		fmt.Printf("Successfully processed %d bead(s)\n", processedCount)
+	}
 
 	// Create final PR from feature branch to main if applicable
 	if useFeatureBranch && processedCount > 0 && !flagNoMerge {
@@ -360,7 +381,7 @@ func createPartialPR(t task.Task, result *claude.TaskResult, branchName, worktre
 	for _, id := range result.FailedBeads {
 		prBody += fmt.Sprintf("- %s\n", id)
 	}
-	prBody += fmt.Sprintf("\n**Note:** Run `co run <bead-id>` to retry failed beads.\n")
+	prBody += "\n**Note:** Run `co run <bead-id>` to retry failed beads.\n"
 
 	// Create PR
 	prURL, err := github.CreatePRInDir(branchName, flagBranch, prTitle, prBody, worktreePath)
@@ -381,47 +402,6 @@ func findProject() (*project.Project, error) {
 		return nil, err
 	}
 	return project.Find(cwd)
-}
-
-// processBeadWithWorktree processes a bead using an isolated worktree.
-func processBeadWithWorktree(proj *project.Project, database *db.DB, bead beads.Bead) (bool, error) {
-	fmt.Printf("\n=== Processing bead %s: %s ===\n", bead.ID, bead.Title)
-
-	branchName := fmt.Sprintf("bead/%s", bead.ID)
-	worktreePath := proj.WorktreePath(bead.ID)
-	mainRepoPath := proj.MainRepoPath()
-
-	// Check if worktree already exists
-	if worktree.ExistsPath(worktreePath) {
-		fmt.Printf("Worktree already exists at %s, resuming...\n", worktreePath)
-	} else {
-		// Create worktree from the base branch
-		fmt.Printf("Creating worktree at %s...\n", worktreePath)
-		if err := worktree.Create(mainRepoPath, worktreePath, branchName); err != nil {
-			return false, fmt.Errorf("failed to create worktree: %w", err)
-		}
-	}
-
-	// Build prompt for Claude
-	prompt := buildPrompt(bead, branchName, flagBranch)
-
-	// Run Claude in the worktree directory
-	fmt.Println("Running Claude Code...")
-	ctx := context.Background()
-	projectName := proj.Config.Project.Name
-	if err := claude.RunInProject(ctx, database, bead.ID, prompt, worktreePath, projectName); err != nil {
-		fmt.Printf("Claude failed: %v\n", err)
-		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
-		return false, fmt.Errorf("claude failed: %w", err)
-	}
-
-	// Success - clean up worktree
-	fmt.Printf("Cleaning up worktree %s...\n", worktreePath)
-	if err := worktree.Remove(mainRepoPath, worktreePath); err != nil {
-		fmt.Printf("Warning: failed to remove worktree: %v\n", err)
-	}
-
-	return true, nil
 }
 
 func getBeadsToProcess(beadID, dir string) ([]beads.Bead, error) {
@@ -527,28 +507,4 @@ func createFinalPR(featureBranch string, processedBeads []beads.Bead, dir string
 	}
 
 	return nil
-}
-
-func buildPrompt(bead beads.Bead, branchName, baseBranch string) string {
-	return fmt.Sprintf(`You are implementing a task from the beads issue tracker.
-
-Bead ID: %s
-Title: %s
-Branch: %s
-Base Branch: %s
-
-Description:
-%s
-
-Instructions:
-1. First, check git log and git status to see if there is existing work on this branch from a previous session
-2. If there is existing work, review it and continue from where it left off
-3. Implement the changes described above
-4. Make commits as you work (with clear commit messages)
-5. When implementation is complete, push the branch and create a PR targeting %s
-6. Close the bead with: bd close %s --reason "<brief summary of what was implemented>"
-7. Merge the PR using: gh pr merge --squash --delete-branch
-8. Mark completion by running: co complete %s --pr <PR_URL>
-
-Focus on implementing the task correctly and completely.`, bead.ID, bead.Title, branchName, baseBranch, bead.Description, baseBranch, bead.ID, bead.ID)
 }
