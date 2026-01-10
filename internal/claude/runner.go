@@ -15,10 +15,15 @@ import (
 )
 
 //go:embed templates/estimate.tmpl
-var estimateTemplate string
+var estimateTemplateText string
 
 //go:embed templates/task.tmpl
-var taskTemplate string
+var taskTemplateText string
+
+var (
+	estimateTmpl = template.Must(template.New("estimate").Parse(estimateTemplateText))
+	taskTmpl     = template.Must(template.New("task").Parse(taskTemplateText))
+)
 
 // SessionNameForProject returns the zellij session name for a specific project.
 func SessionNameForProject(projectName string) string {
@@ -219,12 +224,6 @@ func getTaskBeadStatus(database *db.DB, taskID string, taskBeads []beads.Bead) (
 
 // BuildTaskPrompt builds a prompt for a task with multiple beads.
 func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBranch string) string {
-	tmpl, err := template.New("task").Parse(taskTemplate)
-	if err != nil {
-		// Fallback to simple string if template parsing fails
-		return fmt.Sprintf("Task %s on branch %s for beads: %v", taskID, branchName, getBeadIDs(taskBeads))
-	}
-
 	data := struct {
 		TaskID     string
 		BeadIDs    []string
@@ -238,7 +237,7 @@ func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBran
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
+	if err := taskTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
 		return fmt.Sprintf("Task %s on branch %s for beads: %v", taskID, branchName, getBeadIDs(taskBeads))
 	}
@@ -295,12 +294,6 @@ func createSession(ctx context.Context, sessionName string) error {
 
 // BuildEstimatePrompt builds a prompt for complexity estimation of beads.
 func BuildEstimatePrompt(taskID string, taskBeads []beads.Bead) string {
-	tmpl, err := template.New("estimate").Parse(estimateTemplate)
-	if err != nil {
-		// Fallback to simple string if template parsing fails
-		return fmt.Sprintf("Estimation task %s for beads: %v", taskID, getBeadIDs(taskBeads))
-	}
-
 	data := struct {
 		TaskID  string
 		BeadIDs []string
@@ -310,7 +303,7 @@ func BuildEstimatePrompt(taskID string, taskBeads []beads.Bead) string {
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
+	if err := estimateTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
 		return fmt.Sprintf("Estimation task %s for beads: %v", taskID, getBeadIDs(taskBeads))
 	}
