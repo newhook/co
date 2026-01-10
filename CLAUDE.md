@@ -21,12 +21,13 @@ go test ./...
 - `internal/task/` - Task planning and complexity estimation
 - `internal/git/` - Git operations
 - `internal/github/` - PR creation and merging (gh CLI)
+- `internal/mise/` - Mise tool management
 - `internal/project/` - Project discovery and configuration
 - `internal/worktree/` - Git worktree operations
 
 ## External Dependencies
 
-Uses CLI tools: `bd`, `claude`, `gh`, `git`, `zellij`
+Uses CLI tools: `bd`, `claude`, `gh`, `git`, `mise` (optional), `zellij`
 
 ## PR Requirements
 
@@ -53,6 +54,9 @@ All commands require a project context. Projects are created with `co proj creat
 Two-phase workflow: **plan** then **run**.
 
 1. Create project: `co proj create <dir> <repo>`
+   - Initializes beads: `bd init` and `bd hooks install`
+   - If mise enabled (`.mise.toml` or `.tool-versions`): runs `mise trust`, `mise install`
+   - If mise `setup` task defined: runs `mise run setup` (use for npm/pnpm install)
 2. Plan tasks from beads:
    - `co plan` - one task per ready bead
    - `co plan --auto-group` - LLM groups beads by complexity
@@ -62,6 +66,7 @@ Two-phase workflow: **plan** then **run**.
    - Executes in topological order
    - For each task:
      - Create worktree: `git worktree add ../<task-id> -b task/<task-id>`
+     - Initialize mise in worktree (if enabled)
      - Claude Code implements changes in isolated worktree
      - Close beads with `bd close <id> --reason "..."`
      - Create PR and merge it
