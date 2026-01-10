@@ -12,6 +12,7 @@ The following CLI tools must be installed and available in your PATH:
 | `claude` | Claude Code CLI | [docs.anthropic.com/claude-code](https://docs.anthropic.com/en/docs/claude-code) |
 | `gh` | GitHub CLI | [cli.github.com](https://cli.github.com/) |
 | `git` | Version control | Usually pre-installed |
+| `zellij` | Terminal multiplexer | [zellij.dev](https://zellij.dev/) |
 
 ## Installation
 
@@ -34,45 +35,62 @@ mv co /usr/local/bin/
 co --help
 ```
 
-## Configuration
+## Project Setup
 
-Claude Orchestrator requires minimal configuration. It relies on:
+Claude Orchestrator uses a project-based model with worktree isolation. Each project has its own directory structure:
 
-- **System PATH** to locate required CLI tools
-- **Git configuration** for repository operations (user.name, user.email)
-- **GitHub CLI authentication** (`gh auth login`)
-- **Beads initialization** in your project (`.beads/` directory)
+```
+<project-dir>/
+├── .co/
+│   ├── config.toml      # Project configuration
+│   └── tracking.db      # SQLite coordination database
+├── main/                # Symlink to local repo OR clone from GitHub
+│   └── .beads/          # Beads issue tracker (in repo)
+├── bead-123/            # Worktree for task bead-123
+├── bead-456/            # Worktree for task bead-456
+└── ...
+```
 
-### Project Setup
+### Create a Project
 
-1. Initialize beads in your project:
-   ```bash
-   bd init
-   ```
+From a local repository:
+```bash
+co proj create ~/myproject ~/path/to/repo
+```
 
-2. Ensure GitHub CLI is authenticated:
-   ```bash
-   gh auth status
-   ```
+From a GitHub repository:
+```bash
+co proj create ~/myproject https://github.com/user/repo
+```
 
-3. Run Claude Orchestrator from your project root:
-   ```bash
-   co run
-   ```
+This creates the project structure with `main/` pointing to your repository.
+
+### Project Commands
+
+| Command | Description |
+|---------|-------------|
+| `co proj create <dir> <repo>` | Create a new project (local path or GitHub URL) |
+| `co proj destroy [--force]` | Remove project and all worktrees |
+| `co proj status` | Show project info, worktrees, and task status |
 
 ## Usage
+
+All commands must be run from within a project directory (or subdirectory).
 
 ### Process Ready Beads
 
 ```bash
+cd ~/myproject
 co run
 ```
 
 This command:
-1. Queries for ready beads (`bd ready --json`)
-2. For each bead, invokes Claude Code to implement the changes
-3. Closes the bead with an implementation summary
-4. Creates and merges a pull request
+1. Queries for ready beads from `main/.beads/`
+2. For each bead, creates an isolated worktree
+3. Invokes Claude Code to implement the changes
+4. Closes the bead with an implementation summary
+5. Creates and merges a pull request
+6. Cleans up the worktree on success (keeps on failure for debugging)
 
 ### Process a Specific Bead
 
@@ -91,6 +109,7 @@ Process only the specified bead instead of all ready beads.
 | `--dry-run` | | Show plan without executing |
 | `--no-merge` | | Create PRs but don't merge them |
 | `--deps` | | Also process open dependencies of the specified bead (requires bead ID) |
+| `--project` | | Specify project directory (default: auto-detect from cwd) |
 
 ### Processing Dependencies
 
@@ -110,29 +129,39 @@ When `--branch` specifies a branch other than `main`, Claude Orchestrator uses a
 co run --branch feature/my-epic
 ```
 
-1. Creates/switches to the feature branch
+1. Creates/switches to the feature branch in the main repo
 2. Processes beads, with each PR targeting the feature branch
 3. After all beads complete, creates a final PR from the feature branch to `main`
 4. Merges the final PR
 
 This is useful for grouping related work before merging to main.
 
+### Other Commands
+
+| Command | Description |
+|---------|-------------|
+| `co status [bead-id]` | Show tracking status for beads |
+| `co list [-s status]` | List tracked beads with optional status filter |
+| `co complete <bead-id> [--pr URL]` | Mark a bead as completed (called by Claude) |
+
 ## How It Works
 
-Claude Orchestrator orchestrates a complete development workflow:
+Claude Orchestrator orchestrates a complete development workflow with worktree isolation:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        co run                                   │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. Query ready beads                                           │
+│  1. Find project context (.co/ directory)                       │
+│                                                                 │
+│  2. Query ready beads from main/.beads/                         │
 │     └─ bd ready --json                                          │
 │                                                                 │
-│  2. For each bead:                                              │
-│     ├─ Create feature branch                                    │
-│     │  └─ git checkout -b bead/<id>                             │
+│  3. For each bead:                                              │
+│     ├─ Create worktree                                          │
+│     │  └─ git worktree add ../<bead-id> -b bead/<bead-id>       │
 │     │                                                           │
-│     ├─ Run Claude Code in zellij session                        │
+│     ├─ Run Claude Code in zellij session (co-<project>)         │
 │     │  └─ zellij run -- claude --dangerously-skip-permissions   │
 │     │     Claude receives prompt and autonomously:              │
 │     │     • Implements the changes                              │
@@ -142,14 +171,19 @@ Claude Orchestrator orchestrates a complete development workflow:
 │     │     • Merges PR (gh pr merge --squash --delete-branch)    │
 │     │     • Signals completion (co complete <id>)               │
 │     │                                                           │
-│     └─ Manager polls database for completion, then continues    │
+│     ├─ Manager polls database for completion                    │
+│     │                                                           │
+│     └─ On success: remove worktree                              │
+│        On failure: keep worktree for debugging                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Design Decisions
 
+- **Project isolation**: Each project has its own tracking database in `.co/`
+- **Worktree isolation**: Each task runs in its own git worktree, preventing conflicts
 - **Claude handles full workflow**: Implementation, PR creation, bead closing, and merging are all done by Claude
-- **Zellij for terminal management**: Each Claude instance runs in a named zellij pane for proper terminal environment
+- **Zellij for terminal management**: Each Claude instance runs in a project-specific zellij session
 - **Database polling**: Manager polls SQLite database for completion signals from Claude
 
 ## Project Structure
@@ -159,12 +193,19 @@ co/
 ├── main.go              # CLI entry point
 ├── cmd/
 │   ├── root.go          # Root command
-│   └── run.go           # Run command
+│   ├── run.go           # Run command
+│   ├── proj.go          # Project management commands
+│   ├── status.go        # Status command
+│   ├── list.go          # List command
+│   └── complete.go      # Complete command
 └── internal/
     ├── beads/           # Beads client (bd CLI wrapper)
     ├── claude/          # Claude Code invocation
+    ├── db/              # SQLite tracking database
+    ├── git/             # Git operations
     ├── github/          # PR creation/merging (gh CLI)
-    └── git/             # Git operations
+    ├── project/         # Project discovery and config
+    └── worktree/        # Git worktree operations
 ```
 
 ## Development
@@ -182,6 +223,14 @@ go build -o co .
 ```
 
 ## Troubleshooting
+
+### "not in a project directory"
+
+All commands must be run from within a project. Create one first:
+```bash
+co proj create ~/myproject ~/path/to/repo
+cd ~/myproject
+```
 
 ### "bd: command not found"
 
@@ -205,8 +254,9 @@ gh auth login
 
 ### No beads found
 
-Ensure you have ready beads in your project:
+Ensure you have ready beads in your project's main repo:
 ```bash
+cd ~/myproject/main
 bd ready
 ```
 
