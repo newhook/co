@@ -26,7 +26,7 @@ Uses CLI tools: `bd`, `claude`, `gh`, `git`
 1. Query ready beads via `bd ready --json`
 2. For each bead:
    - Claude Code creates branch, implements changes, and commits
-   - Manager creates PR and merges it
-3. Close bead with `bd close <id> --reason "..."`
+   - Close bead with `bd close <id> --reason "..."` (before PR merge)
+   - Create PR and merge it
 
-Note: Branch creation and commits are handled by Claude Code, not the manager.
+Note: Branch creation and commits are handled by Claude Code, not the manager. Beads are closed before PR merge so the close reason can reference the implementation details while context is fresh.
