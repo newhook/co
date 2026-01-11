@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -141,7 +142,7 @@ func (db *DB) FailWork(ctx context.Context, id, errMsg string) error {
 // GetWork retrieves a work by ID.
 func (db *DB) GetWork(ctx context.Context, id string) (*Work, error) {
 	work, err := db.queries.GetWork(ctx, id)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -174,7 +175,7 @@ func (db *DB) ListWorks(ctx context.Context, statusFilter string) ([]*Work, erro
 // GetLastWorkID returns the ID of the most recently created work.
 func (db *DB) GetLastWorkID(ctx context.Context) (string, error) {
 	id, err := db.queries.GetLastWorkID(ctx)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
@@ -186,7 +187,7 @@ func (db *DB) GetLastWorkID(ctx context.Context) (string, error) {
 // GetWorkByDirectory returns the work that has a worktree path matching the pattern.
 func (db *DB) GetWorkByDirectory(ctx context.Context, pathPattern string) (*Work, error) {
 	work, err := db.queries.GetWorkByDirectory(ctx, nullString(pathPattern))
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
