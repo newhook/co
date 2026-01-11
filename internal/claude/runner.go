@@ -71,8 +71,9 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 	}
 
 	// Check if tab with this task name already exists
+	// For work tabs that are reused across tasks, we must terminate any running Claude first
 	if TabExists(ctx, sessionName, tabName) {
-		fmt.Printf("Tab %s already exists, ensuring Claude is running...\n", tabName)
+		fmt.Printf("Tab %s already exists, terminating any running Claude and restarting...\n", tabName)
 
 		// Switch to the existing tab
 		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
@@ -81,7 +82,21 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			fmt.Printf("Warning: failed to switch to existing tab: %v\n", err)
 		}
 
-		// Launch Claude in the existing tab (it will exit gracefully if already running)
+		// Terminate any running Claude instance
+		// Send /exit command (will be ignored if Claude is not running)
+		fmt.Println("Terminating any existing Claude instance...")
+		exitArgs := []string{"-s", sessionName, "action", "write-chars", "/exit"}
+		exec.CommandContext(ctx, "zellij", exitArgs...).Run()
+		time.Sleep(100 * time.Millisecond)
+
+		// Send Enter to execute the /exit command
+		exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
+
+		// Wait for Claude to fully exit
+		time.Sleep(1 * time.Second)
+
+		// Now launch Claude fresh
+		fmt.Println("Starting fresh Claude instance...")
 		runArgs := []string{"-s", sessionName, "action", "write-chars", "claude --dangerously-skip-permissions"}
 		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
 		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
@@ -96,7 +111,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			return nil, fmt.Errorf("failed to execute claude command: %w", err)
 		}
 
-		// Wait for Claude to initialize or recognize it's already running
+		// Wait for Claude to initialize
 		fmt.Println("Waiting 3s for Claude to initialize...")
 		time.Sleep(3 * time.Second)
 	} else {
