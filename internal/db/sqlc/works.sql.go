@@ -118,6 +118,20 @@ func (q *Queries) FailWork(ctx context.Context, arg FailWorkParams) (int64, erro
 	return result.RowsAffected()
 }
 
+const getAndIncrementTaskCounter = `-- name: GetAndIncrementTaskCounter :one
+UPDATE work_task_counters
+SET next_task_num = next_task_num + 1
+WHERE work_id = ?
+RETURNING next_task_num - 1 as task_num
+`
+
+func (q *Queries) GetAndIncrementTaskCounter(ctx context.Context, workID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getAndIncrementTaskCounter, workID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getLastWorkID = `-- name: GetLastWorkID :one
 SELECT id FROM works
 ORDER BY created_at DESC
@@ -260,6 +274,17 @@ func (q *Queries) GetWorkTasks(ctx context.Context, workID string) ([]Task, erro
 		return nil, err
 	}
 	return items, nil
+}
+
+const initializeTaskCounter = `-- name: InitializeTaskCounter :exec
+INSERT INTO work_task_counters (work_id, next_task_num)
+VALUES (?, 1)
+ON CONFLICT (work_id) DO NOTHING
+`
+
+func (q *Queries) InitializeTaskCounter(ctx context.Context, workID string) error {
+	_, err := q.db.ExecContext(ctx, initializeTaskCounter, workID)
+	return err
 }
 
 const listWorks = `-- name: ListWorks :many
