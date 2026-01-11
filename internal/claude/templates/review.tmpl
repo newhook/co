@@ -1,0 +1,25 @@
+You are reviewing code changes for Work {{.WorkID}}.
+
+Branch: {{.BranchName}}
+Base: {{.BaseBranch}}
+
+Instructions:
+1. First, check the work details: co work show {{.WorkID}}
+   - This will show all tasks and their completion status
+2. Use 'git diff {{.BaseBranch}}...{{.BranchName}}' to see all changes in this work
+3. Review the code for:
+   - **Code Quality**: Is the code clean, readable, and maintainable?
+   - **Security Issues**: Are there any vulnerabilities (injection, XSS, auth issues, etc.)?
+   - **Best Practices**: Does the code follow project conventions and best practices?
+   - **Error Handling**: Are errors properly handled and logged?
+   - **Performance**: Are there any obvious performance concerns?
+   - **Testing**: Are changes adequately tested?
+4. Provide a comprehensive review summary including:
+   - Overall assessment (approve/request changes/comment)
+   - Specific issues found with file paths and line numbers
+   - Suggestions for improvement
+   - Any security concerns
+5. After completing the review, mark the task complete: co complete {{.TaskID}}
+
+If you find critical issues that should block merging, clearly indicate them.
+Begin by checking the work details and examining the diff.

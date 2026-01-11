@@ -516,11 +516,16 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 	if baseBranch == "" {
 		baseBranch = "main" // Default to main for backwards compatibility
 	}
-	if dbTask.TaskType == "pr" {
+	switch dbTask.TaskType {
+	case "pr":
 		// PR creation task
 		prompt = claude.BuildPRPrompt(dbTask.ID, work.ID, work.BranchName, baseBranch)
 		fmt.Println("Running Claude Code for PR creation...")
-	} else {
+	case "review":
+		// Code review task
+		prompt = claude.BuildReviewPrompt(dbTask.ID, work.ID, work.BranchName, baseBranch)
+		fmt.Println("Running Claude Code for code review...")
+	default:
 		// Regular implementation task
 		prompt = claude.BuildTaskPrompt(dbTask.ID, taskBeads, work.BranchName, baseBranch)
 		fmt.Println("Running Claude Code...")
