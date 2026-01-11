@@ -79,10 +79,22 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	var taskID string
 
 	if argID != "" {
-		// Check if this is a task ID (contains a dot like "w-xxx.1" or "w-xxx.pr")
+		// First, check if argID looks like a task ID (contains a dot like "w-xxx.1" or "w-xxx.pr")
+		// We also verify it exists as a task in the database to handle edge cases
 		if strings.Contains(argID, ".") {
-			// This is a task ID - run just this task
-			taskID = argID
+			// This looks like a task ID - verify it exists as a task
+			dbTask, err := database.GetTask(context.Background(), argID)
+			if err != nil {
+				return fmt.Errorf("failed to check task %s: %w", argID, err)
+			}
+			if dbTask != nil {
+				// Found as a task
+				taskID = argID
+			} else {
+				// Not found as a task - check if the prefix (before dot) is a work ID
+				// This handles potential edge cases where someone might have a dot in their work ID
+				return fmt.Errorf("task %s not found", argID)
+			}
 		} else if strings.HasPrefix(argID, "work-") || strings.HasPrefix(argID, "w-") {
 			// Accept work ID or w-xxx format
 			workID = argID
