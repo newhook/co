@@ -11,9 +11,10 @@ Instructions:
    - Use 'bd show <bead-id>' to examine the bead's details
    - Implement the required changes
    - Close the bead: bd close <bead-id> --reason "<brief summary>"
-   - Mark complete: co complete <bead-id>
-4. Make logical commits grouping related changes
-5. When ALL beads are complete, push the branch: git push
+   - Commit the work: git add -A && git commit -m "Implement <bead-id>: <brief description>"
+4. When ALL beads are complete:
+   - Push the branch: git push
+   - Mark the task complete: co complete {{.TaskID}}
 
 Note: co complete auto-detects your task. When all beads in the task are marked complete, the task itself is marked complete.
 
