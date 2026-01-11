@@ -30,6 +30,31 @@ go test ./...
 
 Uses CLI tools: `bd`, `claude`, `gh`, `git`, `mise` (optional), `zellij`
 
+## Database Migrations
+
+The project uses a SQLite database (`tracking.db`) with schema migrations.
+
+### Creating a New Migration
+
+1. Create a new SQL file in `internal/db/migrations/` with sequential numbering:
+   ```
+   internal/db/migrations/005_your_migration_name.sql
+   ```
+
+2. Structure the migration with `+up` and `+down` sections:
+   ```sql
+   -- +up
+   -- SQL commands to apply the migration
+   CREATE TABLE example (...);
+
+   -- +down
+   -- SQL commands to reverse the migration
+   DROP TABLE IF EXISTS example;
+   ```
+
+3. Migrations run automatically when the database is accessed
+4. The `+down` section is critical for rollback capability
+
 ## PR Requirements
 
 **NEVER push directly to main.** All changes must go through a PR.

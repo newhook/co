@@ -55,7 +55,16 @@ type Work struct {
 
 // CreateWork creates a new work unit.
 func (db *DB) CreateWork(ctx context.Context, id, worktreePath, branchName, baseBranch string) error {
-	err := db.queries.CreateWork(ctx, sqlc.CreateWorkParams{
+	// Use transaction to create work and initialize counter atomically
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := db.queries.WithTx(tx)
+
+	err = qtx.CreateWork(ctx, sqlc.CreateWorkParams{
 		ID:           id,
 		WorktreePath: nullString(worktreePath),
 		BranchName:   nullString(branchName),
@@ -63,6 +72,16 @@ func (db *DB) CreateWork(ctx context.Context, id, worktreePath, branchName, base
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create work %s: %w", id, err)
+	}
+
+	// Initialize task counter for this work
+	err = qtx.InitializeTaskCounter(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to initialize task counter for work %s: %w", id, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	return nil
 }
@@ -289,13 +308,20 @@ func (db *DB) GenerateNextWorkID(ctx context.Context) (string, error) {
 
 // GetNextTaskNumber returns the next available task number for a work.
 // Tasks are numbered sequentially within each work (w-abc.1, w-abc.2, etc.)
+// This uses an atomic counter to avoid race conditions.
 func (db *DB) GetNextTaskNumber(ctx context.Context, workID string) (int, error) {
-	// Count existing tasks for this work
-	tasks, err := db.GetWorkTasks(ctx, workID)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get tasks for work: %w", err)
+	// First ensure the counter exists (for backwards compatibility with existing works)
+	err := db.queries.InitializeTaskCounter(ctx, workID)
+	if err != nil && !strings.Contains(err.Error(), "UNIQUE") {
+		return 0, fmt.Errorf("failed to initialize task counter: %w", err)
 	}
-	return len(tasks) + 1, nil
+
+	// Get and increment the counter atomically
+	taskNum, err := db.queries.GetAndIncrementTaskCounter(ctx, workID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get next task number: %w", err)
+	}
+	return int(taskNum), nil
 }
 
 // DeleteWork deletes a work and all associated records.
