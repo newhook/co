@@ -14,6 +14,7 @@ import (
 var (
 	flagEstimateScore  int
 	flagEstimateTokens int
+	flagEstimateTask   string
 )
 
 var estimateCmd = &cobra.Command{
@@ -27,6 +28,7 @@ var estimateCmd = &cobra.Command{
 func init() {
 	estimateCmd.Flags().IntVar(&flagEstimateScore, "score", 0, "Complexity score (1-10)")
 	estimateCmd.Flags().IntVar(&flagEstimateTokens, "tokens", 0, "Estimated tokens needed")
+	estimateCmd.Flags().StringVar(&flagEstimateTask, "task", "", "Task ID (optional, helps with multiple estimation runs)")
 	estimateCmd.MarkFlagRequired("score")
 	estimateCmd.MarkFlagRequired("tokens")
 	rootCmd.AddCommand(estimateCmd)
@@ -74,10 +76,13 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to cache complexity: %w", err)
 	}
 
-	// Find which task contains this bead
-	taskID, err := database.GetTaskForBead(context.Background(), beadID)
-	if err != nil {
-		return fmt.Errorf("failed to find task for bead: %w", err)
+	// Use provided task ID or find which task contains this bead
+	taskID := flagEstimateTask
+	if taskID == "" {
+		taskID, err = database.GetTaskForBead(context.Background(), beadID)
+		if err != nil {
+			return fmt.Errorf("failed to find task for bead: %w", err)
+		}
 	}
 
 	if taskID == "" {
