@@ -15,7 +15,8 @@ Instructions:
      * Commit: git add -A && git commit -m "Complete <bead-id>: <description>"
      * Push: git push
    - If no beads are "processing":
-     * STOP - Report error: "Uncommitted changes found. Please commit or stash them before running this task."
+     * Mark task as failed: co complete {{.TaskID}} --error "Uncommitted changes found. Please commit or stash them before running this task."
+     * Exit with: /exit
 3. For each bead that is NOT already completed:
    - Use 'bd show <bead-id>' to examine the bead's details
    - Implement the required changes

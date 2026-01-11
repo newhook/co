@@ -11,12 +11,14 @@ import (
 var (
 	flagCompletePRURL   string
 	flagCompleteProject string
+	flagCompleteError   string
 )
 
 var completeCmd = &cobra.Command{
-	Use:   "complete <bead-id>",
-	Short: "Mark a bead as completed",
-	Long:  `Mark a bead as completed in the tracking database. Called by Claude Code when a task is done.`,
+	Use:   "complete <bead-id|task-id>",
+	Short: "Mark a bead or task as completed (or failed with --error)",
+	Long:  `Mark a bead or task as completed in the tracking database. Called by Claude Code when work is done.
+With --error flag, marks the task as failed instead.`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  runComplete,
 }
@@ -24,10 +26,11 @@ var completeCmd = &cobra.Command{
 func init() {
 	completeCmd.Flags().StringVar(&flagCompletePRURL, "pr", "", "PR URL to associate with completion")
 	completeCmd.Flags().StringVar(&flagCompleteProject, "project", "", "project directory (default: auto-detect from cwd)")
+	completeCmd.Flags().StringVar(&flagCompleteError, "error", "", "Error message to mark task as failed")
 }
 
 func runComplete(cmd *cobra.Command, args []string) error {
-	beadID := args[0]
+	id := args[0]
 
 	proj, err := project.Find(flagCompleteProject)
 	if err != nil {
@@ -39,6 +42,20 @@ func runComplete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	defer proj.Close()
+
+	// If error flag is set, mark task as failed
+	if flagCompleteError != "" {
+		// Try to fail it as a task
+		if err := database.FailTask(context.Background(), id, flagCompleteError); err == nil {
+			fmt.Printf("Task %s marked as failed: %s\n", id, flagCompleteError)
+			return nil
+		}
+		// If that didn't work, it might not be a valid task ID
+		return fmt.Errorf("failed to mark %s as failed (is it a valid task ID?)", id)
+	}
+
+	// Otherwise, continue with normal completion logic
+	beadID := id
 
 	// Check if this bead is part of a task
 	taskID, err := database.GetTaskForBead(context.Background(), beadID)
