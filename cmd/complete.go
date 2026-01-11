@@ -97,21 +97,24 @@ func runComplete(cmd *cobra.Command, args []string) error {
 			}
 			fmt.Println()
 		}
+
+		// Also update the beads table if the bead exists there (backwards compatibility)
+		// Ignore "not found" errors since task_beads is the primary tracking for task-based beads
+		_ = database.CompleteBead(beadID, flagCompletePRURL)
+		return nil
 	}
 
-	// Also mark the bead as complete in the beads table (backwards compatibility)
+	// Standalone bead (not part of a task) - must exist in beads table
 	if err := database.CompleteBead(beadID, flagCompletePRURL); err != nil {
-		return fmt.Errorf("failed to complete bead: %w", err)
+		// Check if this might be a bead ID that doesn't exist in our tracking
+		return fmt.Errorf("failed to complete bead %s: %w\nHint: If the bead was closed via 'bd close', it may not be tracked here. Use 'co complete <task-id>' instead.", beadID, err)
 	}
 
-	if taskID == "" {
-		// Only print this if not part of a task (already printed above)
-		fmt.Printf("Marked bead %s as completed", beadID)
-		if flagCompletePRURL != "" {
-			fmt.Printf(" (PR: %s)", flagCompletePRURL)
-		}
-		fmt.Println()
+	fmt.Printf("Marked bead %s as completed", beadID)
+	if flagCompletePRURL != "" {
+		fmt.Printf(" (PR: %s)", flagCompletePRURL)
 	}
+	fmt.Println()
 
 	return nil
 }

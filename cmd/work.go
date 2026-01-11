@@ -123,6 +123,16 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create worktree: %w\n%s", err, output)
 	}
 
+	// Push branch and set upstream to avoid "no upstream branch" errors later
+	cmd2 := exec.Command("git", "push", "--set-upstream", "origin", branchName)
+	cmd2.Dir = worktreePath
+	if output, err := cmd2.CombinedOutput(); err != nil {
+		// Clean up on failure
+		exec.Command("git", "worktree", "remove", worktreePath).Run()
+		os.RemoveAll(workDir)
+		return fmt.Errorf("failed to push and set upstream: %w\n%s", err, output)
+	}
+
 	// Initialize mise in worktree if needed
 	if err := mise.Initialize(worktreePath); err != nil {
 		fmt.Printf("Warning: mise initialization failed: %v\n", err)
