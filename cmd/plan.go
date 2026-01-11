@@ -178,10 +178,10 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string, wor
 		if err := database.CreateTask(context.Background(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
-		fmt.Printf("Created task %s with %d bead(s): %s\n", t.ID, len(t.BeadIDs), strings.Join(t.BeadIDs, ", "))
+		fmt.Printf("Created implement task %s with %d bead(s): %s\n", t.ID, len(t.BeadIDs), strings.Join(t.BeadIDs, ", "))
 	}
 
-	fmt.Printf("\nCreated %d task(s). Run 'co run' to execute.\n", len(tasks))
+	fmt.Printf("\nCreated %d implement task(s). Run 'co run' to execute.\n", len(tasks))
 	return nil
 }
 
@@ -240,11 +240,11 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 		if err := database.CreateTask(context.Background(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
-		fmt.Printf("Created task %s (complexity: %d) with %d bead(s): %s\n",
+		fmt.Printf("Created implement task %s (complexity: %d) with %d bead(s): %s\n",
 			t.ID, t.Complexity, len(t.BeadIDs), strings.Join(t.BeadIDs, ", "))
 	}
 
-	fmt.Printf("\nCreated %d task(s). Run 'co run' to execute.\n", len(tasks))
+	fmt.Printf("\nCreated %d implement task(s). Run 'co run' to execute.\n", len(tasks))
 	return nil
 }
 
@@ -263,10 +263,10 @@ func planSingleBead(_ *project.Project, database *db.DB, beadList []beads.Bead, 
 		if err := database.CreateTask(context.Background(),taskID, "implement", []string{bead.ID}, 0, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", taskID, err)
 		}
-		fmt.Printf("Created task %s: %s\n", taskID, bead.Title)
+		fmt.Printf("Created implement task %s: %s\n", taskID, bead.Title)
 	}
 
-	fmt.Printf("\nCreated %d task(s). Run 'co run' to execute.\n", len(beadList))
+	fmt.Printf("\nCreated %d implement task(s). Run 'co run' to execute.\n", len(beadList))
 	return nil
 }
 

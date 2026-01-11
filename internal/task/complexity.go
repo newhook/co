@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/beads"
@@ -82,6 +83,7 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 
 	if len(uncachedBeads) == 0 {
 		// All beads already cached
+		fmt.Printf("All %d bead(s) already have cached complexity estimates\n", len(beadList))
 		return nil
 	}
 
@@ -93,6 +95,8 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 	if err := e.database.CreateTask(ctx, taskID, "estimate", uncachedIDs, 0, e.workID); err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
+	fmt.Printf("Created estimate task %s for %d bead(s): %s\n",
+		taskID, len(uncachedIDs), strings.Join(uncachedIDs, ", "))
 
 	// Check if we're already in a worktree (work context)
 	worktreePath := e.workDir
@@ -129,6 +133,7 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 	prompt := claude.BuildEstimatePrompt(taskID, uncachedBeads)
 
 	// Run Claude to perform estimation in the worktree
+	fmt.Println("Running estimation task...")
 	// Never auto-close estimation task tabs - they're system tasks
 	result, err := claude.Run(ctx, e.database, taskID, uncachedBeads, prompt, worktreePath, e.projectName, false)
 	if err != nil {
@@ -146,9 +151,12 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 		return fmt.Errorf("estimation task did not complete successfully")
 	}
 
-	// Estimation succeeded - remove worktree only if we created one
+	// Estimation succeeded
+	fmt.Println("Estimation completed successfully")
+
+	// Remove worktree only if we created one
 	if shouldRemoveWorktree {
-		fmt.Printf("Estimation completed successfully, removing worktree...\n")
+		fmt.Printf("Removing estimation worktree...\n")
 		if err := worktree.Remove(e.workDir, worktreePath); err != nil {
 			fmt.Printf("Warning: failed to remove estimation worktree: %v\n", err)
 		}
