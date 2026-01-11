@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const completeBead = `-- name: CompleteBead :execrows
@@ -20,10 +21,10 @@ WHERE id = ?
 `
 
 type CompleteBeadParams struct {
-	PrUrl       sql.NullString `json:"pr_url"`
-	CompletedAt sql.NullTime   `json:"completed_at"`
-	UpdatedAt   sql.NullTime   `json:"updated_at"`
-	ID          string         `json:"id"`
+	PrUrl       string       `json:"pr_url"`
+	CompletedAt sql.NullTime `json:"completed_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	ID          string       `json:"id"`
 }
 
 func (q *Queries) CompleteBead(ctx context.Context, arg CompleteBeadParams) (int64, error) {
@@ -49,10 +50,10 @@ WHERE id = ?
 `
 
 type FailBeadParams struct {
-	ErrorMessage sql.NullString `json:"error_message"`
-	CompletedAt  sql.NullTime   `json:"completed_at"`
-	UpdatedAt    sql.NullTime   `json:"updated_at"`
-	ID           string         `json:"id"`
+	ErrorMessage string       `json:"error_message"`
+	CompletedAt  sql.NullTime `json:"completed_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
+	ID           string       `json:"id"`
 }
 
 func (q *Queries) FailBead(ctx context.Context, arg FailBeadParams) (int64, error) {
@@ -209,13 +210,13 @@ ON CONFLICT(id) DO UPDATE SET
 `
 
 type StartBeadParams struct {
-	ID            string         `json:"id"`
-	Title         sql.NullString `json:"title"`
-	ZellijSession sql.NullString `json:"zellij_session"`
-	ZellijPane    sql.NullString `json:"zellij_pane"`
-	WorktreePath  sql.NullString `json:"worktree_path"`
-	StartedAt     sql.NullTime   `json:"started_at"`
-	UpdatedAt     sql.NullTime   `json:"updated_at"`
+	ID            string       `json:"id"`
+	Title         string       `json:"title"`
+	ZellijSession string       `json:"zellij_session"`
+	ZellijPane    string       `json:"zellij_pane"`
+	WorktreePath  string       `json:"worktree_path"`
+	StartedAt     sql.NullTime `json:"started_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
 }
 
 func (q *Queries) StartBead(ctx context.Context, arg StartBeadParams) error {

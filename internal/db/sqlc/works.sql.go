@@ -16,9 +16,9 @@ VALUES (?, ?, ?)
 `
 
 type AddTaskToWorkParams struct {
-	WorkID   string        `json:"work_id"`
-	TaskID   string        `json:"task_id"`
-	Position sql.NullInt64 `json:"position"`
+	WorkID   string `json:"work_id"`
+	TaskID   string `json:"task_id"`
+	Position int64  `json:"position"`
 }
 
 func (q *Queries) AddTaskToWork(ctx context.Context, arg AddTaskToWorkParams) error {
@@ -35,9 +35,9 @@ WHERE id = ?
 `
 
 type CompleteWorkParams struct {
-	PrUrl       sql.NullString `json:"pr_url"`
-	CompletedAt sql.NullTime   `json:"completed_at"`
-	ID          string         `json:"id"`
+	PrUrl       string       `json:"pr_url"`
+	CompletedAt sql.NullTime `json:"completed_at"`
+	ID          string       `json:"id"`
 }
 
 func (q *Queries) CompleteWork(ctx context.Context, arg CompleteWorkParams) (int64, error) {
@@ -54,10 +54,10 @@ VALUES (?, 'pending', ?, ?, ?)
 `
 
 type CreateWorkParams struct {
-	ID           string         `json:"id"`
-	WorktreePath sql.NullString `json:"worktree_path"`
-	BranchName   sql.NullString `json:"branch_name"`
-	BaseBranch   sql.NullString `json:"base_branch"`
+	ID           string `json:"id"`
+	WorktreePath string `json:"worktree_path"`
+	BranchName   string `json:"branch_name"`
+	BaseBranch   string `json:"base_branch"`
 }
 
 func (q *Queries) CreateWork(ctx context.Context, arg CreateWorkParams) error {
@@ -105,9 +105,9 @@ WHERE id = ?
 `
 
 type FailWorkParams struct {
-	ErrorMessage sql.NullString `json:"error_message"`
-	CompletedAt  sql.NullTime   `json:"completed_at"`
-	ID           string         `json:"id"`
+	ErrorMessage string       `json:"error_message"`
+	CompletedAt  sql.NullTime `json:"completed_at"`
+	ID           string       `json:"id"`
 }
 
 func (q *Queries) FailWork(ctx context.Context, arg FailWorkParams) (int64, error) {
@@ -198,7 +198,7 @@ WHERE worktree_path LIKE ?
 LIMIT 1
 `
 
-func (q *Queries) GetWorkByDirectory(ctx context.Context, worktreePath sql.NullString) (Work, error) {
+func (q *Queries) GetWorkByDirectory(ctx context.Context, worktreePath string) (Work, error) {
 	row := q.db.QueryRowContext(ctx, getWorkByDirectory, worktreePath)
 	var i Work
 	err := row.Scan(
@@ -402,10 +402,10 @@ WHERE id = ?
 `
 
 type StartWorkParams struct {
-	ZellijSession sql.NullString `json:"zellij_session"`
-	ZellijTab     sql.NullString `json:"zellij_tab"`
-	StartedAt     sql.NullTime   `json:"started_at"`
-	ID            string         `json:"id"`
+	ZellijSession string       `json:"zellij_session"`
+	ZellijTab     string       `json:"zellij_tab"`
+	StartedAt     sql.NullTime `json:"started_at"`
+	ID            string       `json:"id"`
 }
 
 func (q *Queries) StartWork(ctx context.Context, arg StartWorkParams) (int64, error) {

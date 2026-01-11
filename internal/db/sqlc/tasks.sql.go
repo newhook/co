@@ -19,9 +19,9 @@ WHERE id = ?
 `
 
 type CompleteTaskParams struct {
-	PrUrl       sql.NullString `json:"pr_url"`
-	CompletedAt sql.NullTime   `json:"completed_at"`
-	ID          string         `json:"id"`
+	PrUrl       string       `json:"pr_url"`
+	CompletedAt sql.NullTime `json:"completed_at"`
+	ID          string       `json:"id"`
 }
 
 func (q *Queries) CompleteTask(ctx context.Context, arg CompleteTaskParams) (int64, error) {
@@ -76,10 +76,10 @@ VALUES (?, 'pending', ?, ?, ?)
 `
 
 type CreateTaskParams struct {
-	ID               string         `json:"id"`
-	TaskType         string         `json:"task_type"`
-	ComplexityBudget sql.NullInt64  `json:"complexity_budget"`
-	WorkID           sql.NullString `json:"work_id"`
+	ID               string `json:"id"`
+	TaskType         string `json:"task_type"`
+	ComplexityBudget int64  `json:"complexity_budget"`
+	WorkID           string `json:"work_id"`
 }
 
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) error {
@@ -127,7 +127,7 @@ DELETE FROM tasks
 WHERE work_id = ?
 `
 
-func (q *Queries) DeleteTasksForWork(ctx context.Context, workID sql.NullString) (int64, error) {
+func (q *Queries) DeleteTasksForWork(ctx context.Context, workID string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteTasksForWork, workID)
 	if err != nil {
 		return 0, err
@@ -144,9 +144,9 @@ WHERE id = ?
 `
 
 type FailTaskParams struct {
-	ErrorMessage sql.NullString `json:"error_message"`
-	CompletedAt  sql.NullTime   `json:"completed_at"`
-	ID           string         `json:"id"`
+	ErrorMessage string       `json:"error_message"`
+	CompletedAt  sql.NullTime `json:"completed_at"`
+	ID           string       `json:"id"`
 }
 
 func (q *Queries) FailTask(ctx context.Context, arg FailTaskParams) (int64, error) {
@@ -374,10 +374,10 @@ func (q *Queries) ListTasksByStatus(ctx context.Context, status string) ([]Task,
 const resetTaskStatus = `-- name: ResetTaskStatus :execrows
 UPDATE tasks
 SET status = 'pending',
-    zellij_session = NULL,
-    zellij_pane = NULL,
+    zellij_session = '',
+    zellij_pane = '',
     started_at = NULL,
-    error_message = NULL
+    error_message = ''
 WHERE id = ?
 `
 
@@ -400,11 +400,11 @@ WHERE id = ?
 `
 
 type StartTaskParams struct {
-	ZellijSession sql.NullString `json:"zellij_session"`
-	ZellijPane    sql.NullString `json:"zellij_pane"`
-	WorktreePath  sql.NullString `json:"worktree_path"`
-	StartedAt     sql.NullTime   `json:"started_at"`
-	ID            string         `json:"id"`
+	ZellijSession string       `json:"zellij_session"`
+	ZellijPane    string       `json:"zellij_pane"`
+	WorktreePath  string       `json:"worktree_path"`
+	StartedAt     sql.NullTime `json:"started_at"`
+	ID            string       `json:"id"`
 }
 
 func (q *Queries) StartTask(ctx context.Context, arg StartTaskParams) (int64, error) {

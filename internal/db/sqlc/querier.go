@@ -6,7 +6,6 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 )
 
 type Querier interface {
@@ -22,7 +21,7 @@ type Querier interface {
 	CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error
 	CreateWork(ctx context.Context, arg CreateWorkParams) error
 	DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error)
-	DeleteTasksForWork(ctx context.Context, workID sql.NullString) (int64, error)
+	DeleteTasksForWork(ctx context.Context, workID string) (int64, error)
 	DeleteWork(ctx context.Context, id string) (int64, error)
 	DeleteWorkTasks(ctx context.Context, workID string) (int64, error)
 	FailBead(ctx context.Context, arg FailBeadParams) (int64, error)
@@ -39,7 +38,7 @@ type Querier interface {
 	GetTaskBeads(ctx context.Context, taskID string) ([]string, error)
 	GetTaskForBead(ctx context.Context, beadID string) (string, error)
 	GetWork(ctx context.Context, id string) (Work, error)
-	GetWorkByDirectory(ctx context.Context, worktreePath sql.NullString) (Work, error)
+	GetWorkByDirectory(ctx context.Context, worktreePath string) (Work, error)
 	GetWorkTasks(ctx context.Context, workID string) ([]Task, error)
 	InitializeTaskCounter(ctx context.Context, workID string) error
 	ListBeads(ctx context.Context) ([]Bead, error)

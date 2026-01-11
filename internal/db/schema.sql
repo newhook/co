@@ -6,16 +6,16 @@
 CREATE TABLE works (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'pending',
-    zellij_session TEXT,
-    zellij_tab TEXT,
-    worktree_path TEXT,
-    branch_name TEXT,
-    base_branch TEXT DEFAULT 'main',
-    pr_url TEXT,
-    error_message TEXT,
+    zellij_session TEXT NOT NULL DEFAULT '',
+    zellij_tab TEXT NOT NULL DEFAULT '',
+    worktree_path TEXT NOT NULL DEFAULT '',
+    branch_name TEXT NOT NULL DEFAULT '',
+    base_branch TEXT NOT NULL DEFAULT 'main',
+    pr_url TEXT NOT NULL DEFAULT '',
+    error_message TEXT NOT NULL DEFAULT '',
     started_at DATETIME,
     completed_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_works_status ON works(status);
@@ -24,16 +24,16 @@ CREATE INDEX idx_works_status ON works(status);
 CREATE TABLE beads (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'pending',
-    title TEXT,
-    pr_url TEXT,
-    error_message TEXT,
-    zellij_session TEXT,
-    zellij_pane TEXT,
-    worktree_path TEXT,
+    title TEXT NOT NULL DEFAULT '',
+    pr_url TEXT NOT NULL DEFAULT '',
+    error_message TEXT NOT NULL DEFAULT '',
+    zellij_session TEXT NOT NULL DEFAULT '',
+    zellij_pane TEXT NOT NULL DEFAULT '',
+    worktree_path TEXT NOT NULL DEFAULT '',
     started_at DATETIME,
     completed_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_beads_status ON beads(status);
@@ -43,17 +43,17 @@ CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'pending',
     task_type TEXT NOT NULL DEFAULT 'implement',
-    complexity_budget INT,
-    actual_complexity INT,
-    work_id TEXT REFERENCES works(id),
-    zellij_session TEXT,
-    zellij_pane TEXT,
-    worktree_path TEXT,
-    pr_url TEXT,
-    error_message TEXT,
+    complexity_budget INT NOT NULL DEFAULT 0,
+    actual_complexity INT NOT NULL DEFAULT 0,
+    work_id TEXT NOT NULL DEFAULT '' REFERENCES works(id),
+    zellij_session TEXT NOT NULL DEFAULT '',
+    zellij_pane TEXT NOT NULL DEFAULT '',
+    worktree_path TEXT NOT NULL DEFAULT '',
+    pr_url TEXT NOT NULL DEFAULT '',
+    error_message TEXT NOT NULL DEFAULT '',
     started_at DATETIME,
     completed_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_tasks_status ON tasks(status);
@@ -77,7 +77,7 @@ CREATE TABLE complexity_cache (
     description_hash TEXT NOT NULL,
     complexity_score INT NOT NULL,
     estimated_tokens INT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_complexity_cache_hash ON complexity_cache(description_hash);
@@ -86,7 +86,7 @@ CREATE INDEX idx_complexity_cache_hash ON complexity_cache(description_hash);
 CREATE TABLE work_tasks (
     work_id TEXT NOT NULL,
     task_id TEXT NOT NULL,
-    position INTEGER DEFAULT 0,
+    position INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (work_id, task_id),
     FOREIGN KEY (work_id) REFERENCES works(id),
     FOREIGN KEY (task_id) REFERENCES tasks(id)
