@@ -420,9 +420,10 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Created PR task: %s\n", prTaskID)
-	fmt.Printf("\nRun 'co run %s' to execute Claude to create the PR\n", prTaskID)
 
-	return nil
+	// Auto-run the PR task
+	fmt.Printf("Running PR task...\n")
+	return processTask(proj, prTaskID)
 }
 
 func runWorkReview(cmd *cobra.Command, args []string) error {
@@ -459,24 +460,24 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("work %s has not been started yet (status: pending)", workID)
 	}
 
-	// Generate task ID for review
-	// Use a special ".review" suffix for review tasks
-	reviewTaskID := fmt.Sprintf("%s.review", workID)
-
-	// Check if review task already exists
-	existingTask, err := proj.DB.GetTask(context.Background(), reviewTaskID)
+	// Generate unique task ID for review
+	// Find the next available review task number
+	tasks, err := proj.DB.GetWorkTasks(context.Background(), workID)
 	if err != nil {
-		return fmt.Errorf("failed to check existing review task: %w", err)
+		return fmt.Errorf("failed to get work tasks: %w", err)
 	}
-	if existingTask != nil {
-		if existingTask.Status == db.StatusCompleted {
-			fmt.Printf("Review task %s already completed\n", reviewTaskID)
-			return nil
+
+	// Count existing review tasks to generate unique ID
+	reviewCount := 0
+	reviewPrefix := fmt.Sprintf("%s.review", workID)
+	for _, task := range tasks {
+		if strings.HasPrefix(task.ID, reviewPrefix) {
+			reviewCount++
 		}
-		fmt.Printf("Review task %s already exists (status: %s)\n", reviewTaskID, existingTask.Status)
-		fmt.Printf("\nRun 'co run %s' to execute Claude for review\n", reviewTaskID)
-		return nil
 	}
+
+	// Generate unique review task ID (e.g., w-xxx.review-1, w-xxx.review-2)
+	reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
 
 	// Create a review task
 	err = proj.DB.CreateTask(context.Background(), reviewTaskID, "review", []string{}, 0, workID)
@@ -485,9 +486,10 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Created review task: %s\n", reviewTaskID)
-	fmt.Printf("\nRun 'co run %s' to execute Claude for code review\n", reviewTaskID)
 
-	return nil
+	// Auto-run the review task
+	fmt.Printf("Running review task...\n")
+	return processTask(proj, reviewTaskID)
 }
 
 // getCurrentWork tries to detect the work context from the current directory.
