@@ -137,7 +137,8 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 	prompt := claude.BuildEstimatePrompt(taskID, uncachedBeads)
 
 	// Run Claude to perform estimation in the worktree
-	result, err := claude.Run(ctx, e.database, taskID, uncachedBeads, prompt, worktreePath, e.projectName)
+	// Never auto-close estimation task tabs - they're system tasks
+	result, err := claude.Run(ctx, e.database, taskID, uncachedBeads, prompt, worktreePath, e.projectName, false)
 	if err != nil {
 		fmt.Printf("Estimation failed: %v\n", err)
 		if shouldRemoveWorktree {

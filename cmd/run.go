@@ -16,10 +16,11 @@ import (
 )
 
 var (
-	flagLimit   int
-	flagDryRun  bool
-	flagProject string
-	flagWork    string
+	flagLimit     int
+	flagDryRun    bool
+	flagProject   string
+	flagWork      string
+	flagAutoClose bool
 )
 
 var runCmd = &cobra.Command{
@@ -50,6 +51,7 @@ func init() {
 	runCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "show plan without executing")
 	runCmd.Flags().StringVar(&flagProject, "project", "", "project directory (default: auto-detect from cwd)")
 	runCmd.Flags().StringVar(&flagWork, "work", "", "work ID to run (default: auto-detect from cwd)")
+	runCmd.Flags().BoolVar(&flagAutoClose, "auto-close", false, "automatically close tabs after task completion")
 }
 
 func runTasks(cmd *cobra.Command, args []string) error {
@@ -426,7 +428,7 @@ func processTaskInWork(proj *project.Project, database *db.DB, dbTask *db.Task, 
 	// Run Claude in the work's worktree directory
 	ctx := context.Background()
 	projectName := proj.Config.Project.Name
-	result, err := claude.Run(ctx, database, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName)
+	result, err := claude.Run(ctx, database, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
 	if err != nil {
 		fmt.Printf("Claude failed: %v\n", err)
 		return nil, fmt.Errorf("claude failed: %w", err)

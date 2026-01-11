@@ -46,7 +46,7 @@ type TaskResult struct {
 
 // Run invokes Claude Code for a task (group of beads) using project-specific session naming.
 // Returns a TaskResult indicating which beads completed and which failed.
-func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string) (*TaskResult, error) {
+func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string, autoClose bool) (*TaskResult, error) {
 	sessionName := SessionNameForProject(projectName)
 
 	// Always use the full task ID as the tab name for clear task isolation
@@ -70,6 +70,9 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 
 	// Build the wrapper command
 	claudeCommand := fmt.Sprintf("%s claude %s", coBinary, taskID)
+	if autoClose {
+		claudeCommand += " --auto-close"
+	}
 
 	// Check if tab with this task name already exists
 	// Since each task gets its own tab, this shouldn't normally happen

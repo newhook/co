@@ -9,9 +9,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
+)
+
+var (
+	claudeAutoClose bool
 )
 
 var claudeCmd = &cobra.Command{
@@ -24,7 +29,7 @@ var claudeCmd = &cobra.Command{
 }
 
 func init() {
-	// Add any flags here if needed (e.g., --no-auto-close)
+	claudeCmd.Flags().BoolVar(&claudeAutoClose, "auto-close", false, "automatically close tab after completion")
 }
 
 func runClaude(cmd *cobra.Command, args []string) error {
@@ -158,6 +163,23 @@ exit:
 	if task.Status != db.StatusCompleted {
 		// Task wasn't marked complete by Claude - this might be a partial completion
 		fmt.Printf("Warning: Task %s was not marked as completed by Claude\n", taskID)
+	}
+
+	// Close the tab if auto-close is enabled
+	if claudeAutoClose {
+		fmt.Println("Auto-closing tab...")
+		// Get project to find session name
+		proj, err := project.Find("")
+		if err == nil {
+			sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
+
+			// Close the current tab (the one this wrapper is running in)
+			closeArgs := []string{"-s", sessionName, "action", "close-tab"}
+			closeCmd := exec.Command("zellij", closeArgs...)
+			if err := closeCmd.Run(); err != nil {
+				fmt.Printf("Warning: failed to auto-close tab: %v\n", err)
+			}
+		}
 	}
 
 	return nil
