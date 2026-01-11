@@ -13,15 +13,16 @@ Instructions:
      * Complete that bead's implementation if needed
      * Close the bead: bd close <bead-id> --reason "<summary>"
      * Commit: git add -A && git commit -m "Complete <bead-id>: <description>"
+     * Push: git push
    - If no beads are "processing":
-     * Stash the changes: git stash push -m "Stashed before task {{.TaskID}}"
+     * STOP - Report error: "Uncommitted changes found. Please commit or stash them before running this task."
 3. For each bead that is NOT already completed:
    - Use 'bd show <bead-id>' to examine the bead's details
    - Implement the required changes
    - Close the bead: bd close <bead-id> --reason "<brief summary>"
    - Commit the work: git add -A && git commit -m "Implement <bead-id>: <brief description>"
+   - Push the changes: git push
 4. When ALL beads are complete:
-   - Push the branch: git push
    - Mark the task complete: co complete {{.TaskID}}
 
 Note: co complete auto-detects your task. When all beads in the task are marked complete, the task itself is marked complete.
