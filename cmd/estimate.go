@@ -52,13 +52,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
-
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-	defer database.Close()
+	defer proj.Close()
 
 	// Get bead from beads DB to compute description hash
 	bead, err := beads.GetBeadInDir(beadID, proj.MainRepoPath())
@@ -72,14 +66,14 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	descHash := db.HashDescription(fullDescription)
 
 	// Store estimate in complexity cache
-	if err := database.CacheComplexity(beadID, descHash, flagEstimateScore, flagEstimateTokens); err != nil {
+	if err := proj.DB.CacheComplexity(beadID, descHash, flagEstimateScore, flagEstimateTokens); err != nil {
 		return fmt.Errorf("failed to cache complexity: %w", err)
 	}
 
 	// Use provided task ID or find which task contains this bead
 	taskID := flagEstimateTask
 	if taskID == "" {
-		taskID, err = database.GetTaskForBead(context.Background(), beadID)
+		taskID, err = proj.DB.GetTaskForBead(context.Background(), beadID)
 		if err != nil {
 			return fmt.Errorf("failed to find task for bead: %w", err)
 		}
@@ -92,33 +86,33 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Mark this bead as completed in the task
-	if err := database.CompleteTaskBead(context.Background(), taskID, beadID); err != nil {
+	if err := proj.DB.CompleteTaskBead(context.Background(), taskID, beadID); err != nil {
 		// Non-fatal: bead might not be in a task or already completed
 		fmt.Printf("Note: could not mark bead complete in task: %v\n", err)
 	}
 
 	// Check if this is an estimate task
-	task, err := database.GetTask(context.Background(), taskID)
+	task, err := proj.DB.GetTask(context.Background(), taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
 
 	if task != nil && task.TaskType == "estimate" {
 		// Get all beads in the task
-		taskBeadIDs, err := database.GetTaskBeads(context.Background(), taskID)
+		taskBeadIDs, err := proj.DB.GetTaskBeads(context.Background(), taskID)
 		if err != nil {
 			return fmt.Errorf("failed to get task beads: %w", err)
 		}
 
 		// Check if all beads have estimates
-		allEstimated, err := database.AreAllBeadsEstimated(taskBeadIDs)
+		allEstimated, err := proj.DB.AreAllBeadsEstimated(taskBeadIDs)
 		if err != nil {
 			return fmt.Errorf("failed to check estimates: %w", err)
 		}
 
 		if allEstimated {
 			// Auto-complete the estimation task
-			if err := database.CompleteTask(context.Background(), taskID, ""); err != nil {
+			if err := proj.DB.CompleteTask(context.Background(), taskID, ""); err != nil {
 				return fmt.Errorf("failed to complete task: %w", err)
 			}
 			fmt.Printf("✓ Estimated %s: complexity=%d, tokens=%d\n", beadID, flagEstimateScore, flagEstimateTokens)
@@ -135,7 +129,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 				// Get cached complexity
 				fullDesc := b.Title + "\n" + b.Description
 				hash := db.HashDescription(fullDesc)
-				score, tokens, found, _ := database.GetCachedComplexity(id, hash)
+				score, tokens, found, _ := proj.DB.GetCachedComplexity(id, hash)
 				if found {
 					// Truncate title if too long
 					title := b.Title
@@ -153,7 +147,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 				if b != nil {
 					fullDesc := b.Title + "\n" + b.Description
 					hash := db.HashDescription(fullDesc)
-					_, _, found, _ := database.GetCachedComplexity(id, hash)
+					_, _, found, _ := proj.DB.GetCachedComplexity(id, hash)
 					if !found {
 						remaining = append(remaining, id)
 					}

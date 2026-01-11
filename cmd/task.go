@@ -24,7 +24,7 @@ var taskCmd = &cobra.Command{
 var taskListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List tasks",
-	Long: `List all tasks in the tracking database.
+	Long: `List all tasks in the tracking proj.DB.
 
 Examples:
   co task list                    # List all tasks
@@ -73,18 +73,12 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
-
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open tracking database: %w", err)
-	}
 	defer proj.Close()
 
 	// Get all tasks
 	var tasks []*db.Task
 	if flagTaskStatus != "" {
-		tasks, err = database.ListTasks(context.Background(),flagTaskStatus)
+		tasks, err = proj.DB.ListTasks(context.Background(),flagTaskStatus)
 		if err != nil {
 			return fmt.Errorf("failed to list tasks: %w", err)
 		}
@@ -92,7 +86,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		// Get all tasks regardless of status
 		allStatuses := []string{db.StatusPending, db.StatusProcessing, db.StatusCompleted, db.StatusFailed}
 		for _, status := range allStatuses {
-			statusTasks, err := database.ListTasks(context.Background(),status)
+			statusTasks, err := proj.DB.ListTasks(context.Background(),status)
 			if err != nil {
 				return fmt.Errorf("failed to list tasks with status %s: %w", status, err)
 			}
@@ -124,7 +118,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	// Print each task
 	for _, task := range tasks {
 		// Get beads for this task
-		beadIDs, err := database.GetTaskBeads(context.Background(),task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(context.Background(),task.ID)
 		if err != nil {
 			beadIDs = []string{"<error>"}
 		}
@@ -196,16 +190,10 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
-
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open tracking database: %w", err)
-	}
 	defer proj.Close()
 
 	// Get task
-	task, err := database.GetTask(context.Background(),taskID)
+	task, err := proj.DB.GetTask(context.Background(),taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
@@ -214,7 +202,7 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get beads for this task
-	beadIDs, err := database.GetTaskBeads(context.Background(),task.ID)
+	beadIDs, err := proj.DB.GetTaskBeads(context.Background(),task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get task beads: %w", err)
 	}
@@ -266,7 +254,7 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 	for _, beadID := range beadIDs {
 		// Get bead status
 		var beadStatus string
-		err := database.QueryRow(`
+		err := proj.DB.QueryRow(`
 			SELECT status FROM task_beads WHERE task_id = ? AND bead_id = ?
 		`, taskID, beadID).Scan(&beadStatus)
 		if err != nil {
@@ -284,18 +272,12 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
-
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open tracking database: %w", err)
-	}
 	defer proj.Close()
 
 	// Delete each task
 	for _, taskID := range args {
 		// Check task exists
-		task, err := database.GetTask(context.Background(), taskID)
+		task, err := proj.DB.GetTask(context.Background(), taskID)
 		if err != nil {
 			return fmt.Errorf("failed to get task %s: %w", taskID, err)
 		}
@@ -304,19 +286,19 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 		}
 
 		// Delete work_tasks first (foreign key constraint)
-		_, err = database.Exec(`DELETE FROM work_tasks WHERE task_id = ?`, taskID)
+		_, err = proj.DB.Exec(`DELETE FROM work_tasks WHERE task_id = ?`, taskID)
 		if err != nil {
 			return fmt.Errorf("failed to delete work_tasks for %s: %w", taskID, err)
 		}
 
 		// Delete task beads (foreign key constraint)
-		_, err = database.Exec(`DELETE FROM task_beads WHERE task_id = ?`, taskID)
+		_, err = proj.DB.Exec(`DELETE FROM task_beads WHERE task_id = ?`, taskID)
 		if err != nil {
 			return fmt.Errorf("failed to delete task beads for %s: %w", taskID, err)
 		}
 
 		// Delete task
-		_, err = database.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
+		_, err = proj.DB.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
 		if err != nil {
 			return fmt.Errorf("failed to delete task %s: %w", taskID, err)
 		}
@@ -335,16 +317,10 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
-
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open tracking database: %w", err)
-	}
 	defer proj.Close()
 
 	// Check task exists
-	task, err := database.GetTask(context.Background(),taskID)
+	task, err := proj.DB.GetTask(context.Background(),taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
@@ -353,12 +329,12 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Reset task status
-	if err := database.ResetTaskStatus(context.Background(),taskID); err != nil {
+	if err := proj.DB.ResetTaskStatus(context.Background(),taskID); err != nil {
 		return fmt.Errorf("failed to reset task status: %w", err)
 	}
 
 	// Reset all bead statuses for this task
-	_, err = database.Exec(`
+	_, err = proj.DB.Exec(`
 		UPDATE task_beads
 		SET status = ?
 		WHERE task_id = ?

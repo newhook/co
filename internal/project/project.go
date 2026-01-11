@@ -80,10 +80,20 @@ func load(root string) (*Project, error) {
 		return nil, fmt.Errorf("failed to load config from %s: %w", configPath, err)
 	}
 
-	return &Project{
+	proj := &Project{
 		Root:   root,
 		Config: cfg,
-	}, nil
+	}
+
+	// Open the database automatically
+	dbPath := filepath.Join(root, ConfigDir, TrackingDB)
+	database, err := db.OpenPath(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open tracking database: %w", err)
+	}
+	proj.DB = database
+
+	return proj, nil
 }
 
 // Create initializes a new project at the given directory.
@@ -219,23 +229,13 @@ func (p *Project) WorktreePath(taskID string) string {
 	return filepath.Join(p.Root, taskID)
 }
 
-// trackingDBPath returns the path to the tracking database.
-func (p *Project) trackingDBPath() string {
-	return filepath.Join(p.Root, ConfigDir, TrackingDB)
-}
-
-// OpenDB opens the project's tracking database.
+// OpenDB returns the project's tracking database.
+// Deprecated: Use proj.DB directly instead. The database is opened automatically by Find().
 func (p *Project) OpenDB() (*db.DB, error) {
-	if p.DB != nil {
-		return p.DB, nil
+	if p.DB == nil {
+		return nil, fmt.Errorf("database not initialized")
 	}
-
-	database, err := db.OpenPath(p.trackingDBPath())
-	if err != nil {
-		return nil, fmt.Errorf("failed to open tracking database: %w", err)
-	}
-	p.DB = database
-	return database, nil
+	return p.DB, nil
 }
 
 // Close closes any open resources (like the database).
