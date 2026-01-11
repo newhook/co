@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 )
 
@@ -8,13 +9,13 @@ func TestCreateTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	err := db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
 	if err != nil {
 		t.Fatalf("CreateTask failed: %v", err)
 	}
 
 	// Verify task was created
-	task, err := db.GetTask("task-1")
+	task, err := db.GetTask(context.Background(),"task-1")
 	if err != nil {
 		t.Fatalf("GetTask failed: %v", err)
 	}
@@ -32,7 +33,7 @@ func TestCreateTask(t *testing.T) {
 	}
 
 	// Verify beads were added
-	beads, err := db.GetTaskBeads("task-1")
+	beads, err := db.GetTaskBeads(context.Background(),"task-1")
 	if err != nil {
 		t.Fatalf("GetTaskBeads failed: %v", err)
 	}
@@ -45,17 +46,17 @@ func TestStartTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
+	err := db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1"}, 100, "")
 	if err != nil {
 		t.Fatalf("CreateTask failed: %v", err)
 	}
 
-	err = db.StartTask("task-1", "session-1", "pane-1")
+	err = db.StartTask(context.Background(),"task-1", "session-1", "pane-1")
 	if err != nil {
 		t.Fatalf("StartTask failed: %v", err)
 	}
 
-	task, err := db.GetTask("task-1")
+	task, err := db.GetTask(context.Background(),"task-1")
 	if err != nil {
 		t.Fatalf("GetTask failed: %v", err)
 	}
@@ -81,7 +82,7 @@ func TestStartTaskNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := db.StartTask("nonexistent", "s", "p")
+	err := db.StartTask(context.Background(),"nonexistent", "s", "p")
 	if err == nil {
 		t.Error("expected error for nonexistent task")
 	}
@@ -91,15 +92,15 @@ func TestCompleteTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
-	db.StartTask("task-1", "s", "p")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1"}, 100, "")
+	db.StartTask(context.Background(),"task-1", "s", "p")
 
-	err := db.CompleteTask("task-1", "https://github.com/example/pr/1")
+	err := db.CompleteTask(context.Background(),"task-1", "https://github.com/example/pr/1")
 	if err != nil {
 		t.Fatalf("CompleteTask failed: %v", err)
 	}
 
-	task, _ := db.GetTask("task-1")
+	task, _ := db.GetTask(context.Background(),"task-1")
 	if task.Status != StatusCompleted {
 		t.Errorf("expected status %q, got %q", StatusCompleted, task.Status)
 	}
@@ -115,7 +116,7 @@ func TestCompleteTaskNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := db.CompleteTask("nonexistent", "")
+	err := db.CompleteTask(context.Background(),"nonexistent", "")
 	if err == nil {
 		t.Error("expected error for nonexistent task")
 	}
@@ -125,15 +126,15 @@ func TestFailTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
-	db.StartTask("task-1", "s", "p")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1"}, 100, "")
+	db.StartTask(context.Background(),"task-1", "s", "p")
 
-	err := db.FailTask("task-1", "something went wrong")
+	err := db.FailTask(context.Background(),"task-1", "something went wrong")
 	if err != nil {
 		t.Fatalf("FailTask failed: %v", err)
 	}
 
-	task, _ := db.GetTask("task-1")
+	task, _ := db.GetTask(context.Background(),"task-1")
 	if task.Status != StatusFailed {
 		t.Errorf("expected status %q, got %q", StatusFailed, task.Status)
 	}
@@ -149,7 +150,7 @@ func TestFailTaskNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := db.FailTask("nonexistent", "error")
+	err := db.FailTask(context.Background(),"nonexistent", "error")
 	if err == nil {
 		t.Error("expected error for nonexistent task")
 	}
@@ -159,7 +160,7 @@ func TestGetTaskNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	task, err := db.GetTask("nonexistent")
+	task, err := db.GetTask(context.Background(),"nonexistent")
 	if err != nil {
 		t.Fatalf("GetTask failed: %v", err)
 	}
@@ -172,9 +173,9 @@ func TestGetTaskForBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
 
-	taskID, err := db.GetTaskForBead("bead-1")
+	taskID, err := db.GetTaskForBead(context.Background(),"bead-1")
 	if err != nil {
 		t.Fatalf("GetTaskForBead failed: %v", err)
 	}
@@ -182,7 +183,7 @@ func TestGetTaskForBead(t *testing.T) {
 		t.Errorf("expected task-1, got %q", taskID)
 	}
 
-	taskID, err = db.GetTaskForBead("bead-2")
+	taskID, err = db.GetTaskForBead(context.Background(),"bead-2")
 	if err != nil {
 		t.Fatalf("GetTaskForBead failed: %v", err)
 	}
@@ -191,7 +192,7 @@ func TestGetTaskForBead(t *testing.T) {
 	}
 
 	// Nonexistent bead
-	taskID, err = db.GetTaskForBead("nonexistent")
+	taskID, err = db.GetTaskForBead(context.Background(),"nonexistent")
 	if err != nil {
 		t.Fatalf("GetTaskForBead failed: %v", err)
 	}
@@ -204,15 +205,15 @@ func TestCompleteTaskBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
 
-	err := db.CompleteTaskBead("task-1", "bead-1")
+	err := db.CompleteTaskBead(context.Background(),"task-1", "bead-1")
 	if err != nil {
 		t.Fatalf("CompleteTaskBead failed: %v", err)
 	}
 
 	// Verify via IsTaskCompleted (should be false since bead-2 is still pending)
-	completed, err := db.IsTaskCompleted("task-1")
+	completed, err := db.IsTaskCompleted(context.Background(),"task-1")
 	if err != nil {
 		t.Fatalf("IsTaskCompleted failed: %v", err)
 	}
@@ -225,9 +226,9 @@ func TestCompleteTaskBeadNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1"}, 100, "")
 
-	err := db.CompleteTaskBead("task-1", "nonexistent")
+	err := db.CompleteTaskBead(context.Background(),"task-1", "nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent task bead")
 	}
@@ -237,15 +238,15 @@ func TestFailTaskBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1"}, 100, "")
 
-	err := db.FailTaskBead("task-1", "bead-1")
+	err := db.FailTaskBead(context.Background(),"task-1", "bead-1")
 	if err != nil {
 		t.Fatalf("FailTaskBead failed: %v", err)
 	}
 
 	// Task should not be considered completed since bead is failed
-	completed, _ := db.IsTaskCompleted("task-1")
+	completed, _ := db.IsTaskCompleted(context.Background(),"task-1")
 	if completed {
 		t.Error("expected task to not be completed when bead is failed")
 	}
@@ -255,9 +256,9 @@ func TestFailTaskBeadNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1"}, 100, "")
 
-	err := db.FailTaskBead("task-1", "nonexistent")
+	err := db.FailTaskBead(context.Background(),"task-1", "nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent task bead")
 	}
@@ -267,10 +268,10 @@ func TestIsTaskCompleted(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
 
 	// Initially not completed
-	completed, err := db.IsTaskCompleted("task-1")
+	completed, err := db.IsTaskCompleted(context.Background(),"task-1")
 	if err != nil {
 		t.Fatalf("IsTaskCompleted failed: %v", err)
 	}
@@ -279,15 +280,15 @@ func TestIsTaskCompleted(t *testing.T) {
 	}
 
 	// Complete first bead
-	db.CompleteTaskBead("task-1", "bead-1")
-	completed, _ = db.IsTaskCompleted("task-1")
+	db.CompleteTaskBead(context.Background(),"task-1", "bead-1")
+	completed, _ = db.IsTaskCompleted(context.Background(),"task-1")
 	if completed {
 		t.Error("expected task to not be completed with one bead pending")
 	}
 
 	// Complete second bead
-	db.CompleteTaskBead("task-1", "bead-2")
-	completed, _ = db.IsTaskCompleted("task-1")
+	db.CompleteTaskBead(context.Background(),"task-1", "bead-2")
+	completed, _ = db.IsTaskCompleted(context.Background(),"task-1")
 	if !completed {
 		t.Error("expected task to be completed when all beads are completed")
 	}
@@ -303,7 +304,7 @@ func TestIsTaskCompletedEmpty(t *testing.T) {
 		t.Fatalf("failed to create empty task: %v", err)
 	}
 
-	completed, err := db.IsTaskCompleted("empty-task")
+	completed, err := db.IsTaskCompleted(context.Background(),"empty-task")
 	if err != nil {
 		t.Fatalf("IsTaskCompleted failed: %v", err)
 	}
@@ -316,11 +317,11 @@ func TestCheckAndCompleteTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
-	db.StartTask("task-1", "s", "p")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	db.StartTask(context.Background(),"task-1", "s", "p")
 
 	// Not all beads completed yet
-	autoCompleted, err := db.CheckAndCompleteTask("task-1", "https://github.com/pr/1")
+	autoCompleted, err := db.CheckAndCompleteTask(context.Background(),"task-1", "https://github.com/pr/1")
 	if err != nil {
 		t.Fatalf("CheckAndCompleteTask failed: %v", err)
 	}
@@ -328,16 +329,16 @@ func TestCheckAndCompleteTask(t *testing.T) {
 		t.Error("expected not auto-completed when beads are pending")
 	}
 
-	task, _ := db.GetTask("task-1")
+	task, _ := db.GetTask(context.Background(),"task-1")
 	if task.Status != StatusProcessing {
 		t.Errorf("expected status %q, got %q", StatusProcessing, task.Status)
 	}
 
 	// Complete all beads
-	db.CompleteTaskBead("task-1", "bead-1")
-	db.CompleteTaskBead("task-1", "bead-2")
+	db.CompleteTaskBead(context.Background(),"task-1", "bead-1")
+	db.CompleteTaskBead(context.Background(),"task-1", "bead-2")
 
-	autoCompleted, err = db.CheckAndCompleteTask("task-1", "https://github.com/pr/1")
+	autoCompleted, err = db.CheckAndCompleteTask(context.Background(),"task-1", "https://github.com/pr/1")
 	if err != nil {
 		t.Fatalf("CheckAndCompleteTask failed: %v", err)
 	}
@@ -345,7 +346,7 @@ func TestCheckAndCompleteTask(t *testing.T) {
 		t.Error("expected auto-completed when all beads are completed")
 	}
 
-	task, _ = db.GetTask("task-1")
+	task, _ = db.GetTask(context.Background(),"task-1")
 	if task.Status != StatusCompleted {
 		t.Errorf("expected status %q, got %q", StatusCompleted, task.Status)
 	}
@@ -359,18 +360,18 @@ func TestListTasks(t *testing.T) {
 	defer cleanup()
 
 	// Create several tasks with different statuses
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
-	db.CreateTask("task-2", "implement", []string{"bead-2"}, 100, "")
-	db.StartTask("task-2", "s", "p")
-	db.CreateTask("task-3", "implement", []string{"bead-3"}, 100, "")
-	db.StartTask("task-3", "s", "p")
-	db.CompleteTask("task-3", "")
-	db.CreateTask("task-4", "implement", []string{"bead-4"}, 100, "")
-	db.StartTask("task-4", "s", "p")
-	db.FailTask("task-4", "error")
+	db.CreateTask(context.Background(),"task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask(context.Background(),"task-2", "implement", []string{"bead-2"}, 100, "")
+	db.StartTask(context.Background(),"task-2", "s", "p")
+	db.CreateTask(context.Background(),"task-3", "implement", []string{"bead-3"}, 100, "")
+	db.StartTask(context.Background(),"task-3", "s", "p")
+	db.CompleteTask(context.Background(),"task-3", "")
+	db.CreateTask(context.Background(),"task-4", "implement", []string{"bead-4"}, 100, "")
+	db.StartTask(context.Background(),"task-4", "s", "p")
+	db.FailTask(context.Background(),"task-4", "error")
 
 	// List all
-	tasks, err := db.ListTasks("")
+	tasks, err := db.ListTasks(context.Background(),"")
 	if err != nil {
 		t.Fatalf("ListTasks failed: %v", err)
 	}
@@ -379,7 +380,7 @@ func TestListTasks(t *testing.T) {
 	}
 
 	// List pending only
-	tasks, err = db.ListTasks(StatusPending)
+	tasks, err = db.ListTasks(context.Background(),StatusPending)
 	if err != nil {
 		t.Fatalf("ListTasks failed: %v", err)
 	}
@@ -388,7 +389,7 @@ func TestListTasks(t *testing.T) {
 	}
 
 	// List processing only
-	tasks, err = db.ListTasks(StatusProcessing)
+	tasks, err = db.ListTasks(context.Background(),StatusProcessing)
 	if err != nil {
 		t.Fatalf("ListTasks failed: %v", err)
 	}
@@ -397,7 +398,7 @@ func TestListTasks(t *testing.T) {
 	}
 
 	// List completed only
-	tasks, err = db.ListTasks(StatusCompleted)
+	tasks, err = db.ListTasks(context.Background(),StatusCompleted)
 	if err != nil {
 		t.Fatalf("ListTasks failed: %v", err)
 	}
@@ -406,7 +407,7 @@ func TestListTasks(t *testing.T) {
 	}
 
 	// List failed only
-	tasks, err = db.ListTasks(StatusFailed)
+	tasks, err = db.ListTasks(context.Background(),StatusFailed)
 	if err != nil {
 		t.Fatalf("ListTasks failed: %v", err)
 	}

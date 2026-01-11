@@ -50,8 +50,8 @@ type Work struct {
 }
 
 // CreateWork creates a new work unit.
-func (db *DB) CreateWork(id, worktreePath, branchName string) error {
-	err := db.queries.CreateWork(context.Background(), sqlc.CreateWorkParams{
+func (db *DB) CreateWork(ctx context.Context, id, worktreePath, branchName string) error {
+	err := db.queries.CreateWork(ctx, sqlc.CreateWorkParams{
 		ID:           id,
 		WorktreePath: nullString(worktreePath),
 		BranchName:   nullString(branchName),
@@ -63,9 +63,9 @@ func (db *DB) CreateWork(id, worktreePath, branchName string) error {
 }
 
 // StartWork marks a work as processing with session info.
-func (db *DB) StartWork(id, zellijSession, zellijTab string) error {
+func (db *DB) StartWork(ctx context.Context, id, zellijSession, zellijTab string) error {
 	now := time.Now()
-	rows, err := db.queries.StartWork(context.Background(), sqlc.StartWorkParams{
+	rows, err := db.queries.StartWork(ctx, sqlc.StartWorkParams{
 		ZellijSession: nullString(zellijSession),
 		ZellijTab:     nullString(zellijTab),
 		StartedAt:     nullTime(now),
@@ -81,9 +81,9 @@ func (db *DB) StartWork(id, zellijSession, zellijTab string) error {
 }
 
 // CompleteWork marks a work as completed with a PR URL.
-func (db *DB) CompleteWork(id, prURL string) error {
+func (db *DB) CompleteWork(ctx context.Context, id, prURL string) error {
 	now := time.Now()
-	rows, err := db.queries.CompleteWork(context.Background(), sqlc.CompleteWorkParams{
+	rows, err := db.queries.CompleteWork(ctx, sqlc.CompleteWorkParams{
 		PrUrl:       nullString(prURL),
 		CompletedAt: nullTime(now),
 		ID:          id,
@@ -98,9 +98,9 @@ func (db *DB) CompleteWork(id, prURL string) error {
 }
 
 // FailWork marks a work as failed with an error message.
-func (db *DB) FailWork(id, errMsg string) error {
+func (db *DB) FailWork(ctx context.Context, id, errMsg string) error {
 	now := time.Now()
-	rows, err := db.queries.FailWork(context.Background(), sqlc.FailWorkParams{
+	rows, err := db.queries.FailWork(ctx, sqlc.FailWorkParams{
 		ErrorMessage: nullString(errMsg),
 		CompletedAt:  nullTime(now),
 		ID:           id,
@@ -115,8 +115,8 @@ func (db *DB) FailWork(id, errMsg string) error {
 }
 
 // GetWork retrieves a work by ID.
-func (db *DB) GetWork(id string) (*Work, error) {
-	work, err := db.queries.GetWork(context.Background(), id)
+func (db *DB) GetWork(ctx context.Context, id string) (*Work, error) {
+	work, err := db.queries.GetWork(ctx, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -127,14 +127,14 @@ func (db *DB) GetWork(id string) (*Work, error) {
 }
 
 // ListWorks returns all works, optionally filtered by status.
-func (db *DB) ListWorks(statusFilter string) ([]*Work, error) {
+func (db *DB) ListWorks(ctx context.Context, statusFilter string) ([]*Work, error) {
 	var works []sqlc.Work
 	var err error
 
 	if statusFilter == "" {
-		works, err = db.queries.ListWorks(context.Background())
+		works, err = db.queries.ListWorks(ctx)
 	} else {
-		works, err = db.queries.ListWorksByStatus(context.Background(), statusFilter)
+		works, err = db.queries.ListWorksByStatus(ctx, statusFilter)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list works: %w", err)
@@ -148,8 +148,8 @@ func (db *DB) ListWorks(statusFilter string) ([]*Work, error) {
 }
 
 // GetLastWorkID returns the ID of the most recently created work.
-func (db *DB) GetLastWorkID() (string, error) {
-	id, err := db.queries.GetLastWorkID(context.Background())
+func (db *DB) GetLastWorkID(ctx context.Context) (string, error) {
+	id, err := db.queries.GetLastWorkID(ctx)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -160,8 +160,8 @@ func (db *DB) GetLastWorkID() (string, error) {
 }
 
 // GetWorkByDirectory returns the work that has a worktree path matching the pattern.
-func (db *DB) GetWorkByDirectory(pathPattern string) (*Work, error) {
-	work, err := db.queries.GetWorkByDirectory(context.Background(), nullString(pathPattern))
+func (db *DB) GetWorkByDirectory(ctx context.Context, pathPattern string) (*Work, error) {
+	work, err := db.queries.GetWorkByDirectory(ctx, nullString(pathPattern))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -172,8 +172,8 @@ func (db *DB) GetWorkByDirectory(pathPattern string) (*Work, error) {
 }
 
 // AddTaskToWork associates a task with a work.
-func (db *DB) AddTaskToWork(workID, taskID string, position int) error {
-	err := db.queries.AddTaskToWork(context.Background(), sqlc.AddTaskToWorkParams{
+func (db *DB) AddTaskToWork(ctx context.Context, workID, taskID string, position int) error {
+	err := db.queries.AddTaskToWork(ctx, sqlc.AddTaskToWorkParams{
 		WorkID:   workID,
 		TaskID:   taskID,
 		Position: sql.NullInt64{Int64: int64(position), Valid: true},
@@ -185,8 +185,8 @@ func (db *DB) AddTaskToWork(workID, taskID string, position int) error {
 }
 
 // GetWorkTasks returns all tasks for a work in order.
-func (db *DB) GetWorkTasks(workID string) ([]*Task, error) {
-	tasks, err := db.queries.GetWorkTasks(context.Background(), workID)
+func (db *DB) GetWorkTasks(ctx context.Context, workID string) ([]*Task, error) {
+	tasks, err := db.queries.GetWorkTasks(ctx, workID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get work tasks: %w", err)
 	}
@@ -217,8 +217,8 @@ func (db *DB) IsWorkCompleted(workID string) (bool, error) {
 }
 
 // GenerateNextWorkID generates the next available work ID.
-func (db *DB) GenerateNextWorkID() (string, error) {
-	lastID, err := db.GetLastWorkID()
+func (db *DB) GenerateNextWorkID(ctx context.Context) (string, error) {
+	lastID, err := db.GetLastWorkID(ctx)
 	if err != nil {
 		return "", err
 	}

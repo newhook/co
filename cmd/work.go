@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -76,7 +77,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate work ID
-	workID, err := database.GenerateNextWorkID()
+	workID, err := database.GenerateNextWorkID(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to generate work ID: %w", err)
 	}
@@ -106,7 +107,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create work record in database
-	if err := database.CreateWork(workID, worktreePath, branchName); err != nil {
+	if err := database.CreateWork(context.Background(), workID, worktreePath, branchName); err != nil {
 		// Clean up on failure
 		exec.Command("git", "worktree", "remove", worktreePath).Run()
 		os.RemoveAll(workDir)
@@ -140,7 +141,7 @@ func runWorkList(cmd *cobra.Command, args []string) error {
 	}
 
 	// List all works
-	works, err := database.ListWorks("")
+	works, err := database.ListWorks(context.Background(), "")
 	if err != nil {
 		return fmt.Errorf("failed to list works: %w", err)
 	}
@@ -212,7 +213,7 @@ func runWorkShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get work details
-	work, err := database.GetWork(workID)
+	work, err := database.GetWork(context.Background(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -252,7 +253,7 @@ func runWorkShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get tasks for this work
-	tasks, err := database.GetWorkTasks(workID)
+	tasks, err := database.GetWorkTasks(context.Background(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
 	}
@@ -286,7 +287,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get work to verify it exists
-	work, err := database.GetWork(workID)
+	work, err := database.GetWork(context.Background(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -295,7 +296,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if work has uncompleted tasks
-	tasks, err := database.GetWorkTasks(workID)
+	tasks, err := database.GetWorkTasks(context.Background(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
 	}
@@ -337,7 +338,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	// TODO: Remove work from database
 	// This requires adding a DeleteWork method to the database
 	// For now, we'll just mark it as failed
-	if err := database.FailWork(workID, "Work destroyed by user"); err != nil {
+	if err := database.FailWork(context.Background(), workID, "Work destroyed by user"); err != nil {
 		return fmt.Errorf("failed to update work status: %w", err)
 	}
 
@@ -376,7 +377,7 @@ func getCurrentWork(proj *project.Project) (string, error) {
 	}
 
 	// Look for a work that has this path as its worktree
-	work, err := database.GetWorkByDirectory(cwd + "%")
+	work, err := database.GetWorkByDirectory(context.Background(), cwd + "%")
 	if err != nil {
 		return "", err
 	}

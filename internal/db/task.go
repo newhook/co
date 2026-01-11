@@ -62,7 +62,7 @@ type TaskBead struct {
 }
 
 // CreateTask creates a new task with the given beads.
-func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexityBudget int, workID string) error {
+func (db *DB) CreateTask(ctx context.Context, id string, taskType string, beadIDs []string, complexityBudget int, workID string) error {
 	// Use a transaction for atomicity
 	tx, err := db.Begin()
 	if err != nil {
@@ -73,7 +73,7 @@ func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexit
 	qtx := db.queries.WithTx(tx)
 
 	// Insert task
-	err = qtx.CreateTask(context.Background(), sqlc.CreateTaskParams{
+	err = qtx.CreateTask(ctx, sqlc.CreateTaskParams{
 		ID:               id,
 		TaskType:         taskType,
 		ComplexityBudget: sql.NullInt64{Int64: int64(complexityBudget), Valid: complexityBudget > 0},
@@ -85,7 +85,7 @@ func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexit
 
 	// Insert task_beads
 	for _, beadID := range beadIDs {
-		err = qtx.CreateTaskBead(context.Background(), sqlc.CreateTaskBeadParams{
+		err = qtx.CreateTaskBead(ctx, sqlc.CreateTaskBeadParams{
 			TaskID: id,
 			BeadID: beadID,
 		})
@@ -102,9 +102,9 @@ func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexit
 
 // StartTask marks a task as processing with session info.
 // Note: worktree_path is now managed at the work level
-func (db *DB) StartTask(id, zellijSession, zellijPane string) error {
+func (db *DB) StartTask(ctx context.Context, id, zellijSession, zellijPane string) error {
 	now := time.Now()
-	rows, err := db.queries.StartTask(context.Background(), sqlc.StartTaskParams{
+	rows, err := db.queries.StartTask(ctx, sqlc.StartTaskParams{
 		ZellijSession: nullString(zellijSession),
 		ZellijPane:    nullString(zellijPane),
 		WorktreePath:  sql.NullString{}, // Deprecated, kept for compatibility
@@ -121,9 +121,9 @@ func (db *DB) StartTask(id, zellijSession, zellijPane string) error {
 }
 
 // CompleteTask marks a task as completed with a PR URL.
-func (db *DB) CompleteTask(id, prURL string) error {
+func (db *DB) CompleteTask(ctx context.Context, id, prURL string) error {
 	now := time.Now()
-	rows, err := db.queries.CompleteTask(context.Background(), sqlc.CompleteTaskParams{
+	rows, err := db.queries.CompleteTask(ctx, sqlc.CompleteTaskParams{
 		PrUrl:       nullString(prURL),
 		CompletedAt: nullTime(now),
 		ID:          id,
@@ -138,9 +138,9 @@ func (db *DB) CompleteTask(id, prURL string) error {
 }
 
 // FailTask marks a task as failed with an error message.
-func (db *DB) FailTask(id, errMsg string) error {
+func (db *DB) FailTask(ctx context.Context, id, errMsg string) error {
 	now := time.Now()
-	rows, err := db.queries.FailTask(context.Background(), sqlc.FailTaskParams{
+	rows, err := db.queries.FailTask(ctx, sqlc.FailTaskParams{
 		ErrorMessage: nullString(errMsg),
 		CompletedAt:  nullTime(now),
 		ID:           id,
@@ -155,8 +155,8 @@ func (db *DB) FailTask(id, errMsg string) error {
 }
 
 // ResetTaskStatus resets a stuck task from processing back to pending.
-func (db *DB) ResetTaskStatus(id string) error {
-	rows, err := db.queries.ResetTaskStatus(context.Background(), id)
+func (db *DB) ResetTaskStatus(ctx context.Context, id string) error {
+	rows, err := db.queries.ResetTaskStatus(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to reset task %s to pending: %w", id, err)
 	}
@@ -167,8 +167,8 @@ func (db *DB) ResetTaskStatus(id string) error {
 }
 
 // GetTask retrieves a task by ID.
-func (db *DB) GetTask(id string) (*Task, error) {
-	task, err := db.queries.GetTask(context.Background(), id)
+func (db *DB) GetTask(ctx context.Context, id string) (*Task, error) {
+	task, err := db.queries.GetTask(ctx, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -179,8 +179,8 @@ func (db *DB) GetTask(id string) (*Task, error) {
 }
 
 // GetTaskBeads returns all bead IDs for a task.
-func (db *DB) GetTaskBeads(taskID string) ([]string, error) {
-	beadIDs, err := db.queries.GetTaskBeads(context.Background(), taskID)
+func (db *DB) GetTaskBeads(ctx context.Context, taskID string) ([]string, error) {
+	beadIDs, err := db.queries.GetTaskBeads(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task beads: %w", err)
 	}
@@ -188,8 +188,8 @@ func (db *DB) GetTaskBeads(taskID string) ([]string, error) {
 }
 
 // GetTaskForBead returns the task ID that contains the given bead.
-func (db *DB) GetTaskForBead(beadID string) (string, error) {
-	taskID, err := db.queries.GetTaskForBead(context.Background(), beadID)
+func (db *DB) GetTaskForBead(ctx context.Context, beadID string) (string, error) {
+	taskID, err := db.queries.GetTaskForBead(ctx, beadID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -200,8 +200,8 @@ func (db *DB) GetTaskForBead(beadID string) (string, error) {
 }
 
 // CompleteTaskBead marks a specific bead within a task as completed.
-func (db *DB) CompleteTaskBead(taskID, beadID string) error {
-	rows, err := db.queries.CompleteTaskBead(context.Background(), sqlc.CompleteTaskBeadParams{
+func (db *DB) CompleteTaskBead(ctx context.Context, taskID, beadID string) error {
+	rows, err := db.queries.CompleteTaskBead(ctx, sqlc.CompleteTaskBeadParams{
 		TaskID: taskID,
 		BeadID: beadID,
 	})
@@ -215,8 +215,8 @@ func (db *DB) CompleteTaskBead(taskID, beadID string) error {
 }
 
 // FailTaskBead marks a specific bead within a task as failed.
-func (db *DB) FailTaskBead(taskID, beadID string) error {
-	rows, err := db.queries.FailTaskBead(context.Background(), sqlc.FailTaskBeadParams{
+func (db *DB) FailTaskBead(ctx context.Context, taskID, beadID string) error {
+	rows, err := db.queries.FailTaskBead(ctx, sqlc.FailTaskBeadParams{
 		TaskID: taskID,
 		BeadID: beadID,
 	})
@@ -231,8 +231,8 @@ func (db *DB) FailTaskBead(taskID, beadID string) error {
 
 // IsTaskCompleted checks if all beads in a task are completed.
 // Returns true if all beads are completed (not failed), false otherwise.
-func (db *DB) IsTaskCompleted(taskID string) (bool, error) {
-	counts, err := db.queries.CountTaskBeadStatuses(context.Background(), taskID)
+func (db *DB) IsTaskCompleted(ctx context.Context, taskID string) (bool, error) {
+	counts, err := db.queries.CountTaskBeadStatuses(ctx, taskID)
 	if err != nil {
 		return false, fmt.Errorf("failed to check task completion: %w", err)
 	}
@@ -244,8 +244,8 @@ func (db *DB) IsTaskCompleted(taskID string) (bool, error) {
 
 // CheckAndCompleteTask checks if all beads are completed and auto-completes the task.
 // Returns true if the task was auto-completed, false otherwise.
-func (db *DB) CheckAndCompleteTask(taskID, prURL string) (bool, error) {
-	completed, err := db.IsTaskCompleted(taskID)
+func (db *DB) CheckAndCompleteTask(ctx context.Context, taskID, prURL string) (bool, error) {
+	completed, err := db.IsTaskCompleted(ctx, taskID)
 	if err != nil {
 		return false, err
 	}
@@ -254,21 +254,21 @@ func (db *DB) CheckAndCompleteTask(taskID, prURL string) (bool, error) {
 	}
 
 	// Auto-complete the task
-	if err := db.CompleteTask(taskID, prURL); err != nil {
+	if err := db.CompleteTask(ctx, taskID, prURL); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 // ListTasks returns all tasks, optionally filtered by status.
-func (db *DB) ListTasks(statusFilter string) ([]*Task, error) {
+func (db *DB) ListTasks(ctx context.Context, statusFilter string) ([]*Task, error) {
 	var tasks []sqlc.Task
 	var err error
 
 	if statusFilter == "" {
-		tasks, err = db.queries.ListTasks(context.Background())
+		tasks, err = db.queries.ListTasks(ctx)
 	} else {
-		tasks, err = db.queries.ListTasksByStatus(context.Background(), statusFilter)
+		tasks, err = db.queries.ListTasksByStatus(ctx, statusFilter)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tasks: %w", err)

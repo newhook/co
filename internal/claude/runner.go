@@ -134,7 +134,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		time.Sleep(2 * time.Second)
 
 		// Check if task is completed (all beads done)
-		task, err := database.GetTask(taskID)
+		task, err := database.GetTask(ctx, taskID)
 		if err != nil {
 			fmt.Printf("Warning: failed to check task status: %v\n", err)
 			continue
@@ -177,7 +177,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 
 					// Mark remaining beads as failed in database
 					for _, beadID := range result.FailedBeads {
-						database.FailTaskBead(taskID, beadID)
+						database.FailTaskBead(ctx, taskID, beadID)
 					}
 				} else if len(result.CompletedBeads) == len(taskBeads) {
 					// All completed but task not marked - auto-complete

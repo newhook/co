@@ -70,7 +70,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Validate work exists if specified
 	var work *db.Work
 	if workID != "" {
-		work, err = database.GetWork(workID)
+		work, err = database.GetWork(context.Background(),workID)
 		if err != nil {
 			return fmt.Errorf("failed to get work %s: %w", workID, err)
 		}
@@ -83,7 +83,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check for existing pending tasks
-	pendingTasks, err := database.ListTasks(db.StatusPending)
+	pendingTasks, err := database.ListTasks(context.Background(),db.StatusPending)
 	if err != nil {
 		return fmt.Errorf("failed to check pending tasks: %w", err)
 	}
@@ -171,7 +171,7 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string, wor
 
 	// Create tasks in database
 	for _, t := range tasks {
-		if err := database.CreateTask(t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
+		if err := database.CreateTask(context.Background(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
 		fmt.Printf("Created task %s with %d bead(s): %s\n", t.ID, len(t.BeadIDs), strings.Join(t.BeadIDs, ", "))
@@ -222,7 +222,7 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 
 	// Create tasks in database
 	for _, t := range tasks {
-		if err := database.CreateTask(t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
+		if err := database.CreateTask(context.Background(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
 		fmt.Printf("Created task %s (complexity: %d) with %d bead(s): %s\n",
@@ -238,7 +238,7 @@ func planSingleBead(_ *project.Project, database *db.DB, beadList []beads.Bead, 
 	fmt.Printf("Creating %d single-bead task(s)...\n", len(beadList))
 
 	for _, bead := range beadList {
-		if err := database.CreateTask(bead.ID, "implement", []string{bead.ID}, 0, workID); err != nil {
+		if err := database.CreateTask(context.Background(),bead.ID, "implement", []string{bead.ID}, 0, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", bead.ID, err)
 		}
 		fmt.Printf("Created task %s: %s\n", bead.ID, bead.Title)
@@ -280,7 +280,7 @@ func detectWorkFromDirectory(database *db.DB, proj *project.Project) (string, er
 	if len(parts) >= 1 && strings.HasPrefix(parts[0], "work-") {
 		workID := parts[0]
 		// Verify work exists in database
-		work, err := database.GetWork(workID)
+		work, err := database.GetWork(context.Background(),workID)
 		if err != nil {
 			return "", err
 		}
@@ -291,7 +291,7 @@ func detectWorkFromDirectory(database *db.DB, proj *project.Project) (string, er
 
 	// Try to match by worktree path pattern
 	pattern := fmt.Sprintf("%%%s%%", cwd)
-	work, err := database.GetWorkByDirectory(pattern)
+	work, err := database.GetWorkByDirectory(context.Background(),pattern)
 	if err != nil {
 		return "", err
 	}

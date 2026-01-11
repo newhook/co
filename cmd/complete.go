@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/newhook/co/internal/project"
@@ -40,20 +41,20 @@ func runComplete(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Check if this bead is part of a task
-	taskID, err := database.GetTaskForBead(beadID)
+	taskID, err := database.GetTaskForBead(context.Background(), beadID)
 	if err != nil {
 		return fmt.Errorf("failed to look up task for bead: %w", err)
 	}
 
 	if taskID != "" {
 		// Bead is part of a task - mark it complete in task_beads
-		if err := database.CompleteTaskBead(taskID, beadID); err != nil {
+		if err := database.CompleteTaskBead(context.Background(), taskID, beadID); err != nil {
 			return fmt.Errorf("failed to complete task bead: %w", err)
 		}
 		fmt.Printf("Marked bead %s as completed in task %s\n", beadID, taskID)
 
 		// Check if all beads in the task are complete and auto-complete the task
-		autoCompleted, err := database.CheckAndCompleteTask(taskID, flagCompletePRURL)
+		autoCompleted, err := database.CheckAndCompleteTask(context.Background(), taskID, flagCompletePRURL)
 		if err != nil {
 			return fmt.Errorf("failed to check task completion: %w", err)
 		}
