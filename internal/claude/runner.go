@@ -62,14 +62,8 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		return nil, err
 	}
 
-	// Get path to co binary for the wrapper command
-	coBinary, err := exec.LookPath("co")
-	if err != nil {
-		return nil, fmt.Errorf("co binary not found in PATH: %w", err)
-	}
-
-	// Build the wrapper command
-	claudeCommand := fmt.Sprintf("%s claude %s", coBinary, taskID)
+	// Build the wrapper command - assume co is in PATH since user is running it
+	claudeCommand := fmt.Sprintf("co claude %s", taskID)
 	if autoClose {
 		claudeCommand += " --auto-close"
 	}
