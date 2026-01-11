@@ -415,13 +415,17 @@ func processTaskInWork(proj *project.Project, database *db.DB, dbTask *db.Task, 
 
 	// Build prompt for Claude based on task type
 	var prompt string
+	baseBranch := work.BaseBranch
+	if baseBranch == "" {
+		baseBranch = "main" // Default to main for backwards compatibility
+	}
 	if dbTask.TaskType == "pr" {
 		// PR creation task
-		prompt = claude.BuildPRPrompt(dbTask.ID, work.ID, work.BranchName)
+		prompt = claude.BuildPRPrompt(dbTask.ID, work.ID, work.BranchName, baseBranch)
 		fmt.Println("Running Claude Code for PR creation...")
 	} else {
 		// Regular implementation task
-		prompt = claude.BuildTaskPrompt(dbTask.ID, taskBeads, work.BranchName, "main")
+		prompt = claude.BuildTaskPrompt(dbTask.ID, taskBeads, work.BranchName, baseBranch)
 		fmt.Println("Running Claude Code...")
 	}
 

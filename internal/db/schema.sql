@@ -10,6 +10,7 @@ CREATE TABLE works (
     zellij_tab TEXT,
     worktree_path TEXT,
     branch_name TEXT,
+    base_branch TEXT DEFAULT 'main',
     pr_url TEXT,
     error_message TEXT,
     started_at DATETIME,

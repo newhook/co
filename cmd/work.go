@@ -71,7 +71,10 @@ Claude will analyze all completed tasks and beads to generate a comprehensive PR
 	RunE: runWorkPR,
 }
 
+var flagBaseBranch string
+
 func init() {
+	workCreateCmd.Flags().StringVar(&flagBaseBranch, "base", "main", "base branch to create feature branch from (also used as PR target)")
 	workCmd.AddCommand(workCreateCmd)
 	workCmd.AddCommand(workListCmd)
 	workCmd.AddCommand(workShowCmd)
@@ -82,6 +85,7 @@ func init() {
 func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// Get branch name from args
 	branchName := args[0]
+	baseBranch := flagBaseBranch
 
 	// Find project
 	proj, err := project.Find("")
@@ -112,8 +116,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// Create git worktree inside work directory
 	worktreePath := filepath.Join(workDir, "tree")
 
-	// Create worktree with new branch
-	cmd1 := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName)
+	// Create worktree with new branch based on the specified base branch
+	cmd1 := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName, baseBranch)
 	cmd1.Dir = proj.MainRepoPath()
 	if output, err := cmd1.CombinedOutput(); err != nil {
 		// Clean up on failure
@@ -127,7 +131,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create work record in database
-	if err := database.CreateWork(context.Background(), workID, worktreePath, branchName); err != nil {
+	if err := database.CreateWork(context.Background(), workID, worktreePath, branchName, baseBranch); err != nil {
 		// Clean up on failure
 		exec.Command("git", "worktree", "remove", worktreePath).Run()
 		os.RemoveAll(workDir)
@@ -166,6 +170,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Directory: %s\n", workDir)
 	fmt.Printf("Worktree: %s\n", worktreePath)
 	fmt.Printf("Branch: %s\n", branchName)
+	fmt.Printf("Base Branch: %s\n", baseBranch)
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  cd %s\n", workID)
 	fmt.Printf("  co plan              # Plan tasks for this work\n")
@@ -273,6 +278,7 @@ func runWorkShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Work: %s\n", work.ID)
 	fmt.Printf("Status: %s\n", work.Status)
 	fmt.Printf("Branch: %s\n", work.BranchName)
+	fmt.Printf("Base Branch: %s\n", work.BaseBranch)
 	fmt.Printf("Worktree: %s\n", work.WorktreePath)
 
 	if work.PRURL != "" {
