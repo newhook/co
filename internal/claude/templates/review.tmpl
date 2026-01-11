@@ -19,7 +19,38 @@ Instructions:
    - Specific issues found with file paths and line numbers
    - Suggestions for improvement
    - Any security concerns
-5. After completing the review, mark the task complete: co complete {{.TaskID}}
+
+5. **Creating Issues for Review Findings**:
+   If you find issues that need to be addressed, create beads for them:
+
+   a. First, create a review epic to group all issues:
+      ```
+      bd create "Review: {{.WorkID}}" --type epic --silent
+      ```
+      This outputs the epic ID (e.g., "ac-abc").
+
+   b. For each issue found, create a child bead under the epic:
+      ```
+      bd create "<issue title>" --parent <epic-id> --type <bug|task> \
+        --description "<description with file path and line numbers>"
+      ```
+      Use --type bug for defects, --type task for improvements.
+
+   Example:
+   ```
+   # Create epic
+   EPIC_ID=$(bd create "Review: {{.WorkID}}" --type epic --silent)
+
+   # Create issues as children
+   bd create "Fix SQL injection in user handler" --parent $EPIC_ID --type bug \
+     --description "SQL injection vulnerability in internal/handlers/user.go:45"
+
+   bd create "Add input validation for email field" --parent $EPIC_ID --type task \
+     --description "Email field accepts invalid formats in cmd/register.go:78"
+   ```
+
+6. After completing the review, mark the task complete: co complete {{.TaskID}}
 
 If you find critical issues that should block merging, clearly indicate them.
+If no issues are found, skip step 5 (no epic needed).
 Begin by checking the work details and examining the diff.
