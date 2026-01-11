@@ -166,6 +166,7 @@ Tasks within a work are executed sequentially in the work's worktree.
 |------|-------|-------------|
 | `--limit` | `-n` | Maximum number of tasks to process (0 = unlimited) |
 | `--dry-run` | | Show execution plan without running |
+| `--auto-close` | | Automatically close zellij tabs after task completion |
 | `--project` | | Specify project directory (default: auto-detect from cwd) |
 | `--work` | | Specify work ID (default: auto-detect from current directory) |
 
@@ -239,6 +240,18 @@ co task delete <task-id>        # Delete a task from database
 co task reset <task-id>         # Reset failed/stuck task to pending
 ```
 
+#### Error Handling and Retries
+
+When a task fails:
+- The task is automatically marked as failed in the database
+- Claude can signal failure using `co complete <task-id> --error "message"`
+- To retry a failed task:
+  ```bash
+  co task reset <task-id>    # Reset task status to pending
+  co run <task-id>           # Retry the task
+  ```
+- On retry, Claude only processes incomplete beads (already completed beads are skipped)
+
 ### ID Generation
 
 CO uses a hierarchical ID system:
@@ -263,7 +276,8 @@ CO uses a hierarchical ID system:
 |---------|-------------|
 | `co status [bead-id]` | Show tracking status for beads |
 | `co list [-s status]` | List tracked beads with optional status filter |
-| `co complete <bead-id> [--pr URL]` | Mark a bead as completed (called by Claude) |
+| `co complete <bead-id> [--pr URL] [--error "message"]` | Mark a bead/task as completed or failed (called by Claude) |
+| `co estimate <bead-id> --score N --tokens N` | Report complexity estimate for a bead (called by Claude during estimation) |
 
 ## How It Works
 
@@ -301,13 +315,20 @@ Claude Orchestrator uses a three-phase workflow with the Work → Tasks → Bead
 │  2. Execute tasks sequentially in the work's worktree:          │
 │     │                                                           │
 │     ├─ For each task:                                           │
+│     │  ├─ Check for uncommitted changes:                        │
+│     │  │  • If related to task beads: complete implementation  │
+│     │  │  • If unrelated: stash with descriptive message       │
+│     │  │  • Fail-fast if can't handle cleanly                  │
+│     │  │                                                        │
 │     │  ├─ Run Claude Code in work's zellij tab                  │
 │     │  │  └─ zellij run -- claude --dangerously-skip-permissions│
 │     │  │     Claude receives prompt and autonomously:           │
 │     │  │     • Implements all beads in the task                 │
-│     │  │     • Commits to work's feature branch                 │
+│     │  │     • Commits after each bead completion               │
+│     │  │     • Pushes commits to remote immediately            │
 │     │  │     • Closes beads (bd close <id> --reason "...")      │
 │     │  │     • Signals completion (co complete <id>)            │
+│     │  │     • Or signals failure (co complete <id> --error)   │
 │     │  │                                                        │
 │     │  └─ Manager polls database for completion                 │
 │     │                                                           │
@@ -343,6 +364,10 @@ Claude Orchestrator uses a three-phase workflow with the Work → Tasks → Bead
 - **Claude handles implementation**: Claude autonomously implements, commits, and closes beads
 - **Zellij for terminal management**: Each work gets its own tab in the project's zellij session
 - **Database polling**: Manager polls SQLite database for completion signals from Claude
+- **Fail-fast for uncommitted changes**: Tasks verify clean working tree and handle partial work appropriately
+- **Continuous integration**: Each bead completion is committed and pushed immediately to prevent work loss
+- **Intelligent retries**: Failed tasks can be reset and retried, with Claude skipping already-completed beads
+- **Error signaling**: Claude can explicitly mark tasks as failed with error messages for better debugging
 
 ## Project Structure
 
