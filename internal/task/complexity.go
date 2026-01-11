@@ -18,6 +18,7 @@ type LLMEstimator struct {
 	database    *db.DB
 	workDir     string
 	projectName string
+	workID      string  // Work context for estimation tasks (optional)
 }
 
 // NewLLMEstimator creates a new LLM-based complexity estimator.
@@ -27,6 +28,11 @@ func NewLLMEstimator(database *db.DB, workDir, projectName string) *LLMEstimator
 		workDir:     workDir,
 		projectName: projectName,
 	}
+}
+
+// SetWorkContext sets the work context for estimation tasks.
+func (e *LLMEstimator) SetWorkContext(workID string) {
+	e.workID = workID
 }
 
 // Estimate returns a complexity score (1-10) and estimated context tokens for a bead.
@@ -83,9 +89,16 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 		return nil
 	}
 
-	// Create estimate task (no work context for estimation)
-	taskID := fmt.Sprintf("estimate-%d", time.Now().Unix())
-	if err := e.database.CreateTask(ctx, taskID, "estimate", uncachedIDs, 0, ""); err != nil {
+	// Create estimate task with work context if available
+	var taskID string
+	if e.workID != "" {
+		// Use hierarchical task ID under the work
+		taskID = fmt.Sprintf("%s.estimate-%d", e.workID, time.Now().Unix())
+	} else {
+		// Standalone estimate task
+		taskID = fmt.Sprintf("estimate-%d", time.Now().Unix())
+	}
+	if err := e.database.CreateTask(ctx, taskID, "estimate", uncachedIDs, 0, e.workID); err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
 
@@ -113,9 +126,10 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 		fmt.Printf("Using existing worktree at %s for estimation...\n", worktreePath)
 	}
 
-	// Start task in database (worktree is now managed at work level)
+	// Start task in database
 	sessionName := claude.SessionNameForProject(e.projectName)
-	if err := e.database.StartTask(ctx, taskID, sessionName, taskID); err != nil {
+	// The tab name will be derived from the hierarchical task ID in claude.Run
+	if err := e.database.StartTask(ctx, taskID, sessionName, ""); err != nil {
 		return fmt.Errorf("failed to start estimation task in database: %w", err)
 	}
 

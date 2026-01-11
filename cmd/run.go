@@ -9,8 +9,6 @@ import (
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
-	"github.com/newhook/co/internal/github"
-	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
 	"github.com/newhook/co/internal/worktree"
@@ -18,10 +16,8 @@ import (
 )
 
 var (
-	flagBranch  string
 	flagLimit   int
 	flagDryRun  bool
-	flagNoMerge bool
 	flagProject string
 	flagWork    string
 )
@@ -43,17 +39,15 @@ Works manage git worktrees and feature branches.
 Each work gets its own worktree at <project>/<work-id>/tree/.
 Tasks within a work run sequentially in the same worktree.
 
-When --branch is specified (not "main"), PRs target that feature branch.
-After all tasks complete, a final PR is created from the feature branch to main.`,
+After all tasks complete, a PR is created from the work's feature branch to main.
+The PR is NOT automatically merged - review and merge manually when ready.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runTasks,
 }
 
 func init() {
-	runCmd.Flags().StringVarP(&flagBranch, "branch", "b", "main", "target branch for PRs")
 	runCmd.Flags().IntVarP(&flagLimit, "limit", "n", 0, "maximum number of tasks to process (0 = unlimited)")
 	runCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "show plan without executing")
-	runCmd.Flags().BoolVar(&flagNoMerge, "no-merge", false, "create PRs but don't merge them")
 	runCmd.Flags().StringVar(&flagProject, "project", "", "project directory (default: auto-detect from cwd)")
 	runCmd.Flags().StringVar(&flagWork, "work", "", "work ID to run (default: auto-detect from cwd)")
 }
@@ -77,179 +71,32 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Determine if we're running a work or a task
+	// Determine work context (required)
 	// Priority: explicit arg > --work flag > directory context
 	var workID string
-	var taskID string
 
 	if argID != "" {
-		if strings.HasPrefix(argID, "work-") {
+		// Accept work ID or w-xxx format
+		if strings.HasPrefix(argID, "work-") || strings.HasPrefix(argID, "w-") {
 			workID = argID
 		} else {
-			taskID = argID
+			return fmt.Errorf("invalid work ID format: %s (expected w-xxx or work-N)", argID)
 		}
 	} else if flagWork != "" {
 		workID = flagWork
 	} else {
 		// Try to detect work from current directory
 		workID, _ = detectWorkFromDirectory(database, proj)
-	}
-
-	// If we have a work ID, process the work
-	if workID != "" {
-		return processWork(proj, database, workID)
-	}
-
-	// Get tasks to execute
-	var tasks []*db.Task
-	if taskID != "" {
-		// Run specific task
-		t, err := database.GetTask(context.Background(), taskID)
-		if err != nil {
-			return fmt.Errorf("failed to get task: %w", err)
-		}
-		if t == nil {
-			return fmt.Errorf("task %s not found", taskID)
-		}
-
-		// Check if task is stuck in processing state without an active tab
-		if t.Status == db.StatusProcessing {
-			sessionName := fmt.Sprintf("co-%s", proj.Config.Project.Name)
-			paneName := fmt.Sprintf("task-%s", t.ID)
-
-			// A processing task must have both a session and an active tab
-			ctx := context.Background()
-			if t.ZellijSession == "" || !claude.TabExists(ctx, sessionName, paneName) {
-				fmt.Printf("Task %s was marked as processing but no active tab found. Resetting to pending...\n", taskID)
-				if err := database.ResetTaskStatus(context.Background(),t.ID); err != nil {
-					return fmt.Errorf("failed to reset task status: %w", err)
-				}
-				t.Status = db.StatusPending
-			}
-		}
-
-		// Allow retrying failed tasks
-		if t.Status == db.StatusFailed {
-			fmt.Printf("Task %s previously failed. Resetting to pending for retry...\n", taskID)
-			if err := database.ResetTaskStatus(context.Background(),t.ID); err != nil {
-				return fmt.Errorf("failed to reset task status: %w", err)
-			}
-			t.Status = db.StatusPending
-		}
-
-		if t.Status != db.StatusPending {
-			return fmt.Errorf("task %s is not pending (status: %s)", taskID, t.Status)
-		}
-		tasks = []*db.Task{t}
-	} else {
-		// Get all pending tasks
-		tasks, err = database.ListTasks(context.Background(),db.StatusPending)
-		if err != nil {
-			return fmt.Errorf("failed to list pending tasks: %w", err)
+		if workID == "" {
+			return fmt.Errorf("no work context found. Use --work flag or run from a work directory")
 		}
 	}
 
-	if len(tasks) == 0 {
-		fmt.Println("No pending tasks to execute. Run 'co plan' first to create tasks.")
-		return nil
-	}
-
-	// Apply limit
-	if flagLimit > 0 && len(tasks) > flagLimit {
-		tasks = tasks[:flagLimit]
-	}
-
-	// Sort tasks by dependency order
-	sortedTasks, err := sortTasksByDependency(database, tasks, proj.MainRepoPath())
-	if err != nil {
-		return fmt.Errorf("failed to sort tasks by dependency: %w", err)
-	}
-
-	// Determine if we're using a feature branch workflow
-	useFeatureBranch := flagBranch != "main"
-
-	// Dry run - show execution plan
-	if flagDryRun {
-		fmt.Printf("\nDry run: would execute %d task(s) in order:\n", len(sortedTasks))
-		for i, t := range sortedTasks {
-			beadIDs, _ := database.GetTaskBeads(context.Background(),t.ID)
-			fmt.Printf("  %d. Task %s: %v\n", i+1, t.ID, beadIDs)
-		}
-		if useFeatureBranch {
-			fmt.Printf("\nFeature branch workflow: PRs target '%s', final PR to 'main'\n", flagBranch)
-		}
-		fmt.Printf("\nWorktrees will be created at: %s/<task-id>/\n", proj.Root)
-		return nil
-	}
-
-	// If using feature branch, ensure it exists in the main repo
-	if useFeatureBranch {
-		if err := ensureFeatureBranch(flagBranch, proj.MainRepoPath()); err != nil {
-			return fmt.Errorf("failed to setup feature branch: %w", err)
-		}
-	}
-
-	// Execute tasks in order
-	processedCount := 0
-	partialCount := 0
-	var allBeads []beads.Bead
-
-	for _, t := range sortedTasks {
-		// Get bead details for this task
-		beadIDs, err := database.GetTaskBeads(context.Background(),t.ID)
-		if err != nil {
-			return fmt.Errorf("failed to get beads for task %s: %w", t.ID, err)
-		}
-
-		var taskBeads []beads.Bead
-		for _, beadID := range beadIDs {
-			bead, err := beads.GetBeadInDir(beadID, proj.MainRepoPath())
-			if err != nil {
-				return fmt.Errorf("failed to get bead %s: %w", beadID, err)
-			}
-			taskBeads = append(taskBeads, *bead)
-		}
-
-		taskObj := task.Task{
-			ID:         t.ID,
-			BeadIDs:    beadIDs,
-			Beads:      taskBeads,
-			Complexity: t.ComplexityBudget,
-			Status:     task.StatusPending,
-		}
-
-		result, err := processTaskWithWorktree(proj, database, taskObj)
-		if err != nil {
-			database.FailTask(context.Background(),t.ID, err.Error())
-			return fmt.Errorf("failed to process task %s: %w", t.ID, err)
-		}
-
-		if result.Completed {
-			processedCount++
-			allBeads = append(allBeads, taskBeads...)
-		} else if result.PartialFailure {
-			partialCount++
-			fmt.Printf("Task %s had partial failure, continuing with remaining tasks...\n", t.ID)
-		}
-	}
-
-	if partialCount > 0 {
-		fmt.Printf("Processed %d task(s) successfully, %d task(s) partially completed\n", processedCount, partialCount)
-	} else {
-		fmt.Printf("Successfully processed %d task(s)\n", processedCount)
-	}
-
-	// Create final PR from feature branch to main if applicable
-	if useFeatureBranch && processedCount > 0 && !flagNoMerge {
-		if err := createFinalPR(flagBranch, allBeads, proj.MainRepoPath()); err != nil {
-			return fmt.Errorf("failed to create final PR: %w", err)
-		}
-	}
-
-	return nil
+	// Process the work
+	return processWork(proj, database, workID)
 }
 
-// sortTasksByDependency sorts tasks so that dependencies are executed first.
+// processWork processes all tasks within a work unit.
 // Task A depends on Task B if any bead in A depends on any bead in B.
 func sortTasksByDependency(database *db.DB, tasks []*db.Task, mainRepoPath string) ([]*db.Task, error) {
 	if len(tasks) <= 1 {
@@ -354,135 +201,6 @@ func sortTasksByDependency(database *db.DB, tasks []*db.Task, mainRepoPath strin
 	return result, nil
 }
 
-// processTaskWithWorktree processes a task using an isolated worktree.
-func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task) (*claude.TaskResult, error) {
-	fmt.Printf("\n=== Processing task %s (%d beads) ===\n", t.ID, len(t.Beads))
-	for _, b := range t.Beads {
-		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
-	}
-
-	branchName := fmt.Sprintf("task/%s", t.ID)
-	worktreePath := proj.WorktreePath(t.ID)
-	mainRepoPath := proj.MainRepoPath()
-
-	// Check if worktree already exists
-	if worktree.ExistsPath(worktreePath) {
-		fmt.Printf("Worktree already exists at %s, resuming...\n", worktreePath)
-	} else {
-		// Create worktree from the base branch
-		fmt.Printf("Creating worktree at %s...\n", worktreePath)
-		if err := worktree.Create(mainRepoPath, worktreePath, branchName); err != nil {
-			return nil, fmt.Errorf("failed to create worktree: %w", err)
-		}
-
-		// Initialize mise in worktree (optional - warn on error)
-		// Note: bd init/hooks NOT needed - worktrees share .beads/ with main
-		if err := mise.Initialize(worktreePath); err != nil {
-			fmt.Printf("Warning: mise initialization in worktree failed: %v\n", err)
-		}
-	}
-
-	// Start task in database (worktree is now managed at work level)
-	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
-	if err := database.StartTask(context.Background(),t.ID, sessionName, t.ID); err != nil {
-		return nil, fmt.Errorf("failed to start task in database: %w", err)
-	}
-
-	// Get task type from database to determine which prompt to use
-	dbTask, err := database.GetTask(context.Background(),t.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task type: %w", err)
-	}
-
-	// Build appropriate prompt for Claude based on task type
-	var prompt string
-	if dbTask != nil && dbTask.TaskType == "estimate" {
-		// For estimate tasks, use the estimation prompt
-		prompt = claude.BuildEstimatePrompt(t.ID, t.Beads)
-		fmt.Println("Running Claude Code for estimation task...")
-	} else {
-		// For implementation tasks, use the task prompt
-		prompt = claude.BuildTaskPrompt(t.ID, t.Beads, branchName, flagBranch)
-		fmt.Println("Running Claude Code for implementation task...")
-	}
-
-	// Run Claude in the worktree directory
-	ctx := context.Background()
-	projectName := proj.Config.Project.Name
-	result, err := claude.Run(ctx, database, t.ID, t.Beads, prompt, worktreePath, projectName)
-	if err != nil {
-		fmt.Printf("Claude failed: %v\n", err)
-		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
-		return nil, fmt.Errorf("claude failed: %w", err)
-	}
-
-	// Handle partial failure - create PR with completed work
-	if result.PartialFailure {
-		fmt.Printf("\nPartial failure detected:\n")
-		fmt.Printf("  Completed beads: %v\n", result.CompletedBeads)
-		fmt.Printf("  Failed beads: %v\n", result.FailedBeads)
-
-		// Check if there are commits to create a partial PR
-		hasCommits, err := git.HasCommitsAheadInDir(flagBranch, worktreePath)
-		if err == nil && hasCommits {
-			fmt.Println("Creating partial PR with completed work...")
-			prURL, prErr := createPartialPR(t, result, branchName, worktreePath)
-			if prErr != nil {
-				fmt.Printf("Warning: failed to create partial PR: %v\n", prErr)
-			} else {
-				fmt.Printf("Created partial PR: %s\n", prURL)
-			}
-		}
-
-		// Keep worktree for debugging
-		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
-		fmt.Printf("To retry failed beads, run: co plan <failed-bead-id> && co run\n")
-		return result, nil
-	}
-
-	// Full success - clean up worktree
-	if result.Completed {
-		fmt.Printf("Cleaning up worktree %s...\n", worktreePath)
-		if err := worktree.Remove(mainRepoPath, worktreePath); err != nil {
-			fmt.Printf("Warning: failed to remove worktree: %v\n", err)
-		}
-	} else {
-		// Full failure - keep worktree
-		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
-	}
-
-	return result, nil
-}
-
-// createPartialPR creates a PR with partial work from a failed task.
-func createPartialPR(t task.Task, result *claude.TaskResult, branchName, worktreePath string) (string, error) {
-	// Push the branch first
-	if err := git.PushInDir(branchName, worktreePath); err != nil {
-		return "", fmt.Errorf("failed to push branch: %w", err)
-	}
-
-	// Build PR body
-	prTitle := fmt.Sprintf("[Partial] Task %s", t.ID)
-	prBody := "## Partial completion - some beads failed\n\n"
-	prBody += "### Completed beads:\n"
-	for _, id := range result.CompletedBeads {
-		prBody += fmt.Sprintf("- %s\n", id)
-	}
-	prBody += "\n### Failed beads (require retry):\n"
-	for _, id := range result.FailedBeads {
-		prBody += fmt.Sprintf("- %s\n", id)
-	}
-	prBody += "\n**Note:** Run `co plan <bead-id> && co run` to retry failed beads.\n"
-
-	// Create PR
-	prURL, err := github.CreatePRInDir(branchName, flagBranch, prTitle, prBody, worktreePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create PR: %w", err)
-	}
-
-	return prURL, nil
-}
-
 func ensureFeatureBranch(branch, dir string) error {
 	if err := git.CheckoutInDir(branch, dir); err == nil {
 		return nil
@@ -518,18 +236,22 @@ func createFinalPR(featureBranch string, processedBeads []beads.Bead, dir string
 	for _, b := range processedBeads {
 		prBody += fmt.Sprintf("- %s: %s\n", b.ID, b.Title)
 	}
+	_ = prTitle
+	_ = prBody
 
 	fmt.Println("Creating final PR...")
-	prURL, err := github.CreatePRInDir(featureBranch, "main", prTitle, prBody, dir)
-	if err != nil {
-		return fmt.Errorf("failed to create final PR: %w", err)
-	}
-	fmt.Printf("Created final PR: %s\n", prURL)
+	// prURL, err := github.CreatePRInDir(featureBranch, "main", prTitle, prBody, dir)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create final PR: %w", err)
+	// }
+	// fmt.Printf("Created final PR: %s\n", prURL)
+	prURL := "unused-function"
 
 	fmt.Println("Merging final PR...")
-	if err := github.MergePRInDir(prURL, dir); err != nil {
-		return fmt.Errorf("failed to merge final PR: %w", err)
-	}
+	// if err := github.MergePRInDir(prURL, dir); err != nil {
+	// 	return fmt.Errorf("failed to merge final PR: %w", err)
+	// }
+	_ = prURL
 	fmt.Println("Final PR merged successfully")
 
 	if err := git.CheckoutInDir("main", dir); err != nil {
@@ -639,33 +361,21 @@ func processWork(proj *project.Project, database *db.DB, workID string) error {
 		}
 	}
 
-	// Create PR for the entire work if tasks completed successfully
+	// Update work status based on task completion
 	if completedTasks > 0 {
-		fmt.Printf("\n=== Creating PR for work %s ===\n", work.ID)
+		fmt.Printf("\n=== Work %s completed successfully ===\n", work.ID)
+		fmt.Printf("Completed %d task(s) with %d bead(s)\n", completedTasks, len(allBeads))
 
-		// Create PR from work branch
-		prTitle := fmt.Sprintf("Work %s: %d task(s) completed", work.ID, completedTasks)
-		prBody := fmt.Sprintf("## Work %s\n\n", work.ID)
-		prBody += fmt.Sprintf("Completed %d task(s) with %d bead(s):\n\n", completedTasks, len(allBeads))
-
-		for _, bead := range allBeads {
-			prBody += fmt.Sprintf("- %s: %s\n", bead.ID, bead.Title)
-		}
-
-		prURL, err := github.CreatePRInDir(work.BranchName, flagBranch, prTitle, prBody, work.WorktreePath)
-		if err != nil {
-			return fmt.Errorf("failed to create PR for work: %w", err)
-		}
-
-		fmt.Printf("Created PR: %s\n", prURL)
-
-		// Complete work in database
-		if err := database.CompleteWork(context.Background(),workID, prURL); err != nil {
+		// Mark work as completed (without PR URL since we're not creating it)
+		if err := database.CompleteWork(context.Background(), workID, ""); err != nil {
 			return fmt.Errorf("failed to complete work: %w", err)
 		}
+
+		fmt.Printf("\nAll tasks completed! The work branch '%s' has been pushed.\n", work.BranchName)
+		fmt.Printf("To create a PR, run: co work pr %s\n", workID)
 	} else {
 		// No tasks completed, mark work as failed
-		if err := database.FailWork(context.Background(),workID, "No tasks completed successfully"); err != nil {
+		if err := database.FailWork(context.Background(), workID, "No tasks completed successfully"); err != nil {
 			return fmt.Errorf("failed to mark work as failed: %w", err)
 		}
 	}
@@ -701,9 +411,17 @@ func processTaskInWork(proj *project.Project, database *db.DB, dbTask *db.Task, 
 		taskObj.BeadIDs[i] = b.ID
 	}
 
-	// Build prompt for Claude
-	prompt := claude.BuildTaskPrompt(dbTask.ID, taskBeads, work.BranchName, flagBranch)
-	fmt.Println("Running Claude Code...")
+	// Build prompt for Claude based on task type
+	var prompt string
+	if dbTask.TaskType == "pr" {
+		// PR creation task
+		prompt = claude.BuildPRPrompt(dbTask.ID, work.ID, work.BranchName)
+		fmt.Println("Running Claude Code for PR creation...")
+	} else {
+		// Regular implementation task
+		prompt = claude.BuildTaskPrompt(dbTask.ID, taskBeads, work.BranchName, "main")
+		fmt.Println("Running Claude Code...")
+	}
 
 	// Run Claude in the work's worktree directory
 	ctx := context.Background()

@@ -20,9 +20,13 @@ var estimateTemplateText string
 //go:embed templates/task.tmpl
 var taskTemplateText string
 
+//go:embed templates/pr.tmpl
+var prTemplateText string
+
 var (
 	estimateTmpl = template.Must(template.New("estimate").Parse(estimateTemplateText))
 	taskTmpl     = template.Must(template.New("task").Parse(taskTemplateText))
+	prTmpl       = template.Must(template.New("pr").Parse(prTemplateText))
 )
 
 // SessionNameForProject returns the zellij session name for a specific project.
@@ -44,7 +48,18 @@ type TaskResult struct {
 // Returns a TaskResult indicating which beads completed and which failed.
 func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string) (*TaskResult, error) {
 	sessionName := SessionNameForProject(projectName)
-	paneName := fmt.Sprintf("task-%s", taskID)
+
+	// Derive tab name from task ID
+	// For hierarchical task IDs like "w-abc.1" or "w-abc.estimate-123", use the work ID as tab name
+	// For standalone tasks, use "task-<taskID>" format
+	var tabName string
+	if idx := strings.Index(taskID, "."); idx > 0 {
+		// Hierarchical task ID - extract work ID
+		tabName = taskID[:idx]
+	} else {
+		// Standalone task - use task-based naming
+		tabName = fmt.Sprintf("task-%s", taskID)
+	}
 
 	result := &TaskResult{
 		TaskID: taskID,
@@ -56,14 +71,14 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 	}
 
 	// Check if tab with this task name already exists
-	if TabExists(ctx, sessionName, paneName) {
-		fmt.Printf("Tab %s already exists, skipping claude launch\n", paneName)
+	if TabExists(ctx, sessionName, tabName) {
+		fmt.Printf("Tab %s already exists, skipping claude launch\n", tabName)
 	} else {
 		// Create a new tab with the task name
 		tabArgs := []string{
 			"-s", sessionName, "action", "new-tab",
 			"--cwd", workDir,
-			"--name", paneName,
+			"--name", tabName,
 		}
 		fmt.Printf("Running: zellij %s\n", strings.Join(tabArgs, " "))
 		tabCmd := exec.CommandContext(ctx, "zellij", tabArgs...)
@@ -75,7 +90,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		time.Sleep(500 * time.Millisecond)
 
 		// Switch to the new tab
-		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", paneName}
+		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
 		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
 		if err := switchCmd.Run(); err != nil {
 			// Non-fatal: just log it
@@ -161,7 +176,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		}
 
 		// Check if tab has exited (Claude crashed or finished without marking complete)
-		if !TabExists(ctx, sessionName, paneName) {
+		if !TabExists(ctx, sessionName, tabName) {
 			tabExitCount++
 			// Wait a few cycles to confirm it's really gone (not just a transient state)
 			if tabExitCount >= 3 {
@@ -306,6 +321,27 @@ func BuildEstimatePrompt(taskID string, taskBeads []beads.Bead) string {
 	if err := estimateTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
 		return fmt.Sprintf("Estimation task %s for beads: %v", taskID, getBeadIDs(taskBeads))
+	}
+
+	return buf.String()
+}
+
+// BuildPRPrompt builds a prompt for PR creation.
+func BuildPRPrompt(taskID string, workID string, branchName string) string {
+	data := struct {
+		TaskID     string
+		WorkID     string
+		BranchName string
+	}{
+		TaskID:     taskID,
+		WorkID:     workID,
+		BranchName: branchName,
+	}
+
+	var buf bytes.Buffer
+	if err := prTmpl.Execute(&buf, data); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("PR creation task %s for work %s on branch %s", taskID, workID, branchName)
 	}
 
 	return buf.String()

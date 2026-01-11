@@ -115,3 +115,13 @@ SELECT id, status,
 FROM tasks
 WHERE status = ?
 ORDER BY created_at DESC;
+
+-- name: DeleteTaskBeadsForWork :execrows
+DELETE FROM task_beads
+WHERE task_id IN (
+    SELECT task_id FROM work_tasks WHERE work_id = ?
+);
+
+-- name: DeleteTasksForWork :execrows
+DELETE FROM tasks
+WHERE work_id = ?;

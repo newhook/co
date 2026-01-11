@@ -294,3 +294,51 @@ func (db *DB) GetNextTaskNumber(ctx context.Context, workID string) (int, error)
 	}
 	return len(tasks) + 1, nil
 }
+
+// DeleteWork deletes a work and all associated records.
+// This includes:
+// - Task beads associations for all tasks in the work
+// - Tasks belonging to the work
+// - Work-task relationships
+// - The work record itself
+func (db *DB) DeleteWork(ctx context.Context, workID string) error {
+	// Start a transaction to ensure all deletes happen atomically
+	tx, err := db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := db.queries.WithTx(tx)
+
+	// Delete task_beads entries for all tasks in this work
+	if _, err := qtx.DeleteTaskBeadsForWork(ctx, workID); err != nil {
+		return fmt.Errorf("failed to delete task beads for work %s: %w", workID, err)
+	}
+
+	// Delete work_tasks relationships
+	if _, err := qtx.DeleteWorkTasks(ctx, workID); err != nil {
+		return fmt.Errorf("failed to delete work tasks for work %s: %w", workID, err)
+	}
+
+	// Delete all tasks belonging to this work
+	if _, err := qtx.DeleteTasksForWork(ctx, sql.NullString{String: workID, Valid: true}); err != nil {
+		return fmt.Errorf("failed to delete tasks for work %s: %w", workID, err)
+	}
+
+	// Finally, delete the work itself
+	rows, err := qtx.DeleteWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to delete work %s: %w", workID, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}

@@ -147,23 +147,12 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string, wor
 
 		taskCounter++
 
-		// Generate task ID
-		var taskID string
-		if workID != "" {
-			// Use hierarchical ID when part of a work (w-abc.1, w-abc.2, etc.)
-			nextNum, err := database.GetNextTaskNumber(context.Background(), workID)
-			if err != nil {
-				// Fall back to simple counter if we can't get the next number
-				nextNum = taskCounter
-			}
-			taskID = fmt.Sprintf("%s.%d", workID, nextNum)
-		} else if len(taskBeads) == 1 {
-			// Use bead ID for single-bead tasks without work context
-			taskID = taskBeads[0].ID
-		} else {
-			// Fall back to task-N format for standalone tasks
-			taskID = fmt.Sprintf("task-%d", taskCounter)
+		// Generate hierarchical task ID (work is always required)
+		nextNum, err := database.GetNextTaskNumber(context.Background(), workID)
+		if err != nil {
+			return fmt.Errorf("failed to get next task number for work %s: %w", workID, err)
 		}
+		taskID := fmt.Sprintf("%s.%d", workID, nextNum)
 
 		// Collect bead IDs
 		var ids []string
@@ -214,6 +203,11 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 	}
 	estimator := task.NewLLMEstimator(database, estimationPath, proj.Config.Project.Name)
 
+	// Set work context for estimation tasks
+	if workID != "" {
+		estimator.SetWorkContext(workID)
+	}
+
 	// Estimate complexity for all beads in batch
 	fmt.Println("Estimating complexity for beads...")
 	ctx := context.Background()
@@ -235,18 +229,15 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 		return nil
 	}
 
-	// Update task IDs to use hierarchical format if part of a work
-	if workID != "" {
-		for i := range tasks {
-			// Get next task number for this work
-			nextNum, err := database.GetNextTaskNumber(context.Background(), workID)
-			if err != nil {
-				// Fall back to using index if we can't get the next number
-				nextNum = i + 1
-			}
-			// Update task ID to hierarchical format (w-abc.1, w-abc.2, etc.)
-			tasks[i].ID = fmt.Sprintf("%s.%d", workID, nextNum)
+	// Update task IDs to use hierarchical format (work is always required)
+	for i := range tasks {
+		// Get next task number for this work
+		nextNum, err := database.GetNextTaskNumber(context.Background(), workID)
+		if err != nil {
+			return fmt.Errorf("failed to get next task number for work %s: %w", workID, err)
 		}
+		// Update task ID to hierarchical format (w-abc.1, w-abc.2, etc.)
+		tasks[i].ID = fmt.Sprintf("%s.%d", workID, nextNum)
 	}
 
 	// Create tasks in database
@@ -266,21 +257,13 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 func planSingleBead(_ *project.Project, database *db.DB, beadList []beads.Bead, workID string) error {
 	fmt.Printf("Creating %d single-bead task(s)...\n", len(beadList))
 
-	for i, bead := range beadList {
-		// Generate task ID
-		var taskID string
-		if workID != "" {
-			// Use hierarchical ID when part of a work
-			nextNum, err := database.GetNextTaskNumber(context.Background(), workID)
-			if err != nil {
-				// Fall back to using index if we can't get the next number
-				nextNum = i + 1
-			}
-			taskID = fmt.Sprintf("%s.%d", workID, nextNum)
-		} else {
-			// Use bead ID for standalone tasks
-			taskID = bead.ID
+	for _, bead := range beadList {
+		// Generate hierarchical task ID (work is always required)
+		nextNum, err := database.GetNextTaskNumber(context.Background(), workID)
+		if err != nil {
+			return fmt.Errorf("failed to get next task number for work %s: %w", workID, err)
 		}
+		taskID := fmt.Sprintf("%s.%d", workID, nextNum)
 
 		if err := database.CreateTask(context.Background(),taskID, "implement", []string{bead.ID}, 0, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", taskID, err)

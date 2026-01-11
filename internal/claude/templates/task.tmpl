@@ -16,10 +16,11 @@ Instructions:
    - Close the bead: bd close <id> --reason "<brief summary>"
    - Mark complete: co complete <id>
 7. When ALL issues are complete:
-   - Push the branch and create a PR targeting {{.BaseBranch}}
-   - Merge the PR using: gh pr merge --squash --delete-branch
-   - Mark the final bead complete with PR: co complete <last-id> --pr <PR_URL>
+   - Push the branch: git push
+   - Mark the final bead complete: co complete <last-id>
 
 Note: co complete auto-detects your task. When all beads in the task are marked complete, the task itself is marked complete.
+
+DO NOT create a PR or merge - that will be handled separately after all tasks in the work are complete.
 
 Focus on implementing all tasks correctly and completely.

@@ -109,3 +109,11 @@ FROM tasks t
 JOIN work_tasks wt ON t.id = wt.task_id
 WHERE wt.work_id = ?
 ORDER BY wt.position;
+
+-- name: DeleteWorkTasks :execrows
+DELETE FROM work_tasks
+WHERE work_id = ?;
+
+-- name: DeleteWork :execrows
+DELETE FROM works
+WHERE id = ?;

@@ -64,6 +64,32 @@ func (q *Queries) CreateWork(ctx context.Context, arg CreateWorkParams) error {
 	return err
 }
 
+const deleteWork = `-- name: DeleteWork :execrows
+DELETE FROM works
+WHERE id = ?
+`
+
+func (q *Queries) DeleteWork(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteWork, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteWorkTasks = `-- name: DeleteWorkTasks :execrows
+DELETE FROM work_tasks
+WHERE work_id = ?
+`
+
+func (q *Queries) DeleteWorkTasks(ctx context.Context, workID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteWorkTasks, workID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const failWork = `-- name: FailWork :execrows
 UPDATE works
 SET status = 'failed',

@@ -107,6 +107,34 @@ func (q *Queries) CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) 
 	return err
 }
 
+const deleteTaskBeadsForWork = `-- name: DeleteTaskBeadsForWork :execrows
+DELETE FROM task_beads
+WHERE task_id IN (
+    SELECT task_id FROM work_tasks WHERE work_id = ?
+)
+`
+
+func (q *Queries) DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTaskBeadsForWork, workID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteTasksForWork = `-- name: DeleteTasksForWork :execrows
+DELETE FROM tasks
+WHERE work_id = ?
+`
+
+func (q *Queries) DeleteTasksForWork(ctx context.Context, workID sql.NullString) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTasksForWork, workID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const failTask = `-- name: FailTask :execrows
 UPDATE tasks
 SET status = 'failed',

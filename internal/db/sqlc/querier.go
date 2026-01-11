@@ -21,6 +21,10 @@ type Querier interface {
 	CreateTask(ctx context.Context, arg CreateTaskParams) error
 	CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error
 	CreateWork(ctx context.Context, arg CreateWorkParams) error
+	DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error)
+	DeleteTasksForWork(ctx context.Context, workID sql.NullString) (int64, error)
+	DeleteWork(ctx context.Context, id string) (int64, error)
+	DeleteWorkTasks(ctx context.Context, workID string) (int64, error)
 	FailBead(ctx context.Context, arg FailBeadParams) (int64, error)
 	FailTask(ctx context.Context, arg FailTaskParams) (int64, error)
 	FailTaskBead(ctx context.Context, arg FailTaskBeadParams) (int64, error)

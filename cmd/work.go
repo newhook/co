@@ -16,10 +16,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	workID string
-)
-
 var workCmd = &cobra.Command{
 	Use:   "work",
 	Short: "Manage work units",
@@ -33,7 +29,7 @@ var workCreateCmd = &cobra.Command{
 Creates a subdirectory with a git worktree for isolated development.
 
 The branch argument is required and specifies the git branch name to create.
-If no --id is provided, an ID will be auto-generated (w-abc format, similar to bead IDs).`,
+A unique work ID will be auto-generated using content-based hashing (w-abc format).`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkCreate,
 }
@@ -64,13 +60,23 @@ This is a destructive operation that cannot be undone.`,
 	RunE: runWorkDestroy,
 }
 
-func init() {
-	workCreateCmd.Flags().StringVar(&workID, "id", "", "Custom work ID (defaults to auto-generated w-XXX)")
+var workPRCmd = &cobra.Command{
+	Use:   "pr [<id>]",
+	Short: "Create a PR task for Claude to generate pull request",
+	Long: `Create a special task for Claude to review the work and create a pull request.
+If no ID is provided, uses the work for the current directory context.
 
+Claude will analyze all completed tasks and beads to generate a comprehensive PR description.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runWorkPR,
+}
+
+func init() {
 	workCmd.AddCommand(workCreateCmd)
 	workCmd.AddCommand(workListCmd)
 	workCmd.AddCommand(workShowCmd)
 	workCmd.AddCommand(workDestroyCmd)
+	workCmd.AddCommand(workPRCmd)
 }
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
@@ -90,25 +96,12 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Use custom work ID or generate one from branch name
-	if workID == "" {
-		// Generate content-based hash ID from branch name
-		generatedID, err := database.GenerateWorkID(context.Background(), branchName, proj.Config.Project.Name)
-		if err != nil {
-			return fmt.Errorf("failed to generate work ID: %w", err)
-		}
-		workID = generatedID
-		fmt.Printf("Generated work ID: %s (from branch: %s)\n", workID, branchName)
-	} else {
-		// Check if custom work ID already exists
-		existingWork, err := database.GetWork(context.Background(), workID)
-		if err != nil {
-			return fmt.Errorf("failed to check for existing work: %w", err)
-		}
-		if existingWork != nil {
-			return fmt.Errorf("work with ID %s already exists", workID)
-		}
+	// Generate content-based hash ID from branch name
+	workID, err := database.GenerateWorkID(context.Background(), branchName, proj.Config.Project.Name)
+	if err != nil {
+		return fmt.Errorf("failed to generate work ID: %w", err)
 	}
+	fmt.Printf("Generated work ID: %s (from branch: %s)\n", workID, branchName)
 
 	// Create work subdirectory
 	workDir := filepath.Join(proj.Root, workID)
@@ -390,14 +383,73 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Warning: failed to remove directory: %v\n", err)
 	}
 
-	// TODO: Remove work from database
-	// This requires adding a DeleteWork method to the database
-	// For now, we'll just mark it as failed
-	if err := database.FailWork(context.Background(), workID, "Work destroyed by user"); err != nil {
-		return fmt.Errorf("failed to update work status: %w", err)
+	// Delete work from database (also deletes associated tasks and relationships)
+	if err := database.DeleteWork(context.Background(), workID); err != nil {
+		return fmt.Errorf("failed to delete work from database: %w", err)
 	}
 
 	fmt.Printf("Destroyed work: %s\n", workID)
+	return nil
+}
+
+func runWorkPR(cmd *cobra.Command, args []string) error {
+	// Find project
+	proj, err := project.Find("")
+	if err != nil {
+		return err
+	}
+	defer proj.Close()
+
+	// Open database
+	database, err := proj.OpenDB()
+	if err != nil {
+		return err
+	}
+
+	var workID string
+	if len(args) > 0 {
+		workID = args[0]
+	} else {
+		// Try to detect work from current directory
+		workID, err = getCurrentWork(proj)
+		if err != nil {
+			return fmt.Errorf("not in a work directory and no work ID specified")
+		}
+	}
+
+	// Get work details
+	work, err := database.GetWork(context.Background(), workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Check if work is completed
+	if work.Status != db.StatusCompleted {
+		return fmt.Errorf("work %s is not completed (status: %s)", workID, work.Status)
+	}
+
+	// Check if PR already exists
+	if work.PRURL != "" {
+		fmt.Printf("PR already exists for work %s: %s\n", workID, work.PRURL)
+		return nil
+	}
+
+	// Generate task ID for PR creation
+	// Use a special ".pr" suffix for PR tasks
+	prTaskID := fmt.Sprintf("%s.pr", workID)
+
+	// Create a PR creation task
+	err = database.CreateTask(context.Background(), prTaskID, "pr", []string{}, 0, workID)
+	if err != nil {
+		return fmt.Errorf("failed to create PR task: %w", err)
+	}
+
+	fmt.Printf("Created PR task: %s\n", prTaskID)
+	fmt.Printf("\nRun 'co run %s' to execute Claude to create the PR\n", prTaskID)
+
 	return nil
 }
 
