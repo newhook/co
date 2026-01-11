@@ -1,13 +1,12 @@
-You are working on Estimation Task {{.TaskID}} to estimate complexity for the following beads:
-
-{{range .BeadIDs}}- {{.}}
-{{end}}
+You are working on Estimation Task {{.TaskID}}.
 
 Instructions:
-1. Use 'bd show <id>' to examine each bead's details
-2. For each bead, estimate its complexity and token usage
-3. Run the following command for EACH bead:
-   co estimate <id> --score <complexity> --tokens <estimated-tokens> --task {{.TaskID}}
+1. First, check the task details with: co task show {{.TaskID}}
+   - This will show which beads need estimation and their current status
+2. For each bead that is NOT already completed:
+   - Use 'bd show <bead-id>' to examine the bead's details
+   - Estimate its complexity and token usage
+   - Run: co estimate <bead-id> --score <complexity> --tokens <estimated-tokens> --task {{.TaskID}}
 
 Complexity Scoring Guide:
 - 1 = Trivial change (typo fix, one-liner, config change)
@@ -30,4 +29,4 @@ Base your estimates on:
 - Testing requirements
 - Potential for unexpected complications
 
-After estimating all issues, the task will auto-complete. Do not use /exit.
+The task will auto-complete when all beads are estimated. Do not use /exit.

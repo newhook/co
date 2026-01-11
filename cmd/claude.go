@@ -155,15 +155,34 @@ exit:
 		return exitErr
 	}
 
-	// Claude completed successfully
-	fmt.Printf("Claude completed successfully for task %s after %v\n", taskID, duration)
+	// Claude exited successfully - but did it complete the task?
+	fmt.Printf("Claude exited cleanly for task %s after %v\n", taskID, duration)
 
-	// Note: The actual task completion is handled by Claude calling `co complete`
-	// We just update that Claude itself ran successfully
-	if task.Status != db.StatusCompleted {
-		// Task wasn't marked complete by Claude - this might be a partial completion
-		fmt.Printf("Warning: Task %s was not marked as completed by Claude\n", taskID)
+	// Re-fetch task to check final status
+	task, err = database.GetTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to check final task status: %w", err)
 	}
+
+	if task.Status != db.StatusCompleted {
+		// Claude didn't complete the assigned work - mark as failed
+		failureMsg := fmt.Sprintf("Claude exited without completing the task after %v", duration)
+		fmt.Printf("ERROR: %s\n", failureMsg)
+
+		// Mark task as failed
+		if err := database.FailTask(ctx, taskID, failureMsg); err != nil {
+			fmt.Printf("Warning: failed to mark task as failed: %v\n", err)
+		}
+
+		fmt.Printf("\nTask %s has been marked as failed.\n", taskID)
+		fmt.Printf("To retry, run: co task reset %s && co run %s\n", taskID, taskID)
+
+		// Return error to indicate failure
+		return fmt.Errorf("task not completed by Claude")
+	}
+
+	// Task was completed successfully
+	fmt.Printf("Task %s completed successfully after %v\n", taskID, duration)
 
 	// Close the tab if auto-close is enabled
 	if claudeAutoClose {
