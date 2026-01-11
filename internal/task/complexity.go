@@ -89,18 +89,28 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
 
-	// Create worktree for estimation task
-	branchName := fmt.Sprintf("task/%s", taskID)
-	worktreePath := filepath.Join(filepath.Dir(e.workDir), taskID)
+	// Check if we're already in a worktree (work context)
+	worktreePath := e.workDir
+	var shouldRemoveWorktree bool
 
-	fmt.Printf("Creating worktree for estimation task at %s...\n", worktreePath)
-	if err := worktree.Create(e.workDir, worktreePath, branchName); err != nil {
-		return fmt.Errorf("failed to create worktree for estimation: %w", err)
-	}
+	// Only create a new worktree if we're not already in one (e.g., not in a work's worktree)
+	if !worktree.ExistsPath(e.workDir) {
+		// Create worktree for estimation task
+		branchName := fmt.Sprintf("task/%s", taskID)
+		worktreePath = filepath.Join(filepath.Dir(e.workDir), taskID)
+		shouldRemoveWorktree = true
 
-	// Initialize mise in worktree (optional - warn on error)
-	if err := mise.Initialize(worktreePath); err != nil {
-		fmt.Printf("Warning: mise initialization in worktree failed: %v\n", err)
+		fmt.Printf("Creating worktree for estimation task at %s...\n", worktreePath)
+		if err := worktree.Create(e.workDir, worktreePath, branchName); err != nil {
+			return fmt.Errorf("failed to create worktree for estimation: %w", err)
+		}
+
+		// Initialize mise in worktree (optional - warn on error)
+		if err := mise.Initialize(worktreePath); err != nil {
+			fmt.Printf("Warning: mise initialization in worktree failed: %v\n", err)
+		}
+	} else {
+		fmt.Printf("Using existing worktree at %s for estimation...\n", worktreePath)
 	}
 
 	// Start task in database (worktree is now managed at work level)
@@ -116,19 +126,25 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 	result, err := claude.Run(ctx, e.database, taskID, uncachedBeads, prompt, worktreePath, e.projectName)
 	if err != nil {
 		fmt.Printf("Estimation failed: %v\n", err)
-		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
+		if shouldRemoveWorktree {
+			fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
+		}
 		return fmt.Errorf("failed to run estimation: %w", err)
 	}
 
 	if !result.Completed {
-		fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
+		if shouldRemoveWorktree {
+			fmt.Printf("Worktree kept for debugging at: %s\n", worktreePath)
+		}
 		return fmt.Errorf("estimation task did not complete successfully")
 	}
 
-	// Estimation succeeded - remove worktree
-	fmt.Printf("Estimation completed successfully, removing worktree...\n")
-	if err := worktree.Remove(e.workDir, worktreePath); err != nil {
-		fmt.Printf("Warning: failed to remove estimation worktree: %v\n", err)
+	// Estimation succeeded - remove worktree only if we created one
+	if shouldRemoveWorktree {
+		fmt.Printf("Estimation completed successfully, removing worktree...\n")
+		if err := worktree.Remove(e.workDir, worktreePath); err != nil {
+			fmt.Printf("Warning: failed to remove estimation worktree: %v\n", err)
+		}
 	}
 
 	// Verify all beads were estimated

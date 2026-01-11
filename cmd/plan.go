@@ -68,8 +68,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate work exists if specified
+	var work *db.Work
 	if workID != "" {
-		work, err := database.GetWork(workID)
+		work, err = database.GetWork(workID)
 		if err != nil {
 			return fmt.Errorf("failed to get work %s: %w", workID, err)
 		}
@@ -92,7 +93,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	// Manual grouping mode
 	if len(args) > 0 {
-		return planManualGroups(proj, database, args, workID)
+		return planManualGroups(proj, database, args, workID, work)
 	}
 
 	// Get all ready beads
@@ -108,7 +109,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	// Auto-group mode
 	if flagPlanAutoGroup {
-		return planAutoGroup(proj, database, beadList, workID)
+		return planAutoGroup(proj, database, beadList, workID, work)
 	}
 
 	// Default: single-bead tasks
@@ -116,7 +117,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 }
 
 // planManualGroups creates tasks from manual groupings like "bead-1,bead-2 bead-3"
-func planManualGroups(proj *project.Project, database *db.DB, args []string, workID string) error {
+func planManualGroups(proj *project.Project, database *db.DB, args []string, workID string, work *db.Work) error {
 	var tasks []task.Task
 	mainRepoPath := proj.MainRepoPath()
 
@@ -181,7 +182,7 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string, wor
 }
 
 // planAutoGroup uses LLM to group beads by complexity
-func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead, workID string) error {
+func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead, workID string, work *db.Work) error {
 	fmt.Println("Auto-grouping beads by complexity...")
 
 	// Get beads with dependencies for planning
@@ -191,7 +192,12 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 	}
 
 	// Create planner with complexity estimator
-	estimator := task.NewLLMEstimator(database, proj.MainRepoPath(), proj.Config.Project.Name)
+	// Use work's worktree path for estimation to avoid creating extra worktrees
+	estimationPath := proj.MainRepoPath()
+	if work != nil && work.WorktreePath != "" {
+		estimationPath = work.WorktreePath
+	}
+	estimator := task.NewLLMEstimator(database, estimationPath, proj.Config.Project.Name)
 
 	// Estimate complexity for all beads in batch
 	fmt.Println("Estimating complexity for beads...")
