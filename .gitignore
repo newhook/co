@@ -4,3 +4,15 @@
 .idea
 ac
 .swp
+
+# bd database (not tracked - JSONL is source of truth)
+.beads/beads.db
+.beads/beads.db-*
+.beads/bd.sock
+.beads/bd.pipe
+
+# bd daemon state
+.beads/.exclusive-lock
+
+# Git worktrees (if using protected branches)
+.git/beads-worktrees/
