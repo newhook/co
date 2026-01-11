@@ -55,6 +55,16 @@ The project uses a SQLite database (`tracking.db`) with schema migrations.
 3. Migrations run automatically when the database is accessed
 4. The `+down` section is critical for rollback capability
 
+### Regenerating SQLC Code
+
+After modifying SQL queries in `internal/db/queries/` or changing the schema:
+
+```bash
+mise run sqlc-generate
+```
+
+This regenerates the Go code in `internal/db/sqlc/` from the SQL query definitions.
+
 ## PR Requirements
 
 **NEVER push directly to main.** All changes must go through a PR.
