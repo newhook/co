@@ -49,18 +49,24 @@ func (q *Queries) CompleteWork(ctx context.Context, arg CompleteWorkParams) (int
 }
 
 const createWork = `-- name: CreateWork :exec
-INSERT INTO works (id, status, worktree_path, branch_name)
-VALUES (?, 'pending', ?, ?)
+INSERT INTO works (id, status, worktree_path, branch_name, base_branch)
+VALUES (?, 'pending', ?, ?, ?)
 `
 
 type CreateWorkParams struct {
 	ID           string         `json:"id"`
 	WorktreePath sql.NullString `json:"worktree_path"`
 	BranchName   sql.NullString `json:"branch_name"`
+	BaseBranch   sql.NullString `json:"base_branch"`
 }
 
 func (q *Queries) CreateWork(ctx context.Context, arg CreateWorkParams) error {
-	_, err := q.db.ExecContext(ctx, createWork, arg.ID, arg.WorktreePath, arg.BranchName)
+	_, err := q.db.ExecContext(ctx, createWork,
+		arg.ID,
+		arg.WorktreePath,
+		arg.BranchName,
+		arg.BaseBranch,
+	)
 	return err
 }
 
@@ -131,6 +137,7 @@ SELECT id, status,
        zellij_tab,
        worktree_path,
        branch_name,
+       base_branch,
        pr_url,
        error_message,
        started_at,
@@ -150,6 +157,7 @@ func (q *Queries) GetWork(ctx context.Context, id string) (Work, error) {
 		&i.ZellijTab,
 		&i.WorktreePath,
 		&i.BranchName,
+		&i.BaseBranch,
 		&i.PrUrl,
 		&i.ErrorMessage,
 		&i.StartedAt,
@@ -165,6 +173,7 @@ SELECT id, status,
        zellij_tab,
        worktree_path,
        branch_name,
+       base_branch,
        pr_url,
        error_message,
        started_at,
@@ -185,6 +194,7 @@ func (q *Queries) GetWorkByDirectory(ctx context.Context, worktreePath sql.NullS
 		&i.ZellijTab,
 		&i.WorktreePath,
 		&i.BranchName,
+		&i.BaseBranch,
 		&i.PrUrl,
 		&i.ErrorMessage,
 		&i.StartedAt,
@@ -258,6 +268,7 @@ SELECT id, status,
        zellij_tab,
        worktree_path,
        branch_name,
+       base_branch,
        pr_url,
        error_message,
        started_at,
@@ -283,6 +294,7 @@ func (q *Queries) ListWorks(ctx context.Context) ([]Work, error) {
 			&i.ZellijTab,
 			&i.WorktreePath,
 			&i.BranchName,
+			&i.BaseBranch,
 			&i.PrUrl,
 			&i.ErrorMessage,
 			&i.StartedAt,
@@ -308,6 +320,7 @@ SELECT id, status,
        zellij_tab,
        worktree_path,
        branch_name,
+       base_branch,
        pr_url,
        error_message,
        started_at,
@@ -334,6 +347,7 @@ func (q *Queries) ListWorksByStatus(ctx context.Context, status string) ([]Work,
 			&i.ZellijTab,
 			&i.WorktreePath,
 			&i.BranchName,
+			&i.BaseBranch,
 			&i.PrUrl,
 			&i.ErrorMessage,
 			&i.StartedAt,

@@ -61,6 +61,7 @@ type Work struct {
 	ZellijTab     sql.NullString `json:"zellij_tab"`
 	WorktreePath  sql.NullString `json:"worktree_path"`
 	BranchName    sql.NullString `json:"branch_name"`
+	BaseBranch    sql.NullString `json:"base_branch"`
 	PrUrl         sql.NullString `json:"pr_url"`
 	ErrorMessage  sql.NullString `json:"error_message"`
 	StartedAt     sql.NullTime   `json:"started_at"`

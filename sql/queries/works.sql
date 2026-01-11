@@ -1,6 +1,6 @@
 -- name: CreateWork :exec
-INSERT INTO works (id, status, worktree_path, branch_name)
-VALUES (?, 'pending', ?, ?);
+INSERT INTO works (id, status, worktree_path, branch_name, base_branch)
+VALUES (?, 'pending', ?, ?, ?);
 
 -- name: StartWork :execrows
 UPDATE works
@@ -30,6 +30,7 @@ SELECT id, status,
        zellij_tab,
        worktree_path,
        branch_name,
+       base_branch,
        pr_url,
        error_message,
        started_at,
@@ -44,6 +45,7 @@ SELECT id, status,
        zellij_tab,
        worktree_path,
        branch_name,
+       base_branch,
        pr_url,
        error_message,
        started_at,
@@ -58,6 +60,7 @@ SELECT id, status,
        zellij_tab,
        worktree_path,
        branch_name,
+       base_branch,
        pr_url,
        error_message,
        started_at,
@@ -78,6 +81,7 @@ SELECT id, status,
        zellij_tab,
        worktree_path,
        branch_name,
+       base_branch,
        pr_url,
        error_message,
        started_at,

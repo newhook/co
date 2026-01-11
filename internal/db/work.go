@@ -21,6 +21,7 @@ func workToLocal(w *sqlc.Work) *Work {
 		ZellijTab:     w.ZellijTab.String,
 		WorktreePath:  w.WorktreePath.String,
 		BranchName:    w.BranchName.String,
+		BaseBranch:    w.BaseBranch.String,
 		PRURL:         w.PrUrl.String,
 		ErrorMessage:  w.ErrorMessage.String,
 	}
@@ -44,6 +45,7 @@ type Work struct {
 	ZellijTab     string
 	WorktreePath  string
 	BranchName    string
+	BaseBranch    string
 	PRURL         string
 	ErrorMessage  string
 	StartedAt     *time.Time
@@ -52,11 +54,12 @@ type Work struct {
 }
 
 // CreateWork creates a new work unit.
-func (db *DB) CreateWork(ctx context.Context, id, worktreePath, branchName string) error {
+func (db *DB) CreateWork(ctx context.Context, id, worktreePath, branchName, baseBranch string) error {
 	err := db.queries.CreateWork(ctx, sqlc.CreateWorkParams{
 		ID:           id,
 		WorktreePath: nullString(worktreePath),
 		BranchName:   nullString(branchName),
+		BaseBranch:   nullString(baseBranch),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create work %s: %w", id, err)

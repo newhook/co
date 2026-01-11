@@ -362,21 +362,23 @@ func BuildEstimatePrompt(taskID string, taskBeads []beads.Bead) string {
 }
 
 // BuildPRPrompt builds a prompt for PR creation.
-func BuildPRPrompt(taskID string, workID string, branchName string) string {
+func BuildPRPrompt(taskID string, workID string, branchName string, baseBranch string) string {
 	data := struct {
 		TaskID     string
 		WorkID     string
 		BranchName string
+		BaseBranch string
 	}{
 		TaskID:     taskID,
 		WorkID:     workID,
 		BranchName: branchName,
+		BaseBranch: baseBranch,
 	}
 
 	var buf bytes.Buffer
 	if err := prTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
-		return fmt.Sprintf("PR creation task %s for work %s on branch %s", taskID, workID, branchName)
+		return fmt.Sprintf("PR creation task %s for work %s on branch %s (base: %s)", taskID, workID, branchName, baseBranch)
 	}
 
 	return buf.String()

@@ -14,9 +14,10 @@ func TestDeleteWork(t *testing.T) {
 	// Create a work
 	workID := "w-test"
 	branchName := "feature/test"
+	baseBranch := "main"
 	worktreePath := "/tmp/test-work/tree"
 
-	err := db.CreateWork(ctx, workID, worktreePath, branchName)
+	err := db.CreateWork(ctx, workID, worktreePath, branchName, baseBranch)
 	if err != nil {
 		t.Fatalf("Failed to create work: %v", err)
 	}

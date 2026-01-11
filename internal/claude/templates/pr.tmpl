@@ -1,7 +1,7 @@
 You are creating a pull request for Work {{.WorkID}}.
 
 Branch: {{.BranchName}}
-Target: main
+Target: {{.BaseBranch}}
 
 Instructions:
 1. First, check the work details: co work show {{.WorkID}}
@@ -9,14 +9,14 @@ Instructions:
 2. For each completed task, check what was implemented:
    - co task show <task-id> to see the beads that were completed
 3. Review the git log to understand all changes made in this work
-4. Use 'git diff main...{{.BranchName}}' to see all changes
+4. Use 'git diff {{.BaseBranch}}...{{.BranchName}}' to see all changes
 5. Create a comprehensive PR that includes:
    - Clear title summarizing the work
    - Detailed description of changes
    - List of issues/beads resolved
    - Any breaking changes or important notes
    - Testing performed or recommended
-6. Use 'gh pr create' to create the PR with your crafted title and description
+6. Use 'gh pr create --base {{.BaseBranch}}' to create the PR with your crafted title and description
 7. DO NOT merge the PR - let the user review and merge manually
 8. After creating the PR, mark the task complete: co complete {{.TaskID}} --pr <PR_URL>
 
