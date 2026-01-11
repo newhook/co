@@ -1,3 +1,6 @@
 
 # Use bd merge for beads JSONL files
 .beads/issues.jsonl merge=beads
+
+# Treat JSONL as text for diffs
+.beads/*.jsonl text diff
