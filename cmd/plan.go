@@ -84,21 +84,12 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no work context specified. Use --work flag or run from a work directory")
 	}
 
-	// Check for existing pending tasks
-	pendingTasks, err := database.ListTasks(context.Background(),db.StatusPending)
-	if err != nil {
-		return fmt.Errorf("failed to check pending tasks: %w", err)
-	}
-	if len(pendingTasks) > 0 {
-		return fmt.Errorf("there are %d pending task(s) - run them first with 'co run' or clear them", len(pendingTasks))
-	}
-
-	// Manual grouping mode
+	// Manual grouping mode - check happens inside planManualGroups
 	if len(args) > 0 {
 		return planManualGroups(proj, database, args, workID, work)
 	}
 
-	// Get all ready beads
+	// Get all ready beads first
 	beadList, err := beads.GetReadyBeadsInDir(proj.MainRepoPath())
 	if err != nil {
 		return fmt.Errorf("failed to get ready beads: %w", err)
@@ -108,6 +99,60 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		fmt.Println("No ready beads to plan")
 		return nil
 	}
+
+	// Check for beads already in pending tasks
+	pendingTasks, err := database.ListTasks(context.Background(),db.StatusPending)
+	if err != nil {
+		return fmt.Errorf("failed to check pending tasks: %w", err)
+	}
+
+	// Build set of beads that are already in pending tasks
+	beadsInPendingTasks := make(map[string]bool)
+	for _, task := range pendingTasks {
+		beadIDs, err := database.GetTaskBeads(context.Background(), task.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get beads for task %s: %w", task.ID, err)
+		}
+		for _, beadID := range beadIDs {
+			beadsInPendingTasks[beadID] = true
+		}
+	}
+
+	// Filter out beads that are already in pending tasks
+	var availableBeads []beads.Bead
+	var skippedBeads []string
+	for _, bead := range beadList {
+		if beadsInPendingTasks[bead.ID] {
+			skippedBeads = append(skippedBeads, bead.ID)
+		} else {
+			availableBeads = append(availableBeads, bead)
+		}
+	}
+
+	// Report on what we're doing
+	if len(skippedBeads) > 0 {
+		fmt.Printf("Skipping %d bead(s) already in pending tasks: %s\n",
+			len(skippedBeads), strings.Join(skippedBeads, ", "))
+		if len(pendingTasks) > 0 {
+			fmt.Printf("  Pending tasks: ")
+			for i, task := range pendingTasks {
+				if i > 0 {
+					fmt.Print(", ")
+				}
+				fmt.Print(task.ID)
+			}
+			fmt.Println()
+		}
+	}
+
+	if len(availableBeads) == 0 {
+		fmt.Println("No beads available to plan (all ready beads are already in pending tasks)")
+		fmt.Println("To re-plan these beads, first delete their pending tasks with 'co task delete <task-id>'")
+		return nil
+	}
+
+	fmt.Printf("Planning %d available bead(s)\n", len(availableBeads))
+	beadList = availableBeads
 
 	// Auto-group mode
 	if flagPlanAutoGroup {
@@ -120,15 +165,35 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 // planManualGroups creates tasks from manual groupings like "bead-1,bead-2 bead-3"
 func planManualGroups(proj *project.Project, database *db.DB, args []string, workID string, work *db.Work) error {
-	var tasks []task.Task
 	mainRepoPath := proj.MainRepoPath()
 
+	// First, check for beads already in pending tasks
+	pendingTasks, err := database.ListTasks(context.Background(),db.StatusPending)
+	if err != nil {
+		return fmt.Errorf("failed to check pending tasks: %w", err)
+	}
+
+	// Build set of beads that are already in pending tasks
+	beadsInPendingTasks := make(map[string]bool)
+	for _, task := range pendingTasks {
+		beadIDs, err := database.GetTaskBeads(context.Background(), task.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get beads for task %s: %w", task.ID, err)
+		}
+		for _, beadID := range beadIDs {
+			beadsInPendingTasks[beadID] = true
+		}
+	}
+
+	// Process manual groups
+	var tasks []task.Task
 	// Track task number for hierarchical IDs
 	taskCounter := 0
 
 	for _, arg := range args {
 		beadIDs := strings.Split(arg, ",")
 		var taskBeads []beads.Bead
+		var conflictingBeads []string
 
 		// Validate and fetch each bead
 		for _, id := range beadIDs {
@@ -136,11 +201,23 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string, wor
 			if id == "" {
 				continue
 			}
+
+			// Check if this bead is already in a pending task
+			if beadsInPendingTasks[id] {
+				conflictingBeads = append(conflictingBeads, id)
+				continue
+			}
+
 			bead, err := beads.GetBeadInDir(id, mainRepoPath)
 			if err != nil {
 				return fmt.Errorf("failed to get bead %s: %w", id, err)
 			}
 			taskBeads = append(taskBeads, *bead)
+		}
+
+		// Report conflicts for this group
+		if len(conflictingBeads) > 0 {
+			return fmt.Errorf("cannot plan beads already in pending tasks: %s", strings.Join(conflictingBeads, ", "))
 		}
 
 		if len(taskBeads) == 0 {
