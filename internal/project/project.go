@@ -219,8 +219,8 @@ func (p *Project) WorktreePath(taskID string) string {
 	return filepath.Join(p.Root, taskID)
 }
 
-// TrackingDBPath returns the path to the tracking database.
-func (p *Project) TrackingDBPath() string {
+// trackingDBPath returns the path to the tracking database.
+func (p *Project) trackingDBPath() string {
 	return filepath.Join(p.Root, ConfigDir, TrackingDB)
 }
 
@@ -230,7 +230,7 @@ func (p *Project) OpenDB() (*db.DB, error) {
 		return p.DB, nil
 	}
 
-	database, err := db.OpenPath(p.TrackingDBPath())
+	database, err := db.OpenPath(p.trackingDBPath())
 	if err != nil {
 		return nil, fmt.Errorf("failed to open tracking database: %w", err)
 	}
