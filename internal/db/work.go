@@ -2,9 +2,11 @@ package db
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"math/big"
+	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/db/sqlc"
@@ -216,28 +218,48 @@ func (db *DB) IsWorkCompleted(workID string) (bool, error) {
 	return completed == total, nil
 }
 
-// generateRandomSuffix generates a random alphanumeric suffix.
-func generateRandomSuffix(length int) string {
-	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback to timestamp-based generation if random fails
-		return fmt.Sprintf("%x", time.Now().UnixNano())[:length]
-	}
-	for i := range b {
-		b[i] = chars[b[i]%byte(len(chars))]
-	}
-	return string(b)
+// toBase36 converts a byte array to a base36 string.
+func toBase36(bytes []byte) string {
+	// Convert bytes to a big integer
+	num := new(big.Int).SetBytes(bytes)
+	// Convert to base36
+	return strings.ToLower(num.Text(36))
 }
 
-// GenerateNextWorkID generates the next available work ID with format "w-XXX".
-// This uses a pattern similar to beads IDs for consistency.
-func (db *DB) GenerateNextWorkID(ctx context.Context) (string, error) {
-	// Try up to 10 times to generate a unique ID
-	for i := 0; i < 10; i++ {
-		// Generate ID with format "w-XXX" (w for work)
-		suffix := generateRandomSuffix(3)
-		workID := fmt.Sprintf("w-%s", suffix)
+// GenerateWorkID generates a content-based hash ID for a work.
+// Uses the branch name as the primary content for hashing.
+func (db *DB) GenerateWorkID(ctx context.Context, branchName string, projectName string) (string, error) {
+	// Start with a base length of 3 characters for work IDs
+	// (we expect fewer works than issues)
+	baseLength := 3
+	maxAttempts := 30
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// Calculate target length based on attempts
+		targetLength := baseLength + (attempt / 10)
+		if targetLength > 8 {
+			targetLength = 8 // Cap at 8 characters
+		}
+
+		// Create content for hashing
+		nonce := attempt % 10
+		content := fmt.Sprintf("%s:%s:%d:%d",
+			branchName,
+			projectName,
+			time.Now().UnixNano(),
+			nonce)
+
+		// Generate SHA256 hash
+		hash := sha256.Sum256([]byte(content))
+
+		// Convert to base36 and truncate to target length
+		hashStr := toBase36(hash[:])
+		if len(hashStr) > targetLength {
+			hashStr = hashStr[:targetLength]
+		}
+
+		// Create work ID with prefix
+		workID := fmt.Sprintf("w-%s", hashStr)
 
 		// Check if this ID already exists
 		existing, err := db.GetWork(ctx, workID)
@@ -250,6 +272,25 @@ func (db *DB) GenerateNextWorkID(ctx context.Context) (string, error) {
 		}
 	}
 
-	// If we couldn't generate a unique ID in 10 tries, fall back to timestamp
+	// If we exhausted all attempts, generate a fallback ID
 	return fmt.Sprintf("w-%d", time.Now().UnixNano()/1000000), nil
+}
+
+// GenerateNextWorkID generates a work ID using content-based hashing.
+// This is a compatibility wrapper that generates a temporary ID.
+func (db *DB) GenerateNextWorkID(ctx context.Context) (string, error) {
+	// Generate a temporary work ID based on timestamp
+	// This should only be used when we don't have branch information yet
+	return db.GenerateWorkID(ctx, fmt.Sprintf("temp-%d", time.Now().UnixNano()), "unknown")
+}
+
+// GetNextTaskNumber returns the next available task number for a work.
+// Tasks are numbered sequentially within each work (w-abc.1, w-abc.2, etc.)
+func (db *DB) GetNextTaskNumber(ctx context.Context, workID string) (int, error) {
+	// Count existing tasks for this work
+	tasks, err := db.GetWorkTasks(ctx, workID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get tasks for work: %w", err)
+	}
+	return len(tasks) + 1, nil
 }

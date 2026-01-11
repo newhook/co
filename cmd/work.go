@@ -90,14 +90,15 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Use custom work ID or generate one
+	// Use custom work ID or generate one from branch name
 	if workID == "" {
-		// Auto-generate work ID (work-1, work-2, etc.)
-		generatedID, err := database.GenerateNextWorkID(context.Background())
+		// Generate content-based hash ID from branch name
+		generatedID, err := database.GenerateWorkID(context.Background(), branchName, proj.Config.Project.Name)
 		if err != nil {
 			return fmt.Errorf("failed to generate work ID: %w", err)
 		}
 		workID = generatedID
+		fmt.Printf("Generated work ID: %s (from branch: %s)\n", workID, branchName)
 	} else {
 		// Check if custom work ID already exists
 		existingWork, err := database.GetWork(context.Background(), workID)
