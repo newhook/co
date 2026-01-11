@@ -69,6 +69,18 @@ Claude will analyze all completed tasks and beads to generate a comprehensive PR
 	RunE: runWorkPR,
 }
 
+var workReviewCmd = &cobra.Command{
+	Use:   "review [<id>]",
+	Short: "Create a review task to examine code changes",
+	Long: `Create a task for Claude to review code changes in a work unit.
+If no ID is provided, uses the work for the current directory context.
+
+Claude will examine the work's branch/PR for quality, security issues,
+and adherence to project standards.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runWorkReview,
+}
+
 var flagBaseBranch string
 
 func init() {
@@ -78,6 +90,7 @@ func init() {
 	workCmd.AddCommand(workShowCmd)
 	workCmd.AddCommand(workDestroyCmd)
 	workCmd.AddCommand(workPRCmd)
+	workCmd.AddCommand(workReviewCmd)
 }
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
@@ -408,6 +421,71 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Created PR task: %s\n", prTaskID)
 	fmt.Printf("\nRun 'co run %s' to execute Claude to create the PR\n", prTaskID)
+
+	return nil
+}
+
+func runWorkReview(cmd *cobra.Command, args []string) error {
+	// Find project
+	proj, err := project.Find("")
+	if err != nil {
+		return err
+	}
+	defer proj.Close()
+
+	var workID string
+	if len(args) > 0 {
+		workID = args[0]
+	} else {
+		// Try to detect work from current directory
+		workID, err = getCurrentWork(proj)
+		if err != nil {
+			return fmt.Errorf("not in a work directory and no work ID specified")
+		}
+	}
+
+	// Get work details
+	work, err := proj.DB.GetWork(context.Background(), workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Check if work has changes to review
+	// Work should have at least been started (has commits on the branch)
+	if work.Status == db.StatusPending {
+		return fmt.Errorf("work %s has not been started yet (status: pending)", workID)
+	}
+
+	// Generate task ID for review
+	// Use a special ".review" suffix for review tasks
+	reviewTaskID := fmt.Sprintf("%s.review", workID)
+
+	// Check if review task already exists
+	existingTask, err := proj.DB.GetTask(context.Background(), reviewTaskID)
+	if err != nil {
+		return fmt.Errorf("failed to check existing review task: %w", err)
+	}
+	if existingTask != nil {
+		if existingTask.Status == db.StatusCompleted {
+			fmt.Printf("Review task %s already completed\n", reviewTaskID)
+			return nil
+		}
+		fmt.Printf("Review task %s already exists (status: %s)\n", reviewTaskID, existingTask.Status)
+		fmt.Printf("\nRun 'co run %s' to execute Claude for review\n", reviewTaskID)
+		return nil
+	}
+
+	// Create a review task
+	err = proj.DB.CreateTask(context.Background(), reviewTaskID, "review", []string{}, 0, workID)
+	if err != nil {
+		return fmt.Errorf("failed to create review task: %w", err)
+	}
+
+	fmt.Printf("Created review task: %s\n", reviewTaskID)
+	fmt.Printf("\nRun 'co run %s' to execute Claude for code review\n", reviewTaskID)
 
 	return nil
 }

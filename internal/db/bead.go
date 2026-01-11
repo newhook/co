@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -119,7 +120,7 @@ func (db *DB) FailBead(id, errMsg string) error {
 func (db *DB) GetBead(id string) (*TrackedBead, error) {
 	bead, err := db.queries.GetBead(context.Background(), id)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get bead: %w", err)
@@ -130,7 +131,7 @@ func (db *DB) GetBead(id string) (*TrackedBead, error) {
 // IsCompleted checks if a bead is completed or failed.
 func (db *DB) IsCompleted(id string) (bool, error) {
 	status, err := db.queries.GetBeadStatus(context.Background(), id)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {

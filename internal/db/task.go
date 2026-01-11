@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -255,7 +256,7 @@ func (db *DB) ResetTaskStatus(ctx context.Context, id string) error {
 // GetTask retrieves a task by ID.
 func (db *DB) GetTask(ctx context.Context, id string) (*Task, error) {
 	task, err := db.queries.GetTask(ctx, id)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -276,7 +277,7 @@ func (db *DB) GetTaskBeads(ctx context.Context, taskID string) ([]string, error)
 // GetTaskForBead returns the task ID that contains the given bead.
 func (db *DB) GetTaskForBead(ctx context.Context, beadID string) (string, error) {
 	taskID, err := db.queries.GetTaskForBead(ctx, beadID)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
