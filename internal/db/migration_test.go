@@ -6,6 +6,9 @@ import (
 	"embed"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
@@ -50,128 +53,86 @@ func tableExists(ctx context.Context, db *sql.DB, table string) (bool, error) {
 func TestRunMigrations(t *testing.T) {
 	// Create an in-memory database
 	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
+	require.NoError(t, err, "Failed to open database")
 	defer db.Close()
 
 	ctx := context.Background()
 
 	// Run migrations with test filesystem
-	if err := RunMigrationsForFS(ctx, db, testMigrationsFS); err != nil {
-		t.Fatalf("Failed to run migrations: %v", err)
-	}
+	err = RunMigrationsForFS(ctx, db, testMigrationsFS)
+	require.NoError(t, err, "Failed to run migrations")
 
 	// Verify schema_migrations table exists
 	var count int
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&count)
-	if err != nil {
-		t.Fatalf("Failed to check for schema_migrations table: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("Expected schema_migrations table to exist, but it doesn't")
-	}
+	require.NoError(t, err, "Failed to check for schema_migrations table")
+	assert.Equal(t, 1, count, "Expected schema_migrations table to exist")
 
 	// Verify migrations were recorded
 	versions, err := MigrationStatus(db)
-	if err != nil {
-		t.Fatalf("Failed to get migration status: %v", err)
-	}
-	if len(versions) != 2 {
-		t.Errorf("Expected 2 migrations to be recorded, got %d", len(versions))
-	}
+	require.NoError(t, err, "Failed to get migration status")
+	assert.Len(t, versions, 2, "Expected 2 migrations to be recorded")
 
 	// Verify test tables were created (from test migrations)
 	tables := []string{"test_table1", "test_table2"}
 	for _, table := range tables {
 		err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
-		if err != nil {
-			t.Fatalf("Failed to check for table %s: %v", table, err)
-		}
-		if count != 1 {
-			t.Errorf("Expected table %s to exist, but it doesn't", table)
-		}
+		require.NoError(t, err, "Failed to check for table %s", table)
+		assert.Equal(t, 1, count, "Expected table %s to exist", table)
 	}
 
 	// Verify index was created
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_test_table1_name'").Scan(&count)
-	if err != nil {
-		t.Fatalf("Failed to check for index: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("Expected index idx_test_table1_name to exist")
-	}
+	require.NoError(t, err, "Failed to check for index")
+	assert.Equal(t, 1, count, "Expected index idx_test_table1_name to exist")
 }
 
 // TestRunMigrationsIdempotent tests that running migrations multiple times is safe
 func TestRunMigrationsIdempotent(t *testing.T) {
 	// Create an in-memory database
 	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
+	require.NoError(t, err, "Failed to open database")
 	defer db.Close()
 
 	// Run migrations first time
 	ctx := context.Background()
-	if err := RunMigrationsForFS(ctx, db, testMigrationsFS); err != nil {
-		t.Fatalf("Failed to run migrations first time: %v", err)
-	}
+	err = RunMigrationsForFS(ctx, db, testMigrationsFS)
+	require.NoError(t, err, "Failed to run migrations first time")
 
 	// Run migrations second time - should be idempotent
-	if err := RunMigrationsForFS(ctx, db, testMigrationsFS); err != nil {
-		t.Fatalf("Failed to run migrations second time: %v", err)
-	}
+	err = RunMigrationsForFS(ctx, db, testMigrationsFS)
+	require.NoError(t, err, "Failed to run migrations second time")
 
 	// Verify only one migration record exists
 	var count int
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = '001'").Scan(&count)
-	if err != nil {
-		t.Fatalf("Failed to count migration records: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("Expected 1 migration record, got %d", count)
-	}
+	require.NoError(t, err, "Failed to count migration records")
+	assert.Equal(t, 1, count, "Expected 1 migration record")
 }
 
 // TestMigrationStatus tests the MigrationStatus function
 func TestMigrationStatus(t *testing.T) {
 	// Create an in-memory database
 	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
+	require.NoError(t, err, "Failed to open database")
 	defer db.Close()
 
 	// Check status before migrations
 	versions, err := MigrationStatus(db)
-	if err != nil {
-		t.Fatalf("Failed to get migration status: %v", err)
-	}
-	if len(versions) != 0 {
-		t.Errorf("Expected no migrations before running, got %v", versions)
-	}
+	require.NoError(t, err, "Failed to get migration status")
+	assert.Empty(t, versions, "Expected no migrations before running")
 
 	// Run migrations
 	ctx := context.Background()
-	if err := RunMigrationsForFS(ctx, db, testMigrationsFS); err != nil {
-		t.Fatalf("Failed to run migrations: %v", err)
-	}
+	err = RunMigrationsForFS(ctx, db, testMigrationsFS)
+	require.NoError(t, err, "Failed to run migrations")
 
 	// Check status after migrations
 	versions, err = MigrationStatus(db)
-	if err != nil {
-		t.Fatalf("Failed to get migration status: %v", err)
-	}
-	if len(versions) != 2 {
-		t.Fatalf("Expected 2 migrations, got %d", len(versions))
-	}
-	if versions[0] != "001" {
-		t.Errorf("Expected first migration 001, got %s", versions[0])
-	}
-	if versions[1] != "002" {
-		t.Errorf("Expected second migration 002, got %s", versions[1])
-	}
+	require.NoError(t, err, "Failed to get migration status")
+	require.Len(t, versions, 2, "Expected 2 migrations")
+	assert.Equal(t, "001", versions[0], "Expected first migration 001")
+	assert.Equal(t, "002", versions[1], "Expected second migration 002")
 }
 
 // TestSplitSQLStatements tests the SQL statement splitter
@@ -212,7 +173,7 @@ func TestSplitSQLStatements(t *testing.T) {
 			},
 		},
 		{
-			name:  "Multiple statements with various features",
+			name: "Multiple statements with various features",
 			input: `CREATE TABLE users (
 				id INT PRIMARY KEY,
 				name TEXT DEFAULT 'John;Doe'
@@ -253,15 +214,9 @@ func TestSplitSQLStatements(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := splitSQLStatements(tt.input)
-			if len(result) != len(tt.expected) {
-				t.Errorf("Expected %d statements, got %d", len(tt.expected), len(result))
-				t.Errorf("Result: %v", result)
-				return
-			}
+			require.Len(t, result, len(tt.expected), "Statement count mismatch")
 			for i, stmt := range result {
-				if stmt != tt.expected[i] {
-					t.Errorf("Statement %d mismatch:\nExpected: %q\nGot:      %q", i, tt.expected[i], stmt)
-				}
+				assert.Equal(t, tt.expected[i], stmt, "Statement %d mismatch", i)
 			}
 		})
 	}
@@ -288,15 +243,11 @@ DROP TABLE users;
 );
 CREATE INDEX idx_users_name ON users(name);
 `
-	if upSQL != expectedUp {
-		t.Errorf("Up section mismatch:\nExpected: %q\nGot:      %q", expectedUp, upSQL)
-	}
+	assert.Equal(t, expectedUp, upSQL, "Up section mismatch")
 
 	downSQL := parseDownSection(migration)
 	expectedDown := "DROP TABLE users;\n"
-	if downSQL != expectedDown {
-		t.Errorf("Down section mismatch:\nExpected: %q\nGot:      %q", expectedDown, downSQL)
-	}
+	assert.Equal(t, expectedDown, downSQL, "Down section mismatch")
 }
 
 // TestOpenPath tests the OpenPath function which integrates migration running
@@ -306,9 +257,7 @@ func TestOpenPath(t *testing.T) {
 
 	// Open database (should run migrations)
 	db, err := OpenPath(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
+	require.NoError(t, err, "Failed to open database")
 	defer db.Close()
 
 	ctx := context.Background()
@@ -316,196 +265,126 @@ func TestOpenPath(t *testing.T) {
 	// Verify migrations were run by checking for tables
 	var count int
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='beads'").Scan(&count)
-	if err != nil {
-		t.Fatalf("Failed to check for beads table: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("Expected beads table to exist after OpenPath")
-	}
+	require.NoError(t, err, "Failed to check for beads table")
+	assert.Equal(t, 1, count, "Expected beads table to exist after OpenPath")
 
 	// Verify we can use the queries
-	if db.queries == nil {
-		t.Errorf("Expected queries to be initialized")
-	}
+	assert.NotNil(t, db.queries, "Expected queries to be initialized")
 }
 
 // TestRollbackMigration tests the rollback functionality
 func TestRollbackMigration(t *testing.T) {
 	// Create an in-memory database
 	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
+	require.NoError(t, err, "Failed to open database")
 	defer db.Close()
 
 	ctx := context.Background()
 
 	// Run migrations (runs both 001 and 002)
-	if err := RunMigrationsForFS(ctx, db, testMigrationsFS); err != nil {
-		t.Fatalf("Failed to run migrations: %v", err)
-	}
+	err = RunMigrationsForFS(ctx, db, testMigrationsFS)
+	require.NoError(t, err, "Failed to run migrations")
 
 	// Verify we have 2 migrations
 	versions, err := MigrationStatus(db)
-	if err != nil {
-		t.Fatalf("Failed to get migration status: %v", err)
-	}
-	if len(versions) != 2 {
-		t.Errorf("Expected 2 migrations before rollback, got %d", len(versions))
-	}
+	require.NoError(t, err, "Failed to get migration status")
+	assert.Len(t, versions, 2, "Expected 2 migrations before rollback")
 
 	// Verify the test_field column exists (from migration 002)
 	hasTestField, err := hasColumn(ctx, db, "test_table1", "test_field")
-	if err != nil {
-		t.Fatalf("Failed to check for test_field column: %v", err)
-	}
-	if !hasTestField {
-		t.Errorf("Expected test_field column to exist before rollback")
-	}
+	require.NoError(t, err, "Failed to check for test_field column")
+	assert.True(t, hasTestField, "Expected test_field column to exist before rollback")
 
 	// Rollback the latest migration (002)
-	if err := RollbackMigrationForFS(ctx, db, testMigrationsFS); err != nil {
-		t.Fatalf("Failed to rollback migration: %v", err)
-	}
+	err = RollbackMigrationForFS(ctx, db, testMigrationsFS)
+	require.NoError(t, err, "Failed to rollback migration")
 
 	// Verify we now have 1 migration left (001)
 	versions, err = MigrationStatus(db)
-	if err != nil {
-		t.Fatalf("Failed to get migration status after rollback: %v", err)
-	}
-	if len(versions) != 1 {
-		t.Errorf("Expected 1 migration after rollback, got %d", len(versions))
-	}
-	if versions[0] != "001" {
-		t.Errorf("Expected migration 001 to remain, got %s", versions[0])
-	}
+	require.NoError(t, err, "Failed to get migration status after rollback")
+	require.Len(t, versions, 1, "Expected 1 migration after rollback")
+	assert.Equal(t, "001", versions[0], "Expected migration 001 to remain")
 
 	// Verify test_table1 still exists (from migration 001)
 	var count int
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='test_table1'").Scan(&count)
-	if err != nil {
-		t.Fatalf("Failed to check for test_table1 after rollback: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("Expected test_table1 to still exist after rolling back 002")
-	}
+	require.NoError(t, err, "Failed to check for test_table1 after rollback")
+	assert.Equal(t, 1, count, "Expected test_table1 to still exist after rolling back 002")
 
 	// Verify test_field column is gone (from migration 002)
 	hasTestField, err = hasColumn(ctx, db, "test_table1", "test_field")
-	if err != nil {
-		t.Fatalf("Failed to check for test_field column after rollback: %v", err)
-	}
-	if hasTestField {
-		t.Errorf("Expected test_field column to be gone after rollback")
-	}
+	require.NoError(t, err, "Failed to check for test_field column after rollback")
+	assert.False(t, hasTestField, "Expected test_field column to be gone after rollback")
 
 	// Rollback the remaining migration (001)
-	if err := RollbackMigrationForFS(ctx, db, testMigrationsFS); err != nil {
-		t.Fatalf("Failed to rollback migration 001: %v", err)
-	}
+	err = RollbackMigrationForFS(ctx, db, testMigrationsFS)
+	require.NoError(t, err, "Failed to rollback migration 001")
 
 	// Verify tables are gone after rolling back all migrations
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='test_table1'").Scan(&count)
-	if err != nil {
-		t.Fatalf("Failed to check for test_table1 after final rollback: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("Expected test_table1 to be gone after rolling back all migrations")
-	}
+	require.NoError(t, err, "Failed to check for test_table1 after final rollback")
+	assert.Equal(t, 0, count, "Expected test_table1 to be gone after rolling back all migrations")
 
 	// Verify no migration records remain
 	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&count)
-	if err != nil {
-		t.Fatalf("Failed to check migration records: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("Expected no migration records after rolling back all")
-	}
+	require.NoError(t, err, "Failed to check migration records")
+	assert.Equal(t, 0, count, "Expected no migration records after rolling back all")
 }
 
 // TestRollbackNoMigrations tests rollback when there are no migrations
 func TestRollbackNoMigrations(t *testing.T) {
 	// Create an in-memory database
 	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
+	require.NoError(t, err, "Failed to open database")
 	defer db.Close()
 
 	ctx := context.Background()
 
 	// Create migrations table but don't run migrations
-	if err := createMigrationsTable(ctx, db); err != nil {
-		t.Fatalf("Failed to create migrations table: %v", err)
-	}
+	err = createMigrationsTable(ctx, db)
+	require.NoError(t, err, "Failed to create migrations table")
 
 	// Try to rollback when there are no migrations
 	err = RollbackMigrationForFS(ctx, db, testMigrationsFS)
-	if err == nil {
-		t.Errorf("Expected error when rolling back with no migrations")
-	}
-	if err != nil && err.Error() != "no migrations to rollback" {
-		t.Errorf("Expected 'no migrations to rollback' error, got: %v", err)
-	}
+	require.Error(t, err, "Expected error when rolling back with no migrations")
+	assert.Equal(t, "no migrations to rollback", err.Error())
 }
 
 // TestMultipleMigrations tests running multiple migrations in sequence
 func TestMultipleMigrations(t *testing.T) {
 	// Create an in-memory database
 	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
+	require.NoError(t, err, "Failed to open database")
 	defer db.Close()
 
 	ctx := context.Background()
 
 	// Run migrations (should run both 001 and 002)
-	if err := RunMigrationsForFS(ctx, db, testMigrationsFS); err != nil {
-		t.Fatalf("Failed to run migrations: %v", err)
-	}
+	err = RunMigrationsForFS(ctx, db, testMigrationsFS)
+	require.NoError(t, err, "Failed to run migrations")
 
 	// Check that both migrations were applied
 	versions, err := MigrationStatus(db)
-	if err != nil {
-		t.Fatalf("Failed to get migration status: %v", err)
-	}
-	if len(versions) != 2 {
-		t.Errorf("Expected 2 migrations, got %d: %v", len(versions), versions)
-	}
+	require.NoError(t, err, "Failed to get migration status")
+	assert.Len(t, versions, 2, "Expected 2 migrations")
 
 	// Verify the test_field column was added
 	hasTestField, err := hasColumn(ctx, db, "test_table1", "test_field")
-	if err != nil {
-		t.Fatalf("Failed to check for test_field column: %v", err)
-	}
-	if !hasTestField {
-		t.Errorf("Expected test_field column to exist after migration 002")
-	}
+	require.NoError(t, err, "Failed to check for test_field column")
+	assert.True(t, hasTestField, "Expected test_field column to exist after migration 002")
 
 	// Rollback second migration
-	if err := RollbackMigrationForFS(ctx, db, testMigrationsFS); err != nil {
-		t.Fatalf("Failed to rollback migration: %v", err)
-	}
+	err = RollbackMigrationForFS(ctx, db, testMigrationsFS)
+	require.NoError(t, err, "Failed to rollback migration")
 
 	// Verify only first migration remains
 	versions, err = MigrationStatus(db)
-	if err != nil {
-		t.Fatalf("Failed to get migration status after rollback: %v", err)
-	}
-	if len(versions) != 1 {
-		t.Errorf("Expected 1 migration after rollback, got %d", len(versions))
-	}
-	if versions[0] != "001" {
-		t.Errorf("Expected migration 001 to remain, got %s", versions[0])
-	}
+	require.NoError(t, err, "Failed to get migration status after rollback")
+	require.Len(t, versions, 1, "Expected 1 migration after rollback")
+	assert.Equal(t, "001", versions[0], "Expected migration 001 to remain")
 
 	// Verify test_field column was removed
 	hasTestField, err = hasColumn(ctx, db, "test_table1", "test_field")
-	if err != nil {
-		t.Fatalf("Failed to check for test_field column after rollback: %v", err)
-	}
-	if hasTestField {
-		t.Errorf("Expected test_field column to be removed after rollback")
-	}
+	require.NoError(t, err, "Failed to check for test_field column after rollback")
+	assert.False(t, hasTestField, "Expected test_field column to be removed after rollback")
 }
