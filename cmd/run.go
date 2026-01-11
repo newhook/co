@@ -33,8 +33,8 @@ Without arguments:
 - Otherwise: executes all pending tasks across all works in dependency order
 
 With an ID:
-- If ID starts with "work-": executes all tasks in that work
-- Otherwise: executes only that specific task
+- If ID contains a dot (e.g., w-xxx.1, w-xxx.pr): executes that specific task
+- If ID is a work ID (e.g., w-xxx, work-N): executes all tasks in that work
 
 Works manage git worktrees and feature branches.
 Each work gets its own worktree at <project>/<work-id>/tree/.
@@ -76,13 +76,18 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	// Determine work context (required)
 	// Priority: explicit arg > --work flag > directory context
 	var workID string
+	var taskID string
 
 	if argID != "" {
-		// Accept work ID or w-xxx format
-		if strings.HasPrefix(argID, "work-") || strings.HasPrefix(argID, "w-") {
+		// Check if this is a task ID (contains a dot like "w-xxx.1" or "w-xxx.pr")
+		if strings.Contains(argID, ".") {
+			// This is a task ID - run just this task
+			taskID = argID
+		} else if strings.HasPrefix(argID, "work-") || strings.HasPrefix(argID, "w-") {
+			// Accept work ID or w-xxx format
 			workID = argID
 		} else {
-			return fmt.Errorf("invalid work ID format: %s (expected w-xxx or work-N)", argID)
+			return fmt.Errorf("invalid ID format: %s (expected w-xxx, work-N, or task-id like w-xxx.1)", argID)
 		}
 	} else if flagWork != "" {
 		workID = flagWork
@@ -94,8 +99,93 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Process the work
+	// Process a specific task or all tasks in a work
+	if taskID != "" {
+		return processTask(proj, database, taskID)
+	}
 	return processWork(proj, database, workID)
+}
+
+// processTask processes a single task by ID.
+func processTask(proj *project.Project, database *db.DB, taskID string) error {
+	ctx := context.Background()
+
+	// Get the task
+	dbTask, err := database.GetTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+	if dbTask == nil {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+
+	// Check task status
+	if dbTask.Status == db.StatusCompleted {
+		fmt.Printf("Task %s is already completed\n", taskID)
+		return nil
+	}
+
+	// Get the associated work
+	if dbTask.WorkID == "" {
+		return fmt.Errorf("task %s has no associated work", taskID)
+	}
+
+	work, err := database.GetWork(ctx, dbTask.WorkID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found for task %s", dbTask.WorkID, taskID)
+	}
+
+	fmt.Printf("\n=== Processing task %s ===\n", taskID)
+	fmt.Printf("Work: %s\n", work.ID)
+	fmt.Printf("Branch: %s\n", work.BranchName)
+	fmt.Printf("Worktree: %s\n", work.WorktreePath)
+
+	// Check if worktree exists
+	if work.WorktreePath == "" {
+		return fmt.Errorf("work %s has no worktree path configured", work.ID)
+	}
+
+	if !worktree.ExistsPath(work.WorktreePath) {
+		return fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
+	}
+
+	// Get bead details for this task
+	beadIDs, err := database.GetTaskBeads(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to get beads for task %s: %w", taskID, err)
+	}
+
+	var taskBeads []beads.Bead
+	for _, beadID := range beadIDs {
+		bead, err := beads.GetBeadInDir(beadID, proj.MainRepoPath())
+		if err != nil {
+			fmt.Printf("Warning: failed to get bead %s: %v\n", beadID, err)
+			continue
+		}
+		taskBeads = append(taskBeads, *bead)
+	}
+
+	// Process the task
+	result, err := processTaskInWork(proj, database, dbTask, work, taskBeads)
+	if err != nil {
+		database.FailTask(ctx, taskID, err.Error())
+		return fmt.Errorf("failed to process task %s: %w", taskID, err)
+	}
+
+	if result.Completed {
+		fmt.Printf("\n=== Task %s completed successfully ===\n", taskID)
+	} else if result.PartialFailure {
+		fmt.Printf("\n=== Task %s partially completed ===\n", taskID)
+		fmt.Printf("  Completed beads: %v\n", result.CompletedBeads)
+		fmt.Printf("  Failed beads: %v\n", result.FailedBeads)
+	} else {
+		fmt.Printf("\n=== Task %s failed ===\n", taskID)
+	}
+
+	return nil
 }
 
 // processWork processes all tasks within a work unit.

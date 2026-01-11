@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
@@ -54,7 +55,21 @@ func runComplete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to mark %s as failed (is it a valid task ID?)", id)
 	}
 
-	// Otherwise, continue with normal completion logic
+	// Check if this is a task ID (contains a dot like "w-xxx.1" or "w-xxx.pr")
+	if strings.Contains(id, ".") {
+		// Try to complete as a task directly
+		if err := database.CompleteTask(context.Background(), id, flagCompletePRURL); err == nil {
+			fmt.Printf("Task %s marked as completed", id)
+			if flagCompletePRURL != "" {
+				fmt.Printf(" (PR: %s)", flagCompletePRURL)
+			}
+			fmt.Println()
+			return nil
+		}
+		// Fall through to try as bead ID if task completion failed
+	}
+
+	// Otherwise, continue with normal bead completion logic
 	beadID := id
 
 	// Check if this bead is part of a task

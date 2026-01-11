@@ -1,0 +1,71 @@
+package cmd
+
+import (
+	"fmt"
+
+	"github.com/newhook/co/internal/git"
+	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/worktree"
+	"github.com/spf13/cobra"
+)
+
+var syncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Pull from upstream in all repositories",
+	Long: `Synchronize the local git state with upstream by performing git pull
+in each repository (main and all worktrees).
+
+This helps keep all work units up-to-date with the latest changes from the remote repository.`,
+	Args: cobra.NoArgs,
+	RunE: runSync,
+}
+
+func init() {
+	syncCmd.Flags().StringVar(&flagProject, "project", "", "project directory (default: auto-detect from cwd)")
+}
+
+func runSync(cmd *cobra.Command, args []string) error {
+	proj, err := project.Find(flagProject)
+	if err != nil {
+		return fmt.Errorf("not in a project directory: %w", err)
+	}
+
+	fmt.Printf("Syncing project: %s\n", proj.Config.Project.Name)
+
+	// Get all worktrees
+	worktrees, err := worktree.List(proj.MainRepoPath())
+	if err != nil {
+		return fmt.Errorf("failed to list worktrees: %w", err)
+	}
+
+	// Track results
+	successCount := 0
+	failCount := 0
+
+	// Pull in each worktree
+	for _, wt := range worktrees {
+		branchInfo := wt.Branch
+		if branchInfo == "" {
+			branchInfo = "(detached)"
+		}
+
+		fmt.Printf("  Pulling %s [%s]... ", wt.Path, branchInfo)
+
+		if err := git.PullInDir(wt.Path); err != nil {
+			fmt.Printf("FAILED: %v\n", err)
+			failCount++
+		} else {
+			fmt.Printf("OK\n")
+			successCount++
+		}
+	}
+
+	// Print summary
+	fmt.Printf("\nSync complete: %d succeeded, %d failed\n", successCount, failCount)
+
+	if failCount > 0 {
+		return fmt.Errorf("%d repository(s) failed to sync", failCount)
+	}
+
+	return nil
+}
