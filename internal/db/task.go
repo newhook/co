@@ -17,6 +17,7 @@ func taskToLocal(t *sqlc.Task) *Task {
 		TaskType:         t.TaskType,
 		ComplexityBudget: int(t.ComplexityBudget.Int64),
 		ActualComplexity: int(t.ActualComplexity.Int64),
+		WorkID:           t.WorkID.String,
 		ZellijSession:    t.ZellijSession.String,
 		ZellijPane:       t.ZellijPane.String,
 		WorktreePath:     t.WorktreePath.String,
@@ -42,6 +43,7 @@ type Task struct {
 	TaskType         string
 	ComplexityBudget int
 	ActualComplexity int
+	WorkID           string
 	ZellijSession    string
 	ZellijPane       string
 	WorktreePath     string
@@ -60,7 +62,7 @@ type TaskBead struct {
 }
 
 // CreateTask creates a new task with the given beads.
-func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexityBudget int) error {
+func (db *DB) CreateTask(ctx context.Context, id string, taskType string, beadIDs []string, complexityBudget int, workID string) error {
 	// Use a transaction for atomicity
 	tx, err := db.Begin()
 	if err != nil {
@@ -71,10 +73,11 @@ func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexit
 	qtx := db.queries.WithTx(tx)
 
 	// Insert task
-	err = qtx.CreateTask(context.Background(), sqlc.CreateTaskParams{
+	err = qtx.CreateTask(ctx, sqlc.CreateTaskParams{
 		ID:               id,
 		TaskType:         taskType,
 		ComplexityBudget: sql.NullInt64{Int64: int64(complexityBudget), Valid: complexityBudget > 0},
+		WorkID:           nullString(workID),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create task %s: %w", id, err)
@@ -82,7 +85,7 @@ func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexit
 
 	// Insert task_beads
 	for _, beadID := range beadIDs {
-		err = qtx.CreateTaskBead(context.Background(), sqlc.CreateTaskBeadParams{
+		err = qtx.CreateTaskBead(ctx, sqlc.CreateTaskBeadParams{
 			TaskID: id,
 			BeadID: beadID,
 		})
@@ -98,12 +101,13 @@ func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexit
 }
 
 // StartTask marks a task as processing with session info.
-func (db *DB) StartTask(id, zellijSession, zellijPane, worktreePath string) error {
+// Note: worktree_path is now managed at the work level
+func (db *DB) StartTask(ctx context.Context, id, zellijSession, zellijPane string) error {
 	now := time.Now()
-	rows, err := db.queries.StartTask(context.Background(), sqlc.StartTaskParams{
+	rows, err := db.queries.StartTask(ctx, sqlc.StartTaskParams{
 		ZellijSession: nullString(zellijSession),
 		ZellijPane:    nullString(zellijPane),
-		WorktreePath:  nullString(worktreePath),
+		WorktreePath:  sql.NullString{}, // Deprecated, kept for compatibility
 		StartedAt:     nullTime(now),
 		ID:            id,
 	})
@@ -117,19 +121,15 @@ func (db *DB) StartTask(id, zellijSession, zellijPane, worktreePath string) erro
 }
 
 // CompleteTask marks a task as completed with a PR URL.
-func (db *DB) CompleteTask(id, prURL string) error {
+func (db *DB) CompleteTask(ctx context.Context, id, prURL string) error {
 	now := time.Now()
-	result, err := db.Exec(`
-		UPDATE tasks SET status = ?, pr_url = ?, completed_at = ?
-		WHERE id = ?
-	`, StatusCompleted, prURL, now, id)
+	rows, err := db.queries.CompleteTask(ctx, sqlc.CompleteTaskParams{
+		PrUrl:       nullString(prURL),
+		CompletedAt: nullTime(now),
+		ID:          id,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to complete task %s: %w", id, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
 		return fmt.Errorf("task %s not found", id)
@@ -138,19 +138,15 @@ func (db *DB) CompleteTask(id, prURL string) error {
 }
 
 // FailTask marks a task as failed with an error message.
-func (db *DB) FailTask(id, errMsg string) error {
+func (db *DB) FailTask(ctx context.Context, id, errMsg string) error {
 	now := time.Now()
-	result, err := db.Exec(`
-		UPDATE tasks SET status = ?, error_message = ?, completed_at = ?
-		WHERE id = ?
-	`, StatusFailed, errMsg, now, id)
+	rows, err := db.queries.FailTask(ctx, sqlc.FailTaskParams{
+		ErrorMessage: nullString(errMsg),
+		CompletedAt:  nullTime(now),
+		ID:           id,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to mark task %s as failed: %w", id, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
 		return fmt.Errorf("task %s not found", id)
@@ -159,31 +155,20 @@ func (db *DB) FailTask(id, errMsg string) error {
 }
 
 // ResetTaskStatus resets a stuck task from processing back to pending.
-func (db *DB) ResetTaskStatus(id string) error {
-	result, err := db.Exec(`
-		UPDATE tasks
-		SET status = ?, zellij_session = NULL, zellij_pane = NULL,
-		    started_at = NULL, error_message = NULL
-		WHERE id = ?
-	`, StatusPending, id)
+func (db *DB) ResetTaskStatus(ctx context.Context, id string) error {
+	rows, err := db.queries.ResetTaskStatus(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to reset task %s to pending: %w", id, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
 		return fmt.Errorf("task %s not found", id)
 	}
-
 	return nil
 }
 
 // GetTask retrieves a task by ID.
-func (db *DB) GetTask(id string) (*Task, error) {
-	task, err := db.queries.GetTask(context.Background(), id)
+func (db *DB) GetTask(ctx context.Context, id string) (*Task, error) {
+	task, err := db.queries.GetTask(ctx, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -194,8 +179,8 @@ func (db *DB) GetTask(id string) (*Task, error) {
 }
 
 // GetTaskBeads returns all bead IDs for a task.
-func (db *DB) GetTaskBeads(taskID string) ([]string, error) {
-	beadIDs, err := db.queries.GetTaskBeads(context.Background(), taskID)
+func (db *DB) GetTaskBeads(ctx context.Context, taskID string) ([]string, error) {
+	beadIDs, err := db.queries.GetTaskBeads(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task beads: %w", err)
 	}
@@ -203,11 +188,8 @@ func (db *DB) GetTaskBeads(taskID string) ([]string, error) {
 }
 
 // GetTaskForBead returns the task ID that contains the given bead.
-func (db *DB) GetTaskForBead(beadID string) (string, error) {
-	var taskID string
-	err := db.QueryRow(`
-		SELECT task_id FROM task_beads WHERE bead_id = ?
-	`, beadID).Scan(&taskID)
+func (db *DB) GetTaskForBead(ctx context.Context, beadID string) (string, error) {
+	taskID, err := db.queries.GetTaskForBead(ctx, beadID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -218,17 +200,13 @@ func (db *DB) GetTaskForBead(beadID string) (string, error) {
 }
 
 // CompleteTaskBead marks a specific bead within a task as completed.
-func (db *DB) CompleteTaskBead(taskID, beadID string) error {
-	result, err := db.Exec(`
-		UPDATE task_beads SET status = ? WHERE task_id = ? AND bead_id = ?
-	`, StatusCompleted, taskID, beadID)
+func (db *DB) CompleteTaskBead(ctx context.Context, taskID, beadID string) error {
+	rows, err := db.queries.CompleteTaskBead(ctx, sqlc.CompleteTaskBeadParams{
+		TaskID: taskID,
+		BeadID: beadID,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to complete task bead: %w", err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
 		return fmt.Errorf("task bead %s/%s not found", taskID, beadID)
@@ -237,17 +215,13 @@ func (db *DB) CompleteTaskBead(taskID, beadID string) error {
 }
 
 // FailTaskBead marks a specific bead within a task as failed.
-func (db *DB) FailTaskBead(taskID, beadID string) error {
-	result, err := db.Exec(`
-		UPDATE task_beads SET status = ? WHERE task_id = ? AND bead_id = ?
-	`, StatusFailed, taskID, beadID)
+func (db *DB) FailTaskBead(ctx context.Context, taskID, beadID string) error {
+	rows, err := db.queries.FailTaskBead(ctx, sqlc.FailTaskBeadParams{
+		TaskID: taskID,
+		BeadID: beadID,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to fail task bead: %w", err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
 		return fmt.Errorf("task bead %s/%s not found", taskID, beadID)
@@ -257,25 +231,21 @@ func (db *DB) FailTaskBead(taskID, beadID string) error {
 
 // IsTaskCompleted checks if all beads in a task are completed.
 // Returns true if all beads are completed (not failed), false otherwise.
-func (db *DB) IsTaskCompleted(taskID string) (bool, error) {
-	var total, completed int
-	err := db.QueryRow(`
-		SELECT COUNT(*), COUNT(CASE WHEN status = ? THEN 1 END)
-		FROM task_beads WHERE task_id = ?
-	`, StatusCompleted, taskID).Scan(&total, &completed)
+func (db *DB) IsTaskCompleted(ctx context.Context, taskID string) (bool, error) {
+	counts, err := db.queries.CountTaskBeadStatuses(ctx, taskID)
 	if err != nil {
 		return false, fmt.Errorf("failed to check task completion: %w", err)
 	}
-	if total == 0 {
+	if counts.Total == 0 {
 		return false, nil
 	}
-	return completed == total, nil
+	return counts.Completed == counts.Total, nil
 }
 
 // CheckAndCompleteTask checks if all beads are completed and auto-completes the task.
 // Returns true if the task was auto-completed, false otherwise.
-func (db *DB) CheckAndCompleteTask(taskID, prURL string) (bool, error) {
-	completed, err := db.IsTaskCompleted(taskID)
+func (db *DB) CheckAndCompleteTask(ctx context.Context, taskID, prURL string) (bool, error) {
+	completed, err := db.IsTaskCompleted(ctx, taskID)
 	if err != nil {
 		return false, err
 	}
@@ -284,64 +254,29 @@ func (db *DB) CheckAndCompleteTask(taskID, prURL string) (bool, error) {
 	}
 
 	// Auto-complete the task
-	if err := db.CompleteTask(taskID, prURL); err != nil {
+	if err := db.CompleteTask(ctx, taskID, prURL); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 // ListTasks returns all tasks, optionally filtered by status.
-func (db *DB) ListTasks(statusFilter string) ([]*Task, error) {
-	var rows *sql.Rows
+func (db *DB) ListTasks(ctx context.Context, statusFilter string) ([]*Task, error) {
+	var tasks []sqlc.Task
 	var err error
 
 	if statusFilter == "" {
-		rows, err = db.Query(`
-			SELECT id, status, COALESCE(task_type, 'implement') as task_type,
-			       complexity_budget, actual_complexity, zellij_session, zellij_pane,
-			       worktree_path, pr_url, error_message, started_at, completed_at, created_at
-			FROM tasks ORDER BY created_at DESC
-		`)
+		tasks, err = db.queries.ListTasks(ctx)
 	} else {
-		rows, err = db.Query(`
-			SELECT id, status, COALESCE(task_type, 'implement') as task_type,
-			       complexity_budget, actual_complexity, zellij_session, zellij_pane,
-			       worktree_path, pr_url, error_message, started_at, completed_at, created_at
-			FROM tasks WHERE status = ? ORDER BY created_at DESC
-		`, statusFilter)
+		tasks, err = db.queries.ListTasksByStatus(ctx, statusFilter)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tasks: %w", err)
 	}
-	defer rows.Close()
 
-	var tasks []*Task
-	for rows.Next() {
-		var t Task
-		var budget, actual sql.NullInt64
-		var session, pane, worktree, prURL, errMsg sql.NullString
-		var startedAt, completedAt sql.NullTime
-
-		err := rows.Scan(&t.ID, &t.Status, &t.TaskType, &budget, &actual, &session, &pane,
-			&worktree, &prURL, &errMsg, &startedAt, &completedAt, &t.CreatedAt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan task: %w", err)
-		}
-
-		t.ComplexityBudget = int(budget.Int64)
-		t.ActualComplexity = int(actual.Int64)
-		t.ZellijSession = session.String
-		t.ZellijPane = pane.String
-		t.WorktreePath = worktree.String
-		t.PRURL = prURL.String
-		t.ErrorMessage = errMsg.String
-		if startedAt.Valid {
-			t.StartedAt = &startedAt.Time
-		}
-		if completedAt.Valid {
-			t.CompletedAt = &completedAt.Time
-		}
-		tasks = append(tasks, &t)
+	result := make([]*Task, len(tasks))
+	for i, t := range tasks {
+		result[i] = taskToLocal(&t)
 	}
-	return tasks, rows.Err()
+	return result, nil
 }

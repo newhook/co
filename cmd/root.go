@@ -21,4 +21,6 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(projCmd)
+	rootCmd.AddCommand(workCmd)
+	rootCmd.AddCommand(claudeCmd)
 }

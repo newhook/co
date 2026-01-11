@@ -1,6 +1,6 @@
 -- name: CreateTask :exec
-INSERT INTO tasks (id, status, task_type, complexity_budget)
-VALUES (?, 'pending', ?, ?);
+INSERT INTO tasks (id, status, task_type, complexity_budget, work_id)
+VALUES (?, 'pending', ?, ?, ?);
 
 -- name: CreateTaskBead :exec
 INSERT INTO task_beads (task_id, bead_id, status)
@@ -43,6 +43,7 @@ SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,
        complexity_budget,
        actual_complexity,
+       work_id,
        zellij_session,
        zellij_pane,
        worktree_path,
@@ -85,6 +86,7 @@ SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,
        complexity_budget,
        actual_complexity,
+       work_id,
        zellij_session,
        zellij_pane,
        worktree_path,
@@ -101,6 +103,7 @@ SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,
        complexity_budget,
        actual_complexity,
+       work_id,
        zellij_session,
        zellij_pane,
        worktree_path,
@@ -112,3 +115,13 @@ SELECT id, status,
 FROM tasks
 WHERE status = ?
 ORDER BY created_at DESC;
+
+-- name: DeleteTaskBeadsForWork :execrows
+DELETE FROM task_beads
+WHERE task_id IN (
+    SELECT task_id FROM work_tasks WHERE work_id = ?
+);
+
+-- name: DeleteTasksForWork :execrows
+DELETE FROM tasks
+WHERE work_id = ?;

@@ -71,18 +71,24 @@ func (q *Queries) CountTaskBeadStatuses(ctx context.Context, taskID string) (Cou
 }
 
 const createTask = `-- name: CreateTask :exec
-INSERT INTO tasks (id, status, task_type, complexity_budget)
-VALUES (?, 'pending', ?, ?)
+INSERT INTO tasks (id, status, task_type, complexity_budget, work_id)
+VALUES (?, 'pending', ?, ?, ?)
 `
 
 type CreateTaskParams struct {
-	ID               string        `json:"id"`
-	TaskType         string        `json:"task_type"`
-	ComplexityBudget sql.NullInt64 `json:"complexity_budget"`
+	ID               string         `json:"id"`
+	TaskType         string         `json:"task_type"`
+	ComplexityBudget sql.NullInt64  `json:"complexity_budget"`
+	WorkID           sql.NullString `json:"work_id"`
 }
 
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) error {
-	_, err := q.db.ExecContext(ctx, createTask, arg.ID, arg.TaskType, arg.ComplexityBudget)
+	_, err := q.db.ExecContext(ctx, createTask,
+		arg.ID,
+		arg.TaskType,
+		arg.ComplexityBudget,
+		arg.WorkID,
+	)
 	return err
 }
 
@@ -99,6 +105,34 @@ type CreateTaskBeadParams struct {
 func (q *Queries) CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error {
 	_, err := q.db.ExecContext(ctx, createTaskBead, arg.TaskID, arg.BeadID)
 	return err
+}
+
+const deleteTaskBeadsForWork = `-- name: DeleteTaskBeadsForWork :execrows
+DELETE FROM task_beads
+WHERE task_id IN (
+    SELECT task_id FROM work_tasks WHERE work_id = ?
+)
+`
+
+func (q *Queries) DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTaskBeadsForWork, workID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteTasksForWork = `-- name: DeleteTasksForWork :execrows
+DELETE FROM tasks
+WHERE work_id = ?
+`
+
+func (q *Queries) DeleteTasksForWork(ctx context.Context, workID sql.NullString) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTasksForWork, workID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const failTask = `-- name: FailTask :execrows
@@ -147,6 +181,7 @@ SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,
        complexity_budget,
        actual_complexity,
+       work_id,
        zellij_session,
        zellij_pane,
        worktree_path,
@@ -168,6 +203,7 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.TaskType,
 		&i.ComplexityBudget,
 		&i.ActualComplexity,
+		&i.WorkID,
 		&i.ZellijSession,
 		&i.ZellijPane,
 		&i.WorktreePath,
@@ -227,6 +263,7 @@ SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,
        complexity_budget,
        actual_complexity,
+       work_id,
        zellij_session,
        zellij_pane,
        worktree_path,
@@ -254,6 +291,7 @@ func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
 			&i.TaskType,
 			&i.ComplexityBudget,
 			&i.ActualComplexity,
+			&i.WorkID,
 			&i.ZellijSession,
 			&i.ZellijPane,
 			&i.WorktreePath,
@@ -281,6 +319,7 @@ SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,
        complexity_budget,
        actual_complexity,
+       work_id,
        zellij_session,
        zellij_pane,
        worktree_path,
@@ -309,6 +348,7 @@ func (q *Queries) ListTasksByStatus(ctx context.Context, status string) ([]Task,
 			&i.TaskType,
 			&i.ComplexityBudget,
 			&i.ActualComplexity,
+			&i.WorkID,
 			&i.ZellijSession,
 			&i.ZellijPane,
 			&i.WorktreePath,

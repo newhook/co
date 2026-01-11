@@ -13,8 +13,9 @@ go test ./...
 
 - `main.go` - CLI entry point (cobra)
 - `cmd/plan.go` - Plan command (create tasks from beads)
-- `cmd/run.go` - Run command (execute pending tasks)
+- `cmd/run.go` - Run command (execute pending tasks or works)
 - `cmd/proj.go` - Project management (create/destroy/status)
+- `cmd/work.go` - Work management (create/list/show/destroy)
 - `internal/beads/` - Beads database client (bd CLI wrapper)
 - `internal/claude/` - Claude Code invocation
 - `internal/db/` - SQLite tracking database
@@ -56,30 +57,77 @@ All commands require a project context. Projects are created with `co proj creat
 │   └── tracking.db      # SQLite coordination database
 ├── main/                # Symlink (local) or clone (GitHub)
 │   └── .beads/          # Beads issue tracker
-└── <task-id>/           # Worktrees for active tasks
+└── <work-id>/           # Work subdirectory (e.g., work-1, work-2)
+    └── tree/            # Git worktree for this work
 ```
+
+## Work Concept (3-Tier Hierarchy)
+
+The system uses a 3-tier hierarchy: **Work → Tasks → Beads**
+
+- **Work**: Controls git worktree, feature branch, and zellij tab
+- **Tasks**: Run as Claude Code sessions sequentially within work's tab
+- **Beads**: Individual issues solved within tasks
 
 ## Workflow
 
-Two-phase workflow: **plan** then **run**.
+Three-phase workflow: **work** → **plan** → **run**.
 
 1. Create project: `co proj create <dir> <repo>`
    - Initializes beads: `bd init` and `bd hooks install`
    - If mise enabled (`.mise.toml` or `.tool-versions`): runs `mise trust`, `mise install`
    - If mise `setup` task defined: runs `mise run setup` (use for npm/pnpm install)
-2. Plan tasks from beads:
-   - `co plan` - one task per ready bead
+
+2. Create work unit: `co work create`
+   - Auto-generates work ID (work-1, work-2, etc.)
+   - Creates subdirectory with git worktree: `<project>/<work-id>/tree/`
+   - Creates feature branch: `work/<work-id>`
+
+3. Plan tasks within work:
+   - `cd <work-id> && co plan` - context-aware planning
+   - `co plan --work <work-id>` - explicit work specification
    - `co plan --auto-group` - LLM groups beads by complexity
    - `co plan bead-1,bead-2 bead-3` - manual grouping (comma = same task)
-3. Execute tasks: `co run`
-   - Derives task dependencies from bead dependencies
-   - Executes in topological order
-   - For each task:
-     - Create worktree: `git worktree add ../<task-id> -b task/<task-id>`
-     - Initialize mise in worktree (if enabled)
-     - Claude Code implements changes in isolated worktree
-     - Close beads with `bd close <id> --reason "..."`
-     - Create PR and merge it
-     - Remove worktree on success (keep on failure for debugging)
+
+4. Execute work: `co run`
+   - From work directory: `cd <work-id> && co run`
+   - Or explicitly: `co run --work <work-id>`
+   - Or run specific work: `co run work-1`
+   - Executes all tasks in the work sequentially:
+     - Creates single zellij tab for the work
+     - Tasks run in sequence within the work's tab
+     - All tasks share the same worktree
+     - Claude Code implements changes in the work's worktree
+     - Closes beads with `bd close <id> --reason "..."`
+   - Creates single PR for entire work when all tasks complete
+   - Worktree persists (managed at work level, not task level)
 
 Zellij sessions are named `co-<project-name>` for isolation between projects.
+
+## Work Commands
+
+### `co work create`
+Creates a new work unit with auto-generated ID:
+- Generates sequential ID: work-1, work-2, etc.
+- Creates subdirectory: `<project>/<work-id>/`
+- Creates git worktree: `<project>/<work-id>/tree/`
+- Creates feature branch: `work/<work-id>`
+- Initializes mise if configured
+
+### `co work list`
+Lists all work units with their status:
+- Shows ID, status, branch, and PR URL
+- Displays summary counts by status
+
+### `co work show [<id>]`
+Shows detailed information about a work:
+- If no ID provided, detects from current directory
+- Displays status, branch, worktree path, PR URL
+- Lists associated tasks and their status
+
+### `co work destroy <id>`
+Destroys a work unit and its resources:
+- Removes git worktree
+- Deletes work subdirectory
+- Updates database records
+- Use with caution - destructive operation

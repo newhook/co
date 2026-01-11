@@ -6,34 +6,50 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 type Querier interface {
+	AddTaskToWork(ctx context.Context, arg AddTaskToWorkParams) error
 	CacheComplexity(ctx context.Context, arg CacheComplexityParams) error
 	CompleteBead(ctx context.Context, arg CompleteBeadParams) (int64, error)
 	CompleteTask(ctx context.Context, arg CompleteTaskParams) (int64, error)
 	CompleteTaskBead(ctx context.Context, arg CompleteTaskBeadParams) (int64, error)
+	CompleteWork(ctx context.Context, arg CompleteWorkParams) (int64, error)
 	CountEstimatedBeads(ctx context.Context, beadIds []string) (int64, error)
 	CountTaskBeadStatuses(ctx context.Context, taskID string) (CountTaskBeadStatusesRow, error)
 	CreateTask(ctx context.Context, arg CreateTaskParams) error
 	CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error
+	CreateWork(ctx context.Context, arg CreateWorkParams) error
+	DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error)
+	DeleteTasksForWork(ctx context.Context, workID sql.NullString) (int64, error)
+	DeleteWork(ctx context.Context, id string) (int64, error)
+	DeleteWorkTasks(ctx context.Context, workID string) (int64, error)
 	FailBead(ctx context.Context, arg FailBeadParams) (int64, error)
 	FailTask(ctx context.Context, arg FailTaskParams) (int64, error)
 	FailTaskBead(ctx context.Context, arg FailTaskBeadParams) (int64, error)
+	FailWork(ctx context.Context, arg FailWorkParams) (int64, error)
 	GetAllCachedComplexity(ctx context.Context) ([]GetAllCachedComplexityRow, error)
 	GetBead(ctx context.Context, id string) (Bead, error)
 	GetBeadStatus(ctx context.Context, id string) (string, error)
 	GetCachedComplexity(ctx context.Context, arg GetCachedComplexityParams) (GetCachedComplexityRow, error)
+	GetLastWorkID(ctx context.Context) (string, error)
 	GetTask(ctx context.Context, id string) (Task, error)
 	GetTaskBeads(ctx context.Context, taskID string) ([]string, error)
 	GetTaskForBead(ctx context.Context, beadID string) (string, error)
+	GetWork(ctx context.Context, id string) (Work, error)
+	GetWorkByDirectory(ctx context.Context, worktreePath sql.NullString) (Work, error)
+	GetWorkTasks(ctx context.Context, workID string) ([]Task, error)
 	ListBeads(ctx context.Context) ([]Bead, error)
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	ListTasksByStatus(ctx context.Context, status string) ([]Task, error)
+	ListWorks(ctx context.Context) ([]Work, error)
+	ListWorksByStatus(ctx context.Context, status string) ([]Work, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
 	StartBead(ctx context.Context, arg StartBeadParams) error
 	StartTask(ctx context.Context, arg StartTaskParams) (int64, error)
+	StartWork(ctx context.Context, arg StartWorkParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

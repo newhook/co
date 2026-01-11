@@ -20,9 +20,13 @@ var estimateTemplateText string
 //go:embed templates/task.tmpl
 var taskTemplateText string
 
+//go:embed templates/pr.tmpl
+var prTemplateText string
+
 var (
 	estimateTmpl = template.Must(template.New("estimate").Parse(estimateTemplateText))
 	taskTmpl     = template.Must(template.New("task").Parse(taskTemplateText))
+	prTmpl       = template.Must(template.New("pr").Parse(prTemplateText))
 )
 
 // SessionNameForProject returns the zellij session name for a specific project.
@@ -42,9 +46,12 @@ type TaskResult struct {
 
 // Run invokes Claude Code for a task (group of beads) using project-specific session naming.
 // Returns a TaskResult indicating which beads completed and which failed.
-func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string) (*TaskResult, error) {
+func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string, autoClose bool) (*TaskResult, error) {
 	sessionName := SessionNameForProject(projectName)
-	paneName := fmt.Sprintf("task-%s", taskID)
+
+	// Always use the full task ID as the tab name for clear task isolation
+	// This ensures each task gets its own tab that can be independently managed
+	tabName := fmt.Sprintf("task-%s", taskID)
 
 	result := &TaskResult{
 		TaskID: taskID,
@@ -55,15 +62,63 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		return nil, err
 	}
 
+	// Build the wrapper command - assume co is in PATH since user is running it
+	claudeCommand := fmt.Sprintf("co claude %s", taskID)
+	if autoClose {
+		claudeCommand += " --auto-close"
+	}
+
 	// Check if tab with this task name already exists
-	if TabExists(ctx, sessionName, paneName) {
-		fmt.Printf("Tab %s already exists, skipping claude launch\n", paneName)
+	// Since each task gets its own tab, this shouldn't normally happen
+	// But handle it gracefully by terminating and restarting
+	if TabExists(ctx, sessionName, tabName) {
+		fmt.Printf("Tab %s already exists, terminating any running process and restarting...\n", tabName)
+
+		// Switch to the existing tab
+		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
+		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
+		if err := switchCmd.Run(); err != nil {
+			fmt.Printf("Warning: failed to switch to existing tab: %v\n", err)
+		}
+
+		// Send Ctrl+C to terminate any running process
+		fmt.Println("Terminating any existing process...")
+		ctrlCArgs := []string{"-s", sessionName, "action", "write", "3"} // Ctrl+C
+		exec.CommandContext(ctx, "zellij", ctrlCArgs...).Run()
+		time.Sleep(500 * time.Millisecond)
+
+		// Clear the line for a clean start
+		clearArgs := []string{"-s", sessionName, "action", "write-chars", "clear"}
+		exec.CommandContext(ctx, "zellij", clearArgs...).Run()
+		time.Sleep(100 * time.Millisecond)
+		exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
+		time.Sleep(100 * time.Millisecond)
+
+		// Now launch Claude wrapper
+		fmt.Println("Starting Claude wrapper...")
+		runArgs := []string{"-s", sessionName, "action", "write-chars", claudeCommand}
+		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
+		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
+		if err := runCmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to write claude wrapper command: %w", err)
+		}
+
+		// Send Enter to execute the command
+		enterArgs := []string{"-s", sessionName, "action", "write", "13"}
+		enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
+		if err := enterCmd.Run(); err != nil {
+			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
+		}
+
+		// Wait for Claude to initialize
+		fmt.Println("Waiting 3s for Claude to initialize...")
+		time.Sleep(3 * time.Second)
 	} else {
 		// Create a new tab with the task name
 		tabArgs := []string{
 			"-s", sessionName, "action", "new-tab",
 			"--cwd", workDir,
-			"--name", paneName,
+			"--name", tabName,
 		}
 		fmt.Printf("Running: zellij %s\n", strings.Join(tabArgs, " "))
 		tabCmd := exec.CommandContext(ctx, "zellij", tabArgs...)
@@ -75,26 +130,26 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		time.Sleep(500 * time.Millisecond)
 
 		// Switch to the new tab
-		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", paneName}
+		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
 		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
 		if err := switchCmd.Run(); err != nil {
 			// Non-fatal: just log it
 			fmt.Printf("Warning: failed to switch to tab: %v\n", err)
 		}
 
-		// Run Claude in the new tab
-		runArgs := []string{"-s", sessionName, "action", "write-chars", "claude --dangerously-skip-permissions"}
+		// Run Claude wrapper in the new tab
+		runArgs := []string{"-s", sessionName, "action", "write-chars", claudeCommand}
 		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
 		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
 		if err := runCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to write claude command: %w", err)
+			return nil, fmt.Errorf("failed to write claude wrapper command: %w", err)
 		}
 
 		// Send Enter to execute the command
 		enterArgs := []string{"-s", sessionName, "action", "write", "13"}
 		enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
 		if err := enterCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to execute claude command: %w", err)
+			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
 		}
 
 		// Wait for Claude to initialize
@@ -134,7 +189,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		time.Sleep(2 * time.Second)
 
 		// Check if task is completed (all beads done)
-		task, err := database.GetTask(taskID)
+		task, err := database.GetTask(ctx, taskID)
 		if err != nil {
 			fmt.Printf("Warning: failed to check task status: %v\n", err)
 			continue
@@ -149,19 +204,14 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 				result.Error = fmt.Errorf("task failed: %s", task.ErrorMessage)
 			}
 
-			// Send /exit to close Claude
-			time.Sleep(500 * time.Millisecond)
-			exitArgs := []string{"-s", sessionName, "action", "write-chars", "/exit"}
-			exec.CommandContext(ctx, "zellij", exitArgs...).Run()
-			time.Sleep(100 * time.Millisecond)
-			exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
-
-			fmt.Println("Sent /exit to Claude")
+			// The wrapper (co claude) will detect the task completion and terminate Claude
+			// Tab remains open for review
+			fmt.Println("Task completed - wrapper will terminate Claude")
 			break
 		}
 
 		// Check if tab has exited (Claude crashed or finished without marking complete)
-		if !TabExists(ctx, sessionName, paneName) {
+		if !TabExists(ctx, sessionName, tabName) {
 			tabExitCount++
 			// Wait a few cycles to confirm it's really gone (not just a transient state)
 			if tabExitCount >= 3 {
@@ -177,7 +227,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 
 					// Mark remaining beads as failed in database
 					for _, beadID := range result.FailedBeads {
-						database.FailTaskBead(taskID, beadID)
+						database.FailTaskBead(ctx, taskID, beadID)
 					}
 				} else if len(result.CompletedBeads) == len(taskBeads) {
 					// All completed but task not marked - auto-complete
@@ -306,6 +356,27 @@ func BuildEstimatePrompt(taskID string, taskBeads []beads.Bead) string {
 	if err := estimateTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
 		return fmt.Sprintf("Estimation task %s for beads: %v", taskID, getBeadIDs(taskBeads))
+	}
+
+	return buf.String()
+}
+
+// BuildPRPrompt builds a prompt for PR creation.
+func BuildPRPrompt(taskID string, workID string, branchName string) string {
+	data := struct {
+		TaskID     string
+		WorkID     string
+		BranchName string
+	}{
+		TaskID:     taskID,
+		WorkID:     workID,
+		BranchName: branchName,
+	}
+
+	var buf bytes.Buffer
+	if err := prTmpl.Execute(&buf, data); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("PR creation task %s for work %s on branch %s", taskID, workID, branchName)
 	}
 
 	return buf.String()

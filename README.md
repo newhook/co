@@ -37,7 +37,7 @@ co --help
 
 ## Project Setup
 
-Claude Orchestrator uses a project-based model with worktree isolation. Each project has its own directory structure:
+Claude Orchestrator uses a project-based model with a 3-tier hierarchy: **Work → Tasks → Beads**
 
 ```
 <project-dir>/
@@ -46,10 +46,18 @@ Claude Orchestrator uses a project-based model with worktree isolation. Each pro
 │   └── tracking.db      # SQLite coordination database
 ├── main/                # Symlink to local repo OR clone from GitHub
 │   └── .beads/          # Beads issue tracker (in repo)
-├── bead-123/            # Worktree for task bead-123
-├── bead-456/            # Worktree for task bead-456
+├── w-8xa/               # Work unit directory
+│   └── tree/            # Git worktree for feature branch
+├── w-3kp/               # Another work unit
+│   └── tree/            # Git worktree for its feature branch
 └── ...
 ```
+
+### Hierarchy
+
+- **Work**: A feature branch with its own worktree, groups related tasks (ID: `w-8xa`)
+- **Tasks**: Units of Claude execution within a work (ID: `w-8xa.1`, `w-8xa.2`)
+- **Beads**: Individual issues from the beads tracker (ID: `ac-pjw`)
 
 ### Create a Project
 
@@ -77,31 +85,71 @@ This creates the project structure with `main/` pointing to your repository.
 
 All commands must be run from within a project directory (or subdirectory).
 
-Claude Orchestrator uses a two-phase workflow: **plan** then **run**.
-
-### Phase 1: Plan - Create Tasks from Beads
+### Quick Start
 
 ```bash
+# Create a project
+co proj create ~/myproject https://github.com/user/repo
+cd ~/myproject
+
+# Create a work unit for your feature
+co work create feature/user-auth
+# → Creates w-8xa/tree/ worktree
+
+# Plan and execute tasks
+cd w-8xa
+co plan --auto-group    # Groups beads into tasks
+co run                  # Executes tasks, creates PR
+```
+
+Claude Orchestrator uses a three-phase workflow: **work** → **plan** → **run**.
+
+### Phase 1: Work - Create a Work Unit
+
+```bash
+co work create feature/my-feature     # Create work with feature branch
+```
+
+This creates:
+- A work directory (`w-abc/`)
+- A git worktree with the specified branch (`w-abc/tree/`)
+- A unique work ID using content-based hashing
+
+### Phase 2: Plan - Create Tasks from Beads
+
+```bash
+cd w-abc                             # Enter work directory
 co plan                              # One task per ready bead (default)
 co plan --auto-group                 # LLM groups beads by complexity
 co plan bead-1,bead-2 bead-3         # Manual: task1=[bead-1,bead-2], task2=[bead-3]
 ```
 
-The plan command creates tasks in the database for later execution.
+The plan command creates tasks under the current work.
 
 **Manual grouping syntax:**
 - `bead-1,bead-2` - beads separated by commas are grouped into one task
 - Space-separated arguments create separate tasks
 - Example: `co plan a,b c,d e` creates 3 tasks: [a,b], [c,d], [e]
 
-### Phase 2: Run - Execute Pending Tasks
+### Phase 3: Run - Execute Pending Tasks
 
 ```bash
-co run                               # Execute all pending tasks
-co run task-id                       # Execute specific task
+co run                               # Execute all pending tasks in current work
+co run w-abc.1                       # Execute specific task
+co run w-abc                         # Execute all tasks in work w-abc
 ```
 
-Tasks are executed in dependency order (derived from bead dependencies).
+Tasks within a work are executed sequentially in the work's worktree.
+
+### Work Commands
+
+| Command | Description |
+|---------|-------------|
+| `co work create <branch>` | Create a new work unit with specified feature branch |
+| `co work list` | List all work units with their status |
+| `co work show [<id>]` | Show detailed work information (current directory or specified) |
+| `co work pr [<id>]` | Create a PR task for Claude to generate pull request |
+| `co work destroy <id>` | Delete work unit and all associated data |
 
 ### Plan Command Flags
 
@@ -110,32 +158,46 @@ Tasks are executed in dependency order (derived from bead dependencies).
 | `--auto-group` | Automatically group beads by complexity using LLM estimation |
 | `--budget` | Complexity budget per task (1-100, default: 70, used with `--auto-group`) |
 | `--project` | Specify project directory (default: auto-detect from cwd) |
+| `--work` | Specify work ID (default: auto-detect from current directory) |
 
 ### Run Command Flags
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--branch` | `-b` | Target branch for PRs (default: `main`). When not `main`, uses feature branch workflow |
 | `--limit` | `-n` | Maximum number of tasks to process (0 = unlimited) |
 | `--dry-run` | | Show execution plan without running |
-| `--no-merge` | | Create PRs but don't merge them |
+| `--auto-close` | | Automatically close zellij tabs after task completion |
 | `--project` | | Specify project directory (default: auto-detect from cwd) |
+| `--work` | | Specify work ID (default: auto-detect from current directory) |
 
-### Feature Branch Workflow
-
-When `--branch` specifies a branch other than `main`, Claude Orchestrator uses a feature branch workflow:
+### Typical Workflow Example
 
 ```bash
-co plan
-co run --branch feature/my-epic
+# 1. Create a work unit for your feature
+co work create feature/user-auth
+# Output: Generated work ID: w-8xa (from branch: feature/user-auth)
+
+# 2. Navigate to the work directory
+cd w-8xa
+
+# 3. Plan tasks from ready beads
+co plan --auto-group
+
+# 4. Execute tasks
+co run
+
+# 5. Create PR (Claude generates comprehensive description)
+co work pr
+co run w-8xa.pr  # Execute Claude to create the PR
+
+# 6. Review and merge PR manually
+gh pr merge --squash
+
+# 7. Clean up
+co work destroy w-8xa
 ```
 
-1. Creates/switches to the feature branch in the main repo
-2. Executes tasks, with each PR targeting the feature branch
-3. After all tasks complete, creates a final PR from the feature branch to `main`
-4. Merges the final PR
-
-This is useful for grouping related work before merging to main.
+Each work has its own feature branch, and all tasks within the work are executed sequentially in the work's worktree.
 
 ### Auto-Grouping
 
@@ -178,67 +240,134 @@ co task delete <task-id>        # Delete a task from database
 co task reset <task-id>         # Reset failed/stuck task to pending
 ```
 
+#### Error Handling and Retries
+
+When a task fails:
+- The task is automatically marked as failed in the database
+- Claude can signal failure using `co complete <task-id> --error "message"`
+- To retry a failed task:
+  ```bash
+  co task reset <task-id>    # Reset task status to pending
+  co run <task-id>           # Retry the task
+  ```
+- On retry, Claude only processes incomplete beads (already completed beads are skipped)
+
+### ID Generation
+
+CO uses a hierarchical ID system:
+
+- **Work IDs**: Content-based hash (e.g., `w-8xa`)
+  - Generated from branch name + project + timestamp
+  - 3-8 character base36 hash
+  - Collision-resistant with automatic lengthening
+
+- **Task IDs**: Hierarchical format (e.g., `w-8xa.1`, `w-8xa.2`)
+  - Format: `<work-id>.<sequence>`
+  - Sequential numbering within each work
+  - Shows clear task ownership
+
+- **Bead IDs**: Managed by beads system (e.g., `ac-pjw`)
+  - Project-specific prefixes
+  - Content-based hashing similar to works
+
 ### Other Commands
 
 | Command | Description |
 |---------|-------------|
 | `co status [bead-id]` | Show tracking status for beads |
 | `co list [-s status]` | List tracked beads with optional status filter |
-| `co complete <bead-id> [--pr URL]` | Mark a bead as completed (called by Claude) |
+| `co complete <bead-id> [--pr URL] [--error "message"]` | Mark a bead/task as completed or failed (called by Claude) |
+| `co estimate <bead-id> --score N --tokens N` | Report complexity estimate for a bead (called by Claude during estimation) |
 
 ## How It Works
 
-Claude Orchestrator uses a two-phase workflow with worktree isolation:
+Claude Orchestrator uses a three-phase workflow with the Work → Tasks → Beads hierarchy:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
+│                      co work create                             │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Generate unique work ID using content-based hashing         │
+│  2. Create work directory: <project>/<work-id>/                 │
+│  3. Create git worktree: <work-id>/tree/                        │
+│     └─ git worktree add tree -b <branch-name>                   │
+│  4. Create zellij tab for the work                              │
+│  5. Store work in tracking database                             │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
 │                        co plan                                  │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. Query ready beads from main/.beads/ (bd ready --json)       │
-│  2. Create tasks from beads:                                    │
+│  1. Detect work context from current directory                  │
+│  2. Query ready beads from main/.beads/ (bd ready --json)       │
+│  3. Create tasks from beads:                                    │
 │     • Default: one task per bead                                │
 │     • --auto-group: LLM estimates complexity, bin-packs         │
 │     • Manual: user specifies groupings                          │
-│  3. Store tasks in tracking database                            │
+│  4. Assign hierarchical task IDs: w-abc.1, w-abc.2, etc.        │
+│  5. Store tasks in tracking database under the work             │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
 │                        co run                                   │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. Load pending tasks from database                            │
-│  2. Derive task dependencies from bead dependencies             │
-│  3. Sort tasks in dependency order (topological sort)           │
-│  4. For each task:                                              │
-│     ├─ Create worktree                                          │
-│     │  └─ git worktree add ../<task-id> -b task/<task-id>       │
+│  1. Load work and its pending tasks from database               │
+│  2. Execute tasks sequentially in the work's worktree:          │
 │     │                                                           │
-│     ├─ Run Claude Code in zellij session (co-<project>)         │
-│     │  └─ zellij run -- claude --dangerously-skip-permissions   │
-│     │     Claude receives prompt and autonomously:              │
-│     │     • Implements all beads in the task                    │
-│     │     • Commits to branch                                   │
-│     │     • Pushes and creates PR (gh pr create)                │
-│     │     • Closes beads (bd close <id> --reason "...")         │
-│     │     • Merges PR (gh pr merge --squash --delete-branch)    │
-│     │     • Signals completion (co complete <id>)               │
+│     ├─ For each task:                                           │
+│     │  ├─ Check for uncommitted changes:                        │
+│     │  │  • If related to task beads: complete implementation  │
+│     │  │  • If unrelated: stash with descriptive message       │
+│     │  │  • Fail-fast if can't handle cleanly                  │
+│     │  │                                                        │
+│     │  ├─ Run Claude Code in work's zellij tab                  │
+│     │  │  └─ zellij run -- claude --dangerously-skip-permissions│
+│     │  │     Claude receives prompt and autonomously:           │
+│     │  │     • Implements all beads in the task                 │
+│     │  │     • Commits after each bead completion               │
+│     │  │     • Pushes commits to remote immediately            │
+│     │  │     • Closes beads (bd close <id> --reason "...")      │
+│     │  │     • Signals completion (co complete <id>)            │
+│     │  │     • Or signals failure (co complete <id> --error)   │
+│     │  │                                                        │
+│     │  └─ Manager polls database for completion                 │
 │     │                                                           │
-│     ├─ Manager polls database for completion                    │
-│     │                                                           │
-│     └─ On success: remove worktree                              │
-│        On failure: keep worktree for debugging                  │
+│  3. After all tasks complete:                                   │
+│     ├─ Mark work as completed                                   │
+│     └─ Prompt user to create PR: co work pr                     │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                      co work pr                                 │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Check work is completed and no PR exists                    │
+│  2. Create special PR task (w-abc.pr)                           │
+│  3. User runs: co run w-abc.pr                                  │
+│  4. Claude analyzes all changes and completed work:             │
+│     ├─ Reviews git log and diff                                 │
+│     ├─ Summarizes completed tasks and beads                     │
+│     ├─ Generates comprehensive PR description                   │
+│     ├─ Creates PR using gh pr create                            │
+│     └─ Returns PR URL (does NOT auto-merge)                     │
+│  5. User reviews and merges PR manually                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Design Decisions
 
-- **Two-phase workflow**: Planning (co plan) and execution (co run) are separate
-- **Task abstraction**: Beads are grouped into tasks; tasks are the unit of execution
-- **Dependency derivation**: Task dependencies derived at runtime from bead dependencies
+- **Three-tier hierarchy**: Work → Tasks → Beads provides clear organization
+- **Work-based isolation**: Each work has its own worktree and feature branch
+- **Content-based IDs**: Works use hash-based IDs (w-abc), tasks use hierarchical IDs (w-abc.1)
+- **Three-phase workflow**: Work creation, planning, and execution are separate phases
+- **Sequential task execution**: Tasks within a work run sequentially in the same worktree
 - **Project isolation**: Each project has its own tracking database in `.co/`
-- **Worktree isolation**: Each task runs in its own git worktree, preventing conflicts
-- **Claude handles full workflow**: Implementation, PR creation, bead closing, and merging are all done by Claude
-- **Zellij for terminal management**: Each Claude instance runs in a project-specific zellij session
+- **Claude handles implementation**: Claude autonomously implements, commits, and closes beads
+- **Zellij for terminal management**: Each work gets its own tab in the project's zellij session
 - **Database polling**: Manager polls SQLite database for completion signals from Claude
+- **Fail-fast for uncommitted changes**: Tasks verify clean working tree and handle partial work appropriately
+- **Continuous integration**: Each bead completion is committed and pushed immediately to prevent work loss
+- **Intelligent retries**: Failed tasks can be reset and retried, with Claude skipping already-completed beads
+- **Error signaling**: Claude can explicitly mark tasks as failed with error messages for better debugging
 
 ## Project Structure
 
@@ -247,9 +376,11 @@ co/
 ├── main.go              # CLI entry point
 ├── cmd/
 │   ├── root.go          # Root command
+│   ├── work.go          # Work management commands
 │   ├── plan.go          # Plan command (create tasks from beads)
 │   ├── run.go           # Run command (execute pending tasks)
 │   ├── proj.go          # Project management commands
+│   ├── task.go          # Task management commands
 │   ├── status.go        # Status command
 │   ├── list.go          # List command
 │   └── complete.go      # Complete command
@@ -257,6 +388,7 @@ co/
     ├── beads/           # Beads client (bd CLI wrapper)
     ├── claude/          # Claude Code invocation
     ├── db/              # SQLite tracking database
+    │   └── sqlc/        # Generated SQL queries
     ├── git/             # Git operations
     ├── github/          # PR creation/merging (gh CLI)
     ├── project/         # Project discovery and config
@@ -276,6 +408,14 @@ go test ./...
 
 ```bash
 go build -o co .
+```
+
+### Generate SQL Queries
+
+After modifying SQL files in `sql/queries/`:
+
+```bash
+mise run sqlc-generate
 ```
 
 ## Troubleshooting
@@ -319,6 +459,15 @@ bd ready
 If empty, create work items:
 ```bash
 bd create --title "Your task" --type task
+```
+
+### "no work context found"
+
+Tasks must be associated with a work. Create one first:
+```bash
+co work create feature/my-feature
+cd w-abc  # Use the generated work ID
+co plan
 ```
 
 ## License
