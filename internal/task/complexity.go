@@ -47,9 +47,9 @@ func (e *LLMEstimator) Estimate(bead beads.Bead) (score int, tokens int, err err
 		}
 	}
 
-	// For single estimates, run a batch of one
+	// For single estimates, run a batch of one (never force)
 	ctx := context.Background()
-	if err := e.EstimateBatch(ctx, []beads.Bead{bead}); err != nil {
+	if err := e.EstimateBatch(ctx, []beads.Bead{bead}, false); err != nil {
 		return 0, 0, err
 	}
 
@@ -63,21 +63,32 @@ func (e *LLMEstimator) Estimate(bead beads.Bead) (score int, tokens int, err err
 }
 
 // EstimateBatch estimates complexity for multiple beads using an estimate task.
-func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead) error {
+func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead, forceEstimate bool) error {
 	if len(beadList) == 0 {
 		return nil
 	}
 
-	// Filter out already cached beads
+	// Filter out already cached beads (unless forcing re-estimation)
 	var uncachedBeads []beads.Bead
 	var uncachedIDs []string
-	for _, bead := range beadList {
-		fullDescription := bead.Title + "\n" + bead.Description
-		descHash := db.HashDescription(fullDescription)
-		_, _, found, _ := e.database.GetCachedComplexity(bead.ID, descHash)
-		if !found {
-			uncachedBeads = append(uncachedBeads, bead)
+
+	if forceEstimate {
+		// Force re-estimation of all beads
+		fmt.Println("Force re-estimation enabled, ignoring cached estimates")
+		uncachedBeads = beadList
+		for _, bead := range beadList {
 			uncachedIDs = append(uncachedIDs, bead.ID)
+		}
+	} else {
+		// Normal flow: filter out cached beads
+		for _, bead := range beadList {
+			fullDescription := bead.Title + "\n" + bead.Description
+			descHash := db.HashDescription(fullDescription)
+			_, _, found, _ := e.database.GetCachedComplexity(bead.ID, descHash)
+			if !found {
+				uncachedBeads = append(uncachedBeads, bead)
+				uncachedIDs = append(uncachedIDs, bead.ID)
+			}
 		}
 	}
 

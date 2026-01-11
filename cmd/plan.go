@@ -15,10 +15,11 @@ import (
 )
 
 var (
-	flagPlanAutoGroup bool
-	flagPlanBudget    int
-	flagPlanProject   string
-	flagPlanWork      string
+	flagPlanAutoGroup  bool
+	flagPlanBudget     int
+	flagPlanProject    string
+	flagPlanWork       string
+	flagPlanForceEstimate bool
 )
 
 var planCmd = &cobra.Command{
@@ -44,6 +45,7 @@ func init() {
 	planCmd.Flags().IntVar(&flagPlanBudget, "budget", 70, "complexity budget per task (1-100, used with --auto-group)")
 	planCmd.Flags().StringVar(&flagPlanProject, "project", "", "project directory (default: auto-detect from cwd)")
 	planCmd.Flags().StringVar(&flagPlanWork, "work", "", "work ID to plan tasks for (default: auto-detect from cwd)")
+	planCmd.Flags().BoolVar(&flagPlanForceEstimate, "force-estimate", false, "force re-estimation even if cached (used with --auto-group)")
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
@@ -206,7 +208,7 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 	// Estimate complexity for all beads in batch
 	fmt.Println("Estimating complexity for beads...")
 	ctx := context.Background()
-	if err := estimator.EstimateBatch(ctx, beadList); err != nil {
+	if err := estimator.EstimateBatch(ctx, beadList, flagPlanForceEstimate); err != nil {
 		return fmt.Errorf("failed to estimate complexity: %w", err)
 	}
 
