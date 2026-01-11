@@ -121,3 +121,14 @@ WHERE work_id = ?;
 -- name: DeleteWork :execrows
 DELETE FROM works
 WHERE id = ?;
+
+-- name: InitializeTaskCounter :exec
+INSERT INTO work_task_counters (work_id, next_task_num)
+VALUES (?, 1)
+ON CONFLICT (work_id) DO NOTHING;
+
+-- name: GetAndIncrementTaskCounter :one
+UPDATE work_task_counters
+SET next_task_num = next_task_num + 1
+WHERE work_id = ?
+RETURNING next_task_num - 1 as task_num;

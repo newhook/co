@@ -30,6 +30,7 @@ type Querier interface {
 	FailTaskBead(ctx context.Context, arg FailTaskBeadParams) (int64, error)
 	FailWork(ctx context.Context, arg FailWorkParams) (int64, error)
 	GetAllCachedComplexity(ctx context.Context) ([]GetAllCachedComplexityRow, error)
+	GetAndIncrementTaskCounter(ctx context.Context, workID string) (int64, error)
 	GetBead(ctx context.Context, id string) (Bead, error)
 	GetBeadStatus(ctx context.Context, id string) (string, error)
 	GetCachedComplexity(ctx context.Context, arg GetCachedComplexityParams) (GetCachedComplexityRow, error)
@@ -40,6 +41,7 @@ type Querier interface {
 	GetWork(ctx context.Context, id string) (Work, error)
 	GetWorkByDirectory(ctx context.Context, worktreePath sql.NullString) (Work, error)
 	GetWorkTasks(ctx context.Context, workID string) ([]Task, error)
+	InitializeTaskCounter(ctx context.Context, workID string) error
 	ListBeads(ctx context.Context) ([]Bead, error)
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)
 	ListTasks(ctx context.Context) ([]Task, error)

@@ -94,3 +94,10 @@ CREATE TABLE work_tasks (
 
 CREATE INDEX idx_work_tasks_work_id ON work_tasks(work_id);
 CREATE INDEX idx_work_tasks_task_id ON work_tasks(task_id);
+
+-- Work task counters: tracks next task number for each work
+CREATE TABLE work_task_counters (
+    work_id TEXT PRIMARY KEY,
+    next_task_num INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);

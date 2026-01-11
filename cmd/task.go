@@ -303,7 +303,13 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("task %s not found", taskID)
 	}
 
-	// Delete task beads first (foreign key constraint)
+	// Delete work_tasks first (foreign key constraint)
+	_, err = database.Exec(`DELETE FROM work_tasks WHERE task_id = ?`, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to delete work_tasks: %w", err)
+	}
+
+	// Delete task beads (foreign key constraint)
 	_, err = database.Exec(`DELETE FROM task_beads WHERE task_id = ?`, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to delete task beads: %w", err)

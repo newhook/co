@@ -120,6 +120,74 @@ func (db *DB) CreateTask(ctx context.Context, id string, taskType string, beadID
 	return nil
 }
 
+// CreateTasksBatch creates multiple tasks in a single transaction.
+// This ensures consistent task numbering within a work.
+func (db *DB) CreateTasksBatch(ctx context.Context, tasks []struct {
+	ID               string
+	TaskType         string
+	BeadIDs          []string
+	ComplexityBudget int
+	WorkID           string
+}) error {
+	// Use a transaction for atomicity
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := db.queries.WithTx(tx)
+
+	for _, task := range tasks {
+		// Insert task
+		err = qtx.CreateTask(ctx, sqlc.CreateTaskParams{
+			ID:               task.ID,
+			TaskType:         task.TaskType,
+			ComplexityBudget: sql.NullInt64{Int64: int64(task.ComplexityBudget), Valid: task.ComplexityBudget > 0},
+			WorkID:           nullString(task.WorkID),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create task %s: %w", task.ID, err)
+		}
+
+		// Insert task_beads
+		for _, beadID := range task.BeadIDs {
+			err = qtx.CreateTaskBead(ctx, sqlc.CreateTaskBeadParams{
+				TaskID: task.ID,
+				BeadID: beadID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to add bead %s to task %s: %w", beadID, task.ID, err)
+			}
+		}
+
+		// Create work_tasks junction entry if workID is provided
+		if task.WorkID != "" {
+			// Get the current number of tasks to determine position
+			existingTasks, err := qtx.GetWorkTasks(ctx, task.WorkID)
+			if err != nil {
+				return fmt.Errorf("failed to get existing tasks for work %s: %w", task.WorkID, err)
+			}
+			position := len(existingTasks)
+
+			// Add task to work
+			err = qtx.AddTaskToWork(ctx, sqlc.AddTaskToWorkParams{
+				WorkID:   task.WorkID,
+				TaskID:   task.ID,
+				Position: sql.NullInt64{Int64: int64(position), Valid: true},
+			})
+			if err != nil {
+				return fmt.Errorf("failed to add task %s to work %s: %w", task.ID, task.WorkID, err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
 // StartTask marks a task as processing with session info.
 // Note: worktree_path is now managed at the work level
 func (db *DB) StartTask(ctx context.Context, id, zellijSession, zellijPane string) error {

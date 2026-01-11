@@ -74,3 +74,8 @@ type WorkTask struct {
 	TaskID   string        `json:"task_id"`
 	Position sql.NullInt64 `json:"position"`
 }
+
+type WorkTaskCounter struct {
+	WorkID      string `json:"work_id"`
+	NextTaskNum int64  `json:"next_task_num"`
+}
