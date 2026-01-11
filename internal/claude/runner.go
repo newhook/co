@@ -49,17 +49,9 @@ type TaskResult struct {
 func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string) (*TaskResult, error) {
 	sessionName := SessionNameForProject(projectName)
 
-	// Derive tab name from task ID
-	// For hierarchical task IDs like "w-abc.1" or "w-abc.estimate-123", use the work ID as tab name
-	// For standalone tasks, use "task-<taskID>" format
-	var tabName string
-	if idx := strings.Index(taskID, "."); idx > 0 {
-		// Hierarchical task ID - extract work ID
-		tabName = taskID[:idx]
-	} else {
-		// Standalone task - use task-based naming
-		tabName = fmt.Sprintf("task-%s", taskID)
-	}
+	// Always use the full task ID as the tab name for clear task isolation
+	// This ensures each task gets its own tab that can be independently managed
+	tabName := fmt.Sprintf("task-%s", taskID)
 
 	result := &TaskResult{
 		TaskID: taskID,
@@ -70,10 +62,20 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		return nil, err
 	}
 
+	// Get path to co binary for the wrapper command
+	coBinary, err := exec.LookPath("co")
+	if err != nil {
+		return nil, fmt.Errorf("co binary not found in PATH: %w", err)
+	}
+
+	// Build the wrapper command
+	claudeCommand := fmt.Sprintf("%s claude %s", coBinary, taskID)
+
 	// Check if tab with this task name already exists
-	// For work tabs that are reused across tasks, we must terminate any running Claude first
+	// Since each task gets its own tab, this shouldn't normally happen
+	// But handle it gracefully by terminating and restarting
 	if TabExists(ctx, sessionName, tabName) {
-		fmt.Printf("Tab %s already exists, terminating any running Claude and restarting...\n", tabName)
+		fmt.Printf("Tab %s already exists, terminating any running process and restarting...\n", tabName)
 
 		// Switch to the existing tab
 		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
@@ -82,33 +84,33 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			fmt.Printf("Warning: failed to switch to existing tab: %v\n", err)
 		}
 
-		// Terminate any running Claude instance
-		// Send /exit command (will be ignored if Claude is not running)
-		fmt.Println("Terminating any existing Claude instance...")
-		exitArgs := []string{"-s", sessionName, "action", "write-chars", "/exit"}
-		exec.CommandContext(ctx, "zellij", exitArgs...).Run()
+		// Send Ctrl+C to terminate any running process
+		fmt.Println("Terminating any existing process...")
+		ctrlCArgs := []string{"-s", sessionName, "action", "write", "3"} // Ctrl+C
+		exec.CommandContext(ctx, "zellij", ctrlCArgs...).Run()
+		time.Sleep(500 * time.Millisecond)
+
+		// Clear the line for a clean start
+		clearArgs := []string{"-s", sessionName, "action", "write-chars", "clear"}
+		exec.CommandContext(ctx, "zellij", clearArgs...).Run()
+		time.Sleep(100 * time.Millisecond)
+		exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
 		time.Sleep(100 * time.Millisecond)
 
-		// Send Enter to execute the /exit command
-		exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
-
-		// Wait for Claude to fully exit
-		time.Sleep(1 * time.Second)
-
-		// Now launch Claude fresh
-		fmt.Println("Starting fresh Claude instance...")
-		runArgs := []string{"-s", sessionName, "action", "write-chars", "claude --dangerously-skip-permissions"}
+		// Now launch Claude wrapper
+		fmt.Println("Starting Claude wrapper...")
+		runArgs := []string{"-s", sessionName, "action", "write-chars", claudeCommand}
 		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
 		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
 		if err := runCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to write claude command: %w", err)
+			return nil, fmt.Errorf("failed to write claude wrapper command: %w", err)
 		}
 
 		// Send Enter to execute the command
 		enterArgs := []string{"-s", sessionName, "action", "write", "13"}
 		enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
 		if err := enterCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to execute claude command: %w", err)
+			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
 		}
 
 		// Wait for Claude to initialize
@@ -138,19 +140,19 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			fmt.Printf("Warning: failed to switch to tab: %v\n", err)
 		}
 
-		// Run Claude in the new tab
-		runArgs := []string{"-s", sessionName, "action", "write-chars", "claude --dangerously-skip-permissions"}
+		// Run Claude wrapper in the new tab
+		runArgs := []string{"-s", sessionName, "action", "write-chars", claudeCommand}
 		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
 		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
 		if err := runCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to write claude command: %w", err)
+			return nil, fmt.Errorf("failed to write claude wrapper command: %w", err)
 		}
 
 		// Send Enter to execute the command
 		enterArgs := []string{"-s", sessionName, "action", "write", "13"}
 		enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
 		if err := enterCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to execute claude command: %w", err)
+			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
 		}
 
 		// Wait for Claude to initialize
@@ -205,14 +207,10 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 				result.Error = fmt.Errorf("task failed: %s", task.ErrorMessage)
 			}
 
-			// Send /exit to close Claude
-			time.Sleep(500 * time.Millisecond)
-			exitArgs := []string{"-s", sessionName, "action", "write-chars", "/exit"}
-			exec.CommandContext(ctx, "zellij", exitArgs...).Run()
-			time.Sleep(100 * time.Millisecond)
-			exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
-
-			fmt.Println("Sent /exit to Claude")
+			// TODO: Add configurable auto-close behavior
+			// For now, we keep the tab open after completion so users can review
+			// The wrapper process will exit naturally when Claude completes
+			fmt.Println("Task completed - tab remains open for review")
 			break
 		}
 
