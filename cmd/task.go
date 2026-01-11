@@ -42,9 +42,9 @@ var taskShowCmd = &cobra.Command{
 }
 
 var taskDeleteCmd = &cobra.Command{
-	Use:   "delete <task-id>",
-	Short: "Delete a task from the database",
-	Args:  cobra.ExactArgs(1),
+	Use:   "delete <task-id>...",
+	Short: "Delete one or more tasks from the database",
+	Args:  cobra.MinimumNArgs(1),
 	RunE:  runTaskDelete,
 }
 
@@ -279,8 +279,6 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 }
 
 func runTaskDelete(cmd *cobra.Command, args []string) error {
-	taskID := args[0]
-
 	// Find project
 	proj, err := project.Find("")
 	if err != nil {
@@ -294,34 +292,38 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Check task exists
-	task, err := database.GetTask(context.Background(),taskID)
-	if err != nil {
-		return fmt.Errorf("failed to get task: %w", err)
-	}
-	if task == nil {
-		return fmt.Errorf("task %s not found", taskID)
+	// Delete each task
+	for _, taskID := range args {
+		// Check task exists
+		task, err := database.GetTask(context.Background(), taskID)
+		if err != nil {
+			return fmt.Errorf("failed to get task %s: %w", taskID, err)
+		}
+		if task == nil {
+			return fmt.Errorf("task %s not found", taskID)
+		}
+
+		// Delete work_tasks first (foreign key constraint)
+		_, err = database.Exec(`DELETE FROM work_tasks WHERE task_id = ?`, taskID)
+		if err != nil {
+			return fmt.Errorf("failed to delete work_tasks for %s: %w", taskID, err)
+		}
+
+		// Delete task beads (foreign key constraint)
+		_, err = database.Exec(`DELETE FROM task_beads WHERE task_id = ?`, taskID)
+		if err != nil {
+			return fmt.Errorf("failed to delete task beads for %s: %w", taskID, err)
+		}
+
+		// Delete task
+		_, err = database.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
+		if err != nil {
+			return fmt.Errorf("failed to delete task %s: %w", taskID, err)
+		}
+
+		fmt.Printf("Deleted task %s\n", taskID)
 	}
 
-	// Delete work_tasks first (foreign key constraint)
-	_, err = database.Exec(`DELETE FROM work_tasks WHERE task_id = ?`, taskID)
-	if err != nil {
-		return fmt.Errorf("failed to delete work_tasks: %w", err)
-	}
-
-	// Delete task beads (foreign key constraint)
-	_, err = database.Exec(`DELETE FROM task_beads WHERE task_id = ?`, taskID)
-	if err != nil {
-		return fmt.Errorf("failed to delete task beads: %w", err)
-	}
-
-	// Delete task
-	_, err = database.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
-	if err != nil {
-		return fmt.Errorf("failed to delete task: %w", err)
-	}
-
-	fmt.Printf("Deleted task %s\n", taskID)
 	return nil
 }
 
