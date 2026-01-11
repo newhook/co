@@ -207,10 +207,9 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 				result.Error = fmt.Errorf("task failed: %s", task.ErrorMessage)
 			}
 
-			// TODO: Add configurable auto-close behavior
-			// For now, we keep the tab open after completion so users can review
-			// The wrapper process will exit naturally when Claude completes
-			fmt.Println("Task completed - tab remains open for review")
+			// The wrapper (co claude) will detect the task completion and terminate Claude
+			// Tab remains open for review
+			fmt.Println("Task completed - wrapper will terminate Claude")
 			break
 		}
 

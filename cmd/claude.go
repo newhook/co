@@ -75,29 +75,68 @@ func runClaude(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start Claude: %w", err)
 	}
 
-	// Wait for Claude to complete or for signal
+	// Wait for Claude to complete, task completion in database, or signal
 	done := make(chan error, 1)
 	go func() {
 		done <- claudeCmd.Wait()
 	}()
 
+	// Poll database for task completion
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
 	var exitErr error
-	select {
-	case <-sigChan:
-		// Received signal, pass it to Claude
-		fmt.Println("\nReceived interrupt, terminating Claude...")
-		claudeCmd.Process.Signal(syscall.SIGTERM)
+	for {
+		select {
+		case <-ticker.C:
+			// Check if task is marked as completed in database
+			task, err := database.GetTask(ctx, taskID)
+			if err == nil && task != nil {
+				if task.Status == db.StatusCompleted || task.Status == db.StatusFailed {
+					fmt.Printf("\nTask marked as %s in database, terminating Claude...\n", task.Status)
 
-		// Give it some time to exit gracefully
-		time.Sleep(2 * time.Second)
+					// Send SIGTERM to Claude
+					claudeCmd.Process.Signal(syscall.SIGTERM)
 
-		// Force kill if still running
-		claudeCmd.Process.Kill()
-		exitErr = fmt.Errorf("interrupted by signal")
+					// Give it 5 seconds to exit gracefully
+					select {
+					case <-done:
+						// Claude exited gracefully
+					case <-time.After(5 * time.Second):
+						// Force kill if still running
+						fmt.Println("Claude didn't exit gracefully, force killing...")
+						claudeCmd.Process.Kill()
+						<-done // Wait for process to actually exit
+					}
 
-	case err := <-done:
-		exitErr = err
+					if task.Status == db.StatusFailed {
+						exitErr = fmt.Errorf("task marked as failed: %s", task.ErrorMessage)
+					}
+					goto exit
+				}
+			}
+
+		case <-sigChan:
+			// Received signal, pass it to Claude
+			fmt.Println("\nReceived interrupt, terminating Claude...")
+			claudeCmd.Process.Signal(syscall.SIGTERM)
+
+			// Give it some time to exit gracefully
+			time.Sleep(2 * time.Second)
+
+			// Force kill if still running
+			claudeCmd.Process.Kill()
+			exitErr = fmt.Errorf("interrupted by signal")
+			goto exit
+
+		case err := <-done:
+			// Claude exited on its own
+			exitErr = err
+			goto exit
+		}
 	}
+
+exit:
 
 	// Calculate duration
 	endTime := time.Now()
