@@ -2,9 +2,9 @@ package db
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/db/sqlc"
@@ -216,29 +216,40 @@ func (db *DB) IsWorkCompleted(workID string) (bool, error) {
 	return completed == total, nil
 }
 
-// GenerateNextWorkID generates the next available work ID.
+// generateRandomSuffix generates a random alphanumeric suffix.
+func generateRandomSuffix(length int) string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, length)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based generation if random fails
+		return fmt.Sprintf("%x", time.Now().UnixNano())[:length]
+	}
+	for i := range b {
+		b[i] = chars[b[i]%byte(len(chars))]
+	}
+	return string(b)
+}
+
+// GenerateNextWorkID generates the next available work ID with format "w-XXX".
+// This uses a pattern similar to beads IDs for consistency.
 func (db *DB) GenerateNextWorkID(ctx context.Context) (string, error) {
-	lastID, err := db.GetLastWorkID(ctx)
-	if err != nil {
-		return "", err
+	// Try up to 10 times to generate a unique ID
+	for i := 0; i < 10; i++ {
+		// Generate ID with format "w-XXX" (w for work)
+		suffix := generateRandomSuffix(3)
+		workID := fmt.Sprintf("w-%s", suffix)
+
+		// Check if this ID already exists
+		existing, err := db.GetWork(ctx, workID)
+		if err != nil {
+			return "", fmt.Errorf("failed to check for existing work: %w", err)
+		}
+		if existing == nil {
+			// ID is unique, return it
+			return workID, nil
+		}
 	}
 
-	// If no works exist yet, start with work-1
-	if lastID == "" {
-		return "work-1", nil
-	}
-
-	// Parse the number from the last ID (format: "work-N")
-	parts := strings.Split(lastID, "-")
-	if len(parts) < 2 {
-		return "work-1", nil
-	}
-
-	var nextNum int
-	if _, err := fmt.Sscanf(parts[1], "%d", &nextNum); err != nil {
-		return "work-1", nil
-	}
-
-	nextNum++
-	return fmt.Sprintf("work-%d", nextNum), nil
+	// If we couldn't generate a unique ID in 10 tries, fall back to timestamp
+	return fmt.Sprintf("w-%d", time.Now().UnixNano()/1000000), nil
 }

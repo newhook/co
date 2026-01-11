@@ -33,7 +33,7 @@ var workCreateCmd = &cobra.Command{
 Creates a subdirectory with a git worktree for isolated development.
 
 The branch argument is required and specifies the git branch name to create.
-If no --id is provided, an ID will be auto-generated (work-1, work-2, etc.).`,
+If no --id is provided, an ID will be auto-generated (w-abc format, similar to bead IDs).`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkCreate,
 }
@@ -65,7 +65,7 @@ This is a destructive operation that cannot be undone.`,
 }
 
 func init() {
-	workCreateCmd.Flags().StringVar(&workID, "id", "", "Custom work ID (defaults to auto-generated work-N)")
+	workCreateCmd.Flags().StringVar(&workID, "id", "", "Custom work ID (defaults to auto-generated w-XXX)")
 
 	workCmd.AddCommand(workCreateCmd)
 	workCmd.AddCommand(workListCmd)
