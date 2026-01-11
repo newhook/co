@@ -18,3 +18,7 @@ SELECT
 FROM works w
 LEFT JOIN tasks t ON t.id LIKE w.id || '.%'
 GROUP BY w.id;
+
+-- +down
+-- Remove the work_task_counters table
+DROP TABLE IF EXISTS work_task_counters;
