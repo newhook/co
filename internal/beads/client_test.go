@@ -2,6 +2,8 @@ package beads
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetReadyBeads(t *testing.T) {
@@ -12,11 +14,7 @@ func TestGetReadyBeads(t *testing.T) {
 
 	// Verify beads have required fields populated
 	for _, b := range beads {
-		if b.ID == "" {
-			t.Error("bead has empty ID")
-		}
-		if b.Title == "" {
-			t.Error("bead has empty title")
-		}
+		assert.NotEmpty(t, b.ID, "bead has empty ID")
+		assert.NotEmpty(t, b.Title, "bead has empty title")
 	}
 }
