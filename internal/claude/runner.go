@@ -23,10 +23,14 @@ var taskTemplateText string
 //go:embed templates/pr.tmpl
 var prTemplateText string
 
+//go:embed templates/review.tmpl
+var reviewTemplateText string
+
 var (
 	estimateTmpl = template.Must(template.New("estimate").Parse(estimateTemplateText))
 	taskTmpl     = template.Must(template.New("task").Parse(taskTemplateText))
 	prTmpl       = template.Must(template.New("pr").Parse(prTemplateText))
+	reviewTmpl   = template.Must(template.New("review").Parse(reviewTemplateText))
 )
 
 // SessionNameForProject returns the zellij session name for a specific project.
@@ -379,6 +383,29 @@ func BuildPRPrompt(taskID string, workID string, branchName string, baseBranch s
 	if err := prTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
 		return fmt.Sprintf("PR creation task %s for work %s on branch %s (base: %s)", taskID, workID, branchName, baseBranch)
+	}
+
+	return buf.String()
+}
+
+// BuildReviewPrompt builds a prompt for code review.
+func BuildReviewPrompt(taskID string, workID string, branchName string, baseBranch string) string {
+	data := struct {
+		TaskID     string
+		WorkID     string
+		BranchName string
+		BaseBranch string
+	}{
+		TaskID:     taskID,
+		WorkID:     workID,
+		BranchName: branchName,
+		BaseBranch: baseBranch,
+	}
+
+	var buf bytes.Buffer
+	if err := reviewTmpl.Execute(&buf, data); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("Review task %s for work %s on branch %s (base: %s)", taskID, workID, branchName, baseBranch)
 	}
 
 	return buf.String()
