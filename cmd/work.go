@@ -33,7 +33,7 @@ var workCreateCmd = &cobra.Command{
 Creates a subdirectory with a git worktree for isolated development.
 
 The branch argument is required and specifies the git branch name to create.
-If no --id is provided, the work ID will default to the branch name.`,
+If no --id is provided, an ID will be auto-generated (work-1, work-2, etc.).`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkCreate,
 }
@@ -65,7 +65,7 @@ This is a destructive operation that cannot be undone.`,
 }
 
 func init() {
-	workCreateCmd.Flags().StringVar(&workID, "id", "", "Custom work ID (defaults to branch name)")
+	workCreateCmd.Flags().StringVar(&workID, "id", "", "Custom work ID (defaults to auto-generated work-N)")
 
 	workCmd.AddCommand(workCreateCmd)
 	workCmd.AddCommand(workListCmd)
@@ -90,18 +90,23 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Use custom work ID or default to branch name
+	// Use custom work ID or generate one
 	if workID == "" {
-		workID = branchName
-	}
-
-	// Check if work with this ID already exists
-	existingWork, err := database.GetWork(context.Background(), workID)
-	if err != nil {
-		return fmt.Errorf("failed to check for existing work: %w", err)
-	}
-	if existingWork != nil {
-		return fmt.Errorf("work with ID %s already exists", workID)
+		// Auto-generate work ID (work-1, work-2, etc.)
+		generatedID, err := database.GenerateNextWorkID(context.Background())
+		if err != nil {
+			return fmt.Errorf("failed to generate work ID: %w", err)
+		}
+		workID = generatedID
+	} else {
+		// Check if custom work ID already exists
+		existingWork, err := database.GetWork(context.Background(), workID)
+		if err != nil {
+			return fmt.Errorf("failed to check for existing work: %w", err)
+		}
+		if existingWork != nil {
+			return fmt.Errorf("work with ID %s already exists", workID)
+		}
 	}
 
 	// Create work subdirectory
