@@ -6,7 +6,14 @@ Base Branch: {{.BaseBranch}}
 Instructions:
 1. First, check the task status: co task show {{.TaskID}}
    - This will show which beads are in the task and their completion status
-2. Check git log and git status to see if there is existing work on this branch
+2. Check git status to see if there are uncommitted changes:
+   - If changes exist, review them with git diff
+   - If they appear to be partial implementation of one of your beads:
+     * Complete that bead's implementation if needed
+     * Close the bead: bd close <bead-id> --reason "<summary>"
+     * Commit: git add -A && git commit -m "Complete <bead-id>: <description>"
+   - If changes are unrelated to your beads:
+     * Stash them: git stash push -m "Stashed before task {{.TaskID}}"
 3. For each bead that is NOT already completed:
    - Use 'bd show <bead-id>' to examine the bead's details
    - Implement the required changes
