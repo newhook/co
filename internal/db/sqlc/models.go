@@ -37,6 +37,7 @@ type Task struct {
 	TaskType         string         `json:"task_type"`
 	ComplexityBudget sql.NullInt64  `json:"complexity_budget"`
 	ActualComplexity sql.NullInt64  `json:"actual_complexity"`
+	WorkID           sql.NullString `json:"work_id"`
 	ZellijSession    sql.NullString `json:"zellij_session"`
 	ZellijPane       sql.NullString `json:"zellij_pane"`
 	WorktreePath     sql.NullString `json:"worktree_path"`
@@ -51,4 +52,24 @@ type TaskBead struct {
 	TaskID string `json:"task_id"`
 	BeadID string `json:"bead_id"`
 	Status string `json:"status"`
+}
+
+type Work struct {
+	ID            string         `json:"id"`
+	Status        string         `json:"status"`
+	ZellijSession sql.NullString `json:"zellij_session"`
+	ZellijTab     sql.NullString `json:"zellij_tab"`
+	WorktreePath  sql.NullString `json:"worktree_path"`
+	BranchName    sql.NullString `json:"branch_name"`
+	PrUrl         sql.NullString `json:"pr_url"`
+	ErrorMessage  sql.NullString `json:"error_message"`
+	StartedAt     sql.NullTime   `json:"started_at"`
+	CompletedAt   sql.NullTime   `json:"completed_at"`
+	CreatedAt     sql.NullTime   `json:"created_at"`
+}
+
+type WorkTask struct {
+	WorkID   string        `json:"work_id"`
+	TaskID   string        `json:"task_id"`
+	Position sql.NullInt64 `json:"position"`
 }

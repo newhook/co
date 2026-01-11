@@ -17,6 +17,7 @@ func taskToLocal(t *sqlc.Task) *Task {
 		TaskType:         t.TaskType,
 		ComplexityBudget: int(t.ComplexityBudget.Int64),
 		ActualComplexity: int(t.ActualComplexity.Int64),
+		WorkID:           t.WorkID.String,
 		ZellijSession:    t.ZellijSession.String,
 		ZellijPane:       t.ZellijPane.String,
 		WorktreePath:     t.WorktreePath.String,
@@ -42,6 +43,7 @@ type Task struct {
 	TaskType         string
 	ComplexityBudget int
 	ActualComplexity int
+	WorkID           string
 	ZellijSession    string
 	ZellijPane       string
 	WorktreePath     string
@@ -60,7 +62,7 @@ type TaskBead struct {
 }
 
 // CreateTask creates a new task with the given beads.
-func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexityBudget int) error {
+func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexityBudget int, workID string) error {
 	// Use a transaction for atomicity
 	tx, err := db.Begin()
 	if err != nil {
@@ -75,6 +77,7 @@ func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexit
 		ID:               id,
 		TaskType:         taskType,
 		ComplexityBudget: sql.NullInt64{Int64: int64(complexityBudget), Valid: complexityBudget > 0},
+		WorkID:           nullString(workID),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create task %s: %w", id, err)
@@ -98,12 +101,13 @@ func (db *DB) CreateTask(id string, taskType string, beadIDs []string, complexit
 }
 
 // StartTask marks a task as processing with session info.
-func (db *DB) StartTask(id, zellijSession, zellijPane, worktreePath string) error {
+// Note: worktree_path is now managed at the work level
+func (db *DB) StartTask(id, zellijSession, zellijPane string) error {
 	now := time.Now()
 	rows, err := db.queries.StartTask(context.Background(), sqlc.StartTaskParams{
 		ZellijSession: nullString(zellijSession),
 		ZellijPane:    nullString(zellijPane),
-		WorktreePath:  nullString(worktreePath),
+		WorktreePath:  sql.NullString{}, // Deprecated, kept for compatibility
 		StartedAt:     nullTime(now),
 		ID:            id,
 	})

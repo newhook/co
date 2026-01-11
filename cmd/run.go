@@ -350,9 +350,9 @@ func processTaskWithWorktree(proj *project.Project, database *db.DB, t task.Task
 		}
 	}
 
-	// Start task in database
+	// Start task in database (worktree is now managed at work level)
 	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
-	if err := database.StartTask(t.ID, sessionName, t.ID, worktreePath); err != nil {
+	if err := database.StartTask(t.ID, sessionName, t.ID); err != nil {
 		return nil, fmt.Errorf("failed to start task in database: %w", err)
 	}
 

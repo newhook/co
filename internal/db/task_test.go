@@ -8,7 +8,7 @@ func TestCreateTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100)
+	err := db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
 	if err != nil {
 		t.Fatalf("CreateTask failed: %v", err)
 	}
@@ -45,12 +45,12 @@ func TestStartTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := db.CreateTask("task-1", "implement", []string{"bead-1"}, 100)
+	err := db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
 	if err != nil {
 		t.Fatalf("CreateTask failed: %v", err)
 	}
 
-	err = db.StartTask("task-1", "session-1", "pane-1", "/path/to/worktree")
+	err = db.StartTask("task-1", "session-1", "pane-1")
 	if err != nil {
 		t.Fatalf("StartTask failed: %v", err)
 	}
@@ -68,8 +68,9 @@ func TestStartTask(t *testing.T) {
 	if task.ZellijPane != "pane-1" {
 		t.Errorf("expected pane 'pane-1', got %q", task.ZellijPane)
 	}
-	if task.WorktreePath != "/path/to/worktree" {
-		t.Errorf("expected worktree '/path/to/worktree', got %q", task.WorktreePath)
+	// WorktreePath is now managed at work level, should be empty
+	if task.WorktreePath != "" {
+		t.Errorf("expected empty worktree path (managed at work level), got %q", task.WorktreePath)
 	}
 	if task.StartedAt == nil {
 		t.Error("expected StartedAt to be set")
@@ -80,7 +81,7 @@ func TestStartTaskNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := db.StartTask("nonexistent", "s", "p", "/path")
+	err := db.StartTask("nonexistent", "s", "p")
 	if err == nil {
 		t.Error("expected error for nonexistent task")
 	}
@@ -90,8 +91,8 @@ func TestCompleteTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100)
-	db.StartTask("task-1", "s", "p", "/path")
+	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
+	db.StartTask("task-1", "s", "p")
 
 	err := db.CompleteTask("task-1", "https://github.com/example/pr/1")
 	if err != nil {
@@ -124,8 +125,8 @@ func TestFailTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100)
-	db.StartTask("task-1", "s", "p", "/path")
+	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
+	db.StartTask("task-1", "s", "p")
 
 	err := db.FailTask("task-1", "something went wrong")
 	if err != nil {
@@ -171,7 +172,7 @@ func TestGetTaskForBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100)
+	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
 
 	taskID, err := db.GetTaskForBead("bead-1")
 	if err != nil {
@@ -203,7 +204,7 @@ func TestCompleteTaskBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100)
+	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
 
 	err := db.CompleteTaskBead("task-1", "bead-1")
 	if err != nil {
@@ -224,7 +225,7 @@ func TestCompleteTaskBeadNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100)
+	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
 
 	err := db.CompleteTaskBead("task-1", "nonexistent")
 	if err == nil {
@@ -236,7 +237,7 @@ func TestFailTaskBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100)
+	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
 
 	err := db.FailTaskBead("task-1", "bead-1")
 	if err != nil {
@@ -254,7 +255,7 @@ func TestFailTaskBeadNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100)
+	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
 
 	err := db.FailTaskBead("task-1", "nonexistent")
 	if err == nil {
@@ -266,7 +267,7 @@ func TestIsTaskCompleted(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100)
+	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
 
 	// Initially not completed
 	completed, err := db.IsTaskCompleted("task-1")
@@ -315,8 +316,8 @@ func TestCheckAndCompleteTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100)
-	db.StartTask("task-1", "s", "p", "/path")
+	db.CreateTask("task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	db.StartTask("task-1", "s", "p")
 
 	// Not all beads completed yet
 	autoCompleted, err := db.CheckAndCompleteTask("task-1", "https://github.com/pr/1")
@@ -358,14 +359,14 @@ func TestListTasks(t *testing.T) {
 	defer cleanup()
 
 	// Create several tasks with different statuses
-	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100)
-	db.CreateTask("task-2", "implement", []string{"bead-2"}, 100)
-	db.StartTask("task-2", "s", "p", "/path")
-	db.CreateTask("task-3", "implement", []string{"bead-3"}, 100)
-	db.StartTask("task-3", "s", "p", "/path")
+	db.CreateTask("task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask("task-2", "implement", []string{"bead-2"}, 100, "")
+	db.StartTask("task-2", "s", "p")
+	db.CreateTask("task-3", "implement", []string{"bead-3"}, 100, "")
+	db.StartTask("task-3", "s", "p")
 	db.CompleteTask("task-3", "")
-	db.CreateTask("task-4", "implement", []string{"bead-4"}, 100)
-	db.StartTask("task-4", "s", "p", "/path")
+	db.CreateTask("task-4", "implement", []string{"bead-4"}, 100, "")
+	db.StartTask("task-4", "s", "p")
 	db.FailTask("task-4", "error")
 
 	// List all

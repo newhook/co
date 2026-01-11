@@ -83,9 +83,9 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 		return nil
 	}
 
-	// Create estimate task
+	// Create estimate task (no work context for estimation)
 	taskID := fmt.Sprintf("estimate-%d", time.Now().Unix())
-	if err := e.database.CreateTask(taskID, "estimate", uncachedIDs, 0); err != nil {
+	if err := e.database.CreateTask(taskID, "estimate", uncachedIDs, 0, ""); err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
 
@@ -103,9 +103,9 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 		fmt.Printf("Warning: mise initialization in worktree failed: %v\n", err)
 	}
 
-	// Start task in database with worktree info
+	// Start task in database (worktree is now managed at work level)
 	sessionName := claude.SessionNameForProject(e.projectName)
-	if err := e.database.StartTask(taskID, sessionName, taskID, worktreePath); err != nil {
+	if err := e.database.StartTask(taskID, sessionName, taskID); err != nil {
 		return fmt.Errorf("failed to start estimation task in database: %w", err)
 	}
 
