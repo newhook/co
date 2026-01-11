@@ -94,6 +94,26 @@ func (db *DB) CreateTask(ctx context.Context, id string, taskType string, beadID
 		}
 	}
 
+	// Create work_tasks junction entry if workID is provided
+	if workID != "" {
+		// Get the current number of tasks to determine position
+		existingTasks, err := qtx.GetWorkTasks(ctx, workID)
+		if err != nil {
+			return fmt.Errorf("failed to get existing tasks for work %s: %w", workID, err)
+		}
+		position := len(existingTasks)
+
+		// Add task to work
+		err = qtx.AddTaskToWork(ctx, sqlc.AddTaskToWorkParams{
+			WorkID:   workID,
+			TaskID:   id,
+			Position: sql.NullInt64{Int64: int64(position), Valid: true},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to add task %s to work %s: %w", id, workID, err)
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
