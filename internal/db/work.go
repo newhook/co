@@ -17,22 +17,20 @@ func workToLocal(w *sqlc.Work) *Work {
 	work := &Work{
 		ID:            w.ID,
 		Status:        w.Status,
-		ZellijSession: w.ZellijSession.String,
-		ZellijTab:     w.ZellijTab.String,
-		WorktreePath:  w.WorktreePath.String,
-		BranchName:    w.BranchName.String,
-		BaseBranch:    w.BaseBranch.String,
-		PRURL:         w.PrUrl.String,
-		ErrorMessage:  w.ErrorMessage.String,
+		ZellijSession: w.ZellijSession,
+		ZellijTab:     w.ZellijTab,
+		WorktreePath:  w.WorktreePath,
+		BranchName:    w.BranchName,
+		BaseBranch:    w.BaseBranch,
+		PRURL:         w.PrUrl,
+		ErrorMessage:  w.ErrorMessage,
+		CreatedAt:     w.CreatedAt,
 	}
 	if w.StartedAt.Valid {
 		work.StartedAt = &w.StartedAt.Time
 	}
 	if w.CompletedAt.Valid {
 		work.CompletedAt = &w.CompletedAt.Time
-	}
-	if w.CreatedAt.Valid {
-		work.CreatedAt = w.CreatedAt.Time
 	}
 	return work
 }
@@ -66,9 +64,9 @@ func (db *DB) CreateWork(ctx context.Context, id, worktreePath, branchName, base
 
 	err = qtx.CreateWork(ctx, sqlc.CreateWorkParams{
 		ID:           id,
-		WorktreePath: nullString(worktreePath),
-		BranchName:   nullString(branchName),
-		BaseBranch:   nullString(baseBranch),
+		WorktreePath: worktreePath,
+		BranchName:   branchName,
+		BaseBranch:   baseBranch,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create work %s: %w", id, err)
@@ -90,8 +88,8 @@ func (db *DB) CreateWork(ctx context.Context, id, worktreePath, branchName, base
 func (db *DB) StartWork(ctx context.Context, id, zellijSession, zellijTab string) error {
 	now := time.Now()
 	rows, err := db.queries.StartWork(ctx, sqlc.StartWorkParams{
-		ZellijSession: nullString(zellijSession),
-		ZellijTab:     nullString(zellijTab),
+		ZellijSession: zellijSession,
+		ZellijTab:     zellijTab,
 		StartedAt:     nullTime(now),
 		ID:            id,
 	})
@@ -108,7 +106,7 @@ func (db *DB) StartWork(ctx context.Context, id, zellijSession, zellijTab string
 func (db *DB) CompleteWork(ctx context.Context, id, prURL string) error {
 	now := time.Now()
 	rows, err := db.queries.CompleteWork(ctx, sqlc.CompleteWorkParams{
-		PrUrl:       nullString(prURL),
+		PrUrl:       prURL,
 		CompletedAt: nullTime(now),
 		ID:          id,
 	})
@@ -125,7 +123,7 @@ func (db *DB) CompleteWork(ctx context.Context, id, prURL string) error {
 func (db *DB) FailWork(ctx context.Context, id, errMsg string) error {
 	now := time.Now()
 	rows, err := db.queries.FailWork(ctx, sqlc.FailWorkParams{
-		ErrorMessage: nullString(errMsg),
+		ErrorMessage: errMsg,
 		CompletedAt:  nullTime(now),
 		ID:           id,
 	})
@@ -185,7 +183,7 @@ func (db *DB) GetLastWorkID(ctx context.Context) (string, error) {
 
 // GetWorkByDirectory returns the work that has a worktree path matching the pattern.
 func (db *DB) GetWorkByDirectory(ctx context.Context, pathPattern string) (*Work, error) {
-	work, err := db.queries.GetWorkByDirectory(ctx, nullString(pathPattern))
+	work, err := db.queries.GetWorkByDirectory(ctx, pathPattern)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -200,7 +198,7 @@ func (db *DB) AddTaskToWork(ctx context.Context, workID, taskID string, position
 	err := db.queries.AddTaskToWork(ctx, sqlc.AddTaskToWorkParams{
 		WorkID:   workID,
 		TaskID:   taskID,
-		Position: sql.NullInt64{Int64: int64(position), Valid: true},
+		Position: int64(position),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to add task %s to work %s: %w", taskID, workID, err)
@@ -351,7 +349,7 @@ func (db *DB) DeleteWork(ctx context.Context, workID string) error {
 	}
 
 	// Delete all tasks belonging to this work
-	if _, err := qtx.DeleteTasksForWork(ctx, sql.NullString{String: workID, Valid: true}); err != nil {
+	if _, err := qtx.DeleteTasksForWork(ctx, workID); err != nil {
 		return fmt.Errorf("failed to delete tasks for work %s: %w", workID, err)
 	}
 

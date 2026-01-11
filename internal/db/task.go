@@ -15,23 +15,21 @@ func taskToLocal(t *sqlc.Task) *Task {
 		ID:               t.ID,
 		Status:           t.Status,
 		TaskType:         t.TaskType,
-		ComplexityBudget: int(t.ComplexityBudget.Int64),
-		ActualComplexity: int(t.ActualComplexity.Int64),
-		WorkID:           t.WorkID.String,
-		ZellijSession:    t.ZellijSession.String,
-		ZellijPane:       t.ZellijPane.String,
-		WorktreePath:     t.WorktreePath.String,
-		PRURL:            t.PrUrl.String,
-		ErrorMessage:     t.ErrorMessage.String,
+		ComplexityBudget: int(t.ComplexityBudget),
+		ActualComplexity: int(t.ActualComplexity),
+		WorkID:           t.WorkID,
+		ZellijSession:    t.ZellijSession,
+		ZellijPane:       t.ZellijPane,
+		WorktreePath:     t.WorktreePath,
+		PRURL:            t.PrUrl,
+		ErrorMessage:     t.ErrorMessage,
+		CreatedAt:        t.CreatedAt,
 	}
 	if t.StartedAt.Valid {
 		task.StartedAt = &t.StartedAt.Time
 	}
 	if t.CompletedAt.Valid {
 		task.CompletedAt = &t.CompletedAt.Time
-	}
-	if t.CreatedAt.Valid {
-		task.CreatedAt = t.CreatedAt.Time
 	}
 	return task
 }
@@ -76,8 +74,8 @@ func (db *DB) CreateTask(ctx context.Context, id string, taskType string, beadID
 	err = qtx.CreateTask(ctx, sqlc.CreateTaskParams{
 		ID:               id,
 		TaskType:         taskType,
-		ComplexityBudget: sql.NullInt64{Int64: int64(complexityBudget), Valid: complexityBudget > 0},
-		WorkID:           nullString(workID),
+		ComplexityBudget: int64(complexityBudget),
+		WorkID:           workID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create task %s: %w", id, err)
@@ -107,7 +105,7 @@ func (db *DB) CreateTask(ctx context.Context, id string, taskType string, beadID
 		err = qtx.AddTaskToWork(ctx, sqlc.AddTaskToWorkParams{
 			WorkID:   workID,
 			TaskID:   id,
-			Position: sql.NullInt64{Int64: int64(position), Valid: true},
+			Position: int64(position),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to add task %s to work %s: %w", id, workID, err)
@@ -143,8 +141,8 @@ func (db *DB) CreateTasksBatch(ctx context.Context, tasks []struct {
 		err = qtx.CreateTask(ctx, sqlc.CreateTaskParams{
 			ID:               task.ID,
 			TaskType:         task.TaskType,
-			ComplexityBudget: sql.NullInt64{Int64: int64(task.ComplexityBudget), Valid: task.ComplexityBudget > 0},
-			WorkID:           nullString(task.WorkID),
+			ComplexityBudget: int64(task.ComplexityBudget),
+			WorkID:           task.WorkID,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create task %s: %w", task.ID, err)
@@ -174,7 +172,7 @@ func (db *DB) CreateTasksBatch(ctx context.Context, tasks []struct {
 			err = qtx.AddTaskToWork(ctx, sqlc.AddTaskToWorkParams{
 				WorkID:   task.WorkID,
 				TaskID:   task.ID,
-				Position: sql.NullInt64{Int64: int64(position), Valid: true},
+				Position: int64(position),
 			})
 			if err != nil {
 				return fmt.Errorf("failed to add task %s to work %s: %w", task.ID, task.WorkID, err)
@@ -193,9 +191,9 @@ func (db *DB) CreateTasksBatch(ctx context.Context, tasks []struct {
 func (db *DB) StartTask(ctx context.Context, id, zellijSession, zellijPane string) error {
 	now := time.Now()
 	rows, err := db.queries.StartTask(ctx, sqlc.StartTaskParams{
-		ZellijSession: nullString(zellijSession),
-		ZellijPane:    nullString(zellijPane),
-		WorktreePath:  sql.NullString{}, // Deprecated, kept for compatibility
+		ZellijSession: zellijSession,
+		ZellijPane:    zellijPane,
+		WorktreePath:  "", // Deprecated, kept for compatibility
 		StartedAt:     nullTime(now),
 		ID:            id,
 	})
@@ -212,7 +210,7 @@ func (db *DB) StartTask(ctx context.Context, id, zellijSession, zellijPane strin
 func (db *DB) CompleteTask(ctx context.Context, id, prURL string) error {
 	now := time.Now()
 	rows, err := db.queries.CompleteTask(ctx, sqlc.CompleteTaskParams{
-		PrUrl:       nullString(prURL),
+		PrUrl:       prURL,
 		CompletedAt: nullTime(now),
 		ID:          id,
 	})
@@ -229,7 +227,7 @@ func (db *DB) CompleteTask(ctx context.Context, id, prURL string) error {
 func (db *DB) FailTask(ctx context.Context, id, errMsg string) error {
 	now := time.Now()
 	rows, err := db.queries.FailTask(ctx, sqlc.FailTaskParams{
-		ErrorMessage: nullString(errMsg),
+		ErrorMessage: errMsg,
 		CompletedAt:  nullTime(now),
 		ID:           id,
 	})

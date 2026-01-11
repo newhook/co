@@ -6,46 +6,47 @@ package sqlc
 
 import (
 	"database/sql"
+	"time"
 )
 
 type Bead struct {
-	ID            string         `json:"id"`
-	Status        string         `json:"status"`
-	Title         sql.NullString `json:"title"`
-	PrUrl         sql.NullString `json:"pr_url"`
-	ErrorMessage  sql.NullString `json:"error_message"`
-	ZellijSession sql.NullString `json:"zellij_session"`
-	ZellijPane    sql.NullString `json:"zellij_pane"`
-	WorktreePath  sql.NullString `json:"worktree_path"`
-	StartedAt     sql.NullTime   `json:"started_at"`
-	CompletedAt   sql.NullTime   `json:"completed_at"`
-	CreatedAt     sql.NullTime   `json:"created_at"`
-	UpdatedAt     sql.NullTime   `json:"updated_at"`
+	ID            string       `json:"id"`
+	Status        string       `json:"status"`
+	Title         string       `json:"title"`
+	PrUrl         string       `json:"pr_url"`
+	ErrorMessage  string       `json:"error_message"`
+	ZellijSession string       `json:"zellij_session"`
+	ZellijPane    string       `json:"zellij_pane"`
+	WorktreePath  string       `json:"worktree_path"`
+	StartedAt     sql.NullTime `json:"started_at"`
+	CompletedAt   sql.NullTime `json:"completed_at"`
+	CreatedAt     time.Time    `json:"created_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
 }
 
 type ComplexityCache struct {
-	BeadID          string       `json:"bead_id"`
-	DescriptionHash string       `json:"description_hash"`
-	ComplexityScore int64        `json:"complexity_score"`
-	EstimatedTokens int64        `json:"estimated_tokens"`
-	CreatedAt       sql.NullTime `json:"created_at"`
+	BeadID          string    `json:"bead_id"`
+	DescriptionHash string    `json:"description_hash"`
+	ComplexityScore int64     `json:"complexity_score"`
+	EstimatedTokens int64     `json:"estimated_tokens"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type Task struct {
-	ID               string         `json:"id"`
-	Status           string         `json:"status"`
-	TaskType         string         `json:"task_type"`
-	ComplexityBudget sql.NullInt64  `json:"complexity_budget"`
-	ActualComplexity sql.NullInt64  `json:"actual_complexity"`
-	WorkID           sql.NullString `json:"work_id"`
-	ZellijSession    sql.NullString `json:"zellij_session"`
-	ZellijPane       sql.NullString `json:"zellij_pane"`
-	WorktreePath     sql.NullString `json:"worktree_path"`
-	PrUrl            sql.NullString `json:"pr_url"`
-	ErrorMessage     sql.NullString `json:"error_message"`
-	StartedAt        sql.NullTime   `json:"started_at"`
-	CompletedAt      sql.NullTime   `json:"completed_at"`
-	CreatedAt        sql.NullTime   `json:"created_at"`
+	ID               string       `json:"id"`
+	Status           string       `json:"status"`
+	TaskType         string       `json:"task_type"`
+	ComplexityBudget int64        `json:"complexity_budget"`
+	ActualComplexity int64        `json:"actual_complexity"`
+	WorkID           string       `json:"work_id"`
+	ZellijSession    string       `json:"zellij_session"`
+	ZellijPane       string       `json:"zellij_pane"`
+	WorktreePath     string       `json:"worktree_path"`
+	PrUrl            string       `json:"pr_url"`
+	ErrorMessage     string       `json:"error_message"`
+	StartedAt        sql.NullTime `json:"started_at"`
+	CompletedAt      sql.NullTime `json:"completed_at"`
+	CreatedAt        time.Time    `json:"created_at"`
 }
 
 type TaskBead struct {
@@ -55,24 +56,24 @@ type TaskBead struct {
 }
 
 type Work struct {
-	ID            string         `json:"id"`
-	Status        string         `json:"status"`
-	ZellijSession sql.NullString `json:"zellij_session"`
-	ZellijTab     sql.NullString `json:"zellij_tab"`
-	WorktreePath  sql.NullString `json:"worktree_path"`
-	BranchName    sql.NullString `json:"branch_name"`
-	BaseBranch    sql.NullString `json:"base_branch"`
-	PrUrl         sql.NullString `json:"pr_url"`
-	ErrorMessage  sql.NullString `json:"error_message"`
-	StartedAt     sql.NullTime   `json:"started_at"`
-	CompletedAt   sql.NullTime   `json:"completed_at"`
-	CreatedAt     sql.NullTime   `json:"created_at"`
+	ID            string       `json:"id"`
+	Status        string       `json:"status"`
+	ZellijSession string       `json:"zellij_session"`
+	ZellijTab     string       `json:"zellij_tab"`
+	WorktreePath  string       `json:"worktree_path"`
+	BranchName    string       `json:"branch_name"`
+	BaseBranch    string       `json:"base_branch"`
+	PrUrl         string       `json:"pr_url"`
+	ErrorMessage  string       `json:"error_message"`
+	StartedAt     sql.NullTime `json:"started_at"`
+	CompletedAt   sql.NullTime `json:"completed_at"`
+	CreatedAt     time.Time    `json:"created_at"`
 }
 
 type WorkTask struct {
-	WorkID   string        `json:"work_id"`
-	TaskID   string        `json:"task_id"`
-	Position sql.NullInt64 `json:"position"`
+	WorkID   string `json:"work_id"`
+	TaskID   string `json:"task_id"`
+	Position int64  `json:"position"`
 }
 
 type WorkTaskCounter struct {
