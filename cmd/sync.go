@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/project"
@@ -44,6 +45,11 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	// Pull in each worktree
 	for _, wt := range worktrees {
+		// Skip beads internal worktrees (managed by beads system, not co)
+		if strings.Contains(wt.Path, ".git/beads-worktrees") {
+			continue
+		}
+
 		branchInfo := wt.Branch
 		if branchInfo == "" {
 			branchInfo = "(detached)"
