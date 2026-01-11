@@ -32,10 +32,10 @@ WHERE id = ?;
 -- name: ResetTaskStatus :execrows
 UPDATE tasks
 SET status = 'pending',
-    zellij_session = NULL,
-    zellij_pane = NULL,
+    zellij_session = '',
+    zellij_pane = '',
     started_at = NULL,
-    error_message = NULL
+    error_message = ''
 WHERE id = ?;
 
 -- name: GetTask :one

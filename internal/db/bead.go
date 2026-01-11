@@ -10,14 +10,7 @@ import (
 	"github.com/newhook/co/internal/db/sqlc"
 )
 
-// Helper functions to convert to SQL nullable types
-func nullString(s string) sql.NullString {
-	if s == "" {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: s, Valid: true}
-}
-
+// nullTime converts a time to sql.NullTime for nullable timestamp fields.
 func nullTime(t time.Time) sql.NullTime {
 	if t.IsZero() {
 		return sql.NullTime{}
@@ -30,24 +23,20 @@ func beadToTracked(b *sqlc.Bead) *TrackedBead {
 	tracked := &TrackedBead{
 		ID:            b.ID,
 		Status:        b.Status,
-		Title:         b.Title.String,
-		PRURL:         b.PrUrl.String,
-		ErrorMessage:  b.ErrorMessage.String,
-		ZellijSession: b.ZellijSession.String,
-		ZellijPane:    b.ZellijPane.String,
-		WorktreePath:  b.WorktreePath.String,
+		Title:         b.Title,
+		PRURL:         b.PrUrl,
+		ErrorMessage:  b.ErrorMessage,
+		ZellijSession: b.ZellijSession,
+		ZellijPane:    b.ZellijPane,
+		WorktreePath:  b.WorktreePath,
+		CreatedAt:     b.CreatedAt,
+		UpdatedAt:     b.UpdatedAt,
 	}
 	if b.StartedAt.Valid {
 		tracked.StartedAt = &b.StartedAt.Time
 	}
 	if b.CompletedAt.Valid {
 		tracked.CompletedAt = &b.CompletedAt.Time
-	}
-	if b.CreatedAt.Valid {
-		tracked.CreatedAt = b.CreatedAt.Time
-	}
-	if b.UpdatedAt.Valid {
-		tracked.UpdatedAt = b.UpdatedAt.Time
 	}
 	return tracked
 }
@@ -78,12 +67,12 @@ func (db *DB) StartBeadWithWorktree(id, title, zellijSession, zellijPane, worktr
 	now := time.Now()
 	err := db.queries.StartBead(context.Background(), sqlc.StartBeadParams{
 		ID:            id,
-		Title:         nullString(title),
-		ZellijSession: nullString(zellijSession),
-		ZellijPane:    nullString(zellijPane),
-		WorktreePath:  nullString(worktreePath),
+		Title:         title,
+		ZellijSession: zellijSession,
+		ZellijPane:    zellijPane,
+		WorktreePath:  worktreePath,
 		StartedAt:     nullTime(now),
-		UpdatedAt:     nullTime(now),
+		UpdatedAt:     now,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start bead %s: %w", id, err)
@@ -95,9 +84,9 @@ func (db *DB) StartBeadWithWorktree(id, title, zellijSession, zellijPane, worktr
 func (db *DB) CompleteBead(id, prURL string) error {
 	now := time.Now()
 	rows, err := db.queries.CompleteBead(context.Background(), sqlc.CompleteBeadParams{
-		PrUrl:       nullString(prURL),
+		PrUrl:       prURL,
 		CompletedAt: nullTime(now),
-		UpdatedAt:   nullTime(now),
+		UpdatedAt:   now,
 		ID:          id,
 	})
 	if err != nil {
@@ -113,9 +102,9 @@ func (db *DB) CompleteBead(id, prURL string) error {
 func (db *DB) FailBead(id, errMsg string) error {
 	now := time.Now()
 	rows, err := db.queries.FailBead(context.Background(), sqlc.FailBeadParams{
-		ErrorMessage: nullString(errMsg),
+		ErrorMessage: errMsg,
 		CompletedAt:  nullTime(now),
-		UpdatedAt:    nullTime(now),
+		UpdatedAt:    now,
 		ID:           id,
 	})
 	if err != nil {
