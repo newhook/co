@@ -55,26 +55,21 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
+	defer proj.Close()
 
 	fmt.Printf("Using project: %s\n", proj.Config.Project.Name)
-
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open tracking database: %w", err)
-	}
-	defer proj.Close()
 
 	// Determine work context
 	workID := flagPlanWork
 	if workID == "" {
 		// Try to detect work from current directory
-		workID, _ = detectWorkFromDirectory(database, proj)
+		workID, _ = detectWorkFromDirectory(proj)
 	}
 
 	// Validate work exists if specified
 	var work *db.Work
 	if workID != "" {
-		work, err = database.GetWork(context.Background(),workID)
+		work, err = proj.DB.GetWork(context.Background(),workID)
 		if err != nil {
 			return fmt.Errorf("failed to get work %s: %w", workID, err)
 		}
@@ -88,7 +83,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	// Manual grouping mode - only if args provided WITHOUT --auto-group
 	if len(args) > 0 && !flagPlanAutoGroup {
-		return planManualGroups(proj, database, args, workID, work)
+		return planManualGroups(proj, args, workID, work)
 	}
 
 	// Get beads - either all ready beads or the specified ones
@@ -131,7 +126,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check for beads already in pending tasks
-	pendingTasks, err := database.ListTasks(context.Background(),db.StatusPending)
+	pendingTasks, err := proj.DB.ListTasks(context.Background(),db.StatusPending)
 	if err != nil {
 		return fmt.Errorf("failed to check pending tasks: %w", err)
 	}
@@ -139,7 +134,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Build set of beads that are already in pending tasks
 	beadsInPendingTasks := make(map[string]bool)
 	for _, task := range pendingTasks {
-		beadIDs, err := database.GetTaskBeads(context.Background(), task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(context.Background(), task.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get beads for task %s: %w", task.ID, err)
 		}
@@ -186,19 +181,19 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	// Auto-group mode
 	if flagPlanAutoGroup {
-		return planAutoGroup(proj, database, beadList, workID, work)
+		return planAutoGroup(proj, beadList, workID, work)
 	}
 
 	// Default: single-bead tasks
-	return planSingleBead(proj, database, beadList, workID)
+	return planSingleBead(proj, beadList, workID)
 }
 
 // planManualGroups creates tasks from manual groupings like "bead-1,bead-2 bead-3"
-func planManualGroups(proj *project.Project, database *db.DB, args []string, workID string, work *db.Work) error {
+func planManualGroups(proj *project.Project, args []string, workID string, work *db.Work) error {
 	mainRepoPath := proj.MainRepoPath()
 
 	// First, check for beads already in pending tasks
-	pendingTasks, err := database.ListTasks(context.Background(),db.StatusPending)
+	pendingTasks, err := proj.DB.ListTasks(context.Background(),db.StatusPending)
 	if err != nil {
 		return fmt.Errorf("failed to check pending tasks: %w", err)
 	}
@@ -206,7 +201,7 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string, wor
 	// Build set of beads that are already in pending tasks
 	beadsInPendingTasks := make(map[string]bool)
 	for _, task := range pendingTasks {
-		beadIDs, err := database.GetTaskBeads(context.Background(), task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(context.Background(), task.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get beads for task %s: %w", task.ID, err)
 		}
@@ -257,7 +252,7 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string, wor
 		taskCounter++
 
 		// Generate hierarchical task ID (work is always required)
-		nextNum, err := database.GetNextTaskNumber(context.Background(), workID)
+		nextNum, err := proj.DB.GetNextTaskNumber(context.Background(), workID)
 		if err != nil {
 			return fmt.Errorf("failed to get next task number for work %s: %w", workID, err)
 		}
@@ -282,9 +277,9 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string, wor
 		return nil
 	}
 
-	// Create tasks in database
+	// Create tasks in proj.DB
 	for _, t := range tasks {
-		if err := database.CreateTask(context.Background(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
+		if err := proj.DB.CreateTask(context.Background(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
 		fmt.Printf("Created implement task %s with %d bead(s): %s\n", t.ID, len(t.BeadIDs), strings.Join(t.BeadIDs, ", "))
@@ -295,7 +290,7 @@ func planManualGroups(proj *project.Project, database *db.DB, args []string, wor
 }
 
 // planAutoGroup uses LLM to group beads by complexity
-func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead, workID string, work *db.Work) error {
+func planAutoGroup(proj *project.Project, beadList []beads.Bead, workID string, work *db.Work) error {
 	fmt.Println("Auto-grouping beads by complexity...")
 
 	// Get beads with dependencies for planning
@@ -310,7 +305,7 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 	if work != nil && work.WorktreePath != "" {
 		estimationPath = work.WorktreePath
 	}
-	estimator := task.NewLLMEstimator(database, estimationPath, proj.Config.Project.Name, workID)
+	estimator := task.NewLLMEstimator(proj.DB, estimationPath, proj.Config.Project.Name, workID)
 
 	// Estimate complexity for all beads in batch
 	fmt.Println("Estimating complexity for beads...")
@@ -336,7 +331,7 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 	// Update task IDs to use hierarchical format (work is always required)
 	for i := range tasks {
 		// Get next task number for this work
-		nextNum, err := database.GetNextTaskNumber(context.Background(), workID)
+		nextNum, err := proj.DB.GetNextTaskNumber(context.Background(), workID)
 		if err != nil {
 			return fmt.Errorf("failed to get next task number for work %s: %w", workID, err)
 		}
@@ -344,9 +339,9 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 		tasks[i].ID = fmt.Sprintf("%s.%d", workID, nextNum)
 	}
 
-	// Create tasks in database
+	// Create tasks in proj.DB
 	for _, t := range tasks {
-		if err := database.CreateTask(context.Background(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
+		if err := proj.DB.CreateTask(context.Background(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
 		fmt.Printf("Created implement task %s (complexity: %d) with %d bead(s): %s\n",
@@ -358,18 +353,18 @@ func planAutoGroup(proj *project.Project, database *db.DB, beadList []beads.Bead
 }
 
 // planSingleBead creates one task per bead
-func planSingleBead(_ *project.Project, database *db.DB, beadList []beads.Bead, workID string) error {
+func planSingleBead(proj *project.Project, beadList []beads.Bead, workID string) error {
 	fmt.Printf("Creating %d single-bead task(s)...\n", len(beadList))
 
 	for _, bead := range beadList {
 		// Generate hierarchical task ID (work is always required)
-		nextNum, err := database.GetNextTaskNumber(context.Background(), workID)
+		nextNum, err := proj.DB.GetNextTaskNumber(context.Background(), workID)
 		if err != nil {
 			return fmt.Errorf("failed to get next task number for work %s: %w", workID, err)
 		}
 		taskID := fmt.Sprintf("%s.%d", workID, nextNum)
 
-		if err := database.CreateTask(context.Background(),taskID, "implement", []string{bead.ID}, 0, workID); err != nil {
+		if err := proj.DB.CreateTask(context.Background(),taskID, "implement", []string{bead.ID}, 0, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", taskID, err)
 		}
 		fmt.Printf("Created implement task %s: %s\n", taskID, bead.Title)
@@ -394,7 +389,7 @@ func getBeadsWithDepsForPlan(beadList []beads.Bead, dir string) ([]beads.BeadWit
 
 // detectWorkFromDirectory attempts to detect work ID from the current directory.
 // Returns the work ID if found, or empty string if not in a work directory.
-func detectWorkFromDirectory(database *db.DB, proj *project.Project) (string, error) {
+func detectWorkFromDirectory(proj *project.Project) (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err
@@ -410,8 +405,8 @@ func detectWorkFromDirectory(database *db.DB, proj *project.Project) (string, er
 	parts := strings.Split(rel, string(filepath.Separator))
 	if len(parts) >= 1 && strings.HasPrefix(parts[0], "work-") {
 		workID := parts[0]
-		// Verify work exists in database
-		work, err := database.GetWork(context.Background(),workID)
+		// Verify work exists in proj.DB
+		work, err := proj.DB.GetWork(context.Background(),workID)
 		if err != nil {
 			return "", err
 		}
@@ -422,7 +417,7 @@ func detectWorkFromDirectory(database *db.DB, proj *project.Project) (string, er
 
 	// Try to match by worktree path pattern
 	pattern := fmt.Sprintf("%%%s%%", cwd)
-	work, err := database.GetWorkByDirectory(context.Background(),pattern)
+	work, err := proj.DB.GetWorkByDirectory(context.Background(),pattern)
 	if err != nil {
 		return "", err
 	}

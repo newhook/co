@@ -30,17 +30,12 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
-
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
 	defer proj.Close()
 
 	// If specific bead requested
 	if len(args) > 0 {
 		beadID := args[0]
-		bead, err := database.GetBead(beadID)
+		bead, err := proj.DB.GetBead(beadID)
 		if err != nil {
 			return fmt.Errorf("failed to get bead: %w", err)
 		}
@@ -53,19 +48,19 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show all processing beads
-	beads, err := database.ListBeads(db.StatusProcessing)
+	beadList, err := proj.DB.ListBeads(db.StatusProcessing)
 	if err != nil {
 		return fmt.Errorf("failed to list beads: %w", err)
 	}
 
-	if len(beads) == 0 {
+	if len(beadList) == 0 {
 		fmt.Println("No beads currently processing")
 		return nil
 	}
 
-	fmt.Printf("Currently processing %d bead(s):\n\n", len(beads))
-	for _, bead := range beads {
-		printBeadDetails(bead)
+	fmt.Printf("Currently processing %d bead(s):\n\n", len(beadList))
+	for _, b := range beadList {
+		printBeadDetails(b)
 		fmt.Println()
 	}
 

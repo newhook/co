@@ -92,14 +92,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return err
-	}
-
 	// Generate content-based hash ID from branch name
-	workID, err := database.GenerateWorkID(context.Background(), branchName, proj.Config.Project.Name)
+	workID, err := proj.DB.GenerateWorkID(context.Background(), branchName, proj.Config.Project.Name)
 	if err != nil {
 		return fmt.Errorf("failed to generate work ID: %w", err)
 	}
@@ -139,7 +133,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create work record in database
-	if err := database.CreateWork(context.Background(), workID, worktreePath, branchName, baseBranch); err != nil {
+	if err := proj.DB.CreateWork(context.Background(), workID, worktreePath, branchName, baseBranch); err != nil {
 		// Clean up on failure
 		exec.Command("git", "worktree", "remove", worktreePath).Run()
 		os.RemoveAll(workDir)
@@ -170,14 +164,8 @@ func runWorkList(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return err
-	}
-
 	// List all works
-	works, err := database.ListWorks(context.Background(), "")
+	works, err := proj.DB.ListWorks(context.Background(), "")
 	if err != nil {
 		return fmt.Errorf("failed to list works: %w", err)
 	}
@@ -231,12 +219,6 @@ func runWorkShow(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return err
-	}
-
 	var workID string
 	if len(args) > 0 {
 		workID = args[0]
@@ -249,7 +231,7 @@ func runWorkShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get work details
-	work, err := database.GetWork(context.Background(), workID)
+	work, err := proj.DB.GetWork(context.Background(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -290,7 +272,7 @@ func runWorkShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get tasks for this work
-	tasks, err := database.GetWorkTasks(context.Background(), workID)
+	tasks, err := proj.DB.GetWorkTasks(context.Background(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
 	}
@@ -317,14 +299,8 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return err
-	}
-
 	// Get work to verify it exists
-	work, err := database.GetWork(context.Background(), workID)
+	work, err := proj.DB.GetWork(context.Background(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -333,7 +309,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if work has uncompleted tasks
-	tasks, err := database.GetWorkTasks(context.Background(), workID)
+	tasks, err := proj.DB.GetWorkTasks(context.Background(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
 	}
@@ -373,7 +349,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 
 	// Delete work from database (also deletes associated tasks and relationships)
-	if err := database.DeleteWork(context.Background(), workID); err != nil {
+	if err := proj.DB.DeleteWork(context.Background(), workID); err != nil {
 		return fmt.Errorf("failed to delete work from database: %w", err)
 	}
 
@@ -389,12 +365,6 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return err
-	}
-
 	var workID string
 	if len(args) > 0 {
 		workID = args[0]
@@ -407,7 +377,7 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get work details
-	work, err := database.GetWork(context.Background(), workID)
+	work, err := proj.DB.GetWork(context.Background(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -431,7 +401,7 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 	prTaskID := fmt.Sprintf("%s.pr", workID)
 
 	// Create a PR creation task
-	err = database.CreateTask(context.Background(), prTaskID, "pr", []string{}, 0, workID)
+	err = proj.DB.CreateTask(context.Background(), prTaskID, "pr", []string{}, 0, workID)
 	if err != nil {
 		return fmt.Errorf("failed to create PR task: %w", err)
 	}
@@ -466,14 +436,8 @@ func getCurrentWork(proj *project.Project) (string, error) {
 		return parts[0], nil
 	}
 
-	// Try to find work by worktree path
-	database, err := proj.OpenDB()
-	if err != nil {
-		return "", err
-	}
-
 	// Look for a work that has this path as its worktree
-	work, err := database.GetWorkByDirectory(context.Background(), cwd + "%")
+	work, err := proj.DB.GetWorkByDirectory(context.Background(), cwd+"%")
 	if err != nil {
 		return "", err
 	}
