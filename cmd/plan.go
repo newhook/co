@@ -30,9 +30,11 @@ var planCmd = &cobra.Command{
 Without arguments, creates one task per ready bead.
 
 With --auto-group, uses LLM to estimate complexity and group beads
-into tasks using bin-packing.
+into tasks using bin-packing. Can be combined with bead arguments to
+auto-group specific beads:
+  co plan bead-1 bead-2 bead-3 --auto-group  # auto-group these specific beads
 
-With positional arguments, manually specify task groupings:
+With positional arguments (without --auto-group), manually specify task groupings:
   co plan bead-1,bead-2 bead-3    # task1=[bead-1,bead-2], task2=[bead-3]
   co plan bead-1,bead-2,bead-3    # all 3 beads in one task
 
@@ -84,15 +86,43 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no work context specified. Use --work flag or run from a work directory")
 	}
 
-	// Manual grouping mode - check happens inside planManualGroups
-	if len(args) > 0 {
+	// Manual grouping mode - only if args provided WITHOUT --auto-group
+	if len(args) > 0 && !flagPlanAutoGroup {
 		return planManualGroups(proj, database, args, workID, work)
 	}
 
-	// Get all ready beads first
-	beadList, err := beads.GetReadyBeadsInDir(proj.MainRepoPath())
-	if err != nil {
-		return fmt.Errorf("failed to get ready beads: %w", err)
+	// Get beads - either all ready beads or the specified ones
+	var beadList []beads.Bead
+	if len(args) > 0 {
+		// Auto-group mode with specific beads
+		fmt.Printf("Getting specified beads for auto-grouping...\n")
+		// Collect all specified bead IDs (treating commas as separators like in manual mode)
+		var requestedIDs []string
+		for _, arg := range args {
+			ids := strings.Split(arg, ",")
+			for _, id := range ids {
+				id = strings.TrimSpace(id)
+				if id != "" {
+					requestedIDs = append(requestedIDs, id)
+				}
+			}
+		}
+
+		// Fetch each bead
+		for _, id := range requestedIDs {
+			bead, err := beads.GetBeadInDir(id, proj.MainRepoPath())
+			if err != nil {
+				return fmt.Errorf("failed to get bead %s: %w", id, err)
+			}
+			beadList = append(beadList, *bead)
+		}
+		fmt.Printf("Found %d specified bead(s)\n", len(beadList))
+	} else {
+		// Get all ready beads
+		beadList, err = beads.GetReadyBeadsInDir(proj.MainRepoPath())
+		if err != nil {
+			return fmt.Errorf("failed to get ready beads: %w", err)
+		}
 	}
 
 	if len(beadList) == 0 {
