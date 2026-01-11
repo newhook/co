@@ -7,9 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
@@ -138,33 +136,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 
-	// Create zellij tab for this work
-	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
-	tabName := workID // Use work ID as tab name
-
-	// Ensure zellij session exists
-	if err := ensureZellijSession(context.Background(), sessionName); err != nil {
-		fmt.Printf("Warning: failed to ensure zellij session: %v\n", err)
-	} else {
-		// Create tab for this work
-		tabArgs := []string{
-			"-s", sessionName,
-			"action", "new-tab",
-			"--cwd", worktreePath,
-			"--name", tabName,
-		}
-		tabCmd := exec.Command("zellij", tabArgs...)
-		if err := tabCmd.Run(); err != nil {
-			fmt.Printf("Warning: failed to create zellij tab for work: %v\n", err)
-		} else {
-			fmt.Printf("Created zellij tab: %s\n", tabName)
-
-			// Update work with session info
-			if err := database.StartWork(context.Background(), workID, sessionName, tabName); err != nil {
-				fmt.Printf("Warning: failed to update work with zellij info: %v\n", err)
-			}
-		}
-	}
+	// Note: We don't create a zellij tab here - tasks create their own tabs when they run.
+	// This avoids creating an unused tab that would sit empty until tasks are executed.
 
 	fmt.Printf("Created work: %s\n", workID)
 	fmt.Printf("Directory: %s\n", workDir)
@@ -456,36 +429,6 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Created PR task: %s\n", prTaskID)
 	fmt.Printf("\nRun 'co run %s' to execute Claude to create the PR\n", prTaskID)
 
-	return nil
-}
-
-// ensureZellijSession ensures a zellij session exists with the given name.
-func ensureZellijSession(ctx context.Context, sessionName string) error {
-	// Check if session exists
-	listCmd := exec.CommandContext(ctx, "zellij", "list-sessions")
-	output, err := listCmd.Output()
-	if err != nil {
-		// No sessions, create one
-		return createZellijSession(ctx, sessionName)
-	}
-
-	// Check if requested session exists
-	if strings.Contains(string(output), sessionName) {
-		return nil
-	}
-
-	return createZellijSession(ctx, sessionName)
-}
-
-// createZellijSession creates a new zellij session.
-func createZellijSession(ctx context.Context, sessionName string) error {
-	// Start session detached
-	cmd := exec.CommandContext(ctx, "zellij", "-s", sessionName)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to create zellij session: %w", err)
-	}
-	// Give it time to start
-	time.Sleep(1 * time.Second)
 	return nil
 }
 
