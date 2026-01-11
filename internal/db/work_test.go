@@ -36,16 +36,8 @@ func TestDeleteWork(t *testing.T) {
 		t.Fatalf("Failed to create task 2: %v", err)
 	}
 
-	// Add tasks to work (create work_tasks relationships)
-	err = db.AddTaskToWork(ctx, workID, task1ID, 0)
-	if err != nil {
-		t.Fatalf("Failed to add task 1 to work: %v", err)
-	}
-
-	err = db.AddTaskToWork(ctx, workID, task2ID, 1)
-	if err != nil {
-		t.Fatalf("Failed to add task 2 to work: %v", err)
-	}
+	// Note: CreateTask already adds the task to work_tasks when workID is provided,
+	// so we don't need to call AddTaskToWork separately.
 
 	// Verify work exists
 	work, err := db.GetWork(ctx, workID)
