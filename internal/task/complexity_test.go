@@ -117,7 +117,7 @@ func TestNewLLMEstimator(t *testing.T) {
 	defer cleanup()
 
 	// Test creation with database
-	estimator := NewLLMEstimator(database, "/tmp/test", "test-project")
+	estimator := NewLLMEstimator(database, "/tmp/test", "test-project", "work-test")
 	if estimator == nil {
 		t.Fatal("expected non-nil estimator")
 	}
@@ -126,7 +126,7 @@ func TestNewLLMEstimator(t *testing.T) {
 	}
 
 	// Test creation with nil database (should still work for non-cached usage)
-	estimator = NewLLMEstimator(nil, "/tmp/test", "test-project")
+	estimator = NewLLMEstimator(nil, "/tmp/test", "test-project", "work-test")
 	if estimator == nil {
 		t.Fatal("expected non-nil estimator even with nil database")
 	}

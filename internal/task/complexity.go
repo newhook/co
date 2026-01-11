@@ -18,21 +18,17 @@ type LLMEstimator struct {
 	database    *db.DB
 	workDir     string
 	projectName string
-	workID      string  // Work context for estimation tasks (optional)
+	workID      string  // Work context for estimation tasks
 }
 
 // NewLLMEstimator creates a new LLM-based complexity estimator.
-func NewLLMEstimator(database *db.DB, workDir, projectName string) *LLMEstimator {
+func NewLLMEstimator(database *db.DB, workDir, projectName, workID string) *LLMEstimator {
 	return &LLMEstimator{
 		database:    database,
 		workDir:     workDir,
 		projectName: projectName,
+		workID:      workID,
 	}
-}
-
-// SetWorkContext sets the work context for estimation tasks.
-func (e *LLMEstimator) SetWorkContext(workID string) {
-	e.workID = workID
 }
 
 // Estimate returns a complexity score (1-10) and estimated context tokens for a bead.
@@ -89,15 +85,11 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead)
 		return nil
 	}
 
-	// Create estimate task with work context if available
-	var taskID string
-	if e.workID != "" {
-		// Use hierarchical task ID under the work
-		taskID = fmt.Sprintf("%s.estimate-%d", e.workID, time.Now().Unix())
-	} else {
-		// Standalone estimate task
-		taskID = fmt.Sprintf("estimate-%d", time.Now().Unix())
+	// Create estimate task under the work
+	if e.workID == "" {
+		return fmt.Errorf("workID is required for creating estimate tasks")
 	}
+	taskID := fmt.Sprintf("%s.estimate-%d", e.workID, time.Now().Unix())
 	if err := e.database.CreateTask(ctx, taskID, "estimate", uncachedIDs, 0, e.workID); err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
