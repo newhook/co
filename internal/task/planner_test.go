@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockEstimator returns fixed complexity scores for testing.
@@ -29,19 +31,16 @@ func TestBuildDependencyGraph(t *testing.T) {
 	graph := buildDependencyGraph(inputBeads)
 
 	// b depends on a
-	if len(graph.dependsOn["b"]) != 1 || graph.dependsOn["b"][0] != "a" {
-		t.Errorf("expected b to depend on a, got %v", graph.dependsOn["b"])
-	}
+	require.Len(t, graph.dependsOn["b"], 1, "expected b to have 1 dependency")
+	assert.Equal(t, "a", graph.dependsOn["b"][0], "expected b to depend on a")
 
 	// c depends on b
-	if len(graph.dependsOn["c"]) != 1 || graph.dependsOn["c"][0] != "b" {
-		t.Errorf("expected c to depend on b, got %v", graph.dependsOn["c"])
-	}
+	require.Len(t, graph.dependsOn["c"], 1, "expected c to have 1 dependency")
+	assert.Equal(t, "b", graph.dependsOn["c"][0], "expected c to depend on b")
 
 	// a blocks b
-	if len(graph.blockedBy["a"]) != 1 || graph.blockedBy["a"][0] != "b" {
-		t.Errorf("expected a to block b, got %v", graph.blockedBy["a"])
-	}
+	require.Len(t, graph.blockedBy["a"], 1, "expected a to block 1 bead")
+	assert.Equal(t, "b", graph.blockedBy["a"][0], "expected a to block b")
 }
 
 func TestBuildDependencyGraphIgnoresExternalDeps(t *testing.T) {
@@ -52,9 +51,7 @@ func TestBuildDependencyGraphIgnoresExternalDeps(t *testing.T) {
 	graph := buildDependencyGraph(inputBeads)
 
 	// External dependency should be ignored
-	if len(graph.dependsOn["a"]) != 0 {
-		t.Errorf("expected no dependencies for a, got %v", graph.dependsOn["a"])
-	}
+	assert.Empty(t, graph.dependsOn["a"], "expected no dependencies for a")
 }
 
 func TestTopologicalSort(t *testing.T) {
@@ -66,9 +63,7 @@ func TestTopologicalSort(t *testing.T) {
 
 	graph := buildDependencyGraph(inputBeads)
 	sorted, err := topologicalSort(graph, inputBeads)
-	if err != nil {
-		t.Fatalf("topologicalSort failed: %v", err)
-	}
+	require.NoError(t, err, "topologicalSort failed")
 
 	// a should come before b, b should come before c
 	positions := make(map[string]int)
@@ -76,12 +71,8 @@ func TestTopologicalSort(t *testing.T) {
 		positions[b.ID] = i
 	}
 
-	if positions["a"] > positions["b"] {
-		t.Error("a should come before b")
-	}
-	if positions["b"] > positions["c"] {
-		t.Error("b should come before c")
-	}
+	assert.Less(t, positions["a"], positions["b"], "a should come before b")
+	assert.Less(t, positions["b"], positions["c"], "b should come before c")
 }
 
 func TestTopologicalSortDetectsCycle(t *testing.T) {
@@ -92,9 +83,7 @@ func TestTopologicalSortDetectsCycle(t *testing.T) {
 
 	graph := buildDependencyGraph(inputBeads)
 	_, err := topologicalSort(graph, inputBeads)
-	if err == nil {
-		t.Error("expected error for cycle detection")
-	}
+	assert.Error(t, err, "expected error for cycle detection")
 }
 
 func TestPlanSimple(t *testing.T) {
@@ -111,17 +100,10 @@ func TestPlanSimple(t *testing.T) {
 
 	// Budget of 10 should fit all beads in one task (3+3+3=9)
 	tasks, err := planner.Plan(inputBeads, 10)
-	if err != nil {
-		t.Fatalf("Plan failed: %v", err)
-	}
+	require.NoError(t, err, "Plan failed")
 
-	if len(tasks) != 1 {
-		t.Errorf("expected 1 task, got %d", len(tasks))
-	}
-
-	if len(tasks[0].BeadIDs) != 3 {
-		t.Errorf("expected 3 beads in task, got %d", len(tasks[0].BeadIDs))
-	}
+	assert.Len(t, tasks, 1, "expected 1 task")
+	assert.Len(t, tasks[0].BeadIDs, 3, "expected 3 beads in task")
 }
 
 func TestPlanSplitByBudget(t *testing.T) {
@@ -138,22 +120,16 @@ func TestPlanSplitByBudget(t *testing.T) {
 
 	// Budget of 7 should split into multiple tasks
 	tasks, err := planner.Plan(inputBeads, 7)
-	if err != nil {
-		t.Fatalf("Plan failed: %v", err)
-	}
+	require.NoError(t, err, "Plan failed")
 
-	if len(tasks) < 2 {
-		t.Errorf("expected at least 2 tasks, got %d", len(tasks))
-	}
+	assert.GreaterOrEqual(t, len(tasks), 2, "expected at least 2 tasks")
 
 	// Verify all beads are assigned
 	totalBeads := 0
 	for _, task := range tasks {
 		totalBeads += len(task.BeadIDs)
 	}
-	if totalBeads != 3 {
-		t.Errorf("expected 3 total beads, got %d", totalBeads)
-	}
+	assert.Equal(t, 3, totalBeads, "expected 3 total beads")
 }
 
 func TestPlanRespectsDependencies(t *testing.T) {
@@ -169,9 +145,7 @@ func TestPlanRespectsDependencies(t *testing.T) {
 
 	// Small budget to force multiple tasks
 	tasks, err := planner.Plan(inputBeads, 4)
-	if err != nil {
-		t.Fatalf("Plan failed: %v", err)
-	}
+	require.NoError(t, err, "Plan failed")
 
 	// Find which tasks contain a and b
 	taskForBead := make(map[string]int)
@@ -182,9 +156,7 @@ func TestPlanRespectsDependencies(t *testing.T) {
 	}
 
 	// b depends on a, so a's task index must be <= b's task index
-	if taskForBead["a"] > taskForBead["b"] {
-		t.Error("dependency violated: a should be in same or earlier task than b")
-	}
+	assert.LessOrEqual(t, taskForBead["a"], taskForBead["b"], "dependency violated: a should be in same or earlier task than b")
 }
 
 func TestPlanEmpty(t *testing.T) {
@@ -192,13 +164,9 @@ func TestPlanEmpty(t *testing.T) {
 	planner := NewDefaultPlanner(estimator)
 
 	tasks, err := planner.Plan(nil, 10)
-	if err != nil {
-		t.Fatalf("Plan failed: %v", err)
-	}
+	require.NoError(t, err, "Plan failed")
 
-	if tasks != nil && len(tasks) != 0 {
-		t.Errorf("expected no tasks for empty input, got %d", len(tasks))
-	}
+	assert.Empty(t, tasks, "expected no tasks for empty input")
 }
 
 func TestPlanFirstFitDecreasing(t *testing.T) {
@@ -215,15 +183,11 @@ func TestPlanFirstFitDecreasing(t *testing.T) {
 	}
 
 	tasks, err := planner.Plan(inputBeads, 10)
-	if err != nil {
-		t.Fatalf("Plan failed: %v", err)
-	}
+	require.NoError(t, err, "Plan failed")
 
 	// With budget 10, large (6) goes first, then small (2) fits, medium (4) won't fit
 	// So we expect: task1=[large, small], task2=[medium]
-	if len(tasks) != 2 {
-		t.Errorf("expected 2 tasks, got %d", len(tasks))
-	}
+	assert.Len(t, tasks, 2, "expected 2 tasks")
 }
 
 func TestCanAddToTask(t *testing.T) {
@@ -241,16 +205,10 @@ func TestCanAddToTask(t *testing.T) {
 	}
 
 	// b depends on a which is in task 0, so b can be added to task 0 or later
-	if !canAddToTask("b", 0, assigned, graph) {
-		t.Error("b should be addable to task 0 (same as dependency)")
-	}
-	if !canAddToTask("b", 1, assigned, graph) {
-		t.Error("b should be addable to task 1 (after dependency)")
-	}
+	assert.True(t, canAddToTask("b", 0, assigned, graph), "b should be addable to task 0 (same as dependency)")
+	assert.True(t, canAddToTask("b", 1, assigned, graph), "b should be addable to task 1 (after dependency)")
 
 	// Can't add b to task before a
 	assigned["a"] = 1
-	if canAddToTask("b", 0, assigned, graph) {
-		t.Error("b should not be addable to task 0 (before dependency in task 1)")
-	}
+	assert.False(t, canAddToTask("b", 0, assigned, graph), "b should not be addable to task 0 (before dependency in task 1)")
 }
