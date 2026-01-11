@@ -390,11 +390,19 @@ func processWork(proj *project.Project, workID string) error {
 		return nil
 	}
 
-	fmt.Printf("Tasks to process: %d\n", len(tasks))
+	// Count pending tasks
+	pendingCount := 0
+	for _, task := range tasks {
+		if task.Status == db.StatusPending {
+			pendingCount++
+		}
+	}
 
-	// Check work status
-	if work.Status == db.StatusCompleted {
-		fmt.Printf("Work %s is already completed\n", workID)
+	fmt.Printf("Tasks to process: %d (%d pending)\n", len(tasks), pendingCount)
+
+	// Check if there are pending tasks to process
+	if pendingCount == 0 {
+		fmt.Printf("No pending tasks for work %s\n", workID)
 		return nil
 	}
 
