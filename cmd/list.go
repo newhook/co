@@ -29,19 +29,14 @@ func runList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
-
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
 	defer proj.Close()
 
-	beads, err := database.ListBeads(flagListStatus)
+	beadList, err := proj.DB.ListBeads(flagListStatus)
 	if err != nil {
 		return fmt.Errorf("failed to list beads: %w", err)
 	}
 
-	if len(beads) == 0 {
+	if len(beadList) == 0 {
 		if flagListStatus != "" {
 			fmt.Printf("No beads with status '%s'\n", flagListStatus)
 		} else {
@@ -53,7 +48,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%-12s %-12s %-40s %s\n", "ID", "STATUS", "TITLE", "PR")
 	fmt.Printf("%-12s %-12s %-40s %s\n", "---", "------", "-----", "--")
 
-	for _, bead := range beads {
+	for _, bead := range beadList {
 		title := bead.Title
 		if len(title) > 38 {
 			title = title[:35] + "..."

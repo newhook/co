@@ -64,14 +64,9 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
+	defer proj.Close()
 
 	fmt.Printf("Using project: %s\n", proj.Config.Project.Name)
-
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open tracking database: %w", err)
-	}
-	defer proj.Close()
 
 	// Determine work context (required)
 	// Priority: explicit arg > --work flag > directory context
@@ -80,10 +75,10 @@ func runTasks(cmd *cobra.Command, args []string) error {
 
 	if argID != "" {
 		// First, check if argID looks like a task ID (contains a dot like "w-xxx.1" or "w-xxx.pr")
-		// We also verify it exists as a task in the database to handle edge cases
+		// We also verify it exists as a task in the proj.DB to handle edge cases
 		if strings.Contains(argID, ".") {
 			// This looks like a task ID - verify it exists as a task
-			dbTask, err := database.GetTask(context.Background(), argID)
+			dbTask, err := proj.DB.GetTask(context.Background(), argID)
 			if err != nil {
 				return fmt.Errorf("failed to check task %s: %w", argID, err)
 			}
@@ -105,7 +100,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		workID = flagWork
 	} else {
 		// Try to detect work from current directory
-		workID, _ = detectWorkFromDirectory(database, proj)
+		workID, _ = detectWorkFromDirectory(proj)
 		if workID == "" {
 			return fmt.Errorf("no work context found. Use --work flag or run from a work directory")
 		}
@@ -113,17 +108,17 @@ func runTasks(cmd *cobra.Command, args []string) error {
 
 	// Process a specific task or all tasks in a work
 	if taskID != "" {
-		return processTask(proj, database, taskID)
+		return processTask(proj, taskID)
 	}
-	return processWork(proj, database, workID)
+	return processWork(proj, workID)
 }
 
 // processTask processes a single task by ID.
-func processTask(proj *project.Project, database *db.DB, taskID string) error {
+func processTask(proj *project.Project, taskID string) error {
 	ctx := context.Background()
 
 	// Get the task
-	dbTask, err := database.GetTask(ctx, taskID)
+	dbTask, err := proj.DB.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
@@ -142,7 +137,7 @@ func processTask(proj *project.Project, database *db.DB, taskID string) error {
 		return fmt.Errorf("task %s has no associated work", taskID)
 	}
 
-	work, err := database.GetWork(ctx, dbTask.WorkID)
+	work, err := proj.DB.GetWork(ctx, dbTask.WorkID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -165,7 +160,7 @@ func processTask(proj *project.Project, database *db.DB, taskID string) error {
 	}
 
 	// Get bead details for this task
-	beadIDs, err := database.GetTaskBeads(ctx, taskID)
+	beadIDs, err := proj.DB.GetTaskBeads(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get beads for task %s: %w", taskID, err)
 	}
@@ -181,9 +176,9 @@ func processTask(proj *project.Project, database *db.DB, taskID string) error {
 	}
 
 	// Process the task
-	result, err := processTaskInWork(proj, database, dbTask, work, taskBeads)
+	result, err := processTaskInWork(proj, dbTask, work, taskBeads)
 	if err != nil {
-		database.FailTask(ctx, taskID, err.Error())
+		proj.DB.FailTask(ctx, taskID, err.Error())
 		return fmt.Errorf("failed to process task %s: %w", taskID, err)
 	}
 
@@ -211,7 +206,7 @@ func sortTasksByDependency(database *db.DB, tasks []*db.Task, mainRepoPath strin
 	beadToTask := make(map[string]string)
 	taskBeads := make(map[string][]string)
 	for _, t := range tasks {
-		beadIDs, err := database.GetTaskBeads(context.Background(),t.ID)
+		beadIDs, err := database.GetTaskBeads(context.Background(), t.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get beads for task %s: %w", t.ID, err)
 		}
@@ -370,9 +365,9 @@ func createFinalPR(featureBranch string, processedBeads []beads.Bead, dir string
 
 
 // processWork processes all tasks within a work unit.
-func processWork(proj *project.Project, database *db.DB, workID string) error {
+func processWork(proj *project.Project, workID string) error {
 	// Get work details
-	work, err := database.GetWork(context.Background(),workID)
+	work, err := proj.DB.GetWork(context.Background(),workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -385,7 +380,7 @@ func processWork(proj *project.Project, database *db.DB, workID string) error {
 	fmt.Printf("Worktree: %s\n", work.WorktreePath)
 
 	// Get tasks for this work
-	tasks, err := database.GetWorkTasks(context.Background(),workID)
+	tasks, err := proj.DB.GetWorkTasks(context.Background(),workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
 	}
@@ -416,8 +411,8 @@ func processWork(proj *project.Project, database *db.DB, workID string) error {
 	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
 	tabName := fmt.Sprintf("work-%s", work.ID)
 
-	// Start work in database
-	if err := database.StartWork(context.Background(),workID, sessionName, tabName); err != nil {
+	// Start work in proj.DB
+	if err := proj.DB.StartWork(context.Background(),workID, sessionName, tabName); err != nil {
 		return fmt.Errorf("failed to start work: %w", err)
 	}
 
@@ -435,7 +430,7 @@ func processWork(proj *project.Project, database *db.DB, workID string) error {
 		fmt.Printf("\n--- Processing task %s ---\n", task.ID)
 
 		// Get bead details for this task
-		beadIDs, err := database.GetTaskBeads(context.Background(),task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(context.Background(),task.ID)
 		if err != nil {
 			fmt.Printf("Failed to get beads for task %s: %v\n", task.ID, err)
 			continue
@@ -452,10 +447,10 @@ func processWork(proj *project.Project, database *db.DB, workID string) error {
 		}
 
 		// Process task in the work's worktree
-		result, err := processTaskInWork(proj, database, task, work, taskBeads)
+		result, err := processTaskInWork(proj, task, work, taskBeads)
 		if err != nil {
 			fmt.Printf("Failed to process task %s: %v\n", task.ID, err)
-			database.FailTask(context.Background(),task.ID, err.Error())
+			proj.DB.FailTask(context.Background(), task.ID, err.Error())
 			continue
 		}
 
@@ -471,7 +466,7 @@ func processWork(proj *project.Project, database *db.DB, workID string) error {
 		fmt.Printf("Completed %d task(s) with %d bead(s)\n", completedTasks, len(allBeads))
 
 		// Mark work as completed (without PR URL since we're not creating it)
-		if err := database.CompleteWork(context.Background(), workID, ""); err != nil {
+		if err := proj.DB.CompleteWork(context.Background(), workID, ""); err != nil {
 			return fmt.Errorf("failed to complete work: %w", err)
 		}
 
@@ -479,7 +474,7 @@ func processWork(proj *project.Project, database *db.DB, workID string) error {
 		fmt.Printf("To create a PR, run: co work pr %s\n", workID)
 	} else {
 		// No tasks completed, mark work as failed
-		if err := database.FailWork(context.Background(), workID, "No tasks completed successfully"); err != nil {
+		if err := proj.DB.FailWork(context.Background(), workID, "No tasks completed successfully"); err != nil {
 			return fmt.Errorf("failed to mark work as failed: %w", err)
 		}
 	}
@@ -491,16 +486,16 @@ func processWork(proj *project.Project, database *db.DB, workID string) error {
 }
 
 // processTaskInWork processes a single task within a work's worktree.
-func processTaskInWork(proj *project.Project, database *db.DB, dbTask *db.Task, work *db.Work, taskBeads []beads.Bead) (*claude.TaskResult, error) {
+func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, taskBeads []beads.Bead) (*claude.TaskResult, error) {
 	fmt.Printf("Processing %d bead(s) for task %s\n", len(taskBeads), dbTask.ID)
 	for _, b := range taskBeads {
 		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
 	}
 
-	// Start task in database
+	// Start task in proj.DB
 	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
-	if err := database.StartTask(context.Background(),dbTask.ID, sessionName, dbTask.ID); err != nil {
-		return nil, fmt.Errorf("failed to start task in database: %w", err)
+	if err := proj.DB.StartTask(context.Background(),dbTask.ID, sessionName, dbTask.ID); err != nil {
+		return nil, fmt.Errorf("failed to start task in proj.DB: %w", err)
 	}
 
 	// Build task object for Claude
@@ -534,7 +529,7 @@ func processTaskInWork(proj *project.Project, database *db.DB, dbTask *db.Task, 
 	// Run Claude in the work's worktree directory
 	ctx := context.Background()
 	projectName := proj.Config.Project.Name
-	result, err := claude.Run(ctx, database, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
+	result, err := claude.Run(ctx, proj.DB, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
 	if err != nil {
 		fmt.Printf("Claude failed: %v\n", err)
 		return nil, fmt.Errorf("claude failed: %w", err)
@@ -543,7 +538,7 @@ func processTaskInWork(proj *project.Project, database *db.DB, dbTask *db.Task, 
 	// Update task status based on result
 	if result.Completed {
 		fmt.Printf("Task %s completed successfully\n", dbTask.ID)
-		if err := database.CompleteTask(context.Background(),dbTask.ID, ""); err != nil {
+		if err := proj.DB.CompleteTask(context.Background(),dbTask.ID, ""); err != nil {
 			fmt.Printf("Warning: failed to update task status: %v\n", err)
 		}
 	} else if result.PartialFailure {

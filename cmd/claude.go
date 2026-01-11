@@ -42,16 +42,10 @@ func runClaude(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-
 	ctx := context.Background()
 
 	// Get task to verify it exists
-	task, err := database.GetTask(ctx, taskID)
+	task, err := proj.DB.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task %s: %w", taskID, err)
 	}
@@ -76,7 +70,7 @@ func runClaude(cmd *cobra.Command, args []string) error {
 
 	// Start Claude
 	if err := claudeCmd.Start(); err != nil {
-		database.FailTask(ctx, taskID, fmt.Sprintf("Failed to start Claude: %v", err))
+		proj.DB.FailTask(ctx, taskID, fmt.Sprintf("Failed to start Claude: %v", err))
 		return fmt.Errorf("failed to start Claude: %w", err)
 	}
 
@@ -95,7 +89,7 @@ func runClaude(cmd *cobra.Command, args []string) error {
 		select {
 		case <-ticker.C:
 			// Check if task is marked as completed in database
-			task, err := database.GetTask(ctx, taskID)
+			task, err := proj.DB.GetTask(ctx, taskID)
 			if err == nil && task != nil {
 				if task.Status == db.StatusCompleted || task.Status == db.StatusFailed {
 					fmt.Printf("\nTask marked as %s in database, terminating Claude...\n", task.Status)
@@ -151,7 +145,7 @@ exit:
 	if exitErr != nil {
 		// Claude exited with error
 		fmt.Printf("Claude exited with error for task %s after %v: %v\n", taskID, duration, exitErr)
-		database.FailTask(ctx, taskID, fmt.Sprintf("Claude exited with error after %v: %v", duration, exitErr))
+		proj.DB.FailTask(ctx, taskID, fmt.Sprintf("Claude exited with error after %v: %v", duration, exitErr))
 		return exitErr
 	}
 
@@ -159,7 +153,7 @@ exit:
 	fmt.Printf("Claude exited cleanly for task %s after %v\n", taskID, duration)
 
 	// Re-fetch task to check final status
-	task, err = database.GetTask(ctx, taskID)
+	task, err = proj.DB.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to check final task status: %w", err)
 	}
@@ -170,7 +164,7 @@ exit:
 		fmt.Printf("ERROR: %s\n", failureMsg)
 
 		// Mark task as failed
-		if err := database.FailTask(ctx, taskID, failureMsg); err != nil {
+		if err := proj.DB.FailTask(ctx, taskID, failureMsg); err != nil {
 			fmt.Printf("Warning: failed to mark task as failed: %v\n", err)
 		}
 

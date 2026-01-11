@@ -89,6 +89,7 @@ func runProjDestroy(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
+	defer proj.Close()
 
 	// List worktrees
 	worktrees, err := worktree.List(proj.MainRepoPath())
@@ -148,6 +149,7 @@ func runProjStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
+	defer proj.Close()
 
 	// Print project info
 	fmt.Printf("Project: %s\n", proj.Config.Project.Name)
@@ -184,14 +186,7 @@ func runProjStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show task status from database
-	database, err := proj.OpenDB()
-	if err != nil {
-		fmt.Printf("\nDatabase: error opening (%v)\n", err)
-		return nil
-	}
-	defer proj.Close()
-
-	beads, err := database.ListBeads("")
+	beads, err := proj.DB.ListBeads("")
 	if err != nil {
 		fmt.Printf("\nTasks: error listing (%v)\n", err)
 		return nil
