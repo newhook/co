@@ -15,7 +15,7 @@ type Querier interface {
 	CompleteTask(ctx context.Context, arg CompleteTaskParams) (int64, error)
 	CompleteTaskBead(ctx context.Context, arg CompleteTaskBeadParams) (int64, error)
 	CompleteWork(ctx context.Context, arg CompleteWorkParams) (int64, error)
-	CompleteWorkflowStep(ctx context.Context, workID string) (int64, error)
+	CompleteWorkflowStep(ctx context.Context, workflowID string) (int64, error)
 	CountEstimatedBeads(ctx context.Context, beadIds []string) (int64, error)
 	CountTaskBeadStatuses(ctx context.Context, taskID string) (CountTaskBeadStatusesRow, error)
 	CreateMigrationsTable(ctx context.Context) error
@@ -32,7 +32,7 @@ type Querier interface {
 	DeleteWork(ctx context.Context, id string) (int64, error)
 	DeleteWorkTaskByTask(ctx context.Context, taskID string) (int64, error)
 	DeleteWorkTasks(ctx context.Context, workID string) (int64, error)
-	DeleteWorkflowState(ctx context.Context, workID string) (int64, error)
+	DeleteWorkflowState(ctx context.Context, workflowID string) (int64, error)
 	FailBead(ctx context.Context, arg FailBeadParams) (int64, error)
 	FailTask(ctx context.Context, arg FailTaskParams) (int64, error)
 	FailTaskBead(ctx context.Context, arg FailTaskBeadParams) (int64, error)
@@ -56,7 +56,7 @@ type Querier interface {
 	GetWork(ctx context.Context, id string) (Work, error)
 	GetWorkByDirectory(ctx context.Context, worktreePath string) (Work, error)
 	GetWorkTasks(ctx context.Context, workID string) ([]Task, error)
-	GetWorkflowState(ctx context.Context, workID string) (WorkflowState, error)
+	GetWorkflowState(ctx context.Context, workflowID string) (WorkflowState, error)
 	InitializeTaskCounter(ctx context.Context, workID string) error
 	ListBeads(ctx context.Context) ([]Bead, error)
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)
@@ -70,6 +70,7 @@ type Querier interface {
 	ResetTaskBeadStatuses(ctx context.Context, taskID string) (int64, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
 	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error
+	SetWorkflowWorkID(ctx context.Context, arg SetWorkflowWorkIDParams) (int64, error)
 	SpawnTask(ctx context.Context, arg SpawnTaskParams) (int64, error)
 	StartBead(ctx context.Context, arg StartBeadParams) error
 	StartTask(ctx context.Context, arg StartTaskParams) (int64, error)

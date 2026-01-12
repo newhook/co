@@ -7,17 +7,18 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const completeWorkflowStep = `-- name: CompleteWorkflowStep :execrows
 UPDATE workflow_state
 SET step_status = 'completed',
     updated_at = CURRENT_TIMESTAMP
-WHERE work_id = ?
+WHERE workflow_id = ?
 `
 
-func (q *Queries) CompleteWorkflowStep(ctx context.Context, workID string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, completeWorkflowStep, workID)
+func (q *Queries) CompleteWorkflowStep(ctx context.Context, workflowID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, completeWorkflowStep, workflowID)
 	if err != nil {
 		return 0, err
 	}
@@ -25,19 +26,21 @@ func (q *Queries) CompleteWorkflowStep(ctx context.Context, workID string) (int6
 }
 
 const createWorkflowState = `-- name: CreateWorkflowState :exec
-INSERT INTO workflow_state (work_id, current_step, step_status, step_data)
-VALUES (?, ?, ?, ?)
+INSERT INTO workflow_state (workflow_id, work_id, current_step, step_status, step_data)
+VALUES (?, ?, ?, ?, ?)
 `
 
 type CreateWorkflowStateParams struct {
-	WorkID      string `json:"work_id"`
-	CurrentStep int64  `json:"current_step"`
-	StepStatus  string `json:"step_status"`
-	StepData    string `json:"step_data"`
+	WorkflowID  string         `json:"workflow_id"`
+	WorkID      sql.NullString `json:"work_id"`
+	CurrentStep int64          `json:"current_step"`
+	StepStatus  string         `json:"step_status"`
+	StepData    string         `json:"step_data"`
 }
 
 func (q *Queries) CreateWorkflowState(ctx context.Context, arg CreateWorkflowStateParams) error {
 	_, err := q.db.ExecContext(ctx, createWorkflowState,
+		arg.WorkflowID,
 		arg.WorkID,
 		arg.CurrentStep,
 		arg.StepStatus,
@@ -48,11 +51,11 @@ func (q *Queries) CreateWorkflowState(ctx context.Context, arg CreateWorkflowSta
 
 const deleteWorkflowState = `-- name: DeleteWorkflowState :execrows
 DELETE FROM workflow_state
-WHERE work_id = ?
+WHERE workflow_id = ?
 `
 
-func (q *Queries) DeleteWorkflowState(ctx context.Context, workID string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteWorkflowState, workID)
+func (q *Queries) DeleteWorkflowState(ctx context.Context, workflowID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteWorkflowState, workflowID)
 	if err != nil {
 		return 0, err
 	}
@@ -64,16 +67,16 @@ UPDATE workflow_state
 SET step_status = 'failed',
     error_message = ?,
     updated_at = CURRENT_TIMESTAMP
-WHERE work_id = ?
+WHERE workflow_id = ?
 `
 
 type FailWorkflowStepParams struct {
 	ErrorMessage string `json:"error_message"`
-	WorkID       string `json:"work_id"`
+	WorkflowID   string `json:"workflow_id"`
 }
 
 func (q *Queries) FailWorkflowStep(ctx context.Context, arg FailWorkflowStepParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, failWorkflowStep, arg.ErrorMessage, arg.WorkID)
+	result, err := q.db.ExecContext(ctx, failWorkflowStep, arg.ErrorMessage, arg.WorkflowID)
 	if err != nil {
 		return 0, err
 	}
@@ -81,15 +84,16 @@ func (q *Queries) FailWorkflowStep(ctx context.Context, arg FailWorkflowStepPara
 }
 
 const getWorkflowState = `-- name: GetWorkflowState :one
-SELECT work_id, current_step, step_status, step_data, error_message, created_at, updated_at
+SELECT workflow_id, work_id, current_step, step_status, step_data, error_message, created_at, updated_at
 FROM workflow_state
-WHERE work_id = ?
+WHERE workflow_id = ?
 `
 
-func (q *Queries) GetWorkflowState(ctx context.Context, workID string) (WorkflowState, error) {
-	row := q.db.QueryRowContext(ctx, getWorkflowState, workID)
+func (q *Queries) GetWorkflowState(ctx context.Context, workflowID string) (WorkflowState, error) {
+	row := q.db.QueryRowContext(ctx, getWorkflowState, workflowID)
 	var i WorkflowState
 	err := row.Scan(
+		&i.WorkflowID,
 		&i.WorkID,
 		&i.CurrentStep,
 		&i.StepStatus,
@@ -102,7 +106,7 @@ func (q *Queries) GetWorkflowState(ctx context.Context, workID string) (Workflow
 }
 
 const listPendingWorkflows = `-- name: ListPendingWorkflows :many
-SELECT work_id, current_step, step_status, step_data, error_message, created_at, updated_at
+SELECT workflow_id, work_id, current_step, step_status, step_data, error_message, created_at, updated_at
 FROM workflow_state
 WHERE step_status = 'pending' OR step_status = 'processing'
 ORDER BY created_at
@@ -118,6 +122,7 @@ func (q *Queries) ListPendingWorkflows(ctx context.Context) ([]WorkflowState, er
 	for rows.Next() {
 		var i WorkflowState
 		if err := rows.Scan(
+			&i.WorkflowID,
 			&i.WorkID,
 			&i.CurrentStep,
 			&i.StepStatus,
@@ -139,6 +144,26 @@ func (q *Queries) ListPendingWorkflows(ctx context.Context) ([]WorkflowState, er
 	return items, nil
 }
 
+const setWorkflowWorkID = `-- name: SetWorkflowWorkID :execrows
+UPDATE workflow_state
+SET work_id = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE workflow_id = ?
+`
+
+type SetWorkflowWorkIDParams struct {
+	WorkID     sql.NullString `json:"work_id"`
+	WorkflowID string         `json:"workflow_id"`
+}
+
+func (q *Queries) SetWorkflowWorkID(ctx context.Context, arg SetWorkflowWorkIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setWorkflowWorkID, arg.WorkID, arg.WorkflowID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateWorkflowStep = `-- name: UpdateWorkflowStep :execrows
 UPDATE workflow_state
 SET current_step = ?,
@@ -146,14 +171,14 @@ SET current_step = ?,
     step_data = ?,
     error_message = '',
     updated_at = CURRENT_TIMESTAMP
-WHERE work_id = ?
+WHERE workflow_id = ?
 `
 
 type UpdateWorkflowStepParams struct {
 	CurrentStep int64  `json:"current_step"`
 	StepStatus  string `json:"step_status"`
 	StepData    string `json:"step_data"`
-	WorkID      string `json:"work_id"`
+	WorkflowID  string `json:"workflow_id"`
 }
 
 func (q *Queries) UpdateWorkflowStep(ctx context.Context, arg UpdateWorkflowStepParams) (int64, error) {
@@ -161,7 +186,7 @@ func (q *Queries) UpdateWorkflowStep(ctx context.Context, arg UpdateWorkflowStep
 		arg.CurrentStep,
 		arg.StepStatus,
 		arg.StepData,
-		arg.WorkID,
+		arg.WorkflowID,
 	)
 	if err != nil {
 		return 0, err

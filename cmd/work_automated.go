@@ -158,7 +158,7 @@ func runOrchestratedWorkflow(proj *project.Project, workflowID string) error {
 		fmt.Printf("\n=== Step %d: %s ===\n", state.CurrentStep, stepName(state.CurrentStep))
 
 		// Run the orchestration step
-		flagOrchestrateWork = workflowID
+		flagOrchestrateWorkflow = workflowID
 		flagOrchestrateStep = state.CurrentStep
 		if err := runOrchestrate(nil, nil); err != nil {
 			return err

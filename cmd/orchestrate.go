@@ -38,8 +38,8 @@ type StepData struct {
 }
 
 var (
-	flagOrchestrateWork string
-	flagOrchestrateStep int
+	flagOrchestrateWorkflow string
+	flagOrchestrateStep     int
 )
 
 var orchestrateCmd = &cobra.Command{
@@ -51,7 +51,7 @@ var orchestrateCmd = &cobra.Command{
 }
 
 func init() {
-	orchestrateCmd.Flags().StringVar(&flagOrchestrateWork, "work", "", "work ID to orchestrate")
+	orchestrateCmd.Flags().StringVar(&flagOrchestrateWorkflow, "workflow", "", "workflow ID to orchestrate")
 	orchestrateCmd.Flags().IntVar(&flagOrchestrateStep, "step", -1, "step number to execute (-1 for auto-detect)")
 }
 
@@ -65,17 +65,17 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Get workflow state
-	workID := flagOrchestrateWork
-	if workID == "" {
-		return fmt.Errorf("--work is required")
+	workflowID := flagOrchestrateWorkflow
+	if workflowID == "" {
+		return fmt.Errorf("--workflow is required")
 	}
 
-	state, err := proj.DB.GetWorkflowState(ctx, workID)
+	state, err := proj.DB.GetWorkflowState(ctx, workflowID)
 	if err != nil {
 		return fmt.Errorf("failed to get workflow state: %w", err)
 	}
 	if state == nil {
-		return fmt.Errorf("no workflow state found for work %s", workID)
+		return fmt.Errorf("no workflow state found for workflow %s", workflowID)
 	}
 
 	// Determine which step to execute
@@ -91,9 +91,8 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to parse step data: %w", err)
 		}
 	}
-	stepData.WorkID = workID
 
-	fmt.Printf("=== Orchestrating work %s, step %d ===\n", workID, step)
+	fmt.Printf("=== Orchestrating workflow %s, step %d ===\n", workflowID, step)
 
 	// Execute the step
 	var nextStep int
@@ -123,10 +122,17 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		// Mark workflow as failed
-		if dbErr := proj.DB.FailWorkflowStep(ctx, workID, err.Error()); dbErr != nil {
+		if dbErr := proj.DB.FailWorkflowStep(ctx, workflowID, err.Error()); dbErr != nil {
 			fmt.Printf("Warning: failed to update workflow state: %v\n", dbErr)
 		}
 		return err
+	}
+
+	// If StepCreateWork just completed, link the workflow to the new work
+	if step == StepCreateWork && nextData.WorkID != "" {
+		if err := proj.DB.SetWorkflowWorkID(ctx, workflowID, nextData.WorkID); err != nil {
+			return fmt.Errorf("failed to link workflow to work: %w", err)
+		}
 	}
 
 	// Update workflow state
@@ -136,7 +142,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	}
 
 	if nextStep == StepCompleted {
-		if err := proj.DB.CompleteWorkflowStep(ctx, workID); err != nil {
+		if err := proj.DB.CompleteWorkflowStep(ctx, workflowID); err != nil {
 			return fmt.Errorf("failed to complete workflow: %w", err)
 		}
 		fmt.Println("=== Workflow completed successfully ===")
@@ -144,12 +150,12 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update state and spawn next step
-	if err := proj.DB.UpdateWorkflowStep(ctx, workID, nextStep, "pending", string(nextDataJSON)); err != nil {
+	if err := proj.DB.UpdateWorkflowStep(ctx, workflowID, nextStep, "pending", string(nextDataJSON)); err != nil {
 		return fmt.Errorf("failed to update workflow state: %w", err)
 	}
 
 	// Spawn next step via zellij
-	if err := spawnNextStep(proj, workID, nextStep); err != nil {
+	if err := spawnNextStep(proj, workflowID, nextStep); err != nil {
 		return fmt.Errorf("failed to spawn next step: %w", err)
 	}
 
@@ -454,14 +460,14 @@ func stepCreatePR(proj *project.Project, data StepData) (int, StepData, error) {
 }
 
 // spawnNextStep spawns the next orchestration step via zellij
-func spawnNextStep(proj *project.Project, workID string, step int) error {
+func spawnNextStep(proj *project.Project, workflowID string, step int) error {
 	// Build the command to run
 	coPath, err := os.Executable()
 	if err != nil {
 		coPath = "co" // Fallback to PATH lookup
 	}
 
-	command := fmt.Sprintf("%s orchestrate --work %s --step %d", coPath, workID, step)
+	command := fmt.Sprintf("%s orchestrate --workflow %s --step %d", coPath, workflowID, step)
 
 	// Use zellij to run the command in the same pane
 	cmd := exec.Command("zellij", "action", "write-chars", command+"\n")
@@ -477,9 +483,8 @@ func spawnNextStep(proj *project.Project, workID string, step int) error {
 func InitWorkflow(proj *project.Project, beadID, baseBranch string) (string, error) {
 	ctx := GetContext()
 
-	// Generate a temporary work ID for the workflow
-	// The actual work ID will be created during StepCreateWork
-	workID := fmt.Sprintf("workflow-%d", time.Now().UnixNano())
+	// Generate workflow ID (the work ID will be created during StepCreateWork)
+	workflowID := fmt.Sprintf("workflow-%d", time.Now().UnixNano())
 
 	// Create initial step data
 	stepData := StepData{
@@ -491,10 +496,10 @@ func InitWorkflow(proj *project.Project, beadID, baseBranch string) (string, err
 		return "", fmt.Errorf("failed to serialize step data: %w", err)
 	}
 
-	// Create workflow state
-	if err := proj.DB.CreateWorkflowState(ctx, workID, StepCreateWork, "pending", string(stepDataJSON)); err != nil {
+	// Create workflow state (work_id is empty until StepCreateWork completes)
+	if err := proj.DB.CreateWorkflowState(ctx, workflowID, "", StepCreateWork, "pending", string(stepDataJSON)); err != nil {
 		return "", fmt.Errorf("failed to create workflow state: %w", err)
 	}
 
-	return workID, nil
+	return workflowID, nil
 }

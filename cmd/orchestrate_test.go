@@ -119,8 +119,11 @@ func TestWorkflowStateDatabase(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	// First, create a work record since workflow_state has a foreign key to works
+	// Workflow ID is separate from work ID
+	workflowID := "workflow-test123"
 	workID := "w-test123"
+
+	// Create a work record (optional, for when work_id is set)
 	err := database.CreateWork(ctx, workID, "/tmp/worktree", "feat/test", "main")
 	if err != nil {
 		t.Fatalf("CreateWork failed: %v", err)
@@ -132,22 +135,25 @@ func TestWorkflowStateDatabase(t *testing.T) {
 	}
 	stepDataJSON, _ := json.Marshal(stepData)
 
-	// Test CreateWorkflowState
-	err = database.CreateWorkflowState(ctx, workID, StepCreateWork, "pending", string(stepDataJSON))
+	// Test CreateWorkflowState (initially without work_id)
+	err = database.CreateWorkflowState(ctx, workflowID, "", StepCreateWork, "pending", string(stepDataJSON))
 	if err != nil {
 		t.Fatalf("CreateWorkflowState failed: %v", err)
 	}
 
 	// Test GetWorkflowState
-	state, err := database.GetWorkflowState(ctx, workID)
+	state, err := database.GetWorkflowState(ctx, workflowID)
 	if err != nil {
 		t.Fatalf("GetWorkflowState failed: %v", err)
 	}
 	if state == nil {
 		t.Fatal("GetWorkflowState returned nil")
 	}
-	if state.WorkID != workID {
-		t.Errorf("WorkID mismatch: got %q, want %q", state.WorkID, workID)
+	if state.WorkflowID != workflowID {
+		t.Errorf("WorkflowID mismatch: got %q, want %q", state.WorkflowID, workflowID)
+	}
+	if state.WorkID != "" {
+		t.Errorf("WorkID should be empty initially, got %q", state.WorkID)
 	}
 	if state.CurrentStep != StepCreateWork {
 		t.Errorf("CurrentStep mismatch: got %d, want %d", state.CurrentStep, StepCreateWork)
@@ -156,20 +162,34 @@ func TestWorkflowStateDatabase(t *testing.T) {
 		t.Errorf("StepStatus mismatch: got %q, want %q", state.StepStatus, "pending")
 	}
 
+	// Test SetWorkflowWorkID (links workflow to work after StepCreateWork)
+	err = database.SetWorkflowWorkID(ctx, workflowID, workID)
+	if err != nil {
+		t.Fatalf("SetWorkflowWorkID failed: %v", err)
+	}
+
+	state, err = database.GetWorkflowState(ctx, workflowID)
+	if err != nil {
+		t.Fatalf("GetWorkflowState after SetWorkflowWorkID failed: %v", err)
+	}
+	if state.WorkID != workID {
+		t.Errorf("WorkID mismatch after SetWorkflowWorkID: got %q, want %q", state.WorkID, workID)
+	}
+
 	// Test UpdateWorkflowStep
 	newStepData := StepData{
 		BeadID:     "test-bead",
 		BaseBranch: "main",
-		WorkID:     "w-abc",
+		WorkID:     workID,
 		BranchName: "feat/test",
 	}
 	newStepDataJSON, _ := json.Marshal(newStepData)
-	err = database.UpdateWorkflowStep(ctx, workID, StepCollectBeads, "processing", string(newStepDataJSON))
+	err = database.UpdateWorkflowStep(ctx, workflowID, StepCollectBeads, "processing", string(newStepDataJSON))
 	if err != nil {
 		t.Fatalf("UpdateWorkflowStep failed: %v", err)
 	}
 
-	state, err = database.GetWorkflowState(ctx, workID)
+	state, err = database.GetWorkflowState(ctx, workflowID)
 	if err != nil {
 		t.Fatalf("GetWorkflowState after update failed: %v", err)
 	}
@@ -182,12 +202,12 @@ func TestWorkflowStateDatabase(t *testing.T) {
 
 	// Test FailWorkflowStep
 	errMsg := "test error message"
-	err = database.FailWorkflowStep(ctx, workID, errMsg)
+	err = database.FailWorkflowStep(ctx, workflowID, errMsg)
 	if err != nil {
 		t.Fatalf("FailWorkflowStep failed: %v", err)
 	}
 
-	state, err = database.GetWorkflowState(ctx, workID)
+	state, err = database.GetWorkflowState(ctx, workflowID)
 	if err != nil {
 		t.Fatalf("GetWorkflowState after fail failed: %v", err)
 	}
@@ -199,14 +219,14 @@ func TestWorkflowStateDatabase(t *testing.T) {
 	}
 
 	// Reset to test CompleteWorkflowStep
-	database.UpdateWorkflowStep(ctx, workID, StepCreatePR, "processing", "{}")
+	database.UpdateWorkflowStep(ctx, workflowID, StepCreatePR, "processing", "{}")
 
-	err = database.CompleteWorkflowStep(ctx, workID)
+	err = database.CompleteWorkflowStep(ctx, workflowID)
 	if err != nil {
 		t.Fatalf("CompleteWorkflowStep failed: %v", err)
 	}
 
-	state, err = database.GetWorkflowState(ctx, workID)
+	state, err = database.GetWorkflowState(ctx, workflowID)
 	if err != nil {
 		t.Fatalf("GetWorkflowState after complete failed: %v", err)
 	}
@@ -236,29 +256,23 @@ func TestListPendingWorkflows(t *testing.T) {
 	ctx := context.Background()
 
 	// Create multiple workflows with different statuses
+	// Note: workflow_id is the primary key, work_id can be set later
 	workflows := []struct {
-		id     string
-		status string
+		workflowID string
+		status     string
 	}{
-		{"w-wf1", "pending"},
-		{"w-wf2", "processing"},
-		{"w-wf3", "completed"},
-		{"w-wf4", "failed"},
-		{"w-wf5", "pending"},
-	}
-
-	// First create work records for foreign key
-	for _, wf := range workflows {
-		err := database.CreateWork(ctx, wf.id, "/tmp/worktree-"+wf.id, "feat/"+wf.id, "main")
-		if err != nil {
-			t.Fatalf("Failed to create work %s: %v", wf.id, err)
-		}
+		{"workflow-wf1", "pending"},
+		{"workflow-wf2", "processing"},
+		{"workflow-wf3", "completed"},
+		{"workflow-wf4", "failed"},
+		{"workflow-wf5", "pending"},
 	}
 
 	for _, wf := range workflows {
-		err := database.CreateWorkflowState(ctx, wf.id, 0, wf.status, "{}")
+		// Create workflow state with empty work_id (work not yet created)
+		err := database.CreateWorkflowState(ctx, wf.workflowID, "", 0, wf.status, "{}")
 		if err != nil {
-			t.Fatalf("Failed to create workflow %s: %v", wf.id, err)
+			t.Fatalf("Failed to create workflow %s: %v", wf.workflowID, err)
 		}
 	}
 
@@ -268,7 +282,7 @@ func TestListPendingWorkflows(t *testing.T) {
 		t.Fatalf("ListPendingWorkflows failed: %v", err)
 	}
 
-	// Should have workflow-1, workflow-2, workflow-5 (pending/processing)
+	// Should have workflow-wf1, workflow-wf2, workflow-wf5 (pending/processing)
 	if len(pending) != 3 {
 		t.Errorf("Expected 3 pending workflows, got %d", len(pending))
 	}
@@ -286,32 +300,28 @@ func TestDeleteWorkflowState(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	workID := "w-todelete"
-	// First create a work record
-	err := database.CreateWork(ctx, workID, "/tmp/worktree", "feat/delete", "main")
-	if err != nil {
-		t.Fatalf("CreateWork failed: %v", err)
-	}
+	workflowID := "workflow-todelete"
 
-	err = database.CreateWorkflowState(ctx, workID, 0, "pending", "{}")
+	// Create workflow state (no work_id needed for this test)
+	err := database.CreateWorkflowState(ctx, workflowID, "", 0, "pending", "{}")
 	if err != nil {
 		t.Fatalf("CreateWorkflowState failed: %v", err)
 	}
 
 	// Verify it exists
-	state, _ := database.GetWorkflowState(ctx, workID)
+	state, _ := database.GetWorkflowState(ctx, workflowID)
 	if state == nil {
 		t.Fatal("Workflow should exist before delete")
 	}
 
 	// Delete it
-	err = database.DeleteWorkflowState(ctx, workID)
+	err = database.DeleteWorkflowState(ctx, workflowID)
 	if err != nil {
 		t.Fatalf("DeleteWorkflowState failed: %v", err)
 	}
 
 	// Verify it's gone
-	state, _ = database.GetWorkflowState(ctx, workID)
+	state, _ = database.GetWorkflowState(ctx, workflowID)
 	if state != nil {
 		t.Error("Workflow should not exist after delete")
 	}
