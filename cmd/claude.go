@@ -15,6 +15,7 @@ import (
 
 var (
 	claudeAutoClose bool
+	claudePromptFile string
 )
 
 var claudeCmd = &cobra.Command{
@@ -28,6 +29,7 @@ var claudeCmd = &cobra.Command{
 
 func init() {
 	claudeCmd.Flags().BoolVar(&claudeAutoClose, "auto-close", false, "automatically close tab after completion")
+	claudeCmd.Flags().StringVar(&claudePromptFile, "prompt-file", "", "file containing prompt to send to Claude on startup")
 }
 
 func runClaude(cmd *cobra.Command, args []string) error {
@@ -56,7 +58,21 @@ func runClaude(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Starting Claude for task %s at %s\n", taskID, startTime.Format("15:04:05"))
 
 	// Set up Claude command
-	claudeCmd := exec.Command("claude", "--dangerously-skip-permissions")
+	var claudeArgs []string
+	if claudePromptFile != "" {
+		// Pass the prompt file content as a positional argument to claude
+		promptBytes, err := os.ReadFile(claudePromptFile)
+		if err != nil {
+			proj.DB.FailTask(ctx, taskID, fmt.Sprintf("Failed to read prompt file: %v", err))
+			return fmt.Errorf("failed to read prompt file: %w", err)
+		}
+		prompt := string(promptBytes)
+		claudeArgs = []string{"--dangerously-skip-permissions", prompt}
+	} else {
+		claudeArgs = []string{"--dangerously-skip-permissions"}
+	}
+
+	claudeCmd := exec.Command("claude", claudeArgs...)
 	claudeCmd.Stdin = os.Stdin
 	claudeCmd.Stdout = os.Stdout
 	claudeCmd.Stderr = os.Stderr
