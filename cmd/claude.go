@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 
 var (
 	claudeAutoClose bool
+	claudePromptFile string
 )
 
 var claudeCmd = &cobra.Command{
@@ -28,6 +31,7 @@ var claudeCmd = &cobra.Command{
 
 func init() {
 	claudeCmd.Flags().BoolVar(&claudeAutoClose, "auto-close", false, "automatically close tab after completion")
+	claudeCmd.Flags().StringVar(&claudePromptFile, "prompt-file", "", "file containing prompt to send to Claude on startup")
 }
 
 func runClaude(cmd *cobra.Command, args []string) error {
@@ -57,7 +61,31 @@ func runClaude(cmd *cobra.Command, args []string) error {
 
 	// Set up Claude command
 	claudeCmd := exec.Command("claude", "--dangerously-skip-permissions")
-	claudeCmd.Stdin = os.Stdin
+
+	// Handle prompt file if provided
+	if claudePromptFile != "" {
+		// Read the prompt from the file
+		promptBytes, err := os.ReadFile(claudePromptFile)
+		if err != nil {
+			proj.DB.FailTask(ctx, taskID, fmt.Sprintf("Failed to read prompt file: %v", err))
+			return fmt.Errorf("failed to read prompt file: %w", err)
+		}
+
+		// Create a reader that first provides the prompt (with newline to submit),
+		// then switches to os.Stdin for interactive input
+		prompt := string(promptBytes)
+		// Ensure prompt ends with newline to submit it
+		if !strings.HasSuffix(prompt, "\n") {
+			prompt += "\n"
+		}
+		// Add one more newline to ensure submission
+		prompt += "\n"
+
+		claudeCmd.Stdin = io.MultiReader(strings.NewReader(prompt), os.Stdin)
+	} else {
+		claudeCmd.Stdin = os.Stdin
+	}
+
 	claudeCmd.Stdout = os.Stdout
 	claudeCmd.Stderr = os.Stderr
 

@@ -5,7 +5,9 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -66,8 +68,17 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		return nil, err
 	}
 
+	// Write prompt to a temporary file
+	tmpDir := os.TempDir()
+	promptFile := filepath.Join(tmpDir, fmt.Sprintf("co-prompt-%s.txt", taskID))
+	if err := os.WriteFile(promptFile, []byte(prompt), 0600); err != nil {
+		return nil, fmt.Errorf("failed to write prompt file: %w", err)
+	}
+	// Clean up the prompt file when done
+	defer os.Remove(promptFile)
+
 	// Build the wrapper command - assume co is in PATH since user is running it
-	claudeCommand := fmt.Sprintf("co claude %s", taskID)
+	claudeCommand := fmt.Sprintf("co claude %s --prompt-file %s", taskID, promptFile)
 	if autoClose {
 		claudeCommand += " --auto-close"
 	}
@@ -114,8 +125,8 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
 		}
 
-		// Wait for Claude to initialize
-		fmt.Println("Waiting 3s for Claude to initialize...")
+		// Wait for Claude to initialize and receive the prompt from the file
+		fmt.Println("Waiting 3s for Claude to initialize and receive prompt...")
 		time.Sleep(3 * time.Second)
 	} else {
 		// Create a new tab with the task name
@@ -156,35 +167,12 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
 		}
 
-		// Wait for Claude to initialize
-		fmt.Println("Waiting 3s for Claude to initialize...")
+		// Wait for Claude to initialize and receive the prompt from the file
+		fmt.Println("Waiting 3s for Claude to initialize and receive prompt...")
 		time.Sleep(3 * time.Second)
 	}
 
-	// Send text to the pane
-	writeArgs := []string{"-s", sessionName, "action", "write-chars", prompt}
-	fmt.Printf("Running: zellij -s %s action write-chars <prompt>\n", sessionName)
-	writeCmd := exec.CommandContext(ctx, "zellij", writeArgs...)
-	if err := writeCmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to send prompt: %w", err)
-	}
-
-	// Wait a moment for the text to be received
-	time.Sleep(500 * time.Millisecond)
-
-	// Send Enter to submit
-	enterArgs := []string{"-s", sessionName, "action", "write", "13"}
-	fmt.Printf("Running: zellij %s\n", strings.Join(enterArgs, " "))
-	enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
-	if err := enterCmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to send enter: %w", err)
-	}
-
-	// Send another Enter just to be sure
-	time.Sleep(100 * time.Millisecond)
-	exec.CommandContext(ctx, "zellij", enterArgs...).Run()
-
-	fmt.Println("Prompt sent to Claude")
+	fmt.Println("Prompt sent to Claude via stdin")
 
 	// Monitor for task completion via database polling
 	fmt.Printf("Polling database for completion of task: %s (%d beads)\n", taskID, len(taskBeads))
