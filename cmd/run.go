@@ -541,7 +541,7 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 	// Run Claude in the work's worktree directory
 	ctx := GetContext()
 	projectName := proj.Config.Project.Name
-	result, err := claude.Run(ctx, proj.DB, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
+	result, err := claude.Run(ctx, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
 	if err != nil {
 		fmt.Printf("Claude failed: %v\n", err)
 		return nil, fmt.Errorf("claude failed: %w", err)
