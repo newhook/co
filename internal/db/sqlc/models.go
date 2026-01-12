@@ -52,6 +52,8 @@ type Task struct {
 	StartedAt        sql.NullTime `json:"started_at"`
 	CompletedAt      sql.NullTime `json:"completed_at"`
 	CreatedAt        time.Time    `json:"created_at"`
+	SpawnedAt        sql.NullTime `json:"spawned_at"`
+	SpawnStatus      string       `json:"spawn_status"`
 }
 
 type TaskBead struct {
