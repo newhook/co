@@ -120,3 +120,84 @@ func InstallHooksInDir(dir string) error {
 	}
 	return nil
 }
+
+// GetTransitiveDependenciesInDir collects all transitive dependencies for a bead.
+// It traverses the "blocked_by" dependency type to find all beads that must
+// be completed before the given bead. Returns beads in dependency order
+// (dependencies before dependents).
+func GetTransitiveDependenciesInDir(id, dir string) ([]BeadWithDeps, error) {
+	visited := make(map[string]bool)
+	var result []BeadWithDeps
+
+	// Use a recursive helper to collect dependencies
+	var collect func(beadID string) error
+	collect = func(beadID string) error {
+		if visited[beadID] {
+			return nil
+		}
+		visited[beadID] = true
+
+		bead, err := GetBeadWithDepsInDir(beadID, dir)
+		if err != nil {
+			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		}
+
+		// First, recursively collect all dependencies
+		for _, dep := range bead.Dependencies {
+			if dep.DependencyType == "blocked_by" && !visited[dep.ID] {
+				if err := collect(dep.ID); err != nil {
+					return err
+				}
+			}
+		}
+
+		// Then add this bead (ensures dependencies come before dependents)
+		result = append(result, *bead)
+		return nil
+	}
+
+	if err := collect(id); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// GetBeadWithChildrenInDir retrieves a bead and all its child beads recursively.
+// This is useful for epic beads that have sub-beads.
+func GetBeadWithChildrenInDir(id, dir string) ([]BeadWithDeps, error) {
+	visited := make(map[string]bool)
+	var result []BeadWithDeps
+
+	var collect func(beadID string) error
+	collect = func(beadID string) error {
+		if visited[beadID] {
+			return nil
+		}
+		visited[beadID] = true
+
+		bead, err := GetBeadWithDepsInDir(beadID, dir)
+		if err != nil {
+			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		}
+
+		result = append(result, *bead)
+
+		// Recursively collect children (parent_of relationship)
+		for _, dep := range bead.Dependencies {
+			if dep.DependencyType == "parent_of" && !visited[dep.ID] {
+				if err := collect(dep.ID); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+
+	if err := collect(id); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}

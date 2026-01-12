@@ -21,6 +21,7 @@ type Querier interface {
 	CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error
 	CreateWork(ctx context.Context, arg CreateWorkParams) error
 	DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error)
+	DeleteTaskMetadata(ctx context.Context, arg DeleteTaskMetadataParams) (int64, error)
 	DeleteTasksForWork(ctx context.Context, workID string) (int64, error)
 	DeleteWork(ctx context.Context, id string) (int64, error)
 	DeleteWorkTasks(ctx context.Context, workID string) (int64, error)
@@ -29,14 +30,17 @@ type Querier interface {
 	FailTaskBead(ctx context.Context, arg FailTaskBeadParams) (int64, error)
 	FailWork(ctx context.Context, arg FailWorkParams) (int64, error)
 	GetAllCachedComplexity(ctx context.Context) ([]GetAllCachedComplexityRow, error)
+	GetAllTaskMetadata(ctx context.Context, taskID string) ([]GetAllTaskMetadataRow, error)
 	GetAndIncrementTaskCounter(ctx context.Context, workID string) (int64, error)
 	GetBead(ctx context.Context, id string) (Bead, error)
 	GetBeadStatus(ctx context.Context, id string) (string, error)
 	GetCachedComplexity(ctx context.Context, arg GetCachedComplexityParams) (GetCachedComplexityRow, error)
 	GetLastWorkID(ctx context.Context) (string, error)
+	GetLatestReviewTaskWithMetadata(ctx context.Context, workID string) (string, error)
 	GetTask(ctx context.Context, id string) (Task, error)
 	GetTaskBeads(ctx context.Context, taskID string) ([]string, error)
 	GetTaskForBead(ctx context.Context, beadID string) (string, error)
+	GetTaskMetadata(ctx context.Context, arg GetTaskMetadataParams) (string, error)
 	GetWork(ctx context.Context, id string) (Work, error)
 	GetWorkByDirectory(ctx context.Context, worktreePath string) (Work, error)
 	GetWorkTasks(ctx context.Context, workID string) ([]Task, error)
@@ -48,6 +52,7 @@ type Querier interface {
 	ListWorks(ctx context.Context) ([]Work, error)
 	ListWorksByStatus(ctx context.Context, status string) ([]Work, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
+	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error
 	StartBead(ctx context.Context, arg StartBeadParams) error
 	StartTask(ctx context.Context, arg StartTaskParams) (int64, error)
 	StartWork(ctx context.Context, arg StartWorkParams) (int64, error)
