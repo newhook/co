@@ -67,13 +67,15 @@ func init() {
 func runProjCreate(cmd *cobra.Command, args []string) error {
 	dir := args[0]
 	repo := args[1]
+	ctx := GetContext()
 
 	fmt.Printf("Creating project at %s from %s...\n", dir, repo)
 
-	proj, err := project.Create(dir, repo)
+	proj, err := project.Create(ctx, dir, repo)
 	if err != nil {
 		return fmt.Errorf("failed to create project: %w", err)
 	}
+	defer proj.Close()
 
 	fmt.Printf("Project '%s' created successfully!\n", proj.Config.Project.Name)
 	fmt.Printf("  Directory: %s\n", proj.Root)
@@ -85,7 +87,8 @@ func runProjCreate(cmd *cobra.Command, args []string) error {
 }
 
 func runProjDestroy(cmd *cobra.Command, args []string) error {
-	proj, err := project.Find(flagProjProject)
+	ctx := GetContext()
+	proj, err := project.Find(ctx, flagProjProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -145,7 +148,8 @@ func runProjDestroy(cmd *cobra.Command, args []string) error {
 }
 
 func runProjStatus(cmd *cobra.Command, args []string) error {
-	proj, err := project.Find(flagProjProject)
+	ctx := GetContext()
+	proj, err := project.Find(ctx, flagProjProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -186,7 +190,7 @@ func runProjStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show task status from database
-	beads, err := proj.DB.ListBeads("")
+	beads, err := proj.DB.ListBeads(ctx, "")
 	if err != nil {
 		fmt.Printf("\nTasks: error listing (%v)\n", err)
 		return nil

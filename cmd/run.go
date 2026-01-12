@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -59,8 +58,9 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		argID = args[0]
 	}
+	ctx := GetContext()
 
-	proj, err := project.Find(flagProject)
+	proj, err := project.Find(ctx, flagProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -78,7 +78,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		// We also verify it exists as a task in the proj.DB to handle edge cases
 		if strings.Contains(argID, ".") {
 			// This looks like a task ID - verify it exists as a task
-			dbTask, err := proj.DB.GetTask(context.Background(), argID)
+			dbTask, err := proj.DB.GetTask(GetContext(), argID)
 			if err != nil {
 				return fmt.Errorf("failed to check task %s: %w", argID, err)
 			}
@@ -115,7 +115,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 
 // processTask processes a single task by ID.
 func processTask(proj *project.Project, taskID string) error {
-	ctx := context.Background()
+	ctx := GetContext()
 
 	// Get the task
 	dbTask, err := proj.DB.GetTask(ctx, taskID)
@@ -206,7 +206,7 @@ func sortTasksByDependency(database *db.DB, tasks []*db.Task, mainRepoPath strin
 	beadToTask := make(map[string]string)
 	taskBeads := make(map[string][]string)
 	for _, t := range tasks {
-		beadIDs, err := database.GetTaskBeads(context.Background(), t.ID)
+		beadIDs, err := database.GetTaskBeads(GetContext(), t.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get beads for task %s: %w", t.ID, err)
 		}
@@ -363,11 +363,10 @@ func createFinalPR(featureBranch string, processedBeads []beads.Bead, dir string
 	return nil
 }
 
-
 // processWork processes all tasks within a work unit.
 func processWork(proj *project.Project, workID string) error {
 	// Get work details
-	work, err := proj.DB.GetWork(context.Background(),workID)
+	work, err := proj.DB.GetWork(GetContext(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -380,7 +379,7 @@ func processWork(proj *project.Project, workID string) error {
 	fmt.Printf("Worktree: %s\n", work.WorktreePath)
 
 	// Get tasks for this work
-	tasks, err := proj.DB.GetWorkTasks(context.Background(),workID)
+	tasks, err := proj.DB.GetWorkTasks(GetContext(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
 	}
@@ -420,7 +419,7 @@ func processWork(proj *project.Project, workID string) error {
 	tabName := fmt.Sprintf("work-%s", work.ID)
 
 	// Start work in proj.DB
-	if err := proj.DB.StartWork(context.Background(),workID, sessionName, tabName); err != nil {
+	if err := proj.DB.StartWork(GetContext(), workID, sessionName, tabName); err != nil {
 		return fmt.Errorf("failed to start work: %w", err)
 	}
 
@@ -438,7 +437,7 @@ func processWork(proj *project.Project, workID string) error {
 		fmt.Printf("\n--- Processing task %s ---\n", task.ID)
 
 		// Get bead details for this task
-		beadIDs, err := proj.DB.GetTaskBeads(context.Background(),task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(GetContext(), task.ID)
 		if err != nil {
 			fmt.Printf("Failed to get beads for task %s: %v\n", task.ID, err)
 			continue
@@ -458,7 +457,7 @@ func processWork(proj *project.Project, workID string) error {
 		result, err := processTaskInWork(proj, task, work, taskBeads)
 		if err != nil {
 			fmt.Printf("Failed to process task %s: %v\n", task.ID, err)
-			proj.DB.FailTask(context.Background(), task.ID, err.Error())
+			proj.DB.FailTask(GetContext(), task.ID, err.Error())
 			continue
 		}
 
@@ -474,7 +473,7 @@ func processWork(proj *project.Project, workID string) error {
 		fmt.Printf("Completed %d task(s) with %d bead(s)\n", completedTasks, len(allBeads))
 
 		// Mark work as completed (without PR URL since we're not creating it)
-		if err := proj.DB.CompleteWork(context.Background(), workID, ""); err != nil {
+		if err := proj.DB.CompleteWork(GetContext(), workID, ""); err != nil {
 			return fmt.Errorf("failed to complete work: %w", err)
 		}
 
@@ -482,7 +481,7 @@ func processWork(proj *project.Project, workID string) error {
 		fmt.Printf("To create a PR, run: co work pr %s\n", workID)
 	} else {
 		// No tasks completed, mark work as failed
-		if err := proj.DB.FailWork(context.Background(), workID, "No tasks completed successfully"); err != nil {
+		if err := proj.DB.FailWork(GetContext(), workID, "No tasks completed successfully"); err != nil {
 			return fmt.Errorf("failed to mark work as failed: %w", err)
 		}
 	}
@@ -502,7 +501,7 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 
 	// Start task in proj.DB
 	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
-	if err := proj.DB.StartTask(context.Background(),dbTask.ID, sessionName, dbTask.ID); err != nil {
+	if err := proj.DB.StartTask(GetContext(), dbTask.ID, sessionName, dbTask.ID); err != nil {
 		return nil, fmt.Errorf("failed to start task in proj.DB: %w", err)
 	}
 
@@ -540,7 +539,7 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 	}
 
 	// Run Claude in the work's worktree directory
-	ctx := context.Background()
+	ctx := GetContext()
 	projectName := proj.Config.Project.Name
 	result, err := claude.Run(ctx, proj.DB, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
 	if err != nil {
@@ -551,7 +550,7 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 	// Update task status based on result
 	if result.Completed {
 		fmt.Printf("Task %s completed successfully\n", dbTask.ID)
-		if err := proj.DB.CompleteTask(context.Background(),dbTask.ID, ""); err != nil {
+		if err := proj.DB.CompleteTask(GetContext(), dbTask.ID, ""); err != nil {
 			fmt.Printf("Warning: failed to update task status: %v\n", err)
 		}
 	} else if result.PartialFailure {

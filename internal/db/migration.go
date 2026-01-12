@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"sort"
 	"strings"
+
+	cosignal "github.com/newhook/co/internal/signal"
 )
 
 //go:embed migrations/*.sql
@@ -23,8 +25,8 @@ type Migration struct {
 }
 
 // RunMigrations applies all pending migrations from the embedded migrationsFS
-func RunMigrations(db *sql.DB) error {
-	return RunMigrationsForFS(context.Background(), db, migrationsFS)
+func RunMigrations(ctx context.Context, db *sql.DB) error {
+	return RunMigrationsForFS(ctx, db, migrationsFS)
 }
 
 // RunMigrationsForFS applies all pending migrations from the specified filesystem
@@ -46,24 +48,28 @@ func RunMigrationsForFS(ctx context.Context, db *sql.DB, fsys embed.FS) error {
 		return fmt.Errorf("failed to read migrations: %w", err)
 	}
 
-	// Apply pending migrations
+	// Apply pending migrations with signal blocking to prevent inconsistent state
 	for _, m := range migrations {
 		if applied[m.Version] {
 			continue
 		}
 
+		// Block signals during migration to ensure atomicity
+		cosignal.BlockSignals()
 		fmt.Printf("Applying migration %s: %s\n", m.Version, m.Name)
 		if err := applyMigration(ctx, db, m); err != nil {
+			cosignal.UnblockSignals()
 			return fmt.Errorf("failed to apply migration %s: %w", m.Version, err)
 		}
+		cosignal.UnblockSignals()
 	}
 
 	return nil
 }
 
 // RollbackMigration rolls back the last applied migration
-func RollbackMigration(db *sql.DB) error {
-	return RollbackMigrationForFS(context.Background(), db, migrationsFS)
+func RollbackMigration(ctx context.Context, db *sql.DB) error {
+	return RollbackMigrationForFS(ctx, db, migrationsFS)
 }
 
 // RollbackMigrationForFS rolls back the last applied migration from the specified filesystem
@@ -367,8 +373,8 @@ func splitSQLStatements(sql string) []string {
 }
 
 // MigrationStatus returns the current migration status
-func MigrationStatus(db *sql.DB) ([]string, error) {
-	return MigrationStatusContext(context.Background(), db)
+func MigrationStatus(ctx context.Context, db *sql.DB) ([]string, error) {
+	return MigrationStatusContext(ctx, db)
 }
 
 // MigrationStatusContext returns the current migration status with context

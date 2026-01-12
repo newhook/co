@@ -55,6 +55,13 @@ type TaskBead struct {
 	Status string `json:"status"`
 }
 
+type TaskMetadatum struct {
+	TaskID    string    `json:"task_id"`
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Work struct {
 	ID            string       `json:"id"`
 	Status        string       `json:"status"`

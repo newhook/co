@@ -26,7 +26,8 @@ func init() {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	proj, err := project.Find(flagStatusProject)
+	ctx := GetContext()
+	proj, err := project.Find(ctx, flagStatusProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -35,7 +36,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// If specific bead requested
 	if len(args) > 0 {
 		beadID := args[0]
-		bead, err := proj.DB.GetBead(beadID)
+		bead, err := proj.DB.GetBead(ctx, beadID)
 		if err != nil {
 			return fmt.Errorf("failed to get bead: %w", err)
 		}
@@ -48,7 +49,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show all processing beads
-	beadList, err := proj.DB.ListBeads(db.StatusProcessing)
+	beadList, err := proj.DB.ListBeads(ctx, db.StatusProcessing)
 	if err != nil {
 		return fmt.Errorf("failed to list beads: %w", err)
 	}

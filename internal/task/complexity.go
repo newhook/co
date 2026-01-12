@@ -19,7 +19,7 @@ type LLMEstimator struct {
 	database    *db.DB
 	workDir     string
 	projectName string
-	workID      string  // Work context for estimation tasks
+	workID      string // Work context for estimation tasks
 }
 
 // NewLLMEstimator creates a new LLM-based complexity estimator.
@@ -34,27 +34,26 @@ func NewLLMEstimator(database *db.DB, workDir, projectName, workID string) *LLME
 
 // Estimate returns a complexity score (1-10) and estimated context tokens for a bead.
 // Results are cached based on the description hash.
-func (e *LLMEstimator) Estimate(bead beads.Bead) (score int, tokens int, err error) {
+func (e *LLMEstimator) Estimate(ctx context.Context, bead beads.Bead) (score int, tokens int, err error) {
 	// Calculate description hash for caching
 	fullDescription := bead.Title + "\n" + bead.Description
 	descHash := db.HashDescription(fullDescription)
 
 	// Check cache first
 	if e.database != nil {
-		score, tokens, found, err := e.database.GetCachedComplexity(bead.ID, descHash)
+		score, tokens, found, err := e.database.GetCachedComplexity(ctx, bead.ID, descHash)
 		if err == nil && found {
 			return score, tokens, nil
 		}
 	}
 
 	// For single estimates, run a batch of one (never force)
-	ctx := context.Background()
 	if err := e.EstimateBatch(ctx, []beads.Bead{bead}, false); err != nil {
 		return 0, 0, err
 	}
 
 	// Retrieve the cached result
-	score, tokens, found, err := e.database.GetCachedComplexity(bead.ID, descHash)
+	score, tokens, found, err := e.database.GetCachedComplexity(ctx, bead.ID, descHash)
 	if err != nil || !found {
 		return 0, 0, fmt.Errorf("failed to retrieve estimate after batch: %w", err)
 	}
@@ -84,7 +83,7 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead,
 		for _, bead := range beadList {
 			fullDescription := bead.Title + "\n" + bead.Description
 			descHash := db.HashDescription(fullDescription)
-			_, _, found, _ := e.database.GetCachedComplexity(bead.ID, descHash)
+			_, _, found, _ := e.database.GetCachedComplexity(ctx, bead.ID, descHash)
 			if !found {
 				uncachedBeads = append(uncachedBeads, bead)
 				uncachedIDs = append(uncachedIDs, bead.ID)
@@ -174,7 +173,7 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead,
 	}
 
 	// Verify all beads were estimated
-	allEstimated, err := e.database.AreAllBeadsEstimated(uncachedIDs)
+	allEstimated, err := e.database.AreAllBeadsEstimated(ctx, uncachedIDs)
 	if err != nil {
 		return fmt.Errorf("failed to verify estimates: %w", err)
 	}

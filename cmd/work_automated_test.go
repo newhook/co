@@ -1,0 +1,367 @@
+package cmd
+
+import (
+	"testing"
+
+	"github.com/newhook/co/internal/beads"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestGenerateBranchNameFromBead_BasicTitle(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add user authentication",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-user-authentication", result)
+}
+
+func TestGenerateBranchNameFromBead_UppercaseTitle(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "ADD USER AUTHENTICATION",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-user-authentication", result)
+}
+
+func TestGenerateBranchNameFromBead_MixedCase(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add OAuth2 Support",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-oauth2-support", result)
+}
+
+func TestGenerateBranchNameFromBead_WithUnderscores(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "add_user_authentication",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-user-authentication", result)
+}
+
+func TestGenerateBranchNameFromBead_WithSpecialCharacters(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add user auth! (v2.0) [WIP]",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-user-auth-v20-wip", result)
+}
+
+func TestGenerateBranchNameFromBead_WithMultipleSpaces(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add   user    authentication",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-user-authentication", result)
+}
+
+func TestGenerateBranchNameFromBead_WithMultipleHyphens(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add---user---auth",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-user-auth", result)
+}
+
+func TestGenerateBranchNameFromBead_LeadingTrailingSpecialChars(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "  --Add user auth--  ",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-user-auth", result)
+}
+
+func TestGenerateBranchNameFromBead_WithNumbers(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add support for HTTP2",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-support-for-http2", result)
+}
+
+func TestGenerateBranchNameFromBead_OnlyNumbers(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "123456",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/123456", result)
+}
+
+func TestGenerateBranchNameFromBead_LongTitle_Truncates(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add comprehensive user authentication system with OAuth2 support and role-based access control",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	// Should be truncated to 50 chars max (excluding feat/ prefix)
+	assert.True(t, len(result) <= len("feat/")+50, "branch name should not exceed feat/ + 50 chars")
+	assert.Equal(t, "feat/add-comprehensive-user-authentication-system-", result[:len("feat/add-comprehensive-user-authentication-system-")])
+}
+
+func TestGenerateBranchNameFromBead_LongTitle_NoTrailingHyphen(t *testing.T) {
+	// Create a title that would end with a hyphen after truncation
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add comprehensive user authentication system with- more text here that will be cut off",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	// Should not end with a hyphen (after the feat/ prefix)
+	trimmedResult := result[len("feat/"):]
+	assert.NotEqual(t, "-", string(trimmedResult[len(trimmedResult)-1]), "should not end with hyphen")
+}
+
+func TestGenerateBranchNameFromBead_EmptyTitle(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/", result)
+}
+
+func TestGenerateBranchNameFromBead_OnlySpecialChars(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "!@#$%^&*()",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/", result)
+}
+
+func TestGenerateBranchNameFromBead_OnlyWhitespace(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "     ",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/", result)
+}
+
+func TestGenerateBranchNameFromBead_Unicode(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add café support",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	// Unicode characters (é) should be removed
+	assert.Equal(t, "feat/add-caf-support", result)
+}
+
+func TestGenerateBranchNameFromBead_MixedUnderscoresAndSpaces(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "add_user authentication_system",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-user-authentication-system", result)
+}
+
+func TestGenerateBranchNameFromBead_ExactlyFiftyChars(t *testing.T) {
+	// Create a title that results in exactly 50 chars
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add user authentication system for the application",
+	}
+
+	result := generateBranchNameFromBead(bead)
+	titlePart := result[len("feat/"):]
+
+	assert.True(t, len(titlePart) <= 50, "title part should be at most 50 chars")
+}
+
+func TestGenerateBranchNameFromBead_PrefixIsCorrect(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Any title",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.True(t, len(result) >= 5, "result should have feat/ prefix")
+	assert.Equal(t, "feat/", result[:5], "should have feat/ prefix")
+}
+
+func TestGenerateBranchNameFromBead_SingleWord(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Authentication",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/authentication", result)
+}
+
+func TestGenerateBranchNameFromBead_SingleCharacter(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "A",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/a", result)
+}
+
+func TestGenerateBranchNameFromBead_Colons(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "feat: add user authentication",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/feat-add-user-authentication", result)
+}
+
+func TestGenerateBranchNameFromBead_SlashesInTitle(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add user/admin authentication",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-useradmin-authentication", result)
+}
+
+func TestGenerateBranchNameFromBead_Apostrophes(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Fix user's profile page",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/fix-users-profile-page", result)
+}
+
+func TestGenerateBranchNameFromBead_Quotes(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: `Add "hello world" feature`,
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-hello-world-feature", result)
+}
+
+func TestGenerateBranchNameFromBead_Ampersand(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add search & filter",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-search-filter", result)
+}
+
+func TestGenerateBranchNameFromBead_PlusSign(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add C++ support",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-c-support", result)
+}
+
+func TestGenerateBranchNameFromBead_AtSign(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add @mentions support",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-mentions-support", result)
+}
+
+func TestGenerateBranchNameFromBead_HashSign(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add #hashtag support",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-hashtag-support", result)
+}
+
+func TestGenerateBranchNameFromBead_Dollars(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add $currency display",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-currency-display", result)
+}
+
+func TestGenerateBranchNameFromBead_Percent(t *testing.T) {
+	bead := &beads.Bead{
+		ID:    "test-1",
+		Title: "Add 50% discount feature",
+	}
+
+	result := generateBranchNameFromBead(bead)
+
+	assert.Equal(t, "feat/add-50-discount-feature", result)
+}
+
+func TestCollectBeadsForAutomatedWorkflow_NoBeadsAvailable(t *testing.T) {
+	// This test verifies error handling when bd CLI is not available
+	// or returns an error for a non-existent bead
+	_, err := collectBeadsForAutomatedWorkflow("non-existent-bead-id", "/tmp/non-existent-dir")
+
+	// Should return an error since the bead doesn't exist
+	assert.Error(t, err)
+}

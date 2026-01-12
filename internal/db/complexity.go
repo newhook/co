@@ -9,8 +9,8 @@ import (
 )
 
 // CacheComplexity stores a complexity estimate for a bead in the cache.
-func (db *DB) CacheComplexity(beadID, descHash string, score, tokens int) error {
-	err := db.queries.CacheComplexity(context.Background(), sqlc.CacheComplexityParams{
+func (db *DB) CacheComplexity(ctx context.Context, beadID, descHash string, score, tokens int) error {
+	err := db.queries.CacheComplexity(ctx, sqlc.CacheComplexityParams{
 		BeadID:          beadID,
 		DescriptionHash: descHash,
 		ComplexityScore: int64(score),
@@ -23,8 +23,8 @@ func (db *DB) CacheComplexity(beadID, descHash string, score, tokens int) error 
 }
 
 // GetCachedComplexity retrieves cached complexity for a bead if it exists and the description hash matches.
-func (db *DB) GetCachedComplexity(beadID, descHash string) (score, tokens int, found bool, err error) {
-	row, err := db.queries.GetCachedComplexity(context.Background(), sqlc.GetCachedComplexityParams{
+func (db *DB) GetCachedComplexity(ctx context.Context, beadID, descHash string) (score, tokens int, found bool, err error) {
+	row, err := db.queries.GetCachedComplexity(ctx, sqlc.GetCachedComplexityParams{
 		BeadID:          beadID,
 		DescriptionHash: descHash,
 	})
@@ -39,8 +39,8 @@ func (db *DB) GetCachedComplexity(beadID, descHash string) (score, tokens int, f
 }
 
 // GetAllCachedComplexity returns all cached complexity estimates.
-func (db *DB) GetAllCachedComplexity() (map[string]struct{ Score, Tokens int }, error) {
-	rows, err := db.queries.GetAllCachedComplexity(context.Background())
+func (db *DB) GetAllCachedComplexity(ctx context.Context) (map[string]struct{ Score, Tokens int }, error) {
+	rows, err := db.queries.GetAllCachedComplexity(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query complexity cache: %w", err)
 	}
@@ -62,12 +62,12 @@ func HashDescription(description string) string {
 }
 
 // AreAllBeadsEstimated checks if all beads in the list have complexity estimates.
-func (db *DB) AreAllBeadsEstimated(beadIDs []string) (bool, error) {
+func (db *DB) AreAllBeadsEstimated(ctx context.Context, beadIDs []string) (bool, error) {
 	if len(beadIDs) == 0 {
 		return true, nil
 	}
 
-	count, err := db.queries.CountEstimatedBeads(context.Background(), beadIDs)
+	count, err := db.queries.CountEstimatedBeads(ctx, beadIDs)
 	if err != nil {
 		return false, fmt.Errorf("failed to count estimated beads: %w", err)
 	}
