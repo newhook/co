@@ -94,3 +94,13 @@ type WorkTaskCounter struct {
 	WorkID      string `json:"work_id"`
 	NextTaskNum int64  `json:"next_task_num"`
 }
+
+type WorkflowState struct {
+	WorkID       string    `json:"work_id"`
+	CurrentStep  int64     `json:"current_step"`
+	StepStatus   string    `json:"step_status"`
+	StepData     string    `json:"step_data"`
+	ErrorMessage string    `json:"error_message"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
