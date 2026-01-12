@@ -17,9 +17,11 @@ type Querier interface {
 	CompleteWork(ctx context.Context, arg CompleteWorkParams) (int64, error)
 	CountEstimatedBeads(ctx context.Context, beadIds []string) (int64, error)
 	CountTaskBeadStatuses(ctx context.Context, taskID string) (CountTaskBeadStatusesRow, error)
+	CreateMigrationsTable(ctx context.Context) error
 	CreateTask(ctx context.Context, arg CreateTaskParams) error
 	CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error
 	CreateWork(ctx context.Context, arg CreateWorkParams) error
+	DeleteMigration(ctx context.Context, version string) error
 	DeleteTask(ctx context.Context, id string) (int64, error)
 	DeleteTaskBeadsByTask(ctx context.Context, taskID string) (int64, error)
 	DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error)
@@ -35,9 +37,11 @@ type Querier interface {
 	GetAllCachedComplexity(ctx context.Context) ([]GetAllCachedComplexityRow, error)
 	GetAllTaskMetadata(ctx context.Context, taskID string) ([]GetAllTaskMetadataRow, error)
 	GetAndIncrementTaskCounter(ctx context.Context, workID string) (int64, error)
+	GetAppliedMigrations(ctx context.Context) ([]string, error)
 	GetBead(ctx context.Context, id string) (Bead, error)
 	GetBeadStatus(ctx context.Context, id string) (string, error)
 	GetCachedComplexity(ctx context.Context, arg GetCachedComplexityParams) (GetCachedComplexityRow, error)
+	GetLastMigration(ctx context.Context) (string, error)
 	GetLastWorkID(ctx context.Context) (string, error)
 	GetLatestReviewTaskWithMetadata(ctx context.Context, workID string) (string, error)
 	GetTask(ctx context.Context, id string) (Task, error)
@@ -51,10 +55,12 @@ type Querier interface {
 	InitializeTaskCounter(ctx context.Context, workID string) error
 	ListBeads(ctx context.Context) ([]Bead, error)
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)
+	ListMigrationVersions(ctx context.Context) ([]string, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	ListTasksByStatus(ctx context.Context, status string) ([]Task, error)
 	ListWorks(ctx context.Context) ([]Work, error)
 	ListWorksByStatus(ctx context.Context, status string) ([]Work, error)
+	RecordMigration(ctx context.Context, version string) error
 	ResetTaskBeadStatuses(ctx context.Context, taskID string) (int64, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
 	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error
