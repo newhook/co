@@ -20,10 +20,13 @@ type Querier interface {
 	CreateTask(ctx context.Context, arg CreateTaskParams) error
 	CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error
 	CreateWork(ctx context.Context, arg CreateWorkParams) error
+	DeleteTask(ctx context.Context, id string) (int64, error)
+	DeleteTaskBeadsByTask(ctx context.Context, taskID string) (int64, error)
 	DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error)
 	DeleteTaskMetadata(ctx context.Context, arg DeleteTaskMetadataParams) (int64, error)
 	DeleteTasksForWork(ctx context.Context, workID string) (int64, error)
 	DeleteWork(ctx context.Context, id string) (int64, error)
+	DeleteWorkTaskByTask(ctx context.Context, taskID string) (int64, error)
 	DeleteWorkTasks(ctx context.Context, workID string) (int64, error)
 	FailBead(ctx context.Context, arg FailBeadParams) (int64, error)
 	FailTask(ctx context.Context, arg FailTaskParams) (int64, error)
@@ -38,6 +41,7 @@ type Querier interface {
 	GetLastWorkID(ctx context.Context) (string, error)
 	GetLatestReviewTaskWithMetadata(ctx context.Context, workID string) (string, error)
 	GetTask(ctx context.Context, id string) (Task, error)
+	GetTaskBeadStatus(ctx context.Context, arg GetTaskBeadStatusParams) (string, error)
 	GetTaskBeads(ctx context.Context, taskID string) ([]string, error)
 	GetTaskForBead(ctx context.Context, beadID string) (string, error)
 	GetTaskMetadata(ctx context.Context, arg GetTaskMetadataParams) (string, error)
@@ -51,6 +55,7 @@ type Querier interface {
 	ListTasksByStatus(ctx context.Context, status string) ([]Task, error)
 	ListWorks(ctx context.Context) ([]Work, error)
 	ListWorksByStatus(ctx context.Context, status string) ([]Work, error)
+	ResetTaskBeadStatuses(ctx context.Context, taskID string) (int64, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
 	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error
 	StartBead(ctx context.Context, arg StartBeadParams) error
