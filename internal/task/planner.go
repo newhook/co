@@ -25,10 +25,10 @@ func (p *DefaultPlanner) Plan(inputBeads []beads.BeadWithDeps, budget int) ([]Ta
 	}
 
 	// Build dependency graph
-	graph := buildDependencyGraph(inputBeads)
+	graph := BuildDependencyGraph(inputBeads)
 
 	// Get topologically sorted beads (respecting dependencies)
-	sorted, err := topologicalSort(graph, inputBeads)
+	sorted, err := TopologicalSort(graph, inputBeads)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sort beads: %w", err)
 	}
@@ -60,87 +60,9 @@ func (p *DefaultPlanner) Plan(inputBeads []beads.BeadWithDeps, budget int) ([]Ta
 	return tasks, nil
 }
 
-// dependencyGraph represents bead dependencies.
-type dependencyGraph struct {
-	// dependsOn maps bead ID to IDs it depends on
-	dependsOn map[string][]string
-	// blockedBy maps bead ID to IDs that depend on it
-	blockedBy map[string][]string
-}
-
-// buildDependencyGraph creates a dependency graph from beads.
-func buildDependencyGraph(inputBeads []beads.BeadWithDeps) *dependencyGraph {
-	graph := &dependencyGraph{
-		dependsOn: make(map[string][]string),
-		blockedBy: make(map[string][]string),
-	}
-
-	// Create set of valid bead IDs
-	validIDs := make(map[string]bool)
-	for _, b := range inputBeads {
-		validIDs[b.ID] = true
-	}
-
-	for _, b := range inputBeads {
-		for _, dep := range b.Dependencies {
-			if dep.DependencyType == "depends_on" && validIDs[dep.ID] {
-				graph.dependsOn[b.ID] = append(graph.dependsOn[b.ID], dep.ID)
-				graph.blockedBy[dep.ID] = append(graph.blockedBy[dep.ID], b.ID)
-			}
-		}
-	}
-
-	return graph
-}
-
-// topologicalSort returns beads in dependency order (dependencies before dependents).
-func topologicalSort(graph *dependencyGraph, inputBeads []beads.BeadWithDeps) ([]beads.BeadWithDeps, error) {
-	beadMap := make(map[string]beads.BeadWithDeps)
-	for _, b := range inputBeads {
-		beadMap[b.ID] = b
-	}
-
-	// Kahn's algorithm
-	inDegree := make(map[string]int)
-	for _, b := range inputBeads {
-		inDegree[b.ID] = len(graph.dependsOn[b.ID])
-	}
-
-	// Start with beads that have no dependencies
-	var queue []string
-	for id, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, id)
-		}
-	}
-
-	var result []beads.BeadWithDeps
-	for len(queue) > 0 {
-		// Pop from queue
-		id := queue[0]
-		queue = queue[1:]
-
-		result = append(result, beadMap[id])
-
-		// Reduce in-degree of dependents
-		for _, dependent := range graph.blockedBy[id] {
-			inDegree[dependent]--
-			if inDegree[dependent] == 0 {
-				queue = append(queue, dependent)
-			}
-		}
-	}
-
-	// Check for cycles
-	if len(result) != len(inputBeads) {
-		return nil, fmt.Errorf("dependency cycle detected")
-	}
-
-	return result, nil
-}
 
 // binPackBeads assigns beads to tasks using first-fit decreasing algorithm.
-func binPackBeads(beadsByComplexity []beads.BeadWithDeps, complexities map[string]int, graph *dependencyGraph, budget int) []Task {
+func binPackBeads(beadsByComplexity []beads.BeadWithDeps, complexities map[string]int, graph *DependencyGraph, budget int) []Task {
 	var tasks []Task
 	assigned := make(map[string]int) // bead ID -> task index
 
@@ -175,7 +97,7 @@ func binPackBeads(beadsByComplexity []beads.BeadWithDeps, complexities map[strin
 }
 
 // findBestTask finds the best task for a bead, or -1 if a new task is needed.
-func findBestTask(b beads.BeadWithDeps, complexity int, tasks []Task, assigned map[string]int, graph *dependencyGraph, budget int) int {
+func findBestTask(b beads.BeadWithDeps, complexity int, tasks []Task, assigned map[string]int, graph *DependencyGraph, budget int) int {
 	bestIdx := -1
 	bestFit := budget + 1 // Initialize to impossible value
 
@@ -207,9 +129,9 @@ func findBestTask(b beads.BeadWithDeps, complexity int, tasks []Task, assigned m
 }
 
 // canAddToTask checks if a bead can be added to a task based on dependency constraints.
-func canAddToTask(beadID string, taskIdx int, assigned map[string]int, graph *dependencyGraph) bool {
+func canAddToTask(beadID string, taskIdx int, assigned map[string]int, graph *DependencyGraph) bool {
 	// Check that all dependencies are either in an earlier task or the same task
-	for _, depID := range graph.dependsOn[beadID] {
+	for _, depID := range graph.DependsOn[beadID] {
 		depTaskIdx, ok := assigned[depID]
 		if !ok {
 			// Dependency not yet assigned - can't add this bead yet
