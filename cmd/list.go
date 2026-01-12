@@ -25,13 +25,14 @@ func init() {
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	proj, err := project.Find(flagListProject)
+	ctx := GetContext()
+	proj, err := project.Find(ctx, flagListProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
 	defer proj.Close()
 
-	beadList, err := proj.DB.ListBeads(flagListStatus)
+	beadList, err := proj.DB.ListBeads(ctx, flagListStatus)
 	if err != nil {
 		return fmt.Errorf("failed to list beads: %w", err)
 	}

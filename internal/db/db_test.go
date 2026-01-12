@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 func setupTestDB(t *testing.T) (*DB, func()) {
 	t.Helper()
 
-	db, err := OpenPath(":memory:")
+	db, err := OpenPath(context.Background(), ":memory:")
 	require.NoError(t, err, "failed to open database")
 
 	cleanup := func() {
@@ -37,12 +38,13 @@ func TestOpen(t *testing.T) {
 func TestStartBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
-	err := db.StartBead("test-1", "Test Bead", "session-1", "pane-1")
+	err := db.StartBead(ctx, "test-1", "Test Bead", "session-1", "pane-1")
 	require.NoError(t, err, "StartBead failed")
 
 	// Verify bead was created
-	bead, err := db.GetBead("test-1")
+	bead, err := db.GetBead(ctx, "test-1")
 	require.NoError(t, err, "GetBead failed")
 	require.NotNil(t, bead, "expected bead, got nil")
 	assert.Equal(t, "test-1", bead.ID)
@@ -56,17 +58,18 @@ func TestStartBead(t *testing.T) {
 func TestStartBeadUpsert(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
 	// Create initial bead
-	err := db.StartBead("test-1", "Original Title", "session-1", "pane-1")
+	err := db.StartBead(ctx, "test-1", "Original Title", "session-1", "pane-1")
 	require.NoError(t, err, "first StartBead failed")
 
 	// Update with new values (upsert)
-	err = db.StartBead("test-1", "Updated Title", "session-2", "pane-2")
+	err = db.StartBead(ctx, "test-1", "Updated Title", "session-2", "pane-2")
 	require.NoError(t, err, "second StartBead failed")
 
 	// Verify bead was updated
-	bead, err := db.GetBead("test-1")
+	bead, err := db.GetBead(ctx, "test-1")
 	require.NoError(t, err, "GetBead failed")
 	assert.Equal(t, "Updated Title", bead.Title)
 	assert.Equal(t, "session-2", bead.ZellijSession)
@@ -75,17 +78,18 @@ func TestStartBeadUpsert(t *testing.T) {
 func TestCompleteBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
 	// Create bead first
-	err := db.StartBead("test-1", "Test Bead", "session-1", "pane-1")
+	err := db.StartBead(ctx, "test-1", "Test Bead", "session-1", "pane-1")
 	require.NoError(t, err, "StartBead failed")
 
 	// Complete it
-	err = db.CompleteBead("test-1", "https://github.com/example/pr/1")
+	err = db.CompleteBead(ctx, "test-1", "https://github.com/example/pr/1")
 	require.NoError(t, err, "CompleteBead failed")
 
 	// Verify status and PR URL
-	bead, err := db.GetBead("test-1")
+	bead, err := db.GetBead(ctx, "test-1")
 	require.NoError(t, err, "GetBead failed")
 	assert.Equal(t, StatusCompleted, bead.Status)
 	assert.Equal(t, "https://github.com/example/pr/1", bead.PRURL)
@@ -95,25 +99,27 @@ func TestCompleteBead(t *testing.T) {
 func TestCompleteBeadNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
-	err := db.CompleteBead("nonexistent", "")
+	err := db.CompleteBead(ctx, "nonexistent", "")
 	assert.Error(t, err, "expected error for nonexistent bead")
 }
 
 func TestFailBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
 	// Create bead first
-	err := db.StartBead("test-1", "Test Bead", "session-1", "pane-1")
+	err := db.StartBead(ctx, "test-1", "Test Bead", "session-1", "pane-1")
 	require.NoError(t, err, "StartBead failed")
 
 	// Fail it
-	err = db.FailBead("test-1", "something went wrong")
+	err = db.FailBead(ctx, "test-1", "something went wrong")
 	require.NoError(t, err, "FailBead failed")
 
 	// Verify status and error message
-	bead, err := db.GetBead("test-1")
+	bead, err := db.GetBead(ctx, "test-1")
 	require.NoError(t, err, "GetBead failed")
 	assert.Equal(t, StatusFailed, bead.Status)
 	assert.Equal(t, "something went wrong", bead.ErrorMessage)
@@ -123,16 +129,18 @@ func TestFailBead(t *testing.T) {
 func TestFailBeadNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
-	err := db.FailBead("nonexistent", "error")
+	err := db.FailBead(ctx, "nonexistent", "error")
 	assert.Error(t, err, "expected error for nonexistent bead")
 }
 
 func TestGetBeadNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
-	bead, err := db.GetBead("nonexistent")
+	bead, err := db.GetBead(ctx, "nonexistent")
 	require.NoError(t, err, "GetBead failed")
 	assert.Nil(t, bead, "expected nil for nonexistent bead")
 }
@@ -140,28 +148,29 @@ func TestGetBeadNotFound(t *testing.T) {
 func TestIsCompleted(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
 	// Nonexistent bead
-	completed, err := db.IsCompleted("nonexistent")
+	completed, err := db.IsCompleted(ctx, "nonexistent")
 	require.NoError(t, err, "IsCompleted failed")
 	assert.False(t, completed, "expected false for nonexistent bead")
 
 	// Processing bead
-	db.StartBead("test-1", "Test", "s", "p")
-	completed, err = db.IsCompleted("test-1")
+	db.StartBead(ctx, "test-1", "Test", "s", "p")
+	completed, err = db.IsCompleted(ctx, "test-1")
 	require.NoError(t, err, "IsCompleted failed")
 	assert.False(t, completed, "expected false for processing bead")
 
 	// Completed bead
-	db.CompleteBead("test-1", "")
-	completed, err = db.IsCompleted("test-1")
+	db.CompleteBead(ctx, "test-1", "")
+	completed, err = db.IsCompleted(ctx, "test-1")
 	require.NoError(t, err, "IsCompleted failed")
 	assert.True(t, completed, "expected true for completed bead")
 
 	// Failed bead also counts as completed
-	db.StartBead("test-2", "Test 2", "s", "p")
-	db.FailBead("test-2", "error")
-	completed, err = db.IsCompleted("test-2")
+	db.StartBead(ctx, "test-2", "Test 2", "s", "p")
+	db.FailBead(ctx, "test-2", "error")
+	completed, err = db.IsCompleted(ctx, "test-2")
 	require.NoError(t, err, "IsCompleted failed")
 	assert.True(t, completed, "expected true for failed bead")
 }
@@ -169,32 +178,33 @@ func TestIsCompleted(t *testing.T) {
 func TestListBeads(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
 	// Create several beads with different statuses
-	db.StartBead("test-1", "Processing 1", "s", "p")
-	db.StartBead("test-2", "Processing 2", "s", "p")
-	db.StartBead("test-3", "Will Complete", "s", "p")
-	db.CompleteBead("test-3", "")
-	db.StartBead("test-4", "Will Fail", "s", "p")
-	db.FailBead("test-4", "error")
+	db.StartBead(ctx, "test-1", "Processing 1", "s", "p")
+	db.StartBead(ctx, "test-2", "Processing 2", "s", "p")
+	db.StartBead(ctx, "test-3", "Will Complete", "s", "p")
+	db.CompleteBead(ctx, "test-3", "")
+	db.StartBead(ctx, "test-4", "Will Fail", "s", "p")
+	db.FailBead(ctx, "test-4", "error")
 
 	// List all
-	beads, err := db.ListBeads("")
+	beads, err := db.ListBeads(ctx, "")
 	require.NoError(t, err, "ListBeads failed")
 	assert.Len(t, beads, 4, "expected 4 beads")
 
 	// List processing only
-	beads, err = db.ListBeads(StatusProcessing)
+	beads, err = db.ListBeads(ctx, StatusProcessing)
 	require.NoError(t, err, "ListBeads failed")
 	assert.Len(t, beads, 2, "expected 2 processing beads")
 
 	// List completed only
-	beads, err = db.ListBeads(StatusCompleted)
+	beads, err = db.ListBeads(ctx, StatusCompleted)
 	require.NoError(t, err, "ListBeads failed")
 	assert.Len(t, beads, 1, "expected 1 completed bead")
 
 	// List failed only
-	beads, err = db.ListBeads(StatusFailed)
+	beads, err = db.ListBeads(ctx, StatusFailed)
 	require.NoError(t, err, "ListBeads failed")
 	assert.Len(t, beads, 1, "expected 1 failed bead")
 }
@@ -202,12 +212,13 @@ func TestListBeads(t *testing.T) {
 func TestTimestamps(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	ctx := context.Background()
 
 	before := time.Now().Add(-time.Second)
-	db.StartBead("test-1", "Test", "s", "p")
+	db.StartBead(ctx, "test-1", "Test", "s", "p")
 	after := time.Now().Add(time.Second)
 
-	bead, _ := db.GetBead("test-1")
+	bead, _ := db.GetBead(ctx, "test-1")
 
 	assert.True(t, bead.CreatedAt.After(before) && bead.CreatedAt.Before(after), "CreatedAt not within expected range")
 	assert.True(t, bead.UpdatedAt.After(before) && bead.UpdatedAt.Before(after), "UpdatedAt not within expected range")

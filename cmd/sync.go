@@ -26,7 +26,8 @@ func init() {
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
-	proj, err := project.Find(flagProject)
+	ctx := GetContext()
+	proj, err := project.Find(ctx, flagProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}

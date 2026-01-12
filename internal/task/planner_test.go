@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"testing"
 
 	"github.com/newhook/co/internal/beads"
@@ -13,7 +14,7 @@ type mockEstimator struct {
 	scores map[string]int
 }
 
-func (m *mockEstimator) Estimate(bead beads.Bead) (int, int, error) {
+func (m *mockEstimator) Estimate(ctx context.Context, bead beads.Bead) (int, int, error) {
 	score := m.scores[bead.ID]
 	if score == 0 {
 		score = 5 // default
@@ -87,6 +88,7 @@ func TestTopologicalSortDetectsCycle(t *testing.T) {
 }
 
 func TestPlanSimple(t *testing.T) {
+	ctx := context.Background()
 	estimator := &mockEstimator{
 		scores: map[string]int{"a": 3, "b": 3, "c": 3},
 	}
@@ -99,7 +101,7 @@ func TestPlanSimple(t *testing.T) {
 	}
 
 	// Budget of 10 should fit all beads in one task (3+3+3=9)
-	tasks, err := planner.Plan(inputBeads, 10)
+	tasks, err := planner.Plan(ctx, inputBeads, 10)
 	require.NoError(t, err, "Plan failed")
 
 	assert.Len(t, tasks, 1, "expected 1 task")
@@ -107,6 +109,7 @@ func TestPlanSimple(t *testing.T) {
 }
 
 func TestPlanSplitByBudget(t *testing.T) {
+	ctx := context.Background()
 	estimator := &mockEstimator{
 		scores: map[string]int{"a": 5, "b": 5, "c": 5},
 	}
@@ -119,7 +122,7 @@ func TestPlanSplitByBudget(t *testing.T) {
 	}
 
 	// Budget of 7 should split into multiple tasks
-	tasks, err := planner.Plan(inputBeads, 7)
+	tasks, err := planner.Plan(ctx, inputBeads, 7)
 	require.NoError(t, err, "Plan failed")
 
 	assert.GreaterOrEqual(t, len(tasks), 2, "expected at least 2 tasks")
@@ -133,6 +136,7 @@ func TestPlanSplitByBudget(t *testing.T) {
 }
 
 func TestPlanRespectsDependencies(t *testing.T) {
+	ctx := context.Background()
 	estimator := &mockEstimator{
 		scores: map[string]int{"a": 3, "b": 3},
 	}
@@ -144,7 +148,7 @@ func TestPlanRespectsDependencies(t *testing.T) {
 	}
 
 	// Small budget to force multiple tasks
-	tasks, err := planner.Plan(inputBeads, 4)
+	tasks, err := planner.Plan(ctx, inputBeads, 4)
 	require.NoError(t, err, "Plan failed")
 
 	// Find which tasks contain a and b
@@ -160,16 +164,18 @@ func TestPlanRespectsDependencies(t *testing.T) {
 }
 
 func TestPlanEmpty(t *testing.T) {
+	ctx := context.Background()
 	estimator := &mockEstimator{}
 	planner := NewDefaultPlanner(estimator)
 
-	tasks, err := planner.Plan(nil, 10)
+	tasks, err := planner.Plan(ctx, nil, 10)
 	require.NoError(t, err, "Plan failed")
 
 	assert.Empty(t, tasks, "expected no tasks for empty input")
 }
 
 func TestPlanFirstFitDecreasing(t *testing.T) {
+	ctx := context.Background()
 	// Larger beads are assigned first
 	estimator := &mockEstimator{
 		scores: map[string]int{"small": 2, "medium": 4, "large": 6},
@@ -182,7 +188,7 @@ func TestPlanFirstFitDecreasing(t *testing.T) {
 		{ID: "large", Title: "Large"},
 	}
 
-	tasks, err := planner.Plan(inputBeads, 10)
+	tasks, err := planner.Plan(ctx, inputBeads, 10)
 	require.NoError(t, err, "Plan failed")
 
 	// With budget 10, large (6) goes first, then small (2) fits, medium (4) won't fit
