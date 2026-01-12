@@ -180,7 +180,13 @@ func stepCreateWork(proj *project.Project, data StepData) (int, StepData, error)
 	}
 
 	branchName := generateBranchNameFromBead(mainBead)
-	fmt.Printf("Generated branch name: %s\n", branchName)
+
+	// Ensure branch name is unique (append suffix if needed)
+	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+	if err != nil {
+		return 0, data, fmt.Errorf("failed to find unique branch name: %w", err)
+	}
+	fmt.Printf("Using branch name: %s\n", branchName)
 
 	// Generate work ID
 	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)

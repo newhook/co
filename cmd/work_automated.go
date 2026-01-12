@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strings"
 
@@ -43,6 +44,44 @@ func generateBranchNameFromBead(bead *beads.Bead) string {
 
 	// Add prefix based on common conventions
 	return fmt.Sprintf("feat/%s", title)
+}
+
+// ensureUniqueBranchName checks if a branch already exists and appends a suffix if needed.
+// Returns a unique branch name that doesn't conflict with existing branches.
+func ensureUniqueBranchName(repoPath, baseName string) (string, error) {
+	// Check if the base name is available
+	if !branchExists(repoPath, baseName) {
+		return baseName, nil
+	}
+
+	// Try appending suffixes until we find an available name
+	for i := 2; i <= 100; i++ {
+		candidate := fmt.Sprintf("%s-%d", baseName, i)
+		if !branchExists(repoPath, candidate) {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find unique branch name after 100 attempts (base: %s)", baseName)
+}
+
+// branchExists checks if a branch exists locally or remotely.
+func branchExists(repoPath, branchName string) bool {
+	// Check local branches
+	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
+	cmd.Dir = repoPath
+	if cmd.Run() == nil {
+		return true
+	}
+
+	// Check remote branches
+	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branchName)
+	cmd.Dir = repoPath
+	if cmd.Run() == nil {
+		return true
+	}
+
+	return false
 }
 
 // collectBeadsForAutomatedWorkflow collects all beads to include in the workflow.
