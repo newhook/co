@@ -2,15 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
 )
 
@@ -97,135 +93,112 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 }
 
 // runAutomatedWorkflow executes the complete automated workflow from bead to PR.
-// This includes:
-// 1. Creating work unit with auto-generated branch name
-// 2. Planning tasks (with auto-grouping)
-// 3. Executing tasks
-// 4. Running review-fix loop until clean
-// 5. Creating PR
+// This is a convenience wrapper that initializes and starts an orchestrated workflow.
+// The workflow runs through 7 steps:
+// 1. Creating work unit with auto-generated branch name (StepCreateWork)
+// 2. Collecting all beads to include (StepCollectBeads)
+// 3. Planning tasks with auto-grouping (StepPlanTasks)
+// 4. Executing tasks (StepExecuteTasks)
+// 5. Waiting for task completion (StepWaitCompletion)
+// 6. Running review-fix loop until clean (StepReviewFix)
+// 7. Creating PR (StepCreatePR)
+//
+// Each step is independently executable and resumable through the orchestration system.
+// Use 'co orchestrate --work <id>' to resume a workflow from where it left off.
 func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch string) error {
-	ctx := GetContext()
-	mainRepoPath := proj.MainRepoPath()
-
 	fmt.Printf("Starting automated workflow for bead: %s\n", beadID)
 
-	// Step 1: Get the main bead to generate branch name
-	mainBead, err := beads.GetBeadInDir(beadID, mainRepoPath)
+	// Initialize workflow state - the workflow ID is temporary until StepCreateWork creates the actual work
+	workflowID, err := InitWorkflow(proj, beadID, baseBranch)
 	if err != nil {
-		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		return fmt.Errorf("failed to initialize workflow: %w", err)
 	}
 
-	branchName := generateBranchNameFromBead(mainBead)
-	fmt.Printf("Generated branch name: %s\n", branchName)
+	fmt.Printf("Initialized workflow: %s\n", workflowID)
+	fmt.Println("Workflow will execute steps:")
+	fmt.Println("  0. Create work (worktree, branch)")
+	fmt.Println("  1. Collect beads")
+	fmt.Println("  2. Plan tasks")
+	fmt.Println("  3. Execute tasks")
+	fmt.Println("  4. Wait for completion")
+	fmt.Println("  5. Review-fix loop")
+	fmt.Println("  6. Create PR")
 
-	// Step 2: Collect all beads to include
-	beadsToProcess, err := collectBeadsForAutomatedWorkflow(beadID, mainRepoPath)
-	if err != nil {
-		return fmt.Errorf("failed to collect beads: %w", err)
+	// Run the workflow using the orchestration system
+	// This executes step-by-step with state persistence
+	return runOrchestratedWorkflow(proj, workflowID)
+}
+
+// runOrchestratedWorkflow executes the workflow step by step using the orchestration system.
+// Each step is independently resumable if the workflow is interrupted.
+func runOrchestratedWorkflow(proj *project.Project, workflowID string) error {
+	ctx := GetContext()
+
+	for {
+		// Get current workflow state
+		state, err := proj.DB.GetWorkflowState(ctx, workflowID)
+		if err != nil {
+			return fmt.Errorf("failed to get workflow state: %w", err)
+		}
+		if state == nil {
+			return fmt.Errorf("workflow %s not found", workflowID)
+		}
+
+		// Check if workflow is completed or failed
+		if state.StepStatus == "completed" {
+			fmt.Println("\n=== Workflow completed successfully ===")
+			return nil
+		}
+		if state.StepStatus == "failed" {
+			return fmt.Errorf("workflow failed at step %d: %s", state.CurrentStep, state.ErrorMessage)
+		}
+
+		// Execute the current step by calling orchestrate command logic directly
+		// This avoids spawning a subprocess and keeps everything in the same process
+		fmt.Printf("\n=== Step %d: %s ===\n", state.CurrentStep, stepName(state.CurrentStep))
+
+		// Run the orchestration step
+		flagOrchestrateWork = workflowID
+		flagOrchestrateStep = state.CurrentStep
+		if err := runOrchestrate(nil, nil); err != nil {
+			return err
+		}
+
+		// Check if the workflow ID changed (happens after StepCreateWork)
+		newState, err := proj.DB.GetWorkflowState(ctx, workflowID)
+		if err != nil {
+			return fmt.Errorf("failed to get updated workflow state: %w", err)
+		}
+
+		// If the step was completed, the next step should be set
+		if newState != nil && newState.StepStatus == "completed" {
+			return nil
+		}
 	}
+}
 
-	if len(beadsToProcess) == 0 {
-		return fmt.Errorf("no beads to process for %s", beadID)
+// stepName returns a human-readable name for each step
+func stepName(step int) string {
+	switch step {
+	case StepCreateWork:
+		return "Create Work"
+	case StepCollectBeads:
+		return "Collect Beads"
+	case StepPlanTasks:
+		return "Plan Tasks"
+	case StepExecuteTasks:
+		return "Execute Tasks"
+	case StepWaitCompletion:
+		return "Wait for Completion"
+	case StepReviewFix:
+		return "Review-Fix Loop"
+	case StepCreatePR:
+		return "Create PR"
+	case StepCompleted:
+		return "Completed"
+	default:
+		return fmt.Sprintf("Unknown Step %d", step)
 	}
-
-	fmt.Printf("Collected %d bead(s) for workflow:\n", len(beadsToProcess))
-	for _, b := range beadsToProcess {
-		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
-	}
-
-	// Step 3: Create work unit
-	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
-	if err != nil {
-		return fmt.Errorf("failed to generate work ID: %w", err)
-	}
-	fmt.Printf("Generated work ID: %s\n", workID)
-
-	// Create work subdirectory
-	workDir := filepath.Join(proj.Root, workID)
-	if err := os.Mkdir(workDir, 0755); err != nil {
-		return fmt.Errorf("failed to create work directory: %w", err)
-	}
-
-	// Create git worktree inside work directory
-	worktreePath := filepath.Join(workDir, "tree")
-
-	// Create worktree with new branch based on the specified base branch
-	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName, baseBranch)
-	cmd.Dir = mainRepoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to create worktree: %w\n%s", err, output)
-	}
-
-	// Push branch and set upstream
-	cmd = exec.Command("git", "push", "--set-upstream", "origin", branchName)
-	cmd.Dir = worktreePath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		exec.Command("git", "worktree", "remove", worktreePath).Run()
-		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to push and set upstream: %w\n%s", err, output)
-	}
-
-	// Initialize mise in worktree if needed
-	if err := mise.Initialize(worktreePath); err != nil {
-		fmt.Printf("Warning: mise initialization failed: %v\n", err)
-	}
-
-	// Create work record in database
-	if err := proj.DB.CreateWork(ctx, workID, worktreePath, branchName, baseBranch); err != nil {
-		exec.Command("git", "worktree", "remove", worktreePath).Run()
-		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to create work record: %w", err)
-	}
-
-	fmt.Printf("Created work: %s\n", workID)
-	fmt.Printf("Directory: %s\n", workDir)
-	fmt.Printf("Worktree: %s\n", worktreePath)
-	fmt.Printf("Branch: %s\n", branchName)
-
-	// Step 4: Plan tasks with auto-grouping
-	fmt.Println("\n=== Planning tasks ===")
-
-	// Convert beads for planning
-	var beadList []beads.Bead
-	for _, b := range beadsToProcess {
-		beadList = append(beadList, beads.Bead{
-			ID:          b.ID,
-			Title:       b.Title,
-			Description: b.Description,
-		})
-	}
-
-	// Use auto-grouping to plan tasks
-	work, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
-	}
-
-	if err := planAutoGroupForWork(proj, beadList, workID, work); err != nil {
-		return fmt.Errorf("failed to plan tasks: %w", err)
-	}
-
-	// Step 5: Execute tasks
-	fmt.Println("\n=== Executing tasks ===")
-	if err := processWork(proj, workID); err != nil {
-		return fmt.Errorf("failed to execute tasks: %w", err)
-	}
-
-	// Step 6: Run review-fix loop
-	fmt.Println("\n=== Running review-fix loop ===")
-	if err := runReviewFixLoop(proj, workID); err != nil {
-		return fmt.Errorf("review-fix loop failed: %w", err)
-	}
-
-	// Step 7: Create PR
-	fmt.Println("\n=== Creating PR ===")
-	if err := createWorkPR(proj, workID); err != nil {
-		return fmt.Errorf("failed to create PR: %w", err)
-	}
-
-	fmt.Printf("\n=== Automated workflow completed for bead %s ===\n", beadID)
-	return nil
 }
 
 // planAutoGroupForWork is a helper that runs auto-grouping planning for the given beads.
