@@ -72,6 +72,18 @@ func (db *DB) DeleteTaskDependencies(ctx context.Context, taskID string) error {
 	return nil
 }
 
+// DeleteTaskDependency removes a single dependency between two tasks.
+func (db *DB) DeleteTaskDependency(ctx context.Context, taskID, dependsOnTaskID string) error {
+	_, err := db.queries.DeleteTaskDependency(ctx, sqlc.DeleteTaskDependencyParams{
+		TaskID:          taskID,
+		DependsOnTaskID: dependsOnTaskID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete task dependency %s -> %s: %w", taskID, dependsOnTaskID, err)
+	}
+	return nil
+}
+
 // DeleteTaskDependenciesForWork removes all task dependencies for tasks in a work.
 func (db *DB) DeleteTaskDependenciesForWork(ctx context.Context, workID string) error {
 	_, err := db.queries.DeleteTaskDependenciesForWork(ctx, workID)

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/beads"
@@ -11,6 +12,8 @@ import (
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
 )
+
+const maxReviewIterations = 5
 
 var (
 	flagOrchestrateWork string
@@ -196,7 +199,122 @@ func executeTask(proj *project.Project, task *db.Task, work *db.Work) error {
 		return err
 	}
 
+	// Post-execution: handle review-fix loop for review tasks
+	if task.TaskType == "review" {
+		if err := handleReviewFixLoop(proj, task, work); err != nil {
+			return fmt.Errorf("failed to handle review-fix loop: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// handleReviewFixLoop checks if a review task found issues and creates fix tasks.
+// It also creates a new review task and updates the PR task dependencies.
+func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Work) error {
+	ctx := GetContext()
+	mainRepoPath := proj.MainRepoPath()
+
+	// Count how many review iterations we've had
+	reviewCount := countReviewIterations(proj, work.ID)
+	if reviewCount >= maxReviewIterations {
+		fmt.Printf("Warning: Maximum review iterations (%d) reached, proceeding to PR\n", maxReviewIterations)
+		return nil
+	}
+
+	// Check if the review created any issue beads via review_epic_id
+	epicID, err := proj.DB.GetReviewEpicID(ctx, reviewTask.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get review epic ID: %w", err)
+	}
+
+	var beadsToFix []beads.BeadWithDeps
+	if epicID != "" {
+		// Get all children of the review epic
+		epicChildren, err := beads.GetBeadWithChildrenInDir(epicID, mainRepoPath)
+		if err != nil {
+			return fmt.Errorf("failed to get children of review epic %s: %w", epicID, err)
+		}
+
+		// Filter to only ready beads (excluding the epic itself)
+		for _, b := range epicChildren {
+			if b.ID != epicID && (b.Status == "" || b.Status == "ready" || b.Status == "open") {
+				beadsToFix = append(beadsToFix, b)
+			}
+		}
+	}
+
+	if len(beadsToFix) == 0 {
+		fmt.Println("Review passed - no issues found!")
+		return nil
+	}
+
+	fmt.Printf("Review found %d issue(s) - creating fix tasks...\n", len(beadsToFix))
+
+	// Create fix tasks for each bead
+	var fixTaskIDs []string
+	for _, b := range beadsToFix {
+		nextNum, err := proj.DB.GetNextTaskNumber(ctx, work.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get next task number: %w", err)
+		}
+		taskID := fmt.Sprintf("%s.%d", work.ID, nextNum)
+
+		if err := proj.DB.CreateTask(ctx, taskID, "implement", []string{b.ID}, 0, work.ID); err != nil {
+			return fmt.Errorf("failed to create fix task: %w", err)
+		}
+
+		// Fix task depends on the current review task
+		if err := proj.DB.AddTaskDependency(ctx, taskID, reviewTask.ID); err != nil {
+			return fmt.Errorf("failed to add dependency for fix task %s: %w", taskID, err)
+		}
+
+		fixTaskIDs = append(fixTaskIDs, taskID)
+		fmt.Printf("Created fix task %s for bead %s: %s\n", taskID, b.ID, b.Title)
+	}
+
+	// Create a new review task that depends on all fix tasks
+	newReviewTaskID := fmt.Sprintf("%s.review-%d", work.ID, reviewCount+1)
+	if err := proj.DB.CreateTask(ctx, newReviewTaskID, "review", nil, 0, work.ID); err != nil {
+		return fmt.Errorf("failed to create new review task: %w", err)
+	}
+	for _, fixID := range fixTaskIDs {
+		if err := proj.DB.AddTaskDependency(ctx, newReviewTaskID, fixID); err != nil {
+			return fmt.Errorf("failed to add dependency for new review task: %w", err)
+		}
+	}
+	fmt.Printf("Created new review task: %s (depends on %d fix tasks)\n", newReviewTaskID, len(fixTaskIDs))
+
+	// Update PR task to depend on the new review task instead of this one
+	prTaskID := fmt.Sprintf("%s.pr", work.ID)
+	// Remove old dependency and add new one
+	if err := proj.DB.DeleteTaskDependency(ctx, prTaskID, reviewTask.ID); err != nil {
+		fmt.Printf("Warning: failed to remove old PR dependency: %v\n", err)
+	}
+	if err := proj.DB.AddTaskDependency(ctx, prTaskID, newReviewTaskID); err != nil {
+		return fmt.Errorf("failed to add new PR dependency: %w", err)
+	}
+	fmt.Printf("Updated PR task %s to depend on new review %s\n", prTaskID, newReviewTaskID)
+
+	return nil
+}
+
+// countReviewIterations counts how many review tasks exist for a work unit.
+func countReviewIterations(proj *project.Project, workID string) int {
+	ctx := GetContext()
+	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
+	if err != nil {
+		return 0
+	}
+
+	count := 0
+	reviewPrefix := workID + ".review"
+	for _, task := range tasks {
+		if strings.HasPrefix(task.ID, reviewPrefix) {
+			count++
+		}
+	}
+	return count
 }
 
 // applyHooksEnv sets environment variables from the hooks.env config.

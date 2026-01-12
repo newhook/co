@@ -28,6 +28,7 @@ type Querier interface {
 	DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error)
 	DeleteTaskDependencies(ctx context.Context, taskID string) (int64, error)
 	DeleteTaskDependenciesForWork(ctx context.Context, workID string) (int64, error)
+	DeleteTaskDependency(ctx context.Context, arg DeleteTaskDependencyParams) (int64, error)
 	DeleteTaskMetadata(ctx context.Context, arg DeleteTaskMetadataParams) (int64, error)
 	DeleteTasksForWork(ctx context.Context, workID string) (int64, error)
 	DeleteWork(ctx context.Context, id string) (int64, error)

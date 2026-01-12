@@ -56,3 +56,7 @@ FROM task_dependencies td
 INNER JOIN tasks dep ON td.depends_on_task_id = dep.id
 WHERE td.task_id = ?
   AND dep.status != 'completed';
+
+-- name: DeleteTaskDependency :execrows
+DELETE FROM task_dependencies
+WHERE task_id = ? AND depends_on_task_id = ?;

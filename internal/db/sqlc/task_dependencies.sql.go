@@ -52,6 +52,24 @@ func (q *Queries) DeleteTaskDependenciesForWork(ctx context.Context, workID stri
 	return result.RowsAffected()
 }
 
+const deleteTaskDependency = `-- name: DeleteTaskDependency :execrows
+DELETE FROM task_dependencies
+WHERE task_id = ? AND depends_on_task_id = ?
+`
+
+type DeleteTaskDependencyParams struct {
+	TaskID          string `json:"task_id"`
+	DependsOnTaskID string `json:"depends_on_task_id"`
+}
+
+func (q *Queries) DeleteTaskDependency(ctx context.Context, arg DeleteTaskDependencyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTaskDependency, arg.TaskID, arg.DependsOnTaskID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getReadyTasksForWork = `-- name: GetReadyTasksForWork :many
 SELECT t.id, t.status,
        COALESCE(t.task_type, 'implement') as task_type,
