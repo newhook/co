@@ -231,7 +231,9 @@ SELECT t.id, t.status,
        t.error_message,
        t.started_at,
        t.completed_at,
-       t.created_at
+       t.created_at,
+       t.spawned_at,
+       t.spawn_status
 FROM tasks t
 JOIN work_tasks wt ON t.id = wt.task_id
 WHERE wt.work_id = ?
@@ -262,6 +264,8 @@ func (q *Queries) GetWorkTasks(ctx context.Context, workID string) ([]Task, erro
 			&i.StartedAt,
 			&i.CompletedAt,
 			&i.CreatedAt,
+			&i.SpawnedAt,
+			&i.SpawnStatus,
 		); err != nil {
 			return nil, err
 		}

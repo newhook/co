@@ -401,15 +401,11 @@ func sortGroupsByDependencies(groups []taskGroup, beadsWithDeps []beads.BeadWith
 	return sortedGroups, nil
 }
 
-// planAutoGroup uses LLM to group beads by complexity
+// planAutoGroup uses LLM to group beads by complexity.
+// This function is non-blocking when estimation is needed - it spawns an estimation
+// task and returns immediately. User must re-run after estimation completes.
 func planAutoGroup(proj *project.Project, beadList []beads.Bead, workID string, work *db.Work) error {
 	fmt.Println("Auto-grouping beads by complexity...")
-
-	// Get beads with dependencies for planning
-	beadsWithDeps, err := getBeadsWithDepsForPlan(beadList, proj.MainRepoPath())
-	if err != nil {
-		return fmt.Errorf("failed to get bead dependencies: %w", err)
-	}
 
 	// Create planner with complexity estimator
 	// Use work's worktree path for estimation to avoid creating extra worktrees
@@ -419,11 +415,28 @@ func planAutoGroup(proj *project.Project, beadList []beads.Bead, workID string, 
 	}
 	estimator := task.NewLLMEstimator(proj.DB, estimationPath, proj.Config.Project.Name, workID)
 
-	// Estimate complexity for all beads in batch
-	fmt.Println("Estimating complexity for beads...")
+	// Check if estimation is needed (non-blocking)
+	fmt.Println("Checking complexity estimates for beads...")
 	ctx := GetContext()
-	if err := estimator.EstimateBatch(ctx, beadList, flagPlanForceEstimate); err != nil {
-		return fmt.Errorf("failed to estimate complexity: %w", err)
+	estResult, err := estimator.EstimateBatch(ctx, beadList, flagPlanForceEstimate)
+	if err != nil {
+		return fmt.Errorf("failed to check/spawn estimation: %w", err)
+	}
+
+	// If estimation task was spawned, return early (non-blocking)
+	if estResult.TaskSpawned {
+		fmt.Printf("\nEstimation task %s is running in background.\n", estResult.TaskID)
+		fmt.Println("Re-run 'co plan --auto-group' after it completes to create grouped tasks.")
+		return nil
+	}
+
+	// All beads have cached estimates, proceed with planning
+	fmt.Println("All beads have complexity estimates, proceeding with planning...")
+
+	// Get beads with dependencies for planning
+	beadsWithDeps, err := getBeadsWithDepsForPlan(beadList, proj.MainRepoPath())
+	if err != nil {
+		return fmt.Errorf("failed to get bead dependencies: %w", err)
 	}
 
 	planner := task.NewDefaultPlanner(estimator)

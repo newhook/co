@@ -25,12 +25,16 @@ func taskToLocal(t *sqlc.Task) *Task {
 		PRURL:            t.PrUrl,
 		ErrorMessage:     t.ErrorMessage,
 		CreatedAt:        t.CreatedAt,
+		SpawnStatus:      t.SpawnStatus,
 	}
 	if t.StartedAt.Valid {
 		task.StartedAt = &t.StartedAt.Time
 	}
 	if t.CompletedAt.Valid {
 		task.CompletedAt = &t.CompletedAt.Time
+	}
+	if t.SpawnedAt.Valid {
+		task.SpawnedAt = &t.SpawnedAt.Time
 	}
 	return task
 }
@@ -51,6 +55,8 @@ type Task struct {
 	StartedAt        *time.Time
 	CompletedAt      *time.Time
 	CreatedAt        time.Time
+	SpawnedAt        *time.Time
+	SpawnStatus      string
 }
 
 // TaskBead represents a bead within a task.
