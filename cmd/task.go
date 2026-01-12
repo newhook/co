@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -11,9 +12,9 @@ import (
 )
 
 var (
-	flagTaskStatus         string
-	flagTaskType           string
-	flagSetReviewEpicTask  string
+	flagTaskStatus        string
+	flagTaskType          string
+	flagSetReviewEpicTask string
 )
 
 var taskCmd = &cobra.Command{
@@ -93,7 +94,8 @@ func init() {
 
 func runTaskList(cmd *cobra.Command, args []string) error {
 	// Find project
-	proj, err := project.Find("")
+	ctx := GetContext()
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
@@ -102,7 +104,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	// Get all tasks
 	var tasks []*db.Task
 	if flagTaskStatus != "" {
-		tasks, err = proj.DB.ListTasks(GetContext(),flagTaskStatus)
+		tasks, err = proj.DB.ListTasks(GetContext(), flagTaskStatus)
 		if err != nil {
 			return fmt.Errorf("failed to list tasks: %w", err)
 		}
@@ -110,7 +112,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		// Get all tasks regardless of status
 		allStatuses := []string{db.StatusPending, db.StatusProcessing, db.StatusCompleted, db.StatusFailed}
 		for _, status := range allStatuses {
-			statusTasks, err := proj.DB.ListTasks(GetContext(),status)
+			statusTasks, err := proj.DB.ListTasks(GetContext(), status)
 			if err != nil {
 				return fmt.Errorf("failed to list tasks with status %s: %w", status, err)
 			}
@@ -142,7 +144,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	// Print each task
 	for _, task := range tasks {
 		// Get beads for this task
-		beadIDs, err := proj.DB.GetTaskBeads(GetContext(),task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(GetContext(), task.ID)
 		if err != nil {
 			beadIDs = []string{"<error>"}
 		}
@@ -207,17 +209,18 @@ func formatStatus(status string) string {
 }
 
 func runTaskShow(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
 	taskID := args[0]
 
 	// Find project
-	proj, err := project.Find("")
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
 	defer proj.Close()
 
 	// Get task
-	task, err := proj.DB.GetTask(GetContext(),taskID)
+	task, err := proj.DB.GetTask(GetContext(), taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
@@ -226,7 +229,7 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get beads for this task
-	beadIDs, err := proj.DB.GetTaskBeads(GetContext(),task.ID)
+	beadIDs, err := proj.DB.GetTaskBeads(GetContext(), task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get task beads: %w", err)
 	}
@@ -288,7 +291,7 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print metadata if any
-	metadata, err := proj.DB.GetAllTaskMetadata(context.Background(), taskID)
+	metadata, err := proj.DB.GetAllTaskMetadata(ctx, taskID)
 	if err == nil && len(metadata) > 0 {
 		fmt.Printf("\nMetadata:\n")
 		for key, value := range metadata {
@@ -300,8 +303,9 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 }
 
 func runTaskDelete(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
 	// Find project
-	proj, err := project.Find("")
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
@@ -344,16 +348,17 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 
 func runTaskReset(cmd *cobra.Command, args []string) error {
 	taskID := args[0]
+	ctx := GetContext()
 
 	// Find project
-	proj, err := project.Find("")
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
 	defer proj.Close()
 
 	// Check task exists
-	task, err := proj.DB.GetTask(GetContext(),taskID)
+	task, err := proj.DB.GetTask(GetContext(), taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
@@ -362,7 +367,7 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Reset task status
-	if err := proj.DB.ResetTaskStatus(GetContext(),taskID); err != nil {
+	if err := proj.DB.ResetTaskStatus(GetContext(), taskID); err != nil {
 		return fmt.Errorf("failed to reset task status: %w", err)
 	}
 
@@ -381,10 +386,11 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 }
 
 func runTaskSetReviewEpic(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
 	epicID := args[0]
 
 	// Find project
-	proj, err := project.Find("")
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
@@ -395,14 +401,14 @@ func runTaskSetReviewEpic(cmd *cobra.Command, args []string) error {
 		taskID = flagSetReviewEpicTask
 	} else {
 		// Try to detect task from current context
-		taskID, err = getCurrentTask(proj)
+		taskID, err = getCurrentTask(ctx, proj)
 		if err != nil {
 			return fmt.Errorf("could not detect current task (use --task flag): %w", err)
 		}
 	}
 
 	// Verify task exists
-	task, err := proj.DB.GetTask(context.Background(), taskID)
+	task, err := proj.DB.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
@@ -416,7 +422,7 @@ func runTaskSetReviewEpic(cmd *cobra.Command, args []string) error {
 	}
 
 	// Set the review epic ID
-	if err := proj.DB.SetReviewEpicID(context.Background(), taskID, epicID); err != nil {
+	if err := proj.DB.SetReviewEpicID(ctx, taskID, epicID); err != nil {
 		return fmt.Errorf("failed to set review epic: %w", err)
 	}
 
@@ -428,7 +434,7 @@ func runTaskSetReviewEpic(cmd *cobra.Command, args []string) error {
 // This looks for a CO_TASK_ID environment variable that would be set by the
 // Claude Code session when running a task, or finds the current processing
 // review task for the work directory.
-func getCurrentTask(proj *project.Project) (string, error) {
+func getCurrentTask(ctx context.Context, proj *project.Project) (string, error) {
 	// Check for CO_TASK_ID environment variable (set by task runner)
 	if taskID := os.Getenv("CO_TASK_ID"); taskID != "" {
 		return taskID, nil
@@ -441,7 +447,7 @@ func getCurrentTask(proj *project.Project) (string, error) {
 	}
 
 	// Get all tasks for this work and find a processing review task
-	tasks, err := proj.DB.GetWorkTasks(context.Background(), workID)
+	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get work tasks: %w", err)
 	}

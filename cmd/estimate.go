@@ -34,6 +34,7 @@ func init() {
 }
 
 func runEstimate(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
 	beadID := args[0]
 
 	// Validate score range
@@ -47,7 +48,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Find project
-	proj, err := project.Find("")
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
@@ -65,7 +66,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	descHash := db.HashDescription(fullDescription)
 
 	// Store estimate in complexity cache
-	if err := proj.DB.CacheComplexity(beadID, descHash, flagEstimateScore, flagEstimateTokens); err != nil {
+	if err := proj.DB.CacheComplexity(ctx, beadID, descHash, flagEstimateScore, flagEstimateTokens); err != nil {
 		return fmt.Errorf("failed to cache complexity: %w", err)
 	}
 
@@ -104,7 +105,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 		}
 
 		// Check if all beads have estimates
-		allEstimated, err := proj.DB.AreAllBeadsEstimated(taskBeadIDs)
+		allEstimated, err := proj.DB.AreAllBeadsEstimated(ctx, taskBeadIDs)
 		if err != nil {
 			return fmt.Errorf("failed to check estimates: %w", err)
 		}
@@ -128,7 +129,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 				// Get cached complexity
 				fullDesc := b.Title + "\n" + b.Description
 				hash := db.HashDescription(fullDesc)
-				score, tokens, found, _ := proj.DB.GetCachedComplexity(id, hash)
+				score, tokens, found, _ := proj.DB.GetCachedComplexity(ctx, id, hash)
 				if found {
 					// Truncate title if too long
 					title := b.Title
@@ -146,7 +147,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 				if b != nil {
 					fullDesc := b.Title + "\n" + b.Description
 					hash := db.HashDescription(fullDesc)
-					_, _, found, _ := proj.DB.GetCachedComplexity(id, hash)
+					_, _, found, _ := proj.DB.GetCachedComplexity(ctx, id, hash)
 					if !found {
 						remaining = append(remaining, id)
 					}

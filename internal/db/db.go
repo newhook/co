@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -24,14 +25,14 @@ type DB struct {
 }
 
 // OpenPath initializes the database at the specified path and runs migrations.
-func OpenPath(dbPath string) (*DB, error) {
+func OpenPath(ctx context.Context, dbPath string) (*DB, error) {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	// Run migrations instead of creating schema directly
-	if err := RunMigrations(db); err != nil {
+	if err := RunMigrations(ctx, db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
@@ -41,4 +42,3 @@ func OpenPath(dbPath string) (*DB, error) {
 		queries: sqlc.New(db),
 	}, nil
 }
-

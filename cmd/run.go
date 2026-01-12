@@ -58,8 +58,9 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		argID = args[0]
 	}
+	ctx := GetContext()
 
-	proj, err := project.Find(flagProject)
+	proj, err := project.Find(ctx, flagProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -362,11 +363,10 @@ func createFinalPR(featureBranch string, processedBeads []beads.Bead, dir string
 	return nil
 }
 
-
 // processWork processes all tasks within a work unit.
 func processWork(proj *project.Project, workID string) error {
 	// Get work details
-	work, err := proj.DB.GetWork(GetContext(),workID)
+	work, err := proj.DB.GetWork(GetContext(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -379,7 +379,7 @@ func processWork(proj *project.Project, workID string) error {
 	fmt.Printf("Worktree: %s\n", work.WorktreePath)
 
 	// Get tasks for this work
-	tasks, err := proj.DB.GetWorkTasks(GetContext(),workID)
+	tasks, err := proj.DB.GetWorkTasks(GetContext(), workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
 	}
@@ -419,7 +419,7 @@ func processWork(proj *project.Project, workID string) error {
 	tabName := fmt.Sprintf("work-%s", work.ID)
 
 	// Start work in proj.DB
-	if err := proj.DB.StartWork(GetContext(),workID, sessionName, tabName); err != nil {
+	if err := proj.DB.StartWork(GetContext(), workID, sessionName, tabName); err != nil {
 		return fmt.Errorf("failed to start work: %w", err)
 	}
 
@@ -437,7 +437,7 @@ func processWork(proj *project.Project, workID string) error {
 		fmt.Printf("\n--- Processing task %s ---\n", task.ID)
 
 		// Get bead details for this task
-		beadIDs, err := proj.DB.GetTaskBeads(GetContext(),task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(GetContext(), task.ID)
 		if err != nil {
 			fmt.Printf("Failed to get beads for task %s: %v\n", task.ID, err)
 			continue
@@ -501,7 +501,7 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 
 	// Start task in proj.DB
 	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
-	if err := proj.DB.StartTask(GetContext(),dbTask.ID, sessionName, dbTask.ID); err != nil {
+	if err := proj.DB.StartTask(GetContext(), dbTask.ID, sessionName, dbTask.ID); err != nil {
 		return nil, fmt.Errorf("failed to start task in proj.DB: %w", err)
 	}
 
@@ -550,7 +550,7 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 	// Update task status based on result
 	if result.Completed {
 		fmt.Printf("Task %s completed successfully\n", dbTask.ID)
-		if err := proj.DB.CompleteTask(GetContext(),dbTask.ID, ""); err != nil {
+		if err := proj.DB.CompleteTask(GetContext(), dbTask.ID, ""); err != nil {
 			fmt.Printf("Warning: failed to update task status: %v\n", err)
 		}
 	} else if result.PartialFailure {
