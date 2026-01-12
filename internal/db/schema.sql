@@ -117,20 +117,19 @@ CREATE TABLE task_metadata (
 CREATE INDEX idx_task_metadata_task_id ON task_metadata(task_id);
 CREATE INDEX idx_task_metadata_key ON task_metadata(key);
 
--- Workflow state table: tracks orchestration steps for automated workflows
--- workflow_id is the primary key, work_id is set after StepCreateWork completes
-CREATE TABLE workflow_state (
-    workflow_id TEXT PRIMARY KEY,
-    work_id TEXT,
-    current_step INTEGER NOT NULL DEFAULT 0,
-    step_status TEXT NOT NULL DEFAULT 'pending',
-    step_data TEXT NOT NULL DEFAULT '{}',
-    error_message TEXT NOT NULL DEFAULT '',
+-- Task dependencies table: tracks dependencies between tasks
+-- A task can depend on multiple other tasks, and those must complete before it can run
+CREATE TABLE task_dependencies (
+    task_id TEXT NOT NULL,
+    depends_on_task_id TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    PRIMARY KEY (task_id, depends_on_task_id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (depends_on_task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_workflow_state_status ON workflow_state(step_status);
+CREATE INDEX idx_task_dependencies_task_id ON task_dependencies(task_id);
+CREATE INDEX idx_task_dependencies_depends_on ON task_dependencies(depends_on_task_id);
 
 -- Schema migrations table: tracks applied database migrations
 CREATE TABLE schema_migrations (
