@@ -188,36 +188,43 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	return planSingleBead(proj, beadList, workID)
 }
 
+// taskGroup represents a user-defined grouping of beads for a single task.
+type taskGroup struct {
+	index   int           // original order in args
+	beadIDs []string      // bead IDs in this group
+	beads   []beads.Bead  // resolved beads
+}
+
 // planManualGroups creates tasks from manual groupings like "bead-1,bead-2 bead-3"
 func planManualGroups(proj *project.Project, args []string, workID string, work *db.Work) error {
 	mainRepoPath := proj.MainRepoPath()
 
 	// First, check for beads already in pending tasks
-	pendingTasks, err := proj.DB.ListTasks(context.Background(),db.StatusPending)
+	pendingTasks, err := proj.DB.ListTasks(context.Background(), db.StatusPending)
 	if err != nil {
 		return fmt.Errorf("failed to check pending tasks: %w", err)
 	}
 
 	// Build set of beads that are already in pending tasks
 	beadsInPendingTasks := make(map[string]bool)
-	for _, task := range pendingTasks {
-		beadIDs, err := proj.DB.GetTaskBeads(context.Background(), task.ID)
+	for _, t := range pendingTasks {
+		beadIDs, err := proj.DB.GetTaskBeads(context.Background(), t.ID)
 		if err != nil {
-			return fmt.Errorf("failed to get beads for task %s: %w", task.ID, err)
+			return fmt.Errorf("failed to get beads for task %s: %w", t.ID, err)
 		}
 		for _, beadID := range beadIDs {
 			beadsInPendingTasks[beadID] = true
 		}
 	}
 
-	// Process manual groups
-	var tasks []task.Task
-	// Track task number for hierarchical IDs
-	taskCounter := 0
+	// Parse and validate all groups first
+	var groups []taskGroup
+	var allBeadIDs []string
 
-	for _, arg := range args {
+	for i, arg := range args {
 		beadIDs := strings.Split(arg, ",")
-		var taskBeads []beads.Bead
+		var groupBeadIDs []string
+		var groupBeads []beads.Bead
 		var conflictingBeads []string
 
 		// Validate and fetch each bead
@@ -237,7 +244,9 @@ func planManualGroups(proj *project.Project, args []string, workID string, work 
 			if err != nil {
 				return fmt.Errorf("failed to get bead %s: %w", id, err)
 			}
-			taskBeads = append(taskBeads, *bead)
+			groupBeadIDs = append(groupBeadIDs, id)
+			groupBeads = append(groupBeads, *bead)
+			allBeadIDs = append(allBeadIDs, id)
 		}
 
 		// Report conflicts for this group
@@ -245,12 +254,48 @@ func planManualGroups(proj *project.Project, args []string, workID string, work 
 			return fmt.Errorf("cannot plan beads already in pending tasks: %s", strings.Join(conflictingBeads, ", "))
 		}
 
-		if len(taskBeads) == 0 {
+		if len(groupBeads) == 0 {
 			continue
 		}
 
-		taskCounter++
+		groups = append(groups, taskGroup{
+			index:   i,
+			beadIDs: groupBeadIDs,
+			beads:   groupBeads,
+		})
+	}
 
+	if len(groups) == 0 {
+		fmt.Println("No tasks to create")
+		return nil
+	}
+
+	// Fetch dependency information for all beads
+	var allBeads []beads.Bead
+	for _, g := range groups {
+		allBeads = append(allBeads, g.beads...)
+	}
+	beadsWithDeps, err := getBeadsWithDepsForPlan(allBeads, mainRepoPath)
+	if err != nil {
+		return fmt.Errorf("failed to get bead dependencies: %w", err)
+	}
+
+	// Build map of bead ID to group index
+	beadToGroup := make(map[string]int)
+	for i, g := range groups {
+		for _, id := range g.beadIDs {
+			beadToGroup[id] = i
+		}
+	}
+
+	// Build dependency graph between groups
+	sortedGroups, err := sortGroupsByDependencies(groups, beadsWithDeps, beadToGroup)
+	if err != nil {
+		return err
+	}
+
+	// Create tasks in dependency order
+	for _, g := range sortedGroups {
 		// Generate hierarchical task ID (work is always required)
 		nextNum, err := proj.DB.GetNextTaskNumber(context.Background(), workID)
 		if err != nil {
@@ -258,35 +303,102 @@ func planManualGroups(proj *project.Project, args []string, workID string, work 
 		}
 		taskID := fmt.Sprintf("%s.%d", workID, nextNum)
 
-		// Collect bead IDs
-		var ids []string
-		for _, b := range taskBeads {
-			ids = append(ids, b.ID)
+		if err := proj.DB.CreateTask(context.Background(), taskID, "implement", g.beadIDs, 0, workID); err != nil {
+			return fmt.Errorf("failed to create task %s: %w", taskID, err)
 		}
-
-		tasks = append(tasks, task.Task{
-			ID:      taskID,
-			BeadIDs: ids,
-			Beads:   taskBeads,
-			Status:  task.StatusPending,
-		})
+		fmt.Printf("Created implement task %s with %d bead(s): %s\n", taskID, len(g.beadIDs), strings.Join(g.beadIDs, ", "))
 	}
 
-	if len(tasks) == 0 {
-		fmt.Println("No tasks to create")
-		return nil
-	}
-
-	// Create tasks in proj.DB
-	for _, t := range tasks {
-		if err := proj.DB.CreateTask(context.Background(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
-			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
-		}
-		fmt.Printf("Created implement task %s with %d bead(s): %s\n", t.ID, len(t.BeadIDs), strings.Join(t.BeadIDs, ", "))
-	}
-
-	fmt.Printf("\nCreated %d implement task(s). Run 'co run' to execute.\n", len(tasks))
+	fmt.Printf("\nCreated %d implement task(s). Run 'co run' to execute.\n", len(sortedGroups))
 	return nil
+}
+
+// sortGroupsByDependencies reorders task groups so dependencies are satisfied.
+// Groups are reordered based on bead dependencies between groups.
+func sortGroupsByDependencies(groups []taskGroup, beadsWithDeps []beads.BeadWithDeps, beadToGroup map[string]int) ([]taskGroup, error) {
+	if len(groups) <= 1 {
+		return groups, nil
+	}
+
+	// Build bead dependency map
+	beadDeps := make(map[string][]string)
+	for _, b := range beadsWithDeps {
+		for _, dep := range b.Dependencies {
+			if dep.DependencyType == "depends_on" {
+				beadDeps[b.ID] = append(beadDeps[b.ID], dep.ID)
+			}
+		}
+	}
+
+	// Build group dependency graph
+	// Group A depends on Group B if any bead in A depends on a bead in B
+	groupDependsOn := make(map[int]map[int]bool)
+	for i := range groups {
+		groupDependsOn[i] = make(map[int]bool)
+	}
+
+	for _, b := range beadsWithDeps {
+		beadGroupIdx, ok := beadToGroup[b.ID]
+		if !ok {
+			continue
+		}
+		for _, depID := range beadDeps[b.ID] {
+			depGroupIdx, ok := beadToGroup[depID]
+			if !ok {
+				// Dependency is not in any group (external dependency)
+				continue
+			}
+			if depGroupIdx != beadGroupIdx {
+				// This group depends on another group
+				groupDependsOn[beadGroupIdx][depGroupIdx] = true
+			}
+		}
+	}
+
+	// Topological sort of groups using Kahn's algorithm
+	inDegree := make(map[int]int)
+	for i := range groups {
+		inDegree[i] = len(groupDependsOn[i])
+	}
+
+	// Start with groups that have no dependencies
+	var queue []int
+	for i, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, i)
+		}
+	}
+
+	var sortedIndices []int
+	for len(queue) > 0 {
+		// Pop from queue
+		idx := queue[0]
+		queue = queue[1:]
+		sortedIndices = append(sortedIndices, idx)
+
+		// Reduce in-degree of groups that depend on this one
+		for otherIdx := range groups {
+			if groupDependsOn[otherIdx][idx] {
+				inDegree[otherIdx]--
+				if inDegree[otherIdx] == 0 {
+					queue = append(queue, otherIdx)
+				}
+			}
+		}
+	}
+
+	// Check for cycles
+	if len(sortedIndices) != len(groups) {
+		return nil, fmt.Errorf("dependency cycle detected between task groups")
+	}
+
+	// Build sorted groups
+	sortedGroups := make([]taskGroup, len(groups))
+	for i, idx := range sortedIndices {
+		sortedGroups[i] = groups[idx]
+	}
+
+	return sortedGroups, nil
 }
 
 // planAutoGroup uses LLM to group beads by complexity
