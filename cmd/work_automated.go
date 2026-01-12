@@ -253,9 +253,20 @@ func planAutoGroupForWork(proj *project.Project, beadList []beads.Bead, workID s
 // Maximum iterations is limited to prevent infinite loops.
 func runReviewFixLoop(proj *project.Project, workID string) error {
 	const maxIterations = 5
+	mainRepoPath := proj.MainRepoPath()
 
 	for i := range maxIterations {
 		fmt.Printf("\n--- Review iteration %d/%d ---\n", i+1, maxIterations)
+
+		// Capture the set of ready bead IDs before review (for fallback detection)
+		preReviewBeadIDs := make(map[string]bool)
+		preReviewBeads, err := beads.GetReadyBeadsInDir(mainRepoPath)
+		if err != nil {
+			return fmt.Errorf("failed to get pre-review beads: %w", err)
+		}
+		for _, b := range preReviewBeads {
+			preReviewBeadIDs[b.ID] = true
+		}
 
 		// Create and run a review task
 		reviewTaskID, err := createReviewTask(proj, workID)
@@ -269,7 +280,7 @@ func runReviewFixLoop(proj *project.Project, workID string) error {
 		}
 
 		// Check if review created any issue beads
-		hasIssues, err := checkForReviewIssues(proj, workID)
+		hasIssues, err := checkForReviewIssues(proj, workID, preReviewBeadIDs)
 		if err != nil {
 			return fmt.Errorf("failed to check for review issues: %w", err)
 		}
@@ -330,8 +341,9 @@ func createReviewTask(proj *project.Project, workID string) (string, error) {
 }
 
 // checkForReviewIssues checks if the review created any new issue beads.
-// It first checks for a review epic with children, then falls back to heuristic scanning.
-func checkForReviewIssues(proj *project.Project, workID string) (bool, error) {
+// It first checks for a review epic with children, then falls back to detecting new beads.
+// preReviewBeadIDs contains the IDs of beads that existed before the review ran.
+func checkForReviewIssues(proj *project.Project, workID string, preReviewBeadIDs map[string]bool) (bool, error) {
 	ctx := context.Background()
 	mainRepoPath := proj.MainRepoPath()
 
@@ -363,16 +375,15 @@ func checkForReviewIssues(proj *project.Project, workID string) (bool, error) {
 		}
 	}
 
-	// Fallback: heuristic check for beads that look like review issues
+	// Fallback: check for any NEW beads that didn't exist before the review
 	readyBeads, err := beads.GetReadyBeadsInDir(mainRepoPath)
 	if err != nil {
 		return false, fmt.Errorf("failed to get ready beads: %w", err)
 	}
 
-	// Look for beads that look like review issues
-	// Convention: review creates beads under an epic with title "Review: <work-id>"
+	// Only consider beads that are NEW (not in the pre-review set)
 	for _, b := range readyBeads {
-		if strings.Contains(b.Title, "Review:") || strings.Contains(b.Title, workID) {
+		if !preReviewBeadIDs[b.ID] {
 			return true, nil
 		}
 	}
