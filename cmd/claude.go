@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
-	"strings"
 	"syscall"
 	"time"
 
@@ -60,32 +58,22 @@ func runClaude(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Starting Claude for task %s at %s\n", taskID, startTime.Format("15:04:05"))
 
 	// Set up Claude command
-	claudeCmd := exec.Command("claude", "--dangerously-skip-permissions")
-
-	// Handle prompt file if provided
+	var claudeArgs []string
 	if claudePromptFile != "" {
-		// Read the prompt from the file
+		// Pass the prompt file content as a positional argument to claude
 		promptBytes, err := os.ReadFile(claudePromptFile)
 		if err != nil {
 			proj.DB.FailTask(ctx, taskID, fmt.Sprintf("Failed to read prompt file: %v", err))
 			return fmt.Errorf("failed to read prompt file: %w", err)
 		}
-
-		// Create a reader that first provides the prompt (with newline to submit),
-		// then switches to os.Stdin for interactive input
 		prompt := string(promptBytes)
-		// Ensure prompt ends with newline to submit it
-		if !strings.HasSuffix(prompt, "\n") {
-			prompt += "\n"
-		}
-		// Add one more newline to ensure submission
-		prompt += "\n"
-
-		claudeCmd.Stdin = io.MultiReader(strings.NewReader(prompt), os.Stdin)
+		claudeArgs = []string{"--dangerously-skip-permissions", prompt}
 	} else {
-		claudeCmd.Stdin = os.Stdin
+		claudeArgs = []string{"--dangerously-skip-permissions"}
 	}
 
+	claudeCmd := exec.Command("claude", claudeArgs...)
+	claudeCmd.Stdin = os.Stdin
 	claudeCmd.Stdout = os.Stdout
 	claudeCmd.Stderr = os.Stderr
 
