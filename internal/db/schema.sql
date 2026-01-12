@@ -114,3 +114,9 @@ CREATE TABLE task_metadata (
 
 CREATE INDEX idx_task_metadata_task_id ON task_metadata(task_id);
 CREATE INDEX idx_task_metadata_key ON task_metadata(key);
+
+-- Schema migrations table: tracks applied database migrations
+CREATE TABLE schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

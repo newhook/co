@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/newhook/co/internal/db/sqlc"
 	cosignal "github.com/newhook/co/internal/signal"
 )
 
@@ -74,13 +75,10 @@ func RollbackMigration(ctx context.Context, db *sql.DB) error {
 
 // RollbackMigrationForFS rolls back the last applied migration from the specified filesystem
 func RollbackMigrationForFS(ctx context.Context, db *sql.DB, fsys embed.FS) error {
+	queries := sqlc.New(db)
+
 	// Get the last applied migration
-	var version string
-	err := db.QueryRowContext(ctx, `
-		SELECT version FROM schema_migrations
-		ORDER BY version DESC
-		LIMIT 1
-	`).Scan(&version)
+	version, err := queries.GetLastMigration(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("no migrations to rollback")
 	}
@@ -131,8 +129,9 @@ func RollbackMigrationForFS(ctx context.Context, db *sql.DB, fsys embed.FS) erro
 		}
 	}
 
-	// Remove migration record
-	if _, err := tx.ExecContext(ctx, "DELETE FROM schema_migrations WHERE version = ?", version); err != nil {
+	// Remove migration record using sqlc within transaction
+	txQueries := queries.WithTx(tx)
+	if err := txQueries.DeleteMigration(ctx, version); err != nil {
 		return fmt.Errorf("failed to delete migration record: %w", err)
 	}
 
@@ -140,31 +139,22 @@ func RollbackMigrationForFS(ctx context.Context, db *sql.DB, fsys embed.FS) erro
 }
 
 func createMigrationsTable(ctx context.Context, db *sql.DB) error {
-	_, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS schema_migrations (
-			version TEXT PRIMARY KEY,
-			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)
-	`)
-	return err
+	queries := sqlc.New(db)
+	return queries.CreateMigrationsTable(ctx)
 }
 
 func getAppliedMigrations(ctx context.Context, db *sql.DB) (map[string]bool, error) {
-	rows, err := db.QueryContext(ctx, "SELECT version FROM schema_migrations")
+	queries := sqlc.New(db)
+	versions, err := queries.GetAppliedMigrations(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	applied := make(map[string]bool)
-	for rows.Next() {
-		var version string
-		if err := rows.Scan(&version); err != nil {
-			return nil, err
-		}
+	for _, version := range versions {
 		applied[version] = true
 	}
-	return applied, rows.Err()
+	return applied, nil
 }
 
 func readMigrationsFromFS(fsys embed.FS) ([]Migration, error) {
@@ -278,8 +268,9 @@ func applyMigration(ctx context.Context, db *sql.DB, m Migration) error {
 		}
 	}
 
-	// Record migration
-	if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", m.Version); err != nil {
+	// Record migration using sqlc within transaction
+	txQueries := sqlc.New(tx)
+	if err := txQueries.RecordMigration(ctx, m.Version); err != nil {
 		return fmt.Errorf("failed to record migration: %w", err)
 	}
 
@@ -379,23 +370,13 @@ func MigrationStatus(ctx context.Context, db *sql.DB) ([]string, error) {
 
 // MigrationStatusContext returns the current migration status with context
 func MigrationStatusContext(ctx context.Context, db *sql.DB) ([]string, error) {
-	rows, err := db.QueryContext(ctx, "SELECT version FROM schema_migrations ORDER BY version")
+	queries := sqlc.New(db)
+	versions, err := queries.ListMigrationVersions(ctx)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
 			return nil, nil // No migrations applied yet
 		}
 		return nil, err
 	}
-	defer rows.Close()
-
-	var versions []string
-	for rows.Next() {
-		var version string
-		if err := rows.Scan(&version); err != nil {
-			return nil, err
-		}
-		versions = append(versions, version)
-	}
-
-	return versions, rows.Err()
+	return versions, nil
 }
