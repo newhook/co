@@ -521,34 +521,16 @@ func detectWorkFromDirectory(proj *project.Project) (string, error) {
 		return "", err
 	}
 
-	// Check if we're in a work subdirectory (format: /project/work-id/tree)
+	// Check if we're in a work subdirectory (format: /project/w-xxx/tree)
 	rel, err := filepath.Rel(proj.Root, cwd)
 	if err != nil {
 		return "", nil
 	}
 
-	// Check if path starts with "work-" and contains "tree"
+	// Check if we're in a work directory (w-xxx or w-xxx/tree/...)
 	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) >= 1 && strings.HasPrefix(parts[0], "work-") {
-		workID := parts[0]
-		// Verify work exists in proj.DB
-		work, err := proj.DB.GetWork(GetContext(), workID)
-		if err != nil {
-			return "", err
-		}
-		if work != nil {
-			return workID, nil
-		}
-	}
-
-	// Try to match by worktree path pattern
-	pattern := fmt.Sprintf("%%%s%%", cwd)
-	work, err := proj.DB.GetWorkByDirectory(GetContext(), pattern)
-	if err != nil {
-		return "", err
-	}
-	if work != nil {
-		return work.ID, nil
+	if len(parts) >= 1 && strings.HasPrefix(parts[0], "w-") {
+		return parts[0], nil
 	}
 
 	return "", nil
