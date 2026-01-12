@@ -541,9 +541,9 @@ func getCurrentWork(proj *project.Project) (string, error) {
 		return "", err
 	}
 
-	// Check if we're in a work directory (work-N or work-N/tree/...)
+	// Check if we're in a work directory (w-xxx or w-xxx/tree/...)
 	parts := strings.Split(relPath, string(os.PathSeparator))
-	if len(parts) > 0 && strings.HasPrefix(parts[0], "work-") {
+	if len(parts) > 0 && strings.HasPrefix(parts[0], "w-") {
 		return parts[0], nil
 	}
 
