@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 )
@@ -131,23 +132,24 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 	return beads.GetTransitiveDependenciesInDir(beadID, dir)
 }
 
-// runAutomatedWorkflow executes the complete automated workflow from bead to PR.
-// This is a convenience wrapper that initializes and starts an orchestrated workflow.
-// The workflow runs through 7 steps:
-// 1. Creating work unit with auto-generated branch name (StepCreateWork)
-// 2. Collecting all beads to include (StepCollectBeads)
-// 3. Planning tasks with auto-grouping (StepPlanTasks)
-// 4. Executing tasks (StepExecuteTasks)
-// 5. Waiting for task completion (StepWaitCompletion)
-// 6. Running review-fix loop until clean (StepReviewFix)
-// 7. Creating PR (StepCreatePR)
+// runAutomatedWorkflow initializes a workflow and spawns it in a zellij tab.
+// The workflow runs through 7 steps in the tab:
+// 0. Creating work unit with auto-generated branch name (StepCreateWork)
+// 1. Collecting all beads to include (StepCollectBeads)
+// 2. Planning tasks with auto-grouping (StepPlanTasks)
+// 3. Executing tasks (StepExecuteTasks)
+// 4. Wait for completion (skipped - tasks run inline)
+// 5. Running review-fix loop until clean (StepReviewFix)
+// 6. Creating PR (StepCreatePR)
 //
-// Each step is independently executable and resumable through the orchestration system.
-// Use 'co orchestrate --work <id>' to resume a workflow from where it left off.
+// The workflow runs in a zellij tab for visibility. Use the tab to monitor progress.
+// Each step is resumable - if the workflow fails, you can re-run from the failed step.
 func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch string) error {
+	ctx := GetContext()
+
 	fmt.Printf("Starting automated workflow for bead: %s\n", beadID)
 
-	// Initialize workflow state - the workflow ID is temporary until StepCreateWork creates the actual work
+	// Initialize workflow state
 	workflowID, err := InitWorkflow(proj, beadID, baseBranch)
 	if err != nil {
 		return fmt.Errorf("failed to initialize workflow: %w", err)
@@ -159,61 +161,19 @@ func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch strin
 	fmt.Println("  1. Collect beads")
 	fmt.Println("  2. Plan tasks")
 	fmt.Println("  3. Execute tasks")
-	fmt.Println("  4. Wait for completion")
+	fmt.Println("  4. (skipped - tasks run inline)")
 	fmt.Println("  5. Review-fix loop")
 	fmt.Println("  6. Create PR")
 
-	// Run the workflow using the orchestration system
-	// This executes step-by-step with state persistence
-	return runOrchestratedWorkflow(proj, workflowID)
-}
-
-// runOrchestratedWorkflow executes the workflow step by step using the orchestration system.
-// Each step is independently resumable if the workflow is interrupted.
-func runOrchestratedWorkflow(proj *project.Project, workflowID string) error {
-	ctx := GetContext()
-
-	for {
-		// Get current workflow state
-		state, err := proj.DB.GetWorkflowState(ctx, workflowID)
-		if err != nil {
-			return fmt.Errorf("failed to get workflow state: %w", err)
-		}
-		if state == nil {
-			return fmt.Errorf("workflow %s not found", workflowID)
-		}
-
-		// Check if workflow is completed or failed
-		if state.StepStatus == "completed" {
-			fmt.Println("\n=== Workflow completed successfully ===")
-			return nil
-		}
-		if state.StepStatus == "failed" {
-			return fmt.Errorf("workflow failed at step %d: %s", state.CurrentStep, state.ErrorMessage)
-		}
-
-		// Execute the current step by calling orchestrate command logic directly
-		// This avoids spawning a subprocess and keeps everything in the same process
-		fmt.Printf("\n=== Step %d: %s ===\n", state.CurrentStep, stepName(state.CurrentStep))
-
-		// Run the orchestration step
-		flagOrchestrateWorkflow = workflowID
-		flagOrchestrateStep = state.CurrentStep
-		if err := runOrchestrate(nil, nil); err != nil {
-			return err
-		}
-
-		// Check if the workflow ID changed (happens after StepCreateWork)
-		newState, err := proj.DB.GetWorkflowState(ctx, workflowID)
-		if err != nil {
-			return fmt.Errorf("failed to get updated workflow state: %w", err)
-		}
-
-		// If the step was completed, the next step should be set
-		if newState != nil && newState.StepStatus == "completed" {
-			return nil
-		}
+	// Spawn the workflow in a zellij tab
+	// The orchestrate command runs in the tab and executes all steps with inline Claude
+	if err := claude.SpawnOrchestration(ctx, workflowID, proj.Config.Project.Name, proj.MainRepoPath()); err != nil {
+		return fmt.Errorf("failed to spawn workflow: %w", err)
 	}
+
+	fmt.Println("\nWorkflow is now running in a zellij tab.")
+	fmt.Println("Switch to the zellij session to monitor progress.")
+	return nil
 }
 
 // stepName returns a human-readable name for each step

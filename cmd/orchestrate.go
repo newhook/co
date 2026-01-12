@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
@@ -78,12 +79,6 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no workflow state found for workflow %s", workflowID)
 	}
 
-	// Determine which step to execute
-	step := flagOrchestrateStep
-	if step < 0 {
-		step = state.CurrentStep
-	}
-
 	// Parse step data
 	var stepData StepData
 	if state.StepData != "" && state.StepData != "{}" {
@@ -92,73 +87,79 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("=== Orchestrating workflow %s, step %d ===\n", workflowID, step)
-
-	// Execute the step
-	var nextStep int
-	var nextData StepData
-
-	switch step {
-	case StepCreateWork:
-		nextStep, nextData, err = stepCreateWork(proj, stepData)
-	case StepCollectBeads:
-		nextStep, nextData, err = stepCollectBeads(proj, stepData)
-	case StepPlanTasks:
-		nextStep, nextData, err = stepPlanTasks(proj, stepData)
-	case StepExecuteTasks:
-		nextStep, nextData, err = stepExecuteTasks(proj, stepData)
-	case StepWaitCompletion:
-		nextStep, nextData, err = stepWaitCompletion(proj, stepData)
-	case StepReviewFix:
-		nextStep, nextData, err = stepReviewFix(proj, stepData)
-	case StepCreatePR:
-		nextStep, nextData, err = stepCreatePR(proj, stepData)
-	case StepCompleted:
-		fmt.Println("Workflow already completed")
-		return nil
-	default:
-		return fmt.Errorf("unknown step: %d", step)
+	// Determine starting step
+	step := flagOrchestrateStep
+	if step < 0 {
+		step = state.CurrentStep
 	}
 
-	if err != nil {
-		// Mark workflow as failed
-		if dbErr := proj.DB.FailWorkflowStep(ctx, workflowID, err.Error()); dbErr != nil {
-			fmt.Printf("Warning: failed to update workflow state: %v\n", dbErr)
+	// Run workflow loop - execute steps sequentially until completion or error
+	for step < StepCompleted {
+		fmt.Printf("\n=== Step %d: %s ===\n", step, stepName(step))
+
+		// Execute the step
+		var nextStep int
+		var nextData StepData
+
+		switch step {
+		case StepCreateWork:
+			nextStep, nextData, err = stepCreateWork(proj, stepData)
+		case StepCollectBeads:
+			nextStep, nextData, err = stepCollectBeads(proj, stepData)
+		case StepPlanTasks:
+			nextStep, nextData, err = stepPlanTasksInline(proj, stepData)
+		case StepExecuteTasks:
+			nextStep, nextData, err = stepExecuteTasksInline(proj, stepData)
+		case StepWaitCompletion:
+			// No longer needed - tasks complete inline
+			nextStep, nextData = StepReviewFix, stepData
+		case StepReviewFix:
+			nextStep, nextData, err = stepReviewFixInline(proj, stepData)
+		case StepCreatePR:
+			nextStep, nextData, err = stepCreatePRInline(proj, stepData)
+		default:
+			return fmt.Errorf("unknown step: %d", step)
 		}
-		return err
-	}
 
-	// If StepCreateWork just completed, link the workflow to the new work
-	if step == StepCreateWork && nextData.WorkID != "" {
-		if err := proj.DB.SetWorkflowWorkID(ctx, workflowID, nextData.WorkID); err != nil {
-			return fmt.Errorf("failed to link workflow to work: %w", err)
+		if err != nil {
+			// Mark workflow as failed
+			if dbErr := proj.DB.FailWorkflowStep(ctx, workflowID, err.Error()); dbErr != nil {
+				fmt.Printf("Warning: failed to update workflow state: %v\n", dbErr)
+			}
+			return err
 		}
-	}
 
-	// Update workflow state
-	nextDataJSON, err := json.Marshal(nextData)
-	if err != nil {
-		return fmt.Errorf("failed to serialize step data: %w", err)
-	}
-
-	if nextStep == StepCompleted {
-		if err := proj.DB.CompleteWorkflowStep(ctx, workflowID); err != nil {
-			return fmt.Errorf("failed to complete workflow: %w", err)
+		// If StepCreateWork just completed, link the workflow to the new work
+		if step == StepCreateWork && nextData.WorkID != "" {
+			if err := proj.DB.SetWorkflowWorkID(ctx, workflowID, nextData.WorkID); err != nil {
+				return fmt.Errorf("failed to link workflow to work: %w", err)
+			}
 		}
-		fmt.Println("=== Workflow completed successfully ===")
-		return nil
+
+		// Update workflow state
+		nextDataJSON, err := json.Marshal(nextData)
+		if err != nil {
+			return fmt.Errorf("failed to serialize step data: %w", err)
+		}
+
+		if nextStep == StepCompleted {
+			if err := proj.DB.CompleteWorkflowStep(ctx, workflowID); err != nil {
+				return fmt.Errorf("failed to complete workflow: %w", err)
+			}
+			fmt.Println("\n=== Workflow completed successfully ===")
+			return nil
+		}
+
+		// Update state for next iteration
+		if err := proj.DB.UpdateWorkflowStep(ctx, workflowID, nextStep, "pending", string(nextDataJSON)); err != nil {
+			return fmt.Errorf("failed to update workflow state: %w", err)
+		}
+
+		step = nextStep
+		stepData = nextData
 	}
 
-	// Update state and spawn next step
-	if err := proj.DB.UpdateWorkflowStep(ctx, workflowID, nextStep, "pending", string(nextDataJSON)); err != nil {
-		return fmt.Errorf("failed to update workflow state: %w", err)
-	}
-
-	// Spawn next step via zellij
-	if err := spawnNextStep(proj, workflowID, nextStep); err != nil {
-		return fmt.Errorf("failed to spawn next step: %w", err)
-	}
-
+	fmt.Println("\n=== Workflow completed successfully ===")
 	return nil
 }
 
@@ -465,26 +466,6 @@ func stepCreatePR(proj *project.Project, data StepData) (int, StepData, error) {
 	return StepCompleted, data, nil
 }
 
-// spawnNextStep spawns the next orchestration step via zellij
-func spawnNextStep(proj *project.Project, workflowID string, step int) error {
-	// Build the command to run
-	coPath, err := os.Executable()
-	if err != nil {
-		coPath = "co" // Fallback to PATH lookup
-	}
-
-	command := fmt.Sprintf("%s orchestrate --workflow %s --step %d", coPath, workflowID, step)
-
-	// Use zellij to run the command in the same pane
-	cmd := exec.Command("zellij", "action", "write-chars", command+"\n")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to spawn next step: %w\n%s", err, output)
-	}
-
-	fmt.Printf("Spawned step %d\n", step)
-	return nil
-}
-
 // InitWorkflow initializes a new workflow for the given bead
 func InitWorkflow(proj *project.Project, beadID, baseBranch string) (string, error) {
 	ctx := GetContext()
@@ -508,4 +489,273 @@ func InitWorkflow(proj *project.Project, beadID, baseBranch string) (string, err
 	}
 
 	return workflowID, nil
+}
+
+// stepPlanTasksInline plans tasks with inline estimation.
+// Unlike stepPlanTasks, this runs the estimation task inline and waits for completion.
+func stepPlanTasksInline(proj *project.Project, data StepData) (int, StepData, error) {
+	ctx := GetContext()
+	mainRepoPath := proj.MainRepoPath()
+
+	fmt.Println("Planning tasks with auto-grouping...")
+
+	// Get work
+	work, err := proj.DB.GetWork(ctx, data.WorkID)
+	if err != nil {
+		return 0, data, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return 0, data, fmt.Errorf("work %s not found", data.WorkID)
+	}
+
+	// Convert bead IDs to Bead structs
+	var beadList []beads.Bead
+	for _, beadID := range data.BeadIDs {
+		bead, err := beads.GetBeadInDir(beadID, mainRepoPath)
+		if err != nil {
+			fmt.Printf("Warning: failed to get bead %s: %v\n", beadID, err)
+			continue
+		}
+		beadList = append(beadList, *bead)
+	}
+
+	if len(beadList) == 0 {
+		return 0, data, fmt.Errorf("no valid beads to plan")
+	}
+
+	// Run estimation inline if needed
+	if err := runEstimationInline(proj, data.WorkID, beadList, work.WorktreePath); err != nil {
+		return 0, data, fmt.Errorf("estimation failed: %w", err)
+	}
+
+	// Now create the actual implementation tasks using auto-grouping
+	if err := planAutoGroupForWork(proj, beadList, data.WorkID, work); err != nil {
+		return 0, data, fmt.Errorf("failed to plan tasks: %w", err)
+	}
+
+	return StepExecuteTasks, data, nil
+}
+
+// runEstimationInline runs complexity estimation inline.
+func runEstimationInline(proj *project.Project, workID string, beadList []beads.Bead, worktreePath string) error {
+	ctx := GetContext()
+
+	fmt.Println("Running complexity estimation...")
+
+	// Collect bead IDs
+	var beadIDs []string
+	for _, b := range beadList {
+		beadIDs = append(beadIDs, b.ID)
+	}
+
+	// Create estimate task (CreateTask handles bead linking and work association)
+	taskID := fmt.Sprintf("%s.estimate-%d", workID, time.Now().UnixMilli())
+	if err := proj.DB.CreateTask(ctx, taskID, "estimate", beadIDs, 0, workID); err != nil {
+		return fmt.Errorf("failed to create estimate task: %w", err)
+	}
+
+	// Build prompt
+	prompt := claude.BuildEstimatePrompt(taskID, beadList)
+
+	// Run Claude inline
+	if err := claude.RunInline(ctx, proj.DB, taskID, prompt, worktreePath); err != nil {
+		return fmt.Errorf("estimation task failed: %w", err)
+	}
+
+	return nil
+}
+
+// stepExecuteTasksInline executes all tasks inline.
+func stepExecuteTasksInline(proj *project.Project, data StepData) (int, StepData, error) {
+	ctx := GetContext()
+
+	fmt.Println("Executing tasks...")
+
+	// Get work
+	work, err := proj.DB.GetWork(ctx, data.WorkID)
+	if err != nil {
+		return 0, data, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return 0, data, fmt.Errorf("work %s not found", data.WorkID)
+	}
+
+	// Get all pending tasks for this work
+	tasks, err := proj.DB.GetWorkTasks(ctx, data.WorkID)
+	if err != nil {
+		return 0, data, fmt.Errorf("failed to get work tasks: %w", err)
+	}
+
+	// Filter to only implementation tasks (not estimate tasks)
+	var implTasks []*db.Task
+	for _, t := range tasks {
+		if t.TaskType == "implement" && t.Status == db.StatusPending {
+			implTasks = append(implTasks, t)
+		}
+	}
+
+	if len(implTasks) == 0 {
+		fmt.Println("No implementation tasks to execute")
+		return StepReviewFix, data, nil
+	}
+
+	fmt.Printf("Found %d implementation task(s) to execute\n", len(implTasks))
+
+	// Execute each task inline
+	for i, task := range implTasks {
+		fmt.Printf("\n--- Task %d/%d: %s ---\n", i+1, len(implTasks), task.ID)
+
+		// Get beads for this task
+		beadIDs, err := proj.DB.GetTaskBeads(ctx, task.ID)
+		if err != nil {
+			return 0, data, fmt.Errorf("failed to get beads for task %s: %w", task.ID, err)
+		}
+
+		// Convert to beads.Bead
+		var beadList []beads.Bead
+		for _, beadID := range beadIDs {
+			bead, err := beads.GetBeadInDir(beadID, proj.MainRepoPath())
+			if err != nil {
+				fmt.Printf("Warning: failed to get bead %s: %v\n", beadID, err)
+				continue
+			}
+			beadList = append(beadList, *bead)
+		}
+
+		// Build prompt
+		prompt := claude.BuildTaskPrompt(task.ID, beadList, work.BranchName, work.BaseBranch)
+
+		// Run Claude inline
+		if err := claude.RunInline(ctx, proj.DB, task.ID, prompt, work.WorktreePath); err != nil {
+			return 0, data, fmt.Errorf("task %s failed: %w", task.ID, err)
+		}
+	}
+
+	fmt.Println("\nAll tasks executed!")
+	return StepReviewFix, data, nil
+}
+
+// stepReviewFixInline runs review and fix inline.
+func stepReviewFixInline(proj *project.Project, data StepData) (int, StepData, error) {
+	ctx := GetContext()
+	mainRepoPath := proj.MainRepoPath()
+	const maxIterations = 5
+
+	// Get work
+	work, err := proj.DB.GetWork(ctx, data.WorkID)
+	if err != nil {
+		return 0, data, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return 0, data, fmt.Errorf("work %s not found", data.WorkID)
+	}
+
+	// Run review-fix loop
+	for data.ReviewCount < maxIterations {
+		data.ReviewCount++
+		fmt.Printf("\n--- Review iteration %d/%d ---\n", data.ReviewCount, maxIterations)
+
+		// Capture pre-review beads for detection
+		preReviewBeadIDs := make(map[string]bool)
+		preReviewBeads, err := beads.GetReadyBeadsInDir(mainRepoPath)
+		if err != nil {
+			return 0, data, fmt.Errorf("failed to get pre-review beads: %w", err)
+		}
+		for _, b := range preReviewBeads {
+			preReviewBeadIDs[b.ID] = true
+		}
+
+		// Create review task (no beads, no complexity budget)
+		reviewTaskID := fmt.Sprintf("%s.review-%d", data.WorkID, data.ReviewCount)
+		if err := proj.DB.CreateTask(ctx, reviewTaskID, "review", nil, 0, data.WorkID); err != nil {
+			return 0, data, fmt.Errorf("failed to create review task: %w", err)
+		}
+
+		// Build review prompt
+		prompt := claude.BuildReviewPrompt(reviewTaskID, data.WorkID, work.BranchName, work.BaseBranch)
+
+		// Run review inline
+		if err := claude.RunInline(ctx, proj.DB, reviewTaskID, prompt, work.WorktreePath); err != nil {
+			return 0, data, fmt.Errorf("review task failed: %w", err)
+		}
+
+		// Check if review created any issue beads
+		hasIssues, err := checkForReviewIssues(proj, data.WorkID, preReviewBeadIDs)
+		if err != nil {
+			return 0, data, fmt.Errorf("failed to check for review issues: %w", err)
+		}
+
+		if !hasIssues {
+			fmt.Println("Review passed - no issues found!")
+			return StepCreatePR, data, nil
+		}
+
+		fmt.Println("Review found issues - fixing...")
+
+		// Get new beads created by review
+		postReviewBeads, err := beads.GetReadyBeadsInDir(mainRepoPath)
+		if err != nil {
+			return 0, data, fmt.Errorf("failed to get post-review beads: %w", err)
+		}
+
+		var newBeads []beads.Bead
+		for _, b := range postReviewBeads {
+			if !preReviewBeadIDs[b.ID] {
+				newBeads = append(newBeads, b)
+			}
+		}
+
+		if len(newBeads) == 0 {
+			fmt.Println("No new beads from review, continuing to PR...")
+			return StepCreatePR, data, nil
+		}
+
+		// Create and execute fix task for each new bead
+		for _, b := range newBeads {
+			fixTaskID := fmt.Sprintf("%s.fix-%s", data.WorkID, b.ID)
+			// CreateTask handles bead linking and work association
+			if err := proj.DB.CreateTask(ctx, fixTaskID, "implement", []string{b.ID}, 0, data.WorkID); err != nil {
+				return 0, data, fmt.Errorf("failed to create fix task: %w", err)
+			}
+
+			prompt := claude.BuildTaskPrompt(fixTaskID, []beads.Bead{b}, work.BranchName, work.BaseBranch)
+			if err := claude.RunInline(ctx, proj.DB, fixTaskID, prompt, work.WorktreePath); err != nil {
+				return 0, data, fmt.Errorf("fix task %s failed: %w", fixTaskID, err)
+			}
+		}
+	}
+
+	return 0, data, fmt.Errorf("review-fix loop exceeded maximum iterations (%d)", maxIterations)
+}
+
+// stepCreatePRInline creates PR inline.
+func stepCreatePRInline(proj *project.Project, data StepData) (int, StepData, error) {
+	ctx := GetContext()
+
+	fmt.Println("Creating pull request...")
+
+	// Get work
+	work, err := proj.DB.GetWork(ctx, data.WorkID)
+	if err != nil {
+		return 0, data, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return 0, data, fmt.Errorf("work %s not found", data.WorkID)
+	}
+
+	// Create PR task (no beads, no complexity budget)
+	prTaskID := fmt.Sprintf("%s.pr", data.WorkID)
+	if err := proj.DB.CreateTask(ctx, prTaskID, "pr", nil, 0, data.WorkID); err != nil {
+		return 0, data, fmt.Errorf("failed to create PR task: %w", err)
+	}
+
+	// Build PR prompt
+	prompt := claude.BuildPRPrompt(prTaskID, data.WorkID, work.BranchName, work.BaseBranch)
+
+	// Run PR creation inline
+	if err := claude.RunInline(ctx, proj.DB, prTaskID, prompt, work.WorktreePath); err != nil {
+		return 0, data, fmt.Errorf("PR task failed: %w", err)
+	}
+
+	return StepCompleted, data, nil
 }
