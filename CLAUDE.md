@@ -92,7 +92,7 @@ All commands require a project context. Projects are created with `co proj creat
 │   └── tracking.db      # SQLite coordination database
 ├── main/                # Symlink (local) or clone (GitHub)
 │   └── .beads/          # Beads issue tracker
-└── <work-id>/           # Work subdirectory (e.g., work-1, work-2)
+└── <work-id>/           # Work subdirectory (e.g., w-abc, w-xyz)
     └── tree/            # Git worktree for this work
 ```
 
@@ -114,9 +114,9 @@ Three-phase workflow: **work** → **plan** → **run**.
    - If mise `setup` task defined: runs `mise run setup` (use for npm/pnpm install)
 
 2. Create work unit: `co work create`
-   - Auto-generates work ID (work-1, work-2, etc.)
+   - Auto-generates work ID (w-abc, w-xyz, etc.)
    - Creates subdirectory with git worktree: `<project>/<work-id>/tree/`
-   - Creates feature branch: `work/<work-id>`
+   - Creates feature branch based on bead titles
 
 3. Plan tasks within work:
    - `cd <work-id> && co plan` - context-aware planning
@@ -127,7 +127,7 @@ Three-phase workflow: **work** → **plan** → **run**.
 4. Execute work: `co run`
    - From work directory: `cd <work-id> && co run`
    - Or explicitly: `co run --work <work-id>`
-   - Or run specific work: `co run work-1`
+   - Or run specific work: `co run w-abc`
    - Executes all tasks in the work sequentially:
      - Creates single zellij tab for the work
      - Tasks run in sequence within the work's tab
@@ -143,10 +143,10 @@ Zellij sessions are named `co-<project-name>` for isolation between projects.
 
 ### `co work create`
 Creates a new work unit with auto-generated ID:
-- Generates sequential ID: work-1, work-2, etc.
+- Generates hash-based ID: w-abc, w-xyz, etc.
 - Creates subdirectory: `<project>/<work-id>/`
 - Creates git worktree: `<project>/<work-id>/tree/`
-- Creates feature branch: `work/<work-id>`
+- Creates feature branch based on bead titles
 - Initializes mise if configured
 
 ### `co work list`
