@@ -125,8 +125,8 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
 		}
 
-		// Wait for Claude to initialize and receive the prompt from the file
-		fmt.Println("Waiting 3s for Claude to initialize and receive prompt...")
+		// Wait for Claude to initialize
+		fmt.Println("Waiting 3s for Claude to initialize...")
 		time.Sleep(3 * time.Second)
 	} else {
 		// Create a new tab with the task name
@@ -167,12 +167,12 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
 		}
 
-		// Wait for Claude to initialize and receive the prompt from the file
-		fmt.Println("Waiting 3s for Claude to initialize and receive prompt...")
+		// Wait for Claude to initialize
+		fmt.Println("Waiting 3s for Claude to initialize...")
 		time.Sleep(3 * time.Second)
 	}
 
-	fmt.Println("Prompt sent to Claude via stdin")
+	fmt.Println("Claude started with task prompt")
 
 	// Monitor for task completion via database polling
 	fmt.Printf("Polling database for completion of task: %s (%d beads)\n", taskID, len(taskBeads))
