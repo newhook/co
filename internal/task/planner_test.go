@@ -28,19 +28,19 @@ func TestBuildDependencyGraph(t *testing.T) {
 		{ID: "c", Title: "C", Dependencies: []beads.Dependency{{ID: "b", DependencyType: "depends_on"}}},
 	}
 
-	graph := buildDependencyGraph(inputBeads)
+	graph := BuildDependencyGraph(inputBeads)
 
 	// b depends on a
-	require.Len(t, graph.dependsOn["b"], 1, "expected b to have 1 dependency")
-	assert.Equal(t, "a", graph.dependsOn["b"][0], "expected b to depend on a")
+	require.Len(t, graph.DependsOn["b"], 1, "expected b to have 1 dependency")
+	assert.Equal(t, "a", graph.DependsOn["b"][0], "expected b to depend on a")
 
 	// c depends on b
-	require.Len(t, graph.dependsOn["c"], 1, "expected c to have 1 dependency")
-	assert.Equal(t, "b", graph.dependsOn["c"][0], "expected c to depend on b")
+	require.Len(t, graph.DependsOn["c"], 1, "expected c to have 1 dependency")
+	assert.Equal(t, "b", graph.DependsOn["c"][0], "expected c to depend on b")
 
 	// a blocks b
-	require.Len(t, graph.blockedBy["a"], 1, "expected a to block 1 bead")
-	assert.Equal(t, "b", graph.blockedBy["a"][0], "expected a to block b")
+	require.Len(t, graph.BlockedBy["a"], 1, "expected a to block 1 bead")
+	assert.Equal(t, "b", graph.BlockedBy["a"][0], "expected a to block b")
 }
 
 func TestBuildDependencyGraphIgnoresExternalDeps(t *testing.T) {
@@ -48,10 +48,10 @@ func TestBuildDependencyGraphIgnoresExternalDeps(t *testing.T) {
 		{ID: "a", Title: "A", Dependencies: []beads.Dependency{{ID: "external", DependencyType: "depends_on"}}},
 	}
 
-	graph := buildDependencyGraph(inputBeads)
+	graph := BuildDependencyGraph(inputBeads)
 
 	// External dependency should be ignored
-	assert.Empty(t, graph.dependsOn["a"], "expected no dependencies for a")
+	assert.Empty(t, graph.DependsOn["a"], "expected no dependencies for a")
 }
 
 func TestTopologicalSort(t *testing.T) {
@@ -61,9 +61,9 @@ func TestTopologicalSort(t *testing.T) {
 		{ID: "b", Title: "B", Dependencies: []beads.Dependency{{ID: "a", DependencyType: "depends_on"}}},
 	}
 
-	graph := buildDependencyGraph(inputBeads)
-	sorted, err := topologicalSort(graph, inputBeads)
-	require.NoError(t, err, "topologicalSort failed")
+	graph := BuildDependencyGraph(inputBeads)
+	sorted, err := TopologicalSort(graph, inputBeads)
+	require.NoError(t, err, "TopologicalSort failed")
 
 	// a should come before b, b should come before c
 	positions := make(map[string]int)
@@ -81,8 +81,8 @@ func TestTopologicalSortDetectsCycle(t *testing.T) {
 		{ID: "b", Title: "B", Dependencies: []beads.Dependency{{ID: "a", DependencyType: "depends_on"}}},
 	}
 
-	graph := buildDependencyGraph(inputBeads)
-	_, err := topologicalSort(graph, inputBeads)
+	graph := BuildDependencyGraph(inputBeads)
+	_, err := TopologicalSort(graph, inputBeads)
 	assert.Error(t, err, "expected error for cycle detection")
 }
 
@@ -191,11 +191,11 @@ func TestPlanFirstFitDecreasing(t *testing.T) {
 }
 
 func TestCanAddToTask(t *testing.T) {
-	graph := &dependencyGraph{
-		dependsOn: map[string][]string{
+	graph := &DependencyGraph{
+		DependsOn: map[string][]string{
 			"b": {"a"},
 		},
-		blockedBy: map[string][]string{
+		BlockedBy: map[string][]string{
 			"a": {"b"},
 		},
 	}
