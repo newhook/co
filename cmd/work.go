@@ -547,14 +547,5 @@ func getCurrentWork(proj *project.Project) (string, error) {
 		return parts[0], nil
 	}
 
-	// Look for a work that has this path as its worktree
-	work, err := proj.DB.GetWorkByDirectory(GetContext(), cwd+"%")
-	if err != nil {
-		return "", err
-	}
-	if work != nil {
-		return work.ID, nil
-	}
-
 	return "", fmt.Errorf("not in a work directory")
 }
