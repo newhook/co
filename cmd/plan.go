@@ -527,28 +527,10 @@ func detectWorkFromDirectory(proj *project.Project) (string, error) {
 		return "", nil
 	}
 
-	// Check if path starts with "w-" (work ID format) and contains "tree"
+	// Check if we're in a work directory (w-xxx or w-xxx/tree/...)
 	parts := strings.Split(rel, string(filepath.Separator))
 	if len(parts) >= 1 && strings.HasPrefix(parts[0], "w-") {
-		workID := parts[0]
-		// Verify work exists in proj.DB
-		work, err := proj.DB.GetWork(GetContext(), workID)
-		if err != nil {
-			return "", err
-		}
-		if work != nil {
-			return workID, nil
-		}
-	}
-
-	// Try to match by worktree path pattern
-	pattern := fmt.Sprintf("%%%s%%", cwd)
-	work, err := proj.DB.GetWorkByDirectory(GetContext(), pattern)
-	if err != nil {
-		return "", err
-	}
-	if work != nil {
-		return work.ID, nil
+		return parts[0], nil
 	}
 
 	return "", nil
