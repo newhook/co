@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"sort"
 	"strings"
+
+	cosignal "github.com/newhook/co/internal/signal"
 )
 
 //go:embed migrations/*.sql
@@ -46,16 +48,20 @@ func RunMigrationsForFS(ctx context.Context, db *sql.DB, fsys embed.FS) error {
 		return fmt.Errorf("failed to read migrations: %w", err)
 	}
 
-	// Apply pending migrations
+	// Apply pending migrations with signal blocking to prevent inconsistent state
 	for _, m := range migrations {
 		if applied[m.Version] {
 			continue
 		}
 
+		// Block signals during migration to ensure atomicity
+		cosignal.BlockSignals()
 		fmt.Printf("Applying migration %s: %s\n", m.Version, m.Name)
 		if err := applyMigration(ctx, db, m); err != nil {
+			cosignal.UnblockSignals()
 			return fmt.Errorf("failed to apply migration %s: %w", m.Version, err)
 		}
+		cosignal.UnblockSignals()
 	}
 
 	return nil
