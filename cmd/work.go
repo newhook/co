@@ -21,14 +21,22 @@ var workCmd = &cobra.Command{
 }
 
 var workCreateCmd = &cobra.Command{
-	Use:   "create <branch>",
+	Use:   "create [<branch>]",
 	Short: "Create a new work unit with the specified branch",
 	Long: `Create a new work unit with the specified branch name.
 Creates a subdirectory with a git worktree for isolated development.
 
-The branch argument is required and specifies the git branch name to create.
-A unique work ID will be auto-generated using content-based hashing (w-abc format).`,
-	Args: cobra.ExactArgs(1),
+The branch argument specifies the git branch name to create.
+A unique work ID will be auto-generated using content-based hashing (w-abc format).
+
+With --bead flag, runs an automated end-to-end workflow:
+1. Auto-generates branch name from bead title
+2. Collects transitive dependencies (if any)
+3. Plans tasks with auto-grouping
+4. Executes all tasks
+5. Runs review-fix loop until clean
+6. Creates a pull request`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runWorkCreate,
 }
 
@@ -81,10 +89,14 @@ and adherence to project standards.`,
 	RunE: runWorkReview,
 }
 
-var flagBaseBranch string
+var (
+	flagBaseBranch string
+	flagBeadID     string
+)
 
 func init() {
 	workCreateCmd.Flags().StringVar(&flagBaseBranch, "base", "main", "base branch to create feature branch from (also used as PR target)")
+	workCreateCmd.Flags().StringVar(&flagBeadID, "bead", "", "bead ID to run automated end-to-end workflow (plan, run, review-fix, PR)")
 	workCmd.AddCommand(workCreateCmd)
 	workCmd.AddCommand(workListCmd)
 	workCmd.AddCommand(workShowCmd)
@@ -94,8 +106,6 @@ func init() {
 }
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
-	// Get branch name from args
-	branchName := args[0]
 	baseBranch := flagBaseBranch
 
 	// Find project
@@ -104,6 +114,17 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer proj.Close()
+
+	// Check if --bead flag is used for automated workflow
+	if flagBeadID != "" {
+		return runAutomatedWorkflow(proj, flagBeadID, baseBranch)
+	}
+
+	// Traditional mode: require branch name argument
+	if len(args) == 0 {
+		return fmt.Errorf("branch name is required (use --bead for automated workflow)")
+	}
+	branchName := args[0]
 
 	// Generate content-based hash ID from branch name
 	workID, err := proj.DB.GenerateWorkID(context.Background(), branchName, proj.Config.Project.Name)
