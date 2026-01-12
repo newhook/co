@@ -43,6 +43,9 @@ func runClaude(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
+	// Apply hooks.env to current process - inherited by Claude
+	applyHooksEnv(proj.Config.Hooks.Env)
+
 	// Get task to verify it exists
 	task, err := proj.DB.GetTask(ctx, taskID)
 	if err != nil {

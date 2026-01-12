@@ -1,0 +1,41 @@
+// Zellij layout for automated workflow orchestration
+// This layout creates a workspace with tabs for orchestrator, work, and monitoring
+
+layout {
+    // Default tab for orchestrator commands
+    tab name="orchestrator" focus=true {
+        pane {
+            // Will run: co orchestrate --work <work_id> --step <step>
+            // The command is injected when launching the layout
+        }
+    }
+
+    // Tab for work directory - where Claude Code runs
+    tab name="work" {
+        pane split_direction="vertical" {
+            // Main pane for Claude Code tasks
+            pane size="70%" {
+                // Working directory will be set to the worktree
+            }
+            // Side pane for git/shell commands
+            pane size="30%" {
+                // Helper pane for manual commands if needed
+            }
+        }
+    }
+
+    // Tab for monitoring workflow progress
+    tab name="monitor" {
+        pane split_direction="horizontal" {
+            // Top pane for co poll output
+            pane size="60%" {
+                command "co"
+                args "poll"
+            }
+            // Bottom pane for logs/status
+            pane size="40%" {
+                // Can be used for tail -f logs or manual status checks
+            }
+        }
+    }
+}
