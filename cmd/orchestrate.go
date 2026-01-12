@@ -65,6 +65,9 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
+	// Apply hooks.env to current process - inherited by child processes (Claude)
+	applyHooksEnv(proj.Config.Hooks.Env)
+
 	// Get workflow state
 	workflowID := flagOrchestrateWorkflow
 	if workflowID == "" {
@@ -761,4 +764,34 @@ func stepCreatePRInline(proj *project.Project, data StepData) (int, StepData, er
 	}
 
 	return StepCompleted, data, nil
+}
+
+// applyHooksEnv sets environment variables from the hooks.env config.
+// Variables are set on the current process and inherited by child processes.
+// Format: ["KEY=value", "PATH=/a/b:$PATH"]
+func applyHooksEnv(env []string) {
+	for _, e := range env {
+		// Split on first '=' only
+		parts := splitEnvVar(e)
+		if len(parts) == 2 {
+			// Expand any environment variable references in the value
+			expandedValue := os.ExpandEnv(parts[1])
+			os.Setenv(parts[0], expandedValue)
+		}
+	}
+}
+
+// splitEnvVar splits "KEY=value" into ["KEY", "value"], handling values with '='
+func splitEnvVar(s string) []string {
+	idx := -1
+	for i, c := range s {
+		if c == '=' {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return []string{s}
+	}
+	return []string{s[:idx], s[idx+1:]}
 }

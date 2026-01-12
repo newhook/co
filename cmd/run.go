@@ -509,7 +509,7 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 	// Spawn Claude in the work's worktree directory (non-blocking)
 	ctx := GetContext()
 	projectName := proj.Config.Project.Name
-	_, err := claude.Run(ctx, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose, proj.Config.Hooks.Env)
+	_, err := claude.Run(ctx, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
 	if err != nil {
 		fmt.Printf("Failed to spawn Claude: %v\n", err)
 		return fmt.Errorf("failed to spawn claude: %w", err)

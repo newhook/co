@@ -19,18 +19,16 @@ type LLMEstimator struct {
 	database    *db.DB
 	workDir     string
 	projectName string
-	workID      string   // Work context for estimation tasks
-	env         []string // Environment variables to set when spawning Claude
+	workID      string // Work context for estimation tasks
 }
 
 // NewLLMEstimator creates a new LLM-based complexity estimator.
-func NewLLMEstimator(database *db.DB, workDir, projectName, workID string, env []string) *LLMEstimator {
+func NewLLMEstimator(database *db.DB, workDir, projectName, workID string) *LLMEstimator {
 	return &LLMEstimator{
 		database:    database,
 		workDir:     workDir,
 		projectName: projectName,
 		workID:      workID,
-		env:         env,
 	}
 }
 
@@ -166,7 +164,8 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead,
 	// Spawn Claude to perform estimation in the worktree (non-blocking)
 	fmt.Println("Spawning estimation task...")
 	// Never auto-close estimation task tabs - they're system tasks
-	_, err := claude.Run(ctx, taskID, uncachedBeads, prompt, worktreePath, e.projectName, false, e.env)
+	// Note: hooks.env is applied by co claude itself
+	_, err := claude.Run(ctx, taskID, uncachedBeads, prompt, worktreePath, e.projectName, false)
 	if err != nil {
 		fmt.Printf("Failed to spawn estimation: %v\n", err)
 		return nil, fmt.Errorf("failed to spawn estimation: %w", err)

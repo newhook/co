@@ -53,8 +53,8 @@ type TaskResult struct {
 // This function is non-blocking - it returns immediately after spawning the command.
 // The co claude wrapper process handles database updates when the task completes or fails.
 // The returned TaskResult indicates successful spawn, not task completion.
-// The env parameter is a list of environment variables to set (e.g., ["PATH=/a/b:$PATH", "FOO=bar"]).
-func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string, autoClose bool, env []string) (*TaskResult, error) {
+// Note: hooks.env is applied by the co claude command itself, not here.
+func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string, autoClose bool) (*TaskResult, error) {
 	sessionName := SessionNameForProject(projectName)
 
 	// Always use the full task ID as the tab name for clear task isolation
@@ -80,18 +80,10 @@ func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt stri
 	defer os.Remove(promptFile)
 
 	// Build the wrapper command - assume co is in PATH since user is running it
+	// Note: co claude will apply hooks.env itself
 	claudeCommand := fmt.Sprintf("co claude %s --prompt-file %s", taskID, promptFile)
 	if autoClose {
 		claudeCommand += " --auto-close"
-	}
-
-	// Prepend env var exports if any
-	if len(env) > 0 {
-		var exports []string
-		for _, e := range env {
-			exports = append(exports, fmt.Sprintf("export %s", e))
-		}
-		claudeCommand = strings.Join(exports, " && ") + " && " + claudeCommand
 	}
 
 	// Check if tab with this task name already exists
@@ -329,8 +321,8 @@ func BuildReviewPrompt(taskID string, workID string, branchName string, baseBran
 // SpawnOrchestration creates a zellij tab and runs the orchestrate command in it.
 // This is used by `co work create --bead` to run the workflow in a visible tab.
 // The function returns immediately after spawning - the workflow runs in the tab.
-// The env parameter is a list of environment variables to set (e.g., ["PATH=/a/b:$PATH", "FOO=bar"]).
-func SpawnOrchestration(ctx context.Context, workflowID string, projectName string, workDir string, env []string) error {
+// Note: hooks.env is applied by the orchestrate command itself, not here.
+func SpawnOrchestration(ctx context.Context, workflowID string, projectName string, workDir string) error {
 	sessionName := SessionNameForProject(projectName)
 	tabName := fmt.Sprintf("workflow-%s", workflowID)
 
@@ -339,17 +331,10 @@ func SpawnOrchestration(ctx context.Context, workflowID string, projectName stri
 		return err
 	}
 
-	// Build the orchestration command with env var exports prepended
+	// Build the orchestration command
 	// Use "co" since we assume it's in PATH (user is already running it)
+	// Note: co orchestrate will apply hooks.env itself
 	orchestrateCommand := fmt.Sprintf("co orchestrate --workflow %s", workflowID)
-	if len(env) > 0 {
-		// Prepend exports - shell will expand variables like $PATH
-		var exports []string
-		for _, e := range env {
-			exports = append(exports, fmt.Sprintf("export %s", e))
-		}
-		orchestrateCommand = strings.Join(exports, " && ") + " && " + orchestrateCommand
-	}
 
 	// Check if tab already exists
 	if TabExists(ctx, sessionName, tabName) {
