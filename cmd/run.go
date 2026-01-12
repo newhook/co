@@ -500,6 +500,14 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 		// Code review task
 		prompt = claude.BuildReviewPrompt(dbTask.ID, work.ID, work.BranchName, baseBranch)
 		fmt.Println("Spawning Claude Code for code review...")
+	case "update-pr-description":
+		// Update PR description task
+		prURL := work.PRURL
+		if prURL == "" {
+			return fmt.Errorf("work %s has no PR URL set - cannot update PR description", work.ID)
+		}
+		prompt = claude.BuildUpdatePRDescriptionPrompt(dbTask.ID, work.ID, prURL, work.BranchName, baseBranch)
+		fmt.Println("Spawning Claude Code for PR description update...")
 	default:
 		// Regular implementation task
 		prompt = claude.BuildTaskPrompt(dbTask.ID, taskBeads, work.BranchName, baseBranch)
