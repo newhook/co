@@ -51,7 +51,9 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       spawned_at,
+       spawn_status
 FROM tasks
 WHERE id = ?;
 
@@ -94,7 +96,9 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       spawned_at,
+       spawn_status
 FROM tasks
 ORDER BY created_at DESC;
 
@@ -111,7 +115,9 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       spawned_at,
+       spawn_status
 FROM tasks
 WHERE status = ?
 ORDER BY created_at DESC;
@@ -147,3 +153,9 @@ WHERE id = ?;
 UPDATE task_beads
 SET status = 'pending'
 WHERE task_id = ?;
+
+-- name: SpawnTask :execrows
+UPDATE tasks
+SET spawned_at = ?,
+    spawn_status = ?
+WHERE id = ?;

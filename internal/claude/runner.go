@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/db"
 )
 
 //go:embed templates/estimate.tmpl
@@ -50,9 +49,11 @@ type TaskResult struct {
 	Error          error
 }
 
-// Run invokes Claude Code for a task (group of beads) using project-specific session naming.
-// Returns a TaskResult indicating which beads completed and which failed.
-func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string, autoClose bool) (*TaskResult, error) {
+// Run spawns Claude Code for a task in a zellij tab using project-specific session naming.
+// This function is non-blocking - it returns immediately after spawning the command.
+// The co claude wrapper process handles database updates when the task completes or fails.
+// The returned TaskResult indicates successful spawn, not task completion.
+func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string, autoClose bool) (*TaskResult, error) {
 	sessionName := SessionNameForProject(projectName)
 
 	// Always use the full task ID as the tab name for clear task isolation
@@ -172,96 +173,12 @@ func Run(ctx context.Context, database *db.DB, taskID string, taskBeads []beads.
 		time.Sleep(3 * time.Second)
 	}
 
-	fmt.Println("Claude started with task prompt")
+	fmt.Println("Claude spawned - returning immediately (non-blocking mode)")
 
-	// Monitor for task completion via database polling
-	fmt.Printf("Polling database for completion of task: %s (%d beads)\n", taskID, len(taskBeads))
-	tabExitCount := 0
-	for {
-		time.Sleep(2 * time.Second)
-
-		// Check if task is completed (all beads done)
-		task, err := database.GetTask(ctx, taskID)
-		if err != nil {
-			fmt.Printf("Warning: failed to check task status: %v\n", err)
-			continue
-		}
-
-		if task != nil && (task.Status == db.StatusCompleted || task.Status == db.StatusFailed) {
-			if task.Status == db.StatusCompleted {
-				fmt.Println("Task marked as completed!")
-				result.Completed = true
-			} else {
-				fmt.Printf("Task marked as failed: %s\n", task.ErrorMessage)
-				result.Error = fmt.Errorf("task failed: %s", task.ErrorMessage)
-			}
-
-			// The wrapper (co claude) will detect the task completion and terminate Claude
-			// Tab remains open for review
-			fmt.Println("Task completed - wrapper will terminate Claude")
-			break
-		}
-
-		// Check if tab has exited (Claude crashed or finished without marking complete)
-		if !TabExists(ctx, sessionName, tabName) {
-			tabExitCount++
-			// Wait a few cycles to confirm it's really gone (not just a transient state)
-			if tabExitCount >= 3 {
-				fmt.Println("Claude tab exited without completing task - checking for partial completion")
-
-				// Determine which beads completed and which failed
-				result.CompletedBeads, result.FailedBeads = getTaskBeadStatus(database, taskID, taskBeads)
-
-				if len(result.CompletedBeads) > 0 && len(result.FailedBeads) > 0 {
-					result.PartialFailure = true
-					result.Error = fmt.Errorf("partial failure: %d beads completed, %d beads failed",
-						len(result.CompletedBeads), len(result.FailedBeads))
-
-					// Mark remaining beads as failed in database
-					for _, beadID := range result.FailedBeads {
-						database.FailTaskBead(ctx, taskID, beadID)
-					}
-				} else if len(result.CompletedBeads) == len(taskBeads) {
-					// All completed but task not marked - auto-complete
-					result.Completed = true
-				} else {
-					// All failed
-					result.Error = fmt.Errorf("task failed: no beads completed")
-				}
-				break
-			}
-		} else {
-			tabExitCount = 0
-		}
-	}
-
-	// Populate completed/failed beads if not already set
-	if len(result.CompletedBeads) == 0 && len(result.FailedBeads) == 0 {
-		result.CompletedBeads, result.FailedBeads = getTaskBeadStatus(database, taskID, taskBeads)
-	}
-
+	// Return immediately after spawning. The co claude wrapper process will
+	// handle database updates when the task completes or fails.
+	// The result indicates the task was spawned successfully, not that it completed.
 	return result, nil
-}
-
-// getTaskBeadStatus returns lists of completed and failed bead IDs for a task.
-func getTaskBeadStatus(database *db.DB, taskID string, taskBeads []beads.Bead) ([]string, []string) {
-	var completed, failed []string
-
-	for _, b := range taskBeads {
-		// Check task_beads table for status
-		var status string
-		err := database.QueryRow(`
-			SELECT status FROM task_beads WHERE task_id = ? AND bead_id = ?
-		`, taskID, b.ID).Scan(&status)
-
-		if err != nil || status != db.StatusCompleted {
-			failed = append(failed, b.ID)
-		} else {
-			completed = append(completed, b.ID)
-		}
-	}
-
-	return completed, failed
 }
 
 // BuildTaskPrompt builds a prompt for a task with multiple beads.

@@ -228,7 +228,9 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       spawned_at,
+       spawn_status
 FROM tasks
 WHERE id = ?
 `
@@ -251,6 +253,8 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.StartedAt,
 		&i.CompletedAt,
 		&i.CreatedAt,
+		&i.SpawnedAt,
+		&i.SpawnStatus,
 	)
 	return i, err
 }
@@ -328,7 +332,9 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       spawned_at,
+       spawn_status
 FROM tasks
 ORDER BY created_at DESC
 `
@@ -357,6 +363,8 @@ func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
 			&i.StartedAt,
 			&i.CompletedAt,
 			&i.CreatedAt,
+			&i.SpawnedAt,
+			&i.SpawnStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -384,7 +392,9 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       spawned_at,
+       spawn_status
 FROM tasks
 WHERE status = ?
 ORDER BY created_at DESC
@@ -414,6 +424,8 @@ func (q *Queries) ListTasksByStatus(ctx context.Context, status string) ([]Task,
 			&i.StartedAt,
 			&i.CompletedAt,
 			&i.CreatedAt,
+			&i.SpawnedAt,
+			&i.SpawnStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -454,6 +466,27 @@ WHERE id = ?
 
 func (q *Queries) ResetTaskStatus(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, resetTaskStatus, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const spawnTask = `-- name: SpawnTask :execrows
+UPDATE tasks
+SET spawned_at = ?,
+    spawn_status = ?
+WHERE id = ?
+`
+
+type SpawnTaskParams struct {
+	SpawnedAt   sql.NullTime `json:"spawned_at"`
+	SpawnStatus string       `json:"spawn_status"`
+	ID          string       `json:"id"`
+}
+
+func (q *Queries) SpawnTask(ctx context.Context, arg SpawnTaskParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, spawnTask, arg.SpawnedAt, arg.SpawnStatus, arg.ID)
 	if err != nil {
 		return 0, err
 	}

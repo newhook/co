@@ -53,7 +53,9 @@ CREATE TABLE tasks (
     error_message TEXT NOT NULL DEFAULT '',
     started_at DATETIME,
     completed_at DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    spawned_at DATETIME,
+    spawn_status TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX idx_tasks_status ON tasks(status);

@@ -9,7 +9,6 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/project"
-	"github.com/newhook/co/internal/task"
 	"github.com/newhook/co/internal/worktree"
 	"github.com/spf13/cobra"
 )
@@ -175,23 +174,14 @@ func processTask(proj *project.Project, taskID string) error {
 		taskBeads = append(taskBeads, *bead)
 	}
 
-	// Process the task
-	result, err := processTaskInWork(proj, dbTask, work, taskBeads)
-	if err != nil {
+	// Spawn the task (non-blocking)
+	if err := processTaskInWork(proj, dbTask, work, taskBeads); err != nil {
 		proj.DB.FailTask(ctx, taskID, err.Error())
-		return fmt.Errorf("failed to process task %s: %w", taskID, err)
+		return fmt.Errorf("failed to spawn task %s: %w", taskID, err)
 	}
 
-	if result.Completed {
-		fmt.Printf("\n=== Task %s completed successfully ===\n", taskID)
-	} else if result.PartialFailure {
-		fmt.Printf("\n=== Task %s partially completed ===\n", taskID)
-		fmt.Printf("  Completed beads: %v\n", result.CompletedBeads)
-		fmt.Printf("  Failed beads: %v\n", result.FailedBeads)
-	} else {
-		fmt.Printf("\n=== Task %s failed ===\n", taskID)
-	}
-
+	fmt.Printf("\n=== Task %s spawned successfully ===\n", taskID)
+	fmt.Println("Task is running in zellij tab. Use 'co task show' to check status.")
 	return nil
 }
 
@@ -363,7 +353,9 @@ func createFinalPR(featureBranch string, processedBeads []beads.Bead, dir string
 	return nil
 }
 
-// processWork processes all tasks within a work unit.
+// processWork spawns the next pending task for a work unit.
+// This function is non-blocking - it spawns a single task and returns immediately.
+// The co claude wrapper process handles task completion and spawning subsequent tasks.
 func processWork(proj *project.Project, workID string) error {
 	// Get work details
 	work, err := proj.DB.GetWork(GetContext(), workID)
@@ -389,19 +381,42 @@ func processWork(proj *project.Project, workID string) error {
 		return nil
 	}
 
-	// Count pending tasks
+	// Find the first pending task
+	var pendingTask *db.Task
 	pendingCount := 0
+	processingCount := 0
+	completedCount := 0
 	for _, task := range tasks {
-		if task.Status == db.StatusPending {
+		switch task.Status {
+		case db.StatusPending:
 			pendingCount++
+			if pendingTask == nil {
+				pendingTask = task
+			}
+		case db.StatusProcessing:
+			processingCount++
+		case db.StatusCompleted:
+			completedCount++
 		}
 	}
 
-	fmt.Printf("Tasks to process: %d (%d pending)\n", len(tasks), pendingCount)
+	fmt.Printf("Tasks: %d total (%d pending, %d processing, %d completed)\n",
+		len(tasks), pendingCount, processingCount, completedCount)
 
-	// Check if there are pending tasks to process
-	if pendingCount == 0 {
-		fmt.Printf("No pending tasks for work %s\n", workID)
+	// Check if there's already a task processing
+	if processingCount > 0 {
+		fmt.Printf("A task is already processing for work %s\n", workID)
+		fmt.Println("Use 'co task show' to check status.")
+		return nil
+	}
+
+	// Check if there are pending tasks to spawn
+	if pendingTask == nil {
+		if completedCount == len(tasks) {
+			fmt.Printf("All tasks completed for work %s\n", workID)
+		} else {
+			fmt.Printf("No pending tasks for work %s\n", workID)
+		}
 		return nil
 	}
 
@@ -414,87 +429,52 @@ func processWork(proj *project.Project, workID string) error {
 		return fmt.Errorf("work %s worktree does not exist at %s", workID, work.WorktreePath)
 	}
 
-	// Create zellij tab for this work
-	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
-	tabName := fmt.Sprintf("work-%s", work.ID)
-
-	// Start work in proj.DB
-	if err := proj.DB.StartWork(GetContext(), workID, sessionName, tabName); err != nil {
-		return fmt.Errorf("failed to start work: %w", err)
+	// Start work in proj.DB if not already started
+	if work.Status == db.StatusPending {
+		sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
+		tabName := fmt.Sprintf("work-%s", work.ID)
+		if err := proj.DB.StartWork(GetContext(), workID, sessionName, tabName); err != nil {
+			return fmt.Errorf("failed to start work: %w", err)
+		}
 	}
 
-	// Process each task sequentially in the work's worktree
-	completedTasks := 0
-	var allBeads []beads.Bead
+	// Get bead details for the pending task
+	fmt.Printf("\n--- Spawning task %s ---\n", pendingTask.ID)
+	beadIDs, err := proj.DB.GetTaskBeads(GetContext(), pendingTask.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get beads for task %s: %w", pendingTask.ID, err)
+	}
 
-	for _, task := range tasks {
-		// Skip non-pending tasks
-		if task.Status != db.StatusPending {
-			fmt.Printf("Skipping task %s (status: %s)\n", task.ID, task.Status)
-			continue
-		}
-
-		fmt.Printf("\n--- Processing task %s ---\n", task.ID)
-
-		// Get bead details for this task
-		beadIDs, err := proj.DB.GetTaskBeads(GetContext(), task.ID)
+	var taskBeads []beads.Bead
+	for _, beadID := range beadIDs {
+		bead, err := beads.GetBeadInDir(beadID, proj.MainRepoPath())
 		if err != nil {
-			fmt.Printf("Failed to get beads for task %s: %v\n", task.ID, err)
+			fmt.Printf("Warning: failed to get bead %s: %v\n", beadID, err)
 			continue
 		}
-
-		var taskBeads []beads.Bead
-		for _, beadID := range beadIDs {
-			bead, err := beads.GetBeadInDir(beadID, proj.MainRepoPath())
-			if err != nil {
-				fmt.Printf("Failed to get bead %s: %v\n", beadID, err)
-				continue
-			}
-			taskBeads = append(taskBeads, *bead)
-		}
-
-		// Process task in the work's worktree
-		result, err := processTaskInWork(proj, task, work, taskBeads)
-		if err != nil {
-			fmt.Printf("Failed to process task %s: %v\n", task.ID, err)
-			proj.DB.FailTask(GetContext(), task.ID, err.Error())
-			continue
-		}
-
-		if result.Completed {
-			completedTasks++
-			allBeads = append(allBeads, taskBeads...)
-		}
+		taskBeads = append(taskBeads, *bead)
 	}
 
-	// Update work status based on task completion
-	if completedTasks > 0 {
-		fmt.Printf("\n=== Work %s completed successfully ===\n", work.ID)
-		fmt.Printf("Completed %d task(s) with %d bead(s)\n", completedTasks, len(allBeads))
-
-		// Mark work as completed (without PR URL since we're not creating it)
-		if err := proj.DB.CompleteWork(GetContext(), workID, ""); err != nil {
-			return fmt.Errorf("failed to complete work: %w", err)
-		}
-
-		fmt.Printf("\nAll tasks completed! The work branch '%s' has been pushed.\n", work.BranchName)
-		fmt.Printf("To create a PR, run: co work pr %s\n", workID)
-	} else {
-		// No tasks completed, mark work as failed
-		if err := proj.DB.FailWork(GetContext(), workID, "No tasks completed successfully"); err != nil {
-			return fmt.Errorf("failed to mark work as failed: %w", err)
-		}
+	// Spawn the task (non-blocking)
+	if err := processTaskInWork(proj, pendingTask, work, taskBeads); err != nil {
+		proj.DB.FailTask(GetContext(), pendingTask.ID, err.Error())
+		return fmt.Errorf("failed to spawn task %s: %w", pendingTask.ID, err)
 	}
 
-	fmt.Printf("\n=== Work %s processing complete ===\n", work.ID)
-	fmt.Printf("Completed tasks: %d/%d\n", completedTasks, len(tasks))
+	fmt.Printf("\n=== Task %s spawned for work %s ===\n", pendingTask.ID, work.ID)
+	if pendingCount > 1 {
+		fmt.Printf("Remaining pending tasks: %d\n", pendingCount-1)
+	}
+	fmt.Println("Task is running in zellij tab. Use 'co task show' to check status.")
 
 	return nil
 }
 
-// processTaskInWork processes a single task within a work's worktree.
-func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, taskBeads []beads.Bead) (*claude.TaskResult, error) {
-	fmt.Printf("Processing %d bead(s) for task %s\n", len(taskBeads), dbTask.ID)
+// processTaskInWork spawns a single task within a work's worktree.
+// This function is non-blocking - it spawns Claude and returns immediately.
+// The co claude wrapper process handles database updates when the task completes.
+func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, taskBeads []beads.Bead) error {
+	fmt.Printf("Spawning task %s with %d bead(s)\n", dbTask.ID, len(taskBeads))
 	for _, b := range taskBeads {
 		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
 	}
@@ -502,19 +482,7 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 	// Start task in proj.DB
 	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
 	if err := proj.DB.StartTask(GetContext(), dbTask.ID, sessionName, dbTask.ID); err != nil {
-		return nil, fmt.Errorf("failed to start task in proj.DB: %w", err)
-	}
-
-	// Build task object for Claude
-	taskObj := task.Task{
-		ID:         dbTask.ID,
-		BeadIDs:    make([]string, len(taskBeads)),
-		Beads:      taskBeads,
-		Complexity: dbTask.ComplexityBudget,
-		Status:     task.StatusPending,
-	}
-	for i, b := range taskBeads {
-		taskObj.BeadIDs[i] = b.ID
+		return fmt.Errorf("failed to start task in proj.DB: %w", err)
 	}
 
 	// Build prompt for Claude based on task type
@@ -527,39 +495,26 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 	case "pr":
 		// PR creation task
 		prompt = claude.BuildPRPrompt(dbTask.ID, work.ID, work.BranchName, baseBranch)
-		fmt.Println("Running Claude Code for PR creation...")
+		fmt.Println("Spawning Claude Code for PR creation...")
 	case "review":
 		// Code review task
 		prompt = claude.BuildReviewPrompt(dbTask.ID, work.ID, work.BranchName, baseBranch)
-		fmt.Println("Running Claude Code for code review...")
+		fmt.Println("Spawning Claude Code for code review...")
 	default:
 		// Regular implementation task
 		prompt = claude.BuildTaskPrompt(dbTask.ID, taskBeads, work.BranchName, baseBranch)
-		fmt.Println("Running Claude Code...")
+		fmt.Println("Spawning Claude Code...")
 	}
 
-	// Run Claude in the work's worktree directory
+	// Spawn Claude in the work's worktree directory (non-blocking)
 	ctx := GetContext()
 	projectName := proj.Config.Project.Name
-	result, err := claude.Run(ctx, proj.DB, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
+	_, err := claude.Run(ctx, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
 	if err != nil {
-		fmt.Printf("Claude failed: %v\n", err)
-		return nil, fmt.Errorf("claude failed: %w", err)
+		fmt.Printf("Failed to spawn Claude: %v\n", err)
+		return fmt.Errorf("failed to spawn claude: %w", err)
 	}
 
-	// Update task status based on result
-	if result.Completed {
-		fmt.Printf("Task %s completed successfully\n", dbTask.ID)
-		if err := proj.DB.CompleteTask(GetContext(), dbTask.ID, ""); err != nil {
-			fmt.Printf("Warning: failed to update task status: %v\n", err)
-		}
-	} else if result.PartialFailure {
-		fmt.Printf("Task %s partially completed\n", dbTask.ID)
-		fmt.Printf("  Completed beads: %v\n", result.CompletedBeads)
-		fmt.Printf("  Failed beads: %v\n", result.FailedBeads)
-	} else {
-		fmt.Printf("Task %s failed\n", dbTask.ID)
-	}
-
-	return result, nil
+	fmt.Printf("Task %s spawned successfully in zellij tab\n", dbTask.ID)
+	return nil
 }
