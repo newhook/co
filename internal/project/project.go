@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,20 +39,20 @@ type Project struct {
 
 // Find finds a project from a flag value or current directory.
 // If flagValue is non-empty, uses that path; otherwise uses cwd.
-func Find(flagValue string) (*Project, error) {
+func Find(ctx context.Context, flagValue string) (*Project, error) {
 	if flagValue != "" {
-		return find(flagValue)
+		return find(ctx, flagValue)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
-	return find(cwd)
+	return find(ctx, cwd)
 }
 
 // find walks up from startDir looking for a .co/ directory.
 // Returns the project if found, or an error if not found.
-func find(startDir string) (*Project, error) {
+func find(ctx context.Context, startDir string) (*Project, error) {
 	dir, err := filepath.Abs(startDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve path: %w", err)
@@ -60,7 +61,7 @@ func find(startDir string) (*Project, error) {
 	for {
 		configPath := filepath.Join(dir, ConfigDir, ConfigFile)
 		if _, err := os.Stat(configPath); err == nil {
-			return load(dir)
+			return load(ctx, dir)
 		}
 
 		parent := filepath.Dir(dir)
@@ -73,7 +74,7 @@ func find(startDir string) (*Project, error) {
 }
 
 // load loads a project from the given root directory.
-func load(root string) (*Project, error) {
+func load(ctx context.Context, root string) (*Project, error) {
 	configPath := filepath.Join(root, ConfigDir, ConfigFile)
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
@@ -87,7 +88,7 @@ func load(root string) (*Project, error) {
 
 	// Open the database automatically
 	dbPath := filepath.Join(root, ConfigDir, TrackingDB)
-	database, err := db.OpenPath(dbPath)
+	database, err := db.OpenPath(ctx, dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open tracking database: %w", err)
 	}
@@ -98,7 +99,7 @@ func load(root string) (*Project, error) {
 
 // Create initializes a new project at the given directory.
 // repoSource can be a local path (symlinked) or GitHub URL (cloned).
-func Create(dir, repoSource string) (*Project, error) {
+func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve path: %w", err)
@@ -147,7 +148,7 @@ func Create(dir, repoSource string) (*Project, error) {
 
 	// Initialize tracking database
 	dbPath := filepath.Join(configDir, TrackingDB)
-	database, err := db.OpenPath(dbPath)
+	database, err := db.OpenPath(ctx, dbPath)
 	if err != nil {
 		os.RemoveAll(absDir)
 		return nil, fmt.Errorf("failed to initialize tracking database: %w", err)

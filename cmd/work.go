@@ -107,9 +107,10 @@ func init() {
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
 	baseBranch := flagBaseBranch
+	ctx := GetContext()
 
 	// Find project
-	proj, err := project.Find("")
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -196,7 +197,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 func runWorkList(cmd *cobra.Command, args []string) error {
 	// Find project
-	proj, err := project.Find("")
+	ctx := GetContext()
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -251,7 +253,8 @@ func runWorkList(cmd *cobra.Command, args []string) error {
 
 func runWorkShow(cmd *cobra.Command, args []string) error {
 	// Find project
-	proj, err := project.Find("")
+	ctx := GetContext()
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -331,7 +334,8 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	workID := args[0]
 
 	// Find project
-	proj, err := project.Find("")
+	ctx := GetContext()
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -397,7 +401,8 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 
 func runWorkPR(cmd *cobra.Command, args []string) error {
 	// Find project
-	proj, err := project.Find("")
+	ctx := GetContext()
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -453,7 +458,8 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 
 func runWorkReview(cmd *cobra.Command, args []string) error {
 	// Find project
-	proj, err := project.Find("")
+	ctx := GetContext()
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return err
 	}

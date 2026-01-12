@@ -25,8 +25,8 @@ type Migration struct {
 }
 
 // RunMigrations applies all pending migrations from the embedded migrationsFS
-func RunMigrations(db *sql.DB) error {
-	return RunMigrationsForFS(context.Background(), db, migrationsFS)
+func RunMigrations(ctx context.Context, db *sql.DB) error {
+	return RunMigrationsForFS(ctx, db, migrationsFS)
 }
 
 // RunMigrationsForFS applies all pending migrations from the specified filesystem

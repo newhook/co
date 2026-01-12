@@ -58,14 +58,14 @@ type TrackedBead struct {
 }
 
 // StartBead marks a bead as processing with session info.
-func (db *DB) StartBead(id, title, zellijSession, zellijPane string) error {
-	return db.StartBeadWithWorktree(id, title, zellijSession, zellijPane, "")
+func (db *DB) StartBead(ctx context.Context, id, title, zellijSession, zellijPane string) error {
+	return db.StartBeadWithWorktree(ctx, id, title, zellijSession, zellijPane, "")
 }
 
 // StartBeadWithWorktree marks a bead as processing with session and worktree info.
-func (db *DB) StartBeadWithWorktree(id, title, zellijSession, zellijPane, worktreePath string) error {
+func (db *DB) StartBeadWithWorktree(ctx context.Context, id, title, zellijSession, zellijPane, worktreePath string) error {
 	now := time.Now()
-	err := db.queries.StartBead(context.Background(), sqlc.StartBeadParams{
+	err := db.queries.StartBead(ctx, sqlc.StartBeadParams{
 		ID:            id,
 		Title:         title,
 		ZellijSession: zellijSession,
@@ -81,9 +81,9 @@ func (db *DB) StartBeadWithWorktree(id, title, zellijSession, zellijPane, worktr
 }
 
 // CompleteBead marks a bead as completed with a PR URL.
-func (db *DB) CompleteBead(id, prURL string) error {
+func (db *DB) CompleteBead(ctx context.Context, id, prURL string) error {
 	now := time.Now()
-	rows, err := db.queries.CompleteBead(context.Background(), sqlc.CompleteBeadParams{
+	rows, err := db.queries.CompleteBead(ctx, sqlc.CompleteBeadParams{
 		PrUrl:       prURL,
 		CompletedAt: nullTime(now),
 		UpdatedAt:   now,
@@ -99,9 +99,9 @@ func (db *DB) CompleteBead(id, prURL string) error {
 }
 
 // FailBead marks a bead as failed with an error message.
-func (db *DB) FailBead(id, errMsg string) error {
+func (db *DB) FailBead(ctx context.Context, id, errMsg string) error {
 	now := time.Now()
-	rows, err := db.queries.FailBead(context.Background(), sqlc.FailBeadParams{
+	rows, err := db.queries.FailBead(ctx, sqlc.FailBeadParams{
 		ErrorMessage: errMsg,
 		CompletedAt:  nullTime(now),
 		UpdatedAt:    now,
@@ -117,8 +117,8 @@ func (db *DB) FailBead(id, errMsg string) error {
 }
 
 // GetBead retrieves a tracking record by ID.
-func (db *DB) GetBead(id string) (*TrackedBead, error) {
-	bead, err := db.queries.GetBead(context.Background(), id)
+func (db *DB) GetBead(ctx context.Context, id string) (*TrackedBead, error) {
+	bead, err := db.queries.GetBead(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -129,8 +129,8 @@ func (db *DB) GetBead(id string) (*TrackedBead, error) {
 }
 
 // IsCompleted checks if a bead is completed or failed.
-func (db *DB) IsCompleted(id string) (bool, error) {
-	status, err := db.queries.GetBeadStatus(context.Background(), id)
+func (db *DB) IsCompleted(ctx context.Context, id string) (bool, error) {
+	status, err := db.queries.GetBeadStatus(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -141,14 +141,14 @@ func (db *DB) IsCompleted(id string) (bool, error) {
 }
 
 // ListBeads returns all beads, optionally filtered by status.
-func (db *DB) ListBeads(statusFilter string) ([]*TrackedBead, error) {
+func (db *DB) ListBeads(ctx context.Context, statusFilter string) ([]*TrackedBead, error) {
 	var beads []sqlc.Bead
 	var err error
 
 	if statusFilter == "" {
-		beads, err = db.queries.ListBeads(context.Background())
+		beads, err = db.queries.ListBeads(ctx)
 	} else {
-		beads, err = db.queries.ListBeadsByStatus(context.Background(), statusFilter)
+		beads, err = db.queries.ListBeadsByStatus(ctx, statusFilter)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list beads: %w", err)

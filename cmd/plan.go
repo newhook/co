@@ -14,10 +14,10 @@ import (
 )
 
 var (
-	flagPlanAutoGroup  bool
-	flagPlanBudget     int
-	flagPlanProject    string
-	flagPlanWork       string
+	flagPlanAutoGroup     bool
+	flagPlanBudget        int
+	flagPlanProject       string
+	flagPlanWork          string
 	flagPlanForceEstimate bool
 )
 
@@ -50,7 +50,8 @@ func init() {
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
-	proj, err := project.Find(flagPlanProject)
+	ctx := GetContext()
+	proj, err := project.Find(ctx, flagPlanProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -68,7 +69,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Validate work exists if specified
 	var work *db.Work
 	if workID != "" {
-		work, err = proj.DB.GetWork(GetContext(),workID)
+		work, err = proj.DB.GetWork(GetContext(), workID)
 		if err != nil {
 			return fmt.Errorf("failed to get work %s: %w", workID, err)
 		}
@@ -125,7 +126,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check for beads already in pending tasks
-	pendingTasks, err := proj.DB.ListTasks(GetContext(),db.StatusPending)
+	pendingTasks, err := proj.DB.ListTasks(GetContext(), db.StatusPending)
 	if err != nil {
 		return fmt.Errorf("failed to check pending tasks: %w", err)
 	}
@@ -189,9 +190,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 // taskGroup represents a user-defined grouping of beads for a single task.
 type taskGroup struct {
-	index   int           // original order in args
-	beadIDs []string      // bead IDs in this group
-	beads   []beads.Bead  // resolved beads
+	index   int          // original order in args
+	beadIDs []string     // bead IDs in this group
+	beads   []beads.Bead // resolved beads
 }
 
 // planManualGroups creates tasks from manual groupings like "bead-1,bead-2 bead-3"
@@ -429,7 +430,7 @@ func planAutoGroup(proj *project.Project, beadList []beads.Bead, workID string, 
 
 	// Plan tasks
 	fmt.Printf("Planning tasks with budget %d...\n", flagPlanBudget)
-	tasks, err := planner.Plan(beadsWithDeps, flagPlanBudget)
+	tasks, err := planner.Plan(ctx, beadsWithDeps, flagPlanBudget)
 	if err != nil {
 		return fmt.Errorf("failed to plan tasks: %w", err)
 	}
@@ -452,7 +453,7 @@ func planAutoGroup(proj *project.Project, beadList []beads.Bead, workID string, 
 
 	// Create tasks in proj.DB
 	for _, t := range tasks {
-		if err := proj.DB.CreateTask(GetContext(),t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
+		if err := proj.DB.CreateTask(GetContext(), t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
 		fmt.Printf("Created implement task %s (complexity: %d) with %d bead(s): %s\n",
@@ -531,7 +532,7 @@ func detectWorkFromDirectory(proj *project.Project) (string, error) {
 	if len(parts) >= 1 && strings.HasPrefix(parts[0], "work-") {
 		workID := parts[0]
 		// Verify work exists in proj.DB
-		work, err := proj.DB.GetWork(GetContext(),workID)
+		work, err := proj.DB.GetWork(GetContext(), workID)
 		if err != nil {
 			return "", err
 		}
@@ -542,7 +543,7 @@ func detectWorkFromDirectory(proj *project.Project) (string, error) {
 
 	// Try to match by worktree path pattern
 	pattern := fmt.Sprintf("%%%s%%", cwd)
-	work, err := proj.DB.GetWorkByDirectory(GetContext(),pattern)
+	work, err := proj.DB.GetWorkByDirectory(GetContext(), pattern)
 	if err != nil {
 		return "", err
 	}
@@ -552,4 +553,3 @@ func detectWorkFromDirectory(proj *project.Project) (string, error) {
 
 	return "", nil
 }
-

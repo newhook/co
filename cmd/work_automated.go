@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -105,7 +104,7 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 // 4. Running review-fix loop until clean
 // 5. Creating PR
 func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch string) error {
-	ctx := context.Background()
+	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
 	fmt.Printf("Starting automated workflow for bead: %s\n", beadID)
@@ -303,7 +302,7 @@ func runReviewFixLoop(proj *project.Project, workID string) error {
 
 // createReviewTask creates a review task for a work unit.
 func createReviewTask(proj *project.Project, workID string) (string, error) {
-	ctx := context.Background()
+	ctx := GetContext()
 
 	// Get work to ensure it exists
 	work, err := proj.DB.GetWork(ctx, workID)
@@ -344,7 +343,7 @@ func createReviewTask(proj *project.Project, workID string) (string, error) {
 // It first checks for a review epic with children, then falls back to detecting new beads.
 // preReviewBeadIDs contains the IDs of beads that existed before the review ran.
 func checkForReviewIssues(proj *project.Project, workID string, preReviewBeadIDs map[string]bool) (bool, error) {
-	ctx := context.Background()
+	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
 	// First, try to find a review task with an epic set
@@ -394,7 +393,7 @@ func checkForReviewIssues(proj *project.Project, workID string, preReviewBeadIDs
 // planAndExecuteFixTasks plans and executes tasks to fix review issues.
 // It only processes beads that are children of the review epic, not all ready beads.
 func planAndExecuteFixTasks(proj *project.Project, workID string) error {
-	ctx := context.Background()
+	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
 	// Find the most recent review task that has a review_epic_id set
@@ -467,7 +466,7 @@ func planAndExecuteFixTasks(proj *project.Project, workID string) error {
 // planAndExecuteFixTasksLegacy is the original implementation that processes all ready beads.
 // This is kept as a fallback for backwards compatibility.
 func planAndExecuteFixTasksLegacy(proj *project.Project, workID string) error {
-	ctx := context.Background()
+	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
 	// Get ready beads for fixing
@@ -504,7 +503,7 @@ func planAndExecuteFixTasksLegacy(proj *project.Project, workID string) error {
 
 // createWorkPR creates a PR for a completed work unit.
 func createWorkPR(proj *project.Project, workID string) error {
-	ctx := context.Background()
+	ctx := GetContext()
 
 	// Get work details
 	work, err := proj.DB.GetWork(ctx, workID)

@@ -17,10 +17,10 @@ var (
 var completeCmd = &cobra.Command{
 	Use:   "complete <bead-id|task-id>",
 	Short: "Mark a bead or task as completed (or failed with --error)",
-	Long:  `Mark a bead or task as completed in the tracking proj.DB. Called by Claude Code when work is done.
+	Long: `Mark a bead or task as completed in the tracking proj.DB. Called by Claude Code when work is done.
 With --error flag, marks the task as failed instead.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runComplete,
+	Args: cobra.ExactArgs(1),
+	RunE: runComplete,
 }
 
 func init() {
@@ -30,9 +30,10 @@ func init() {
 }
 
 func runComplete(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
 	id := args[0]
 
-	proj, err := project.Find(flagCompleteProject)
+	proj, err := project.Find(ctx, flagCompleteProject)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -94,12 +95,12 @@ func runComplete(cmd *cobra.Command, args []string) error {
 
 		// Also update the beads table if the bead exists there (backwards compatibility)
 		// Ignore "not found" errors since task_beads is the primary tracking for task-based beads
-		_ = proj.DB.CompleteBead(beadID, flagCompletePRURL)
+		_ = proj.DB.CompleteBead(ctx, beadID, flagCompletePRURL)
 		return nil
 	}
 
 	// Standalone bead (not part of a task) - must exist in beads table
-	if err := proj.DB.CompleteBead(beadID, flagCompletePRURL); err != nil {
+	if err := proj.DB.CompleteBead(ctx, beadID, flagCompletePRURL); err != nil {
 		// Check if this might be a bead ID that doesn't exist in our tracking
 		return fmt.Errorf("failed to complete bead %s: %w\nHint: If the bead was closed via 'bd close', it may not be tracked here. Use 'co complete <task-id>' instead.", beadID, err)
 	}

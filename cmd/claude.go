@@ -32,15 +32,14 @@ func init() {
 
 func runClaude(cmd *cobra.Command, args []string) error {
 	taskID := args[0]
+	ctx := GetContext()
 
 	// Find project
-	proj, err := project.Find("")
+	proj, err := project.Find(ctx, "")
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
 	defer proj.Close()
-
-	ctx := GetContext()
 
 	// Get task to verify it exists
 	task, err := proj.DB.GetTask(ctx, taskID)
@@ -180,17 +179,13 @@ exit:
 	// Close the tab if auto-close is enabled
 	if claudeAutoClose {
 		fmt.Println("Auto-closing tab...")
-		// Get project to find session name
-		proj, err := project.Find("")
-		if err == nil {
-			sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
+		sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
 
-			// Close the current tab (the one this wrapper is running in)
-			closeArgs := []string{"-s", sessionName, "action", "close-tab"}
-			closeCmd := exec.Command("zellij", closeArgs...)
-			if err := closeCmd.Run(); err != nil {
-				fmt.Printf("Warning: failed to auto-close tab: %v\n", err)
-			}
+		// Close the current tab (the one this wrapper is running in)
+		closeArgs := []string{"-s", sessionName, "action", "close-tab"}
+		closeCmd := exec.Command("zellij", closeArgs...)
+		if err := closeCmd.Run(); err != nil {
+			fmt.Printf("Warning: failed to auto-close tab: %v\n", err)
 		}
 	}
 
