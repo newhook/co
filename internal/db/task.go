@@ -367,3 +367,65 @@ func (db *DB) ListTasks(ctx context.Context, statusFilter string) ([]*Task, erro
 	}
 	return result, nil
 }
+
+// GetTaskBeadStatus returns the status of a specific bead within a task.
+func (db *DB) GetTaskBeadStatus(ctx context.Context, taskID, beadID string) (string, error) {
+	status, err := db.queries.GetTaskBeadStatus(ctx, sqlc.GetTaskBeadStatusParams{
+		TaskID: taskID,
+		BeadID: beadID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get task bead status: %w", err)
+	}
+	return status, nil
+}
+
+// DeleteTask deletes a task and all associated records (work_tasks, task_beads).
+func (db *DB) DeleteTask(ctx context.Context, taskID string) error {
+	// Use a transaction for atomicity
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := db.queries.WithTx(tx)
+
+	// Delete work_tasks first (foreign key constraint)
+	_, err = qtx.DeleteWorkTaskByTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to delete work_tasks for task %s: %w", taskID, err)
+	}
+
+	// Delete task_beads (foreign key constraint)
+	_, err = qtx.DeleteTaskBeadsByTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to delete task_beads for task %s: %w", taskID, err)
+	}
+
+	// Delete the task itself
+	rows, err := qtx.DeleteTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to delete task %s: %w", taskID, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
+// ResetTaskBeadStatuses resets all bead statuses for a task to pending.
+func (db *DB) ResetTaskBeadStatuses(ctx context.Context, taskID string) error {
+	_, err := db.queries.ResetTaskBeadStatuses(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to reset task bead statuses: %w", err)
+	}
+	return nil
+}

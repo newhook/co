@@ -107,6 +107,32 @@ func (q *Queries) CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) 
 	return err
 }
 
+const deleteTask = `-- name: DeleteTask :execrows
+DELETE FROM tasks
+WHERE id = ?
+`
+
+func (q *Queries) DeleteTask(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTask, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteTaskBeadsByTask = `-- name: DeleteTaskBeadsByTask :execrows
+DELETE FROM task_beads
+WHERE task_id = ?
+`
+
+func (q *Queries) DeleteTaskBeadsByTask(ctx context.Context, taskID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTaskBeadsByTask, taskID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteTaskBeadsForWork = `-- name: DeleteTaskBeadsForWork :execrows
 DELETE FROM task_beads
 WHERE task_id IN (
@@ -129,6 +155,19 @@ WHERE work_id = ?
 
 func (q *Queries) DeleteTasksForWork(ctx context.Context, workID string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteTasksForWork, workID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteWorkTaskByTask = `-- name: DeleteWorkTaskByTask :execrows
+DELETE FROM work_tasks
+WHERE task_id = ?
+`
+
+func (q *Queries) DeleteWorkTaskByTask(ctx context.Context, taskID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteWorkTaskByTask, taskID)
 	if err != nil {
 		return 0, err
 	}
@@ -214,6 +253,24 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const getTaskBeadStatus = `-- name: GetTaskBeadStatus :one
+SELECT status
+FROM task_beads
+WHERE task_id = ? AND bead_id = ?
+`
+
+type GetTaskBeadStatusParams struct {
+	TaskID string `json:"task_id"`
+	BeadID string `json:"bead_id"`
+}
+
+func (q *Queries) GetTaskBeadStatus(ctx context.Context, arg GetTaskBeadStatusParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTaskBeadStatus, arg.TaskID, arg.BeadID)
+	var status string
+	err := row.Scan(&status)
+	return status, err
 }
 
 const getTaskBeads = `-- name: GetTaskBeads :many
@@ -369,6 +426,20 @@ func (q *Queries) ListTasksByStatus(ctx context.Context, status string) ([]Task,
 		return nil, err
 	}
 	return items, nil
+}
+
+const resetTaskBeadStatuses = `-- name: ResetTaskBeadStatuses :execrows
+UPDATE task_beads
+SET status = 'pending'
+WHERE task_id = ?
+`
+
+func (q *Queries) ResetTaskBeadStatuses(ctx context.Context, taskID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resetTaskBeadStatuses, taskID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const resetTaskStatus = `-- name: ResetTaskStatus :execrows

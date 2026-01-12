@@ -125,3 +125,25 @@ WHERE task_id IN (
 -- name: DeleteTasksForWork :execrows
 DELETE FROM tasks
 WHERE work_id = ?;
+
+-- name: GetTaskBeadStatus :one
+SELECT status
+FROM task_beads
+WHERE task_id = ? AND bead_id = ?;
+
+-- name: DeleteWorkTaskByTask :execrows
+DELETE FROM work_tasks
+WHERE task_id = ?;
+
+-- name: DeleteTaskBeadsByTask :execrows
+DELETE FROM task_beads
+WHERE task_id = ?;
+
+-- name: DeleteTask :execrows
+DELETE FROM tasks
+WHERE id = ?;
+
+-- name: ResetTaskBeadStatuses :execrows
+UPDATE task_beads
+SET status = 'pending'
+WHERE task_id = ?;
