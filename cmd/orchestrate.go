@@ -471,7 +471,10 @@ func InitWorkflow(proj *project.Project, beadID, baseBranch string) (string, err
 	ctx := GetContext()
 
 	// Generate workflow ID (the work ID will be created during StepCreateWork)
-	workflowID := fmt.Sprintf("workflow-%d", time.Now().UnixNano())
+	workflowID, err := proj.DB.GenerateWorkflowID(ctx, beadID)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate workflow ID: %w", err)
+	}
 
 	// Create initial step data
 	stepData := StepData{

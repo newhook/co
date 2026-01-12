@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -154,4 +155,52 @@ func (db *DB) ListPendingWorkflows(ctx context.Context) ([]*WorkflowState, error
 		result[i] = workflowStateToLocal(&s)
 	}
 	return result, nil
+}
+
+// GenerateWorkflowID generates a short, unique workflow ID.
+// Uses the same pattern as work IDs but with "wf-" prefix.
+func (db *DB) GenerateWorkflowID(ctx context.Context, beadID string) (string, error) {
+	// Start with a base length of 3 characters
+	baseLength := 3
+	maxAttempts := 30
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// Calculate target length based on attempts
+		targetLength := baseLength + (attempt / 10)
+		if targetLength > 8 {
+			targetLength = 8 // Cap at 8 characters
+		}
+
+		// Create content for hashing
+		nonce := attempt % 10
+		content := fmt.Sprintf("workflow:%s:%d:%d",
+			beadID,
+			time.Now().UnixNano(),
+			nonce)
+
+		// Generate SHA256 hash
+		hash := sha256.Sum256([]byte(content))
+
+		// Convert to base36 and truncate to target length
+		hashStr := toBase36(hash[:])
+		if len(hashStr) > targetLength {
+			hashStr = hashStr[:targetLength]
+		}
+
+		// Create workflow ID with prefix
+		workflowID := fmt.Sprintf("wf-%s", hashStr)
+
+		// Check if this ID already exists
+		existing, err := db.GetWorkflowState(ctx, workflowID)
+		if err != nil {
+			return "", fmt.Errorf("failed to check for existing workflow: %w", err)
+		}
+		if existing == nil {
+			// ID is unique, return it
+			return workflowID, nil
+		}
+	}
+
+	// If we exhausted all attempts, generate a fallback ID
+	return fmt.Sprintf("wf-%d", time.Now().UnixNano()/1000000), nil
 }
