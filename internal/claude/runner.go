@@ -53,6 +53,7 @@ type TaskResult struct {
 // This function is non-blocking - it returns immediately after spawning the command.
 // The co claude wrapper process handles database updates when the task completes or fails.
 // The returned TaskResult indicates successful spawn, not task completion.
+// Note: hooks.env is applied by the co claude command itself, not here.
 func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string, autoClose bool) (*TaskResult, error) {
 	sessionName := SessionNameForProject(projectName)
 
@@ -79,6 +80,7 @@ func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt stri
 	defer os.Remove(promptFile)
 
 	// Build the wrapper command - assume co is in PATH since user is running it
+	// Note: co claude will apply hooks.env itself
 	claudeCommand := fmt.Sprintf("co claude %s --prompt-file %s", taskID, promptFile)
 	if autoClose {
 		claudeCommand += " --auto-close"
@@ -314,4 +316,87 @@ func BuildReviewPrompt(taskID string, workID string, branchName string, baseBran
 	}
 
 	return buf.String()
+}
+
+// SpawnOrchestration creates a zellij tab and runs the orchestrate command in it.
+// This is used by `co work create --bead` to run the workflow in a visible tab.
+// The function returns immediately after spawning - the workflow runs in the tab.
+// Note: hooks.env is applied by the orchestrate command itself, not here.
+func SpawnOrchestration(ctx context.Context, workflowID string, projectName string, workDir string) error {
+	sessionName := SessionNameForProject(projectName)
+	tabName := fmt.Sprintf("workflow-%s", workflowID)
+
+	// Ensure session exists
+	if err := ensureSession(ctx, sessionName); err != nil {
+		return err
+	}
+
+	// Build the orchestration command
+	// Use "co" since we assume it's in PATH (user is already running it)
+	// Note: co orchestrate will apply hooks.env itself
+	orchestrateCommand := fmt.Sprintf("co orchestrate --workflow %s", workflowID)
+
+	// Check if tab already exists
+	if TabExists(ctx, sessionName, tabName) {
+		fmt.Printf("Tab %s already exists, reusing...\n", tabName)
+
+		// Switch to the existing tab
+		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
+		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
+		if err := switchCmd.Run(); err != nil {
+			fmt.Printf("Warning: failed to switch to existing tab: %v\n", err)
+		}
+
+		// Send Ctrl+C to terminate any running process
+		ctrlCArgs := []string{"-s", sessionName, "action", "write", "3"}
+		exec.CommandContext(ctx, "zellij", ctrlCArgs...).Run()
+		time.Sleep(500 * time.Millisecond)
+
+		// Clear the line
+		clearArgs := []string{"-s", sessionName, "action", "write-chars", "clear"}
+		exec.CommandContext(ctx, "zellij", clearArgs...).Run()
+		time.Sleep(100 * time.Millisecond)
+		exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
+		time.Sleep(100 * time.Millisecond)
+	} else {
+		// Create a new tab
+		tabArgs := []string{
+			"-s", sessionName, "action", "new-tab",
+			"--cwd", workDir,
+			"--name", tabName,
+		}
+		fmt.Printf("Creating tab: zellij %s\n", strings.Join(tabArgs, " "))
+		tabCmd := exec.CommandContext(ctx, "zellij", tabArgs...)
+		if err := tabCmd.Run(); err != nil {
+			return fmt.Errorf("failed to create tab: %w", err)
+		}
+
+		// Wait a moment for tab to be created
+		time.Sleep(500 * time.Millisecond)
+
+		// Switch to the new tab
+		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
+		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
+		if err := switchCmd.Run(); err != nil {
+			fmt.Printf("Warning: failed to switch to tab: %v\n", err)
+		}
+	}
+
+	// Write the orchestrate command
+	runArgs := []string{"-s", sessionName, "action", "write-chars", orchestrateCommand}
+	fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
+	runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
+	if err := runCmd.Run(); err != nil {
+		return fmt.Errorf("failed to write orchestrate command: %w", err)
+	}
+
+	// Send Enter to execute the command
+	enterArgs := []string{"-s", sessionName, "action", "write", "13"}
+	enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
+	if err := enterCmd.Run(); err != nil {
+		return fmt.Errorf("failed to execute orchestrate command: %w", err)
+	}
+
+	fmt.Printf("Workflow spawned in zellij session %s, tab %s\n", sessionName, tabName)
+	return nil
 }

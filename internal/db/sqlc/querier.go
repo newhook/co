@@ -15,12 +15,14 @@ type Querier interface {
 	CompleteTask(ctx context.Context, arg CompleteTaskParams) (int64, error)
 	CompleteTaskBead(ctx context.Context, arg CompleteTaskBeadParams) (int64, error)
 	CompleteWork(ctx context.Context, arg CompleteWorkParams) (int64, error)
+	CompleteWorkflowStep(ctx context.Context, workflowID string) (int64, error)
 	CountEstimatedBeads(ctx context.Context, beadIds []string) (int64, error)
 	CountTaskBeadStatuses(ctx context.Context, taskID string) (CountTaskBeadStatusesRow, error)
 	CreateMigrationsTable(ctx context.Context) error
 	CreateTask(ctx context.Context, arg CreateTaskParams) error
 	CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error
 	CreateWork(ctx context.Context, arg CreateWorkParams) error
+	CreateWorkflowState(ctx context.Context, arg CreateWorkflowStateParams) error
 	DeleteMigration(ctx context.Context, version string) error
 	DeleteTask(ctx context.Context, id string) (int64, error)
 	DeleteTaskBeadsByTask(ctx context.Context, taskID string) (int64, error)
@@ -30,10 +32,12 @@ type Querier interface {
 	DeleteWork(ctx context.Context, id string) (int64, error)
 	DeleteWorkTaskByTask(ctx context.Context, taskID string) (int64, error)
 	DeleteWorkTasks(ctx context.Context, workID string) (int64, error)
+	DeleteWorkflowState(ctx context.Context, workflowID string) (int64, error)
 	FailBead(ctx context.Context, arg FailBeadParams) (int64, error)
 	FailTask(ctx context.Context, arg FailTaskParams) (int64, error)
 	FailTaskBead(ctx context.Context, arg FailTaskBeadParams) (int64, error)
 	FailWork(ctx context.Context, arg FailWorkParams) (int64, error)
+	FailWorkflowStep(ctx context.Context, arg FailWorkflowStepParams) (int64, error)
 	GetAllCachedComplexity(ctx context.Context) ([]GetAllCachedComplexityRow, error)
 	GetAllTaskMetadata(ctx context.Context, taskID string) ([]GetAllTaskMetadataRow, error)
 	GetAndIncrementTaskCounter(ctx context.Context, workID string) (int64, error)
@@ -52,10 +56,12 @@ type Querier interface {
 	GetWork(ctx context.Context, id string) (Work, error)
 	GetWorkByDirectory(ctx context.Context, worktreePath string) (Work, error)
 	GetWorkTasks(ctx context.Context, workID string) ([]Task, error)
+	GetWorkflowState(ctx context.Context, workflowID string) (WorkflowState, error)
 	InitializeTaskCounter(ctx context.Context, workID string) error
 	ListBeads(ctx context.Context) ([]Bead, error)
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)
 	ListMigrationVersions(ctx context.Context) ([]string, error)
+	ListPendingWorkflows(ctx context.Context) ([]WorkflowState, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	ListTasksByStatus(ctx context.Context, status string) ([]Task, error)
 	ListWorks(ctx context.Context) ([]Work, error)
@@ -64,10 +70,12 @@ type Querier interface {
 	ResetTaskBeadStatuses(ctx context.Context, taskID string) (int64, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
 	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error
+	SetWorkflowWorkID(ctx context.Context, arg SetWorkflowWorkIDParams) (int64, error)
 	SpawnTask(ctx context.Context, arg SpawnTaskParams) (int64, error)
 	StartBead(ctx context.Context, arg StartBeadParams) error
 	StartTask(ctx context.Context, arg StartTaskParams) (int64, error)
 	StartWork(ctx context.Context, arg StartWorkParams) (int64, error)
+	UpdateWorkflowStep(ctx context.Context, arg UpdateWorkflowStepParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)
