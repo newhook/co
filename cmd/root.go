@@ -53,4 +53,5 @@ func init() {
 	rootCmd.AddCommand(workCmd)
 	rootCmd.AddCommand(claudeCmd)
 	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(orchestrateCmd)
 }

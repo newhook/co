@@ -2,15 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
 )
 
@@ -47,6 +45,44 @@ func generateBranchNameFromBead(bead *beads.Bead) string {
 
 	// Add prefix based on common conventions
 	return fmt.Sprintf("feat/%s", title)
+}
+
+// ensureUniqueBranchName checks if a branch already exists and appends a suffix if needed.
+// Returns a unique branch name that doesn't conflict with existing branches.
+func ensureUniqueBranchName(repoPath, baseName string) (string, error) {
+	// Check if the base name is available
+	if !branchExists(repoPath, baseName) {
+		return baseName, nil
+	}
+
+	// Try appending suffixes until we find an available name
+	for i := 2; i <= 100; i++ {
+		candidate := fmt.Sprintf("%s-%d", baseName, i)
+		if !branchExists(repoPath, candidate) {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find unique branch name after 100 attempts (base: %s)", baseName)
+}
+
+// branchExists checks if a branch exists locally or remotely.
+func branchExists(repoPath, branchName string) bool {
+	// Check local branches
+	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
+	cmd.Dir = repoPath
+	if cmd.Run() == nil {
+		return true
+	}
+
+	// Check remote branches
+	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branchName)
+	cmd.Dir = repoPath
+	if cmd.Run() == nil {
+		return true
+	}
+
+	return false
 }
 
 // collectBeadsForAutomatedWorkflow collects all beads to include in the workflow.
@@ -96,136 +132,72 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 	return beads.GetTransitiveDependenciesInDir(beadID, dir)
 }
 
-// runAutomatedWorkflow executes the complete automated workflow from bead to PR.
-// This includes:
-// 1. Creating work unit with auto-generated branch name
-// 2. Planning tasks (with auto-grouping)
-// 3. Executing tasks
-// 4. Running review-fix loop until clean
-// 5. Creating PR
+// runAutomatedWorkflow initializes a workflow and spawns it in a zellij tab.
+// The workflow runs through 7 steps in the tab:
+// 0. Creating work unit with auto-generated branch name (StepCreateWork)
+// 1. Collecting all beads to include (StepCollectBeads)
+// 2. Planning tasks with auto-grouping (StepPlanTasks)
+// 3. Executing tasks (StepExecuteTasks)
+// 4. Wait for completion (skipped - tasks run inline)
+// 5. Running review-fix loop until clean (StepReviewFix)
+// 6. Creating PR (StepCreatePR)
+//
+// The workflow runs in a zellij tab for visibility. Use the tab to monitor progress.
+// Each step is resumable - if the workflow fails, you can re-run from the failed step.
 func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch string) error {
 	ctx := GetContext()
-	mainRepoPath := proj.MainRepoPath()
 
 	fmt.Printf("Starting automated workflow for bead: %s\n", beadID)
 
-	// Step 1: Get the main bead to generate branch name
-	mainBead, err := beads.GetBeadInDir(beadID, mainRepoPath)
+	// Initialize workflow state
+	workflowID, err := InitWorkflow(proj, beadID, baseBranch)
 	if err != nil {
-		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		return fmt.Errorf("failed to initialize workflow: %w", err)
 	}
 
-	branchName := generateBranchNameFromBead(mainBead)
-	fmt.Printf("Generated branch name: %s\n", branchName)
+	fmt.Printf("Initialized workflow: %s\n", workflowID)
+	fmt.Println("Workflow will execute steps:")
+	fmt.Println("  0. Create work (worktree, branch)")
+	fmt.Println("  1. Collect beads")
+	fmt.Println("  2. Plan tasks")
+	fmt.Println("  3. Execute tasks")
+	fmt.Println("  4. (skipped - tasks run inline)")
+	fmt.Println("  5. Review-fix loop")
+	fmt.Println("  6. Create PR")
 
-	// Step 2: Collect all beads to include
-	beadsToProcess, err := collectBeadsForAutomatedWorkflow(beadID, mainRepoPath)
-	if err != nil {
-		return fmt.Errorf("failed to collect beads: %w", err)
+	// Spawn the workflow in a zellij tab
+	// The orchestrate command runs in the tab and executes all steps with inline Claude
+	if err := claude.SpawnOrchestration(ctx, workflowID, proj.Config.Project.Name, proj.MainRepoPath()); err != nil {
+		return fmt.Errorf("failed to spawn workflow: %w", err)
 	}
 
-	if len(beadsToProcess) == 0 {
-		return fmt.Errorf("no beads to process for %s", beadID)
-	}
-
-	fmt.Printf("Collected %d bead(s) for workflow:\n", len(beadsToProcess))
-	for _, b := range beadsToProcess {
-		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
-	}
-
-	// Step 3: Create work unit
-	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
-	if err != nil {
-		return fmt.Errorf("failed to generate work ID: %w", err)
-	}
-	fmt.Printf("Generated work ID: %s\n", workID)
-
-	// Create work subdirectory
-	workDir := filepath.Join(proj.Root, workID)
-	if err := os.Mkdir(workDir, 0755); err != nil {
-		return fmt.Errorf("failed to create work directory: %w", err)
-	}
-
-	// Create git worktree inside work directory
-	worktreePath := filepath.Join(workDir, "tree")
-
-	// Create worktree with new branch based on the specified base branch
-	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName, baseBranch)
-	cmd.Dir = mainRepoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to create worktree: %w\n%s", err, output)
-	}
-
-	// Push branch and set upstream
-	cmd = exec.Command("git", "push", "--set-upstream", "origin", branchName)
-	cmd.Dir = worktreePath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		exec.Command("git", "worktree", "remove", worktreePath).Run()
-		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to push and set upstream: %w\n%s", err, output)
-	}
-
-	// Initialize mise in worktree if needed
-	if err := mise.Initialize(worktreePath); err != nil {
-		fmt.Printf("Warning: mise initialization failed: %v\n", err)
-	}
-
-	// Create work record in database
-	if err := proj.DB.CreateWork(ctx, workID, worktreePath, branchName, baseBranch); err != nil {
-		exec.Command("git", "worktree", "remove", worktreePath).Run()
-		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to create work record: %w", err)
-	}
-
-	fmt.Printf("Created work: %s\n", workID)
-	fmt.Printf("Directory: %s\n", workDir)
-	fmt.Printf("Worktree: %s\n", worktreePath)
-	fmt.Printf("Branch: %s\n", branchName)
-
-	// Step 4: Plan tasks with auto-grouping
-	fmt.Println("\n=== Planning tasks ===")
-
-	// Convert beads for planning
-	var beadList []beads.Bead
-	for _, b := range beadsToProcess {
-		beadList = append(beadList, beads.Bead{
-			ID:          b.ID,
-			Title:       b.Title,
-			Description: b.Description,
-		})
-	}
-
-	// Use auto-grouping to plan tasks
-	work, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
-	}
-
-	if err := planAutoGroupForWork(proj, beadList, workID, work); err != nil {
-		return fmt.Errorf("failed to plan tasks: %w", err)
-	}
-
-	// Step 5: Execute tasks
-	fmt.Println("\n=== Executing tasks ===")
-	if err := processWork(proj, workID); err != nil {
-		return fmt.Errorf("failed to execute tasks: %w", err)
-	}
-
-	// Step 6: Run review-fix loop
-	fmt.Println("\n=== Running review-fix loop ===")
-	if err := runReviewFixLoop(proj, workID); err != nil {
-		return fmt.Errorf("review-fix loop failed: %w", err)
-	}
-
-	// Step 7: Create PR
-	fmt.Println("\n=== Creating PR ===")
-	if err := createWorkPR(proj, workID); err != nil {
-		return fmt.Errorf("failed to create PR: %w", err)
-	}
-
-	fmt.Printf("\n=== Automated workflow completed for bead %s ===\n", beadID)
+	fmt.Println("\nWorkflow is now running in a zellij tab.")
+	fmt.Println("Switch to the zellij session to monitor progress.")
 	return nil
+}
+
+// stepName returns a human-readable name for each step
+func stepName(step int) string {
+	switch step {
+	case StepCreateWork:
+		return "Create Work"
+	case StepCollectBeads:
+		return "Collect Beads"
+	case StepPlanTasks:
+		return "Plan Tasks"
+	case StepExecuteTasks:
+		return "Execute Tasks"
+	case StepWaitCompletion:
+		return "Wait for Completion"
+	case StepReviewFix:
+		return "Review-Fix Loop"
+	case StepCreatePR:
+		return "Create PR"
+	case StepCompleted:
+		return "Completed"
+	default:
+		return fmt.Sprintf("Unknown Step %d", step)
+	}
 }
 
 // planAutoGroupForWork is a helper that runs auto-grouping planning for the given beads.

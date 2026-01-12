@@ -81,6 +81,35 @@ This creates the project structure with `main/` pointing to your repository.
 | `co proj destroy [--force]` | Remove project and all worktrees |
 | `co proj status` | Show project info, worktrees, and task status |
 
+### Project Configuration
+
+The `.co/config.toml` file stores project settings:
+
+```toml
+[project]
+  name = "my-project"
+  created_at = 2024-01-15T10:00:00-05:00
+
+[repo]
+  type = "github"  # or "local"
+  source = "https://github.com/user/repo"
+  path = "main"
+
+[hooks]
+  # Environment variables set when spawning Claude
+  # Supports variable expansion (e.g., $PATH)
+  env = [
+    "CLAUDE_CODE_USE_VERTEX=1",
+    "CLOUD_ML_REGION=us-east5",
+    "MY_VAR=value"
+  ]
+```
+
+The `hooks.env` setting is useful for:
+- Configuring Claude Code to use Vertex AI
+- Setting custom PATH for tools
+- Any environment variables Claude needs
+
 ## Usage
 
 All commands must be run from within a project directory (or subdirectory).

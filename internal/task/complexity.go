@@ -164,6 +164,7 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead,
 	// Spawn Claude to perform estimation in the worktree (non-blocking)
 	fmt.Println("Spawning estimation task...")
 	// Never auto-close estimation task tabs - they're system tasks
+	// Note: hooks.env is applied by co claude itself
 	_, err := claude.Run(ctx, taskID, uncachedBeads, prompt, worktreePath, e.projectName, false)
 	if err != nil {
 		fmt.Printf("Failed to spawn estimation: %v\n", err)
