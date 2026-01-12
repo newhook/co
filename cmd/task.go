@@ -280,11 +280,8 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nBeads (%d):\n", len(beadIDs))
 	for _, beadID := range beadIDs {
 		// Get bead status
-		var beadStatus string
-		err := proj.DB.QueryRow(`
-			SELECT status FROM task_beads WHERE task_id = ? AND bead_id = ?
-		`, taskID, beadID).Scan(&beadStatus)
-		if err != nil {
+		beadStatus, err := proj.DB.GetTaskBeadStatus(ctx, taskID, beadID)
+		if err != nil || beadStatus == "" {
 			beadStatus = "unknown"
 		}
 		fmt.Printf("  - %s (%s)\n", beadID, beadStatus)
@@ -314,7 +311,7 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	// Delete each task
 	for _, taskID := range args {
 		// Check task exists
-		task, err := proj.DB.GetTask(GetContext(), taskID)
+		task, err := proj.DB.GetTask(ctx, taskID)
 		if err != nil {
 			return fmt.Errorf("failed to get task %s: %w", taskID, err)
 		}
@@ -322,21 +319,8 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("task %s not found", taskID)
 		}
 
-		// Delete work_tasks first (foreign key constraint)
-		_, err = proj.DB.Exec(`DELETE FROM work_tasks WHERE task_id = ?`, taskID)
-		if err != nil {
-			return fmt.Errorf("failed to delete work_tasks for %s: %w", taskID, err)
-		}
-
-		// Delete task beads (foreign key constraint)
-		_, err = proj.DB.Exec(`DELETE FROM task_beads WHERE task_id = ?`, taskID)
-		if err != nil {
-			return fmt.Errorf("failed to delete task beads for %s: %w", taskID, err)
-		}
-
-		// Delete task
-		_, err = proj.DB.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
-		if err != nil {
+		// Delete task and all associated records (uses transaction internally)
+		if err := proj.DB.DeleteTask(ctx, taskID); err != nil {
 			return fmt.Errorf("failed to delete task %s: %w", taskID, err)
 		}
 
@@ -358,7 +342,7 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Check task exists
-	task, err := proj.DB.GetTask(GetContext(), taskID)
+	task, err := proj.DB.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
@@ -367,17 +351,12 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Reset task status
-	if err := proj.DB.ResetTaskStatus(GetContext(), taskID); err != nil {
+	if err := proj.DB.ResetTaskStatus(ctx, taskID); err != nil {
 		return fmt.Errorf("failed to reset task status: %w", err)
 	}
 
 	// Reset all bead statuses for this task
-	_, err = proj.DB.Exec(`
-		UPDATE task_beads
-		SET status = ?
-		WHERE task_id = ?
-	`, db.StatusPending, taskID)
-	if err != nil {
+	if err := proj.DB.ResetTaskBeadStatuses(ctx, taskID); err != nil {
 		return fmt.Errorf("failed to reset bead statuses: %w", err)
 	}
 
