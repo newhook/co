@@ -27,11 +27,15 @@ var prTemplateText string
 //go:embed templates/review.tmpl
 var reviewTemplateText string
 
+//go:embed templates/update-pr-description.tmpl
+var updatePRDescriptionTemplateText string
+
 var (
-	estimateTmpl = template.Must(template.New("estimate").Parse(estimateTemplateText))
-	taskTmpl     = template.Must(template.New("task").Parse(taskTemplateText))
-	prTmpl       = template.Must(template.New("pr").Parse(prTemplateText))
-	reviewTmpl   = template.Must(template.New("review").Parse(reviewTemplateText))
+	estimateTmpl            = template.Must(template.New("estimate").Parse(estimateTemplateText))
+	taskTmpl                = template.Must(template.New("task").Parse(taskTemplateText))
+	prTmpl                  = template.Must(template.New("pr").Parse(prTemplateText))
+	reviewTmpl              = template.Must(template.New("review").Parse(reviewTemplateText))
+	updatePRDescriptionTmpl = template.Must(template.New("update-pr-description").Parse(updatePRDescriptionTemplateText))
 )
 
 // SessionNameForProject returns the zellij session name for a specific project.
@@ -311,6 +315,31 @@ func BuildReviewPrompt(taskID string, workID string, branchName string, baseBran
 	if err := reviewTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
 		return fmt.Sprintf("Review task %s for work %s on branch %s (base: %s)", taskID, workID, branchName, baseBranch)
+	}
+
+	return buf.String()
+}
+
+// BuildUpdatePRDescriptionPrompt builds a prompt for updating a PR description.
+func BuildUpdatePRDescriptionPrompt(taskID string, workID string, prURL string, branchName string, baseBranch string) string {
+	data := struct {
+		TaskID     string
+		WorkID     string
+		PRURL      string
+		BranchName string
+		BaseBranch string
+	}{
+		TaskID:     taskID,
+		WorkID:     workID,
+		PRURL:      prURL,
+		BranchName: branchName,
+		BaseBranch: baseBranch,
+	}
+
+	var buf bytes.Buffer
+	if err := updatePRDescriptionTmpl.Execute(&buf, data); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("Update PR description task %s for work %s, PR %s on branch %s (base: %s)", taskID, workID, prURL, branchName, baseBranch)
 	}
 
 	return buf.String()

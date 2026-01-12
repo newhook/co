@@ -35,3 +35,18 @@ func MergePRInDir(prURL, dir string) error {
 	}
 	return nil
 }
+
+// UpdatePRInDir updates the title and body of a pull request in a specific directory.
+func UpdatePRInDir(prURL, title, body, dir string) error {
+	cmd := exec.Command("gh", "pr", "edit", prURL,
+		"--title", title,
+		"--body", body,
+	)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to update PR %s: %w", prURL, err)
+	}
+	return nil
+}
