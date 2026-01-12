@@ -167,7 +167,7 @@ func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch strin
 
 	// Spawn the workflow in a zellij tab
 	// The orchestrate command runs in the tab and executes all steps with inline Claude
-	if err := claude.SpawnOrchestration(ctx, workflowID, proj.Config.Project.Name, proj.MainRepoPath()); err != nil {
+	if err := claude.SpawnOrchestration(ctx, workflowID, proj.Config.Project.Name, proj.MainRepoPath(), proj.Config.Hooks.Env); err != nil {
 		return fmt.Errorf("failed to spawn workflow: %w", err)
 	}
 

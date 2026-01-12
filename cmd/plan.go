@@ -413,7 +413,7 @@ func planAutoGroup(proj *project.Project, beadList []beads.Bead, workID string, 
 	if work != nil && work.WorktreePath != "" {
 		estimationPath = work.WorktreePath
 	}
-	estimator := task.NewLLMEstimator(proj.DB, estimationPath, proj.Config.Project.Name, workID)
+	estimator := task.NewLLMEstimator(proj.DB, estimationPath, proj.Config.Project.Name, workID, proj.Config.Hooks.Env)
 
 	// Check if estimation is needed (non-blocking)
 	fmt.Println("Checking complexity estimates for beads...")
