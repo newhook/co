@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
@@ -19,7 +20,7 @@ func NewDefaultPlanner(estimator ComplexityEstimator) *DefaultPlanner {
 
 // Plan creates task assignments from beads using bin-packing algorithm.
 // The budget represents the target complexity per task.
-func (p *DefaultPlanner) Plan(inputBeads []beads.BeadWithDeps, budget int) ([]Task, error) {
+func (p *DefaultPlanner) Plan(ctx context.Context, inputBeads []beads.BeadWithDeps, budget int) ([]Task, error) {
 	if len(inputBeads) == 0 {
 		return nil, nil
 	}
@@ -36,7 +37,7 @@ func (p *DefaultPlanner) Plan(inputBeads []beads.BeadWithDeps, budget int) ([]Ta
 	// Estimate complexity for each bead
 	complexities := make(map[string]int)
 	for _, b := range sorted {
-		score, _, err := p.estimator.Estimate(beads.Bead{
+		score, _, err := p.estimator.Estimate(ctx, beads.Bead{
 			ID:          b.ID,
 			Title:       b.Title,
 			Description: b.Description,
@@ -59,7 +60,6 @@ func (p *DefaultPlanner) Plan(inputBeads []beads.BeadWithDeps, budget int) ([]Ta
 
 	return tasks, nil
 }
-
 
 // binPackBeads assigns beads to tasks using first-fit decreasing algorithm.
 func binPackBeads(beadsByComplexity []beads.BeadWithDeps, complexities map[string]int, graph *DependencyGraph, budget int) []Task {

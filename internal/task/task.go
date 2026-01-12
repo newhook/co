@@ -1,6 +1,8 @@
 package task
 
 import (
+	"context"
+
 	"github.com/newhook/co/internal/beads"
 )
 
@@ -32,7 +34,7 @@ type Planner interface {
 // ComplexityEstimator estimates the complexity of a bead.
 type ComplexityEstimator interface {
 	// Estimate returns a complexity score (1-10) and estimated context tokens for a bead.
-	Estimate(bead beads.Bead) (score int, tokens int, err error)
+	Estimate(ctx context.Context, bead beads.Bead) (score int, tokens int, err error)
 }
 
 // BeadComplexity holds complexity information for a single bead.
