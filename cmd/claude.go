@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"syscall"
 	"time"
 
@@ -42,7 +40,7 @@ func runClaude(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	ctx := context.Background()
+	ctx := GetContext()
 
 	// Get task to verify it exists
 	task, err := proj.DB.GetTask(ctx, taskID)
@@ -64,17 +62,13 @@ func runClaude(cmd *cobra.Command, args []string) error {
 	claudeCmd.Stdout = os.Stdout
 	claudeCmd.Stderr = os.Stderr
 
-	// Handle signals gracefully
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
 	// Start Claude
 	if err := claudeCmd.Start(); err != nil {
 		proj.DB.FailTask(ctx, taskID, fmt.Sprintf("Failed to start Claude: %v", err))
 		return fmt.Errorf("failed to start Claude: %w", err)
 	}
 
-	// Wait for Claude to complete, task completion in database, or signal
+	// Wait for Claude to complete, task completion in database, or context cancellation (signal)
 	done := make(chan error, 1)
 	go func() {
 		done <- claudeCmd.Wait()
@@ -115,16 +109,21 @@ func runClaude(cmd *cobra.Command, args []string) error {
 				}
 			}
 
-		case <-sigChan:
-			// Received signal, pass it to Claude
+		case <-ctx.Done():
+			// Context cancelled (SIGINT/SIGTERM received via root context)
 			fmt.Println("\nReceived interrupt, terminating Claude...")
 			claudeCmd.Process.Signal(syscall.SIGTERM)
 
 			// Give it some time to exit gracefully
-			time.Sleep(2 * time.Second)
-
-			// Force kill if still running
-			claudeCmd.Process.Kill()
+			select {
+			case <-done:
+				// Claude exited gracefully
+			case <-time.After(2 * time.Second):
+				// Force kill if still running
+				fmt.Println("Claude didn't exit gracefully, force killing...")
+				claudeCmd.Process.Kill()
+				<-done // Wait for process to actually exit
+			}
 			exitErr = fmt.Errorf("interrupted by signal")
 			goto exit
 

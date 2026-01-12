@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -78,7 +77,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	// Get all tasks
 	var tasks []*db.Task
 	if flagTaskStatus != "" {
-		tasks, err = proj.DB.ListTasks(context.Background(),flagTaskStatus)
+		tasks, err = proj.DB.ListTasks(GetContext(),flagTaskStatus)
 		if err != nil {
 			return fmt.Errorf("failed to list tasks: %w", err)
 		}
@@ -86,7 +85,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		// Get all tasks regardless of status
 		allStatuses := []string{db.StatusPending, db.StatusProcessing, db.StatusCompleted, db.StatusFailed}
 		for _, status := range allStatuses {
-			statusTasks, err := proj.DB.ListTasks(context.Background(),status)
+			statusTasks, err := proj.DB.ListTasks(GetContext(),status)
 			if err != nil {
 				return fmt.Errorf("failed to list tasks with status %s: %w", status, err)
 			}
@@ -118,7 +117,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	// Print each task
 	for _, task := range tasks {
 		// Get beads for this task
-		beadIDs, err := proj.DB.GetTaskBeads(context.Background(),task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(GetContext(),task.ID)
 		if err != nil {
 			beadIDs = []string{"<error>"}
 		}
@@ -193,7 +192,7 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Get task
-	task, err := proj.DB.GetTask(context.Background(),taskID)
+	task, err := proj.DB.GetTask(GetContext(),taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
@@ -202,7 +201,7 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get beads for this task
-	beadIDs, err := proj.DB.GetTaskBeads(context.Background(),task.ID)
+	beadIDs, err := proj.DB.GetTaskBeads(GetContext(),task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get task beads: %w", err)
 	}
@@ -277,7 +276,7 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	// Delete each task
 	for _, taskID := range args {
 		// Check task exists
-		task, err := proj.DB.GetTask(context.Background(), taskID)
+		task, err := proj.DB.GetTask(GetContext(), taskID)
 		if err != nil {
 			return fmt.Errorf("failed to get task %s: %w", taskID, err)
 		}
@@ -320,7 +319,7 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Check task exists
-	task, err := proj.DB.GetTask(context.Background(),taskID)
+	task, err := proj.DB.GetTask(GetContext(),taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
@@ -329,7 +328,7 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Reset task status
-	if err := proj.DB.ResetTaskStatus(context.Background(),taskID); err != nil {
+	if err := proj.DB.ResetTaskStatus(GetContext(),taskID); err != nil {
 		return fmt.Errorf("failed to reset task status: %w", err)
 	}
 

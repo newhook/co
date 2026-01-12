@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -42,7 +41,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 	// If error flag is set, mark task as failed
 	if flagCompleteError != "" {
 		// Try to fail it as a task
-		if err := proj.DB.FailTask(context.Background(), id, flagCompleteError); err == nil {
+		if err := proj.DB.FailTask(GetContext(), id, flagCompleteError); err == nil {
 			fmt.Printf("Task %s marked as failed: %s\n", id, flagCompleteError)
 			return nil
 		}
@@ -53,7 +52,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 	// Check if this is a task ID (contains a dot like "w-xxx.1" or "w-xxx.pr")
 	if strings.Contains(id, ".") {
 		// Try to complete as a task directly
-		if err := proj.DB.CompleteTask(context.Background(), id, flagCompletePRURL); err == nil {
+		if err := proj.DB.CompleteTask(GetContext(), id, flagCompletePRURL); err == nil {
 			fmt.Printf("Task %s marked as completed", id)
 			if flagCompletePRURL != "" {
 				fmt.Printf(" (PR: %s)", flagCompletePRURL)
@@ -68,20 +67,20 @@ func runComplete(cmd *cobra.Command, args []string) error {
 	beadID := id
 
 	// Check if this bead is part of a task
-	taskID, err := proj.DB.GetTaskForBead(context.Background(), beadID)
+	taskID, err := proj.DB.GetTaskForBead(GetContext(), beadID)
 	if err != nil {
 		return fmt.Errorf("failed to look up task for bead: %w", err)
 	}
 
 	if taskID != "" {
 		// Bead is part of a task - mark it complete in task_beads
-		if err := proj.DB.CompleteTaskBead(context.Background(), taskID, beadID); err != nil {
+		if err := proj.DB.CompleteTaskBead(GetContext(), taskID, beadID); err != nil {
 			return fmt.Errorf("failed to complete task bead: %w", err)
 		}
 		fmt.Printf("Marked bead %s as completed in task %s\n", beadID, taskID)
 
 		// Check if all beads in the task are complete and auto-complete the task
-		autoCompleted, err := proj.DB.CheckAndCompleteTask(context.Background(), taskID, flagCompletePRURL)
+		autoCompleted, err := proj.DB.CheckAndCompleteTask(GetContext(), taskID, flagCompletePRURL)
 		if err != nil {
 			return fmt.Errorf("failed to check task completion: %w", err)
 		}
