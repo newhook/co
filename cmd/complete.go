@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -52,16 +53,40 @@ func runComplete(cmd *cobra.Command, args []string) error {
 
 	// Check if this is a task ID (contains a dot like "w-xxx.1" or "w-xxx.pr")
 	if strings.Contains(id, ".") {
-		// Try to complete as a task directly
-		if err := proj.DB.CompleteTask(GetContext(), id, flagCompletePRURL); err == nil {
-			fmt.Printf("Task %s marked as completed", id)
-			if flagCompletePRURL != "" {
-				fmt.Printf(" (PR: %s)", flagCompletePRURL)
-			}
-			fmt.Println()
-			return nil
+		// Complete task directly - task IDs always contain dots, bead IDs don't
+		// First, mark beads as completed based on their actual status in the beads system
+		beadIDs, err := proj.DB.GetTaskBeads(ctx, id)
+		if err != nil {
+			return fmt.Errorf("failed to get beads for task %s: %w", id, err)
 		}
-		// Fall through to try as bead ID if task completion failed
+
+		mainRepoPath := proj.MainRepoPath()
+		for _, beadID := range beadIDs {
+			// Check actual bead status in the beads system
+			bead, err := beads.GetBeadWithDepsInDir(beadID, mainRepoPath)
+			if err != nil {
+				fmt.Printf("Warning: failed to get bead %s status: %v\n", beadID, err)
+				continue
+			}
+
+			// Only mark as completed if bead is actually closed
+			if bead.Status == "closed" {
+				if err := proj.DB.CompleteTaskBead(ctx, id, beadID); err != nil {
+					fmt.Printf("Warning: failed to mark bead %s as completed: %v\n", beadID, err)
+				}
+			}
+		}
+
+		// Now complete the task itself
+		if err := proj.DB.CompleteTask(ctx, id, flagCompletePRURL); err != nil {
+			return fmt.Errorf("failed to complete task %s: %w", id, err)
+		}
+		fmt.Printf("Task %s marked as completed", id)
+		if flagCompletePRURL != "" {
+			fmt.Printf(" (PR: %s)", flagCompletePRURL)
+		}
+		fmt.Println()
+		return nil
 	}
 
 	// Otherwise, continue with normal bead completion logic
