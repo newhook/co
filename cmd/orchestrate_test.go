@@ -3,34 +3,25 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/newhook/co/internal/db"
 )
 
-// setupTestDB creates a temporary database for testing
-func setupTestDB(t *testing.T) (*db.DB, string, func()) {
+// setupTestDB creates an in-memory database for testing
+func setupTestDB(t *testing.T) (*db.DB, func()) {
 	t.Helper()
-	tmpDir, err := os.MkdirTemp("", "orchestrate-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
 
-	dbPath := filepath.Join(tmpDir, "test.db")
-	database, err := db.OpenPath(context.Background(), dbPath)
+	database, err := db.OpenPath(context.Background(), ":memory:")
 	if err != nil {
-		os.RemoveAll(tmpDir)
 		t.Fatalf("failed to open database: %v", err)
 	}
 
 	cleanup := func() {
 		database.Close()
-		os.RemoveAll(tmpDir)
 	}
 
-	return database, tmpDir, cleanup
+	return database, cleanup
 }
 
 func TestStepDataSerialization(t *testing.T) {
@@ -124,7 +115,7 @@ func TestStepName(t *testing.T) {
 }
 
 func TestWorkflowStateDatabase(t *testing.T) {
-	database, _, cleanup := setupTestDB(t)
+	database, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
 
@@ -225,7 +216,7 @@ func TestWorkflowStateDatabase(t *testing.T) {
 }
 
 func TestWorkflowStateNotFound(t *testing.T) {
-	database, _, cleanup := setupTestDB(t)
+	database, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
 
@@ -240,7 +231,7 @@ func TestWorkflowStateNotFound(t *testing.T) {
 }
 
 func TestListPendingWorkflows(t *testing.T) {
-	database, _, cleanup := setupTestDB(t)
+	database, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
 
@@ -291,7 +282,7 @@ func TestListPendingWorkflows(t *testing.T) {
 }
 
 func TestDeleteWorkflowState(t *testing.T) {
-	database, _, cleanup := setupTestDB(t)
+	database, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
 
