@@ -330,11 +330,40 @@ func createReviewTask(proj *project.Project, workID string) (string, error) {
 }
 
 // checkForReviewIssues checks if the review created any new issue beads.
-// It looks for beads with titles starting with "Review:" that were recently created.
+// It first checks for a review epic with children, then falls back to heuristic scanning.
 func checkForReviewIssues(proj *project.Project, workID string) (bool, error) {
+	ctx := context.Background()
 	mainRepoPath := proj.MainRepoPath()
 
-	// Check for ready beads that might be review issues
+	// First, try to find a review task with an epic set
+	reviewTaskID, err := proj.DB.GetLatestReviewTaskWithEpic(ctx, workID)
+	if err != nil {
+		return false, fmt.Errorf("failed to find review task: %w", err)
+	}
+
+	if reviewTaskID != "" {
+		// Get the review epic ID
+		epicID, err := proj.DB.GetReviewEpicID(ctx, reviewTaskID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get review epic ID: %w", err)
+		}
+		if epicID != "" {
+			// Check if the epic has any ready children
+			epicChildren, err := beads.GetBeadWithChildrenInDir(epicID, mainRepoPath)
+			if err != nil {
+				return false, fmt.Errorf("failed to get children of review epic: %w", err)
+			}
+
+			for _, b := range epicChildren {
+				if b.ID != epicID && (b.Status == "" || b.Status == "ready") {
+					return true, nil
+				}
+			}
+			return false, nil
+		}
+	}
+
+	// Fallback: heuristic check for beads that look like review issues
 	readyBeads, err := beads.GetReadyBeadsInDir(mainRepoPath)
 	if err != nil {
 		return false, fmt.Errorf("failed to get ready beads: %w", err)
@@ -352,7 +381,81 @@ func checkForReviewIssues(proj *project.Project, workID string) (bool, error) {
 }
 
 // planAndExecuteFixTasks plans and executes tasks to fix review issues.
+// It only processes beads that are children of the review epic, not all ready beads.
 func planAndExecuteFixTasks(proj *project.Project, workID string) error {
+	ctx := context.Background()
+	mainRepoPath := proj.MainRepoPath()
+
+	// Find the most recent review task that has a review_epic_id set
+	reviewTaskID, err := proj.DB.GetLatestReviewTaskWithEpic(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to find review task: %w", err)
+	}
+	if reviewTaskID == "" {
+		// Fallback to old behavior if no review task with epic found
+		fmt.Println("Warning: No review task with epic ID found, falling back to ready beads scan")
+		return planAndExecuteFixTasksLegacy(proj, workID)
+	}
+
+	// Get the review epic ID
+	epicID, err := proj.DB.GetReviewEpicID(ctx, reviewTaskID)
+	if err != nil {
+		return fmt.Errorf("failed to get review epic ID: %w", err)
+	}
+	if epicID == "" {
+		return fmt.Errorf("review task %s has no review_epic_id set", reviewTaskID)
+	}
+
+	fmt.Printf("Looking for fix beads under review epic: %s\n", epicID)
+
+	// Get all children of the review epic
+	epicChildren, err := beads.GetBeadWithChildrenInDir(epicID, mainRepoPath)
+	if err != nil {
+		return fmt.Errorf("failed to get children of review epic %s: %w", epicID, err)
+	}
+
+	// Filter to only ready beads (excluding the epic itself)
+	var beadsToFix []beads.BeadWithDeps
+	for _, b := range epicChildren {
+		// Skip the epic itself
+		if b.ID == epicID {
+			continue
+		}
+		// Only include beads that are ready (status == "ready" or empty for new beads)
+		if b.Status == "" || b.Status == "ready" {
+			beadsToFix = append(beadsToFix, b)
+		}
+	}
+
+	if len(beadsToFix) == 0 {
+		fmt.Println("No beads to fix under review epic")
+		return nil
+	}
+
+	// Plan fix tasks
+	fmt.Printf("Planning fix tasks for %d bead(s) under review epic %s...\n", len(beadsToFix), epicID)
+
+	for _, b := range beadsToFix {
+		// Generate task ID
+		nextNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
+		if err != nil {
+			return fmt.Errorf("failed to get next task number: %w", err)
+		}
+		taskID := fmt.Sprintf("%s.%d", workID, nextNum)
+
+		if err := proj.DB.CreateTask(ctx, taskID, "implement", []string{b.ID}, 0, workID); err != nil {
+			return fmt.Errorf("failed to create fix task: %w", err)
+		}
+		fmt.Printf("Created fix task %s for bead %s: %s\n", taskID, b.ID, b.Title)
+	}
+
+	// Execute fix tasks
+	return processWork(proj, workID)
+}
+
+// planAndExecuteFixTasksLegacy is the original implementation that processes all ready beads.
+// This is kept as a fallback for backwards compatibility.
+func planAndExecuteFixTasksLegacy(proj *project.Project, workID string) error {
 	ctx := context.Background()
 	mainRepoPath := proj.MainRepoPath()
 
