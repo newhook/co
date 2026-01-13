@@ -31,7 +31,10 @@ Creates a subdirectory with a git worktree for isolated development.
 The branch argument specifies the git branch name to create.
 A unique work ID will be auto-generated using content-based hashing (w-abc format).
 
-With --bead flag, runs an automated end-to-end workflow:
+With --bead flag, the branch name is auto-generated from the bead title(s).
+The work is created but no tasks are planned automatically - use 'co plan' to plan tasks.
+
+With --bead and --auto flags together, runs an automated end-to-end workflow:
 1. Auto-generates branch name from bead title(s)
 2. Collects transitive dependencies (if any)
 3. Plans tasks with auto-grouping
@@ -96,11 +99,13 @@ and adherence to project standards.`,
 var (
 	flagBaseBranch string
 	flagBeadID     string
+	flagAutoRun    bool
 )
 
 func init() {
 	workCreateCmd.Flags().StringVar(&flagBaseBranch, "base", "main", "base branch to create feature branch from (also used as PR target)")
-	workCreateCmd.Flags().StringVar(&flagBeadID, "bead", "", "bead ID(s) to run automated end-to-end workflow (comma-delimited for multiple)")
+	workCreateCmd.Flags().StringVar(&flagBeadID, "bead", "", "bead ID(s) to auto-generate branch name from (comma-delimited for multiple)")
+	workCreateCmd.Flags().BoolVar(&flagAutoRun, "auto", false, "run automated end-to-end workflow (estimate, implement, review, PR) when --bead is specified")
 	workCmd.AddCommand(workCreateCmd)
 	workCmd.AddCommand(workListCmd)
 	workCmd.AddCommand(workShowCmd)
@@ -120,14 +125,24 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Check if --bead flag is used for automated workflow
+	// Check if --bead flag is used
 	if flagBeadID != "" {
-		return runAutomatedWorkflow(proj, flagBeadID, baseBranch)
+		// With --auto, run the full automated workflow
+		if flagAutoRun {
+			return runAutomatedWorkflow(proj, flagBeadID, baseBranch)
+		}
+		// Without --auto, just generate branch name from beads
+		return runWorkCreateWithBeads(proj, flagBeadID, baseBranch)
+	}
+
+	// --auto without --bead is an error
+	if flagAutoRun {
+		return fmt.Errorf("--auto requires --bead flag")
 	}
 
 	// Traditional mode: require branch name argument
 	if len(args) == 0 {
-		return fmt.Errorf("branch name is required (use --bead for automated workflow)")
+		return fmt.Errorf("branch name is required (use --bead to auto-generate from bead titles)")
 	}
 	branchName := args[0]
 

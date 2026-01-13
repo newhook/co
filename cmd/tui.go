@@ -471,6 +471,21 @@ func (m tuiModel) updateCreateWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.createWork(branchName)
 		}
 		return m, nil
+	case "b":
+		// Use selected beads to auto-generate branch name
+		var selectedIDs []string
+		for id, selected := range m.selectedBeads {
+			if selected {
+				selectedIDs = append(selectedIDs, id)
+			}
+		}
+		if len(selectedIDs) > 0 {
+			m.viewMode = ViewNormal
+			return m, m.createWorkWithBeads(selectedIDs)
+		}
+		m.statusMessage = "No beads selected"
+		m.statusIsError = true
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -574,6 +589,19 @@ func (m tuiModel) createWork(branchName string) tea.Cmd {
 			return tuiCommandMsg{action: "Create work", err: fmt.Errorf("%w: %s", err, output)}
 		}
 		return tuiCommandMsg{action: "Create work"}
+	}
+}
+
+func (m tuiModel) createWorkWithBeads(beadIDs []string) tea.Cmd {
+	return func() tea.Msg {
+		// Use --bead flag to auto-generate branch name (without --auto for full automation)
+		cmd := exec.Command("co", "work", "create", "--bead="+strings.Join(beadIDs, ","))
+		cmd.Dir = m.proj.Root
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return tuiCommandMsg{action: "Create work", err: fmt.Errorf("%w: %s", err, output)}
+		}
+		return tuiCommandMsg{action: "Create work (from beads)"}
 	}
 }
 
@@ -1019,7 +1047,7 @@ func (m tuiModel) renderHelp() string {
 
   Work Management
   ────────────────────────────
-  c             Create new work
+  c             Create new work (or use selected beads)
   d             Destroy selected work
   p             Plan work (create tasks)
   r             Run work
@@ -1028,7 +1056,7 @@ func (m tuiModel) renderHelp() string {
   ────────────────────────────
   a             Assign beads to work
   Space         Toggle bead selection
-  A             Automated workflow
+  A             Automated workflow (full automation)
 
   Advanced
   ────────────────────────────
@@ -1052,14 +1080,30 @@ func (m tuiModel) renderWithDialog(dialog string) string {
 }
 
 func (m tuiModel) renderCreateWorkDialog() string {
+	// Count selected beads
+	selectedCount := 0
+	for _, selected := range m.selectedBeads {
+		if selected {
+			selectedCount++
+		}
+	}
+
+	var beadOption string
+	if selectedCount > 0 {
+		beadOption = fmt.Sprintf("\n  [b] Use %d selected bead(s) to auto-generate branch", selectedCount)
+	} else {
+		beadOption = "\n  (Select beads in Beads panel to use auto-generate)"
+	}
+
 	content := fmt.Sprintf(`
   Create New Work
 
   Enter branch name:
   %s
+%s
 
   [Enter] Create  [Esc] Cancel
-`, m.textInput.View())
+`, m.textInput.View(), beadOption)
 
 	return tuiDialogStyle.Render(content)
 }
