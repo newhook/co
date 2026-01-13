@@ -379,6 +379,12 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
+	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name); err != nil {
+		fmt.Printf("Warning: failed to terminate zellij tabs: %v\n", err)
+		// Continue with destruction even if tab termination fails
+	}
+
 	// Remove git worktree if it exists
 	if work.WorktreePath != "" {
 		if err := worktree.RemoveForce(proj.MainRepoPath(), work.WorktreePath); err != nil {
