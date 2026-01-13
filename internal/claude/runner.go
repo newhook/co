@@ -229,6 +229,88 @@ func TabExists(ctx context.Context, sessionName, tabName string) bool {
 	return strings.Contains(string(output), tabName)
 }
 
+// TerminateWorkTabs terminates all zellij tabs associated with a work unit.
+// This includes the work orchestrator tab (work-<workID>) and all task tabs (task-<workID>.*).
+// Each tab's running process is terminated with Ctrl+C before the tab is closed.
+func TerminateWorkTabs(ctx context.Context, workID string, projectName string) error {
+	sessionName := SessionNameForProject(projectName)
+
+	// Check if session exists
+	listCmd := exec.CommandContext(ctx, "zellij", "list-sessions")
+	output, err := listCmd.Output()
+	if err != nil || !strings.Contains(string(output), sessionName) {
+		// Session doesn't exist, nothing to terminate
+		return nil
+	}
+
+	// Get list of all tab names
+	tabCmd := exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "query-tab-names")
+	tabOutput, err := tabCmd.Output()
+	if err != nil {
+		// Can't query tabs, maybe session is dead
+		return nil
+	}
+
+	// Find tabs to terminate
+	tabNames := strings.Split(strings.TrimSpace(string(tabOutput)), "\n")
+	workTabName := fmt.Sprintf("work-%s", workID)
+	taskTabPrefix := fmt.Sprintf("task-%s.", workID)
+
+	var tabsToClose []string
+	for _, tabName := range tabNames {
+		tabName = strings.TrimSpace(tabName)
+		if tabName == "" {
+			continue
+		}
+		// Match work orchestrator tab or task tabs for this work
+		if tabName == workTabName || strings.HasPrefix(tabName, taskTabPrefix) {
+			tabsToClose = append(tabsToClose, tabName)
+		}
+	}
+
+	if len(tabsToClose) == 0 {
+		return nil
+	}
+
+	fmt.Printf("Terminating %d zellij tab(s) for work %s...\n", len(tabsToClose), workID)
+
+	for _, tabName := range tabsToClose {
+		if err := terminateTab(ctx, sessionName, tabName); err != nil {
+			fmt.Printf("Warning: failed to terminate tab %s: %v\n", tabName, err)
+			// Continue with other tabs
+		}
+	}
+
+	return nil
+}
+
+// terminateTab switches to a tab, sends Ctrl+C to terminate any running process, then closes the tab.
+func terminateTab(ctx context.Context, sessionName, tabName string) error {
+	// Switch to the tab
+	switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
+	if err := exec.CommandContext(ctx, "zellij", switchArgs...).Run(); err != nil {
+		return fmt.Errorf("failed to switch to tab: %w", err)
+	}
+
+	// Send Ctrl+C to terminate any running process
+	ctrlCArgs := []string{"-s", sessionName, "action", "write", "3"} // ASCII 3 = Ctrl+C
+	exec.CommandContext(ctx, "zellij", ctrlCArgs...).Run()
+	time.Sleep(500 * time.Millisecond)
+
+	// Send another Ctrl+C in case the first one was caught by a signal handler
+	exec.CommandContext(ctx, "zellij", ctrlCArgs...).Run()
+	time.Sleep(500 * time.Millisecond)
+
+	// Close the tab
+	closeArgs := []string{"-s", sessionName, "action", "close-tab"}
+	if err := exec.CommandContext(ctx, "zellij", closeArgs...).Run(); err != nil {
+		return fmt.Errorf("failed to close tab: %w", err)
+	}
+
+	fmt.Printf("  Terminated tab: %s\n", tabName)
+	return nil
+}
+
 func ensureSession(ctx context.Context, sessionName string) error {
 	// Check if session exists
 	listCmd := exec.CommandContext(ctx, "zellij", "list-sessions")
