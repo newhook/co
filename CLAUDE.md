@@ -12,10 +12,19 @@ go test ./...
 ## Project Structure
 
 - `main.go` - CLI entry point (cobra)
+- `cmd/complete.go` - Complete command (mark beads/tasks as done or failed)
+- `cmd/estimate.go` - Estimate command (report complexity for beads)
+- `cmd/list.go` - List command (list tracked beads)
+- `cmd/orchestrate.go` - Orchestrate command (internal, execute tasks)
 - `cmd/plan.go` - Plan command (create tasks from beads)
-- `cmd/run.go` - Run command (execute pending tasks or works)
+- `cmd/poll.go` - Poll command (monitor progress with TUI)
 - `cmd/proj.go` - Project management (create/destroy/status)
-- `cmd/work.go` - Work management (create/list/show/destroy)
+- `cmd/run.go` - Run command (execute pending tasks or works)
+- `cmd/status.go` - Status command (show bead tracking status)
+- `cmd/sync.go` - Sync command (pull from upstream)
+- `cmd/task.go` - Task management (list/show/delete/reset/set-review-epic)
+- `cmd/work.go` - Work management (create/list/show/destroy/pr/review)
+- `cmd/work_automated.go` - Automated bead-to-PR workflow
 - `internal/beads/` - Beads database client (bd CLI wrapper)
 - `internal/claude/` - Claude Code invocation
 - `internal/db/` - SQLite tracking database
@@ -141,13 +150,16 @@ Zellij sessions are named `co-<project-name>` for isolation between projects.
 
 ## Work Commands
 
-### `co work create`
+### `co work create <branch>`
 Creates a new work unit with auto-generated ID:
+- Requires branch name argument (e.g., `co work create feat/my-feature`)
 - Generates hash-based ID: w-abc, w-xyz, etc.
 - Creates subdirectory: `<project>/<work-id>/`
 - Creates git worktree: `<project>/<work-id>/tree/`
-- Creates feature branch based on bead titles
+- Pushes branch and sets upstream
+- Spawns orchestrator in zellij tab
 - Initializes mise if configured
+- Use `--base` to specify base branch (default: main)
 
 ### `co work list`
 Lists all work units with their status:
@@ -191,3 +203,67 @@ Resets a failed or stuck task to pending:
 - Changes task status from processing/failed back to pending
 - Resets all bead statuses for the task
 - Use when a task gets stuck or needs to be rerun
+
+### `co task set-review-epic <epic-id>`
+Associates a review epic with a review task:
+- Sets the review_epic_id metadata on a review task
+- Task is auto-detected from CO_TASK_ID env var or current processing review task
+- Use `--task` flag for explicit specification
+
+## Additional Commands
+
+### `co complete <bead-id|task-id>`
+Marks a bead or task as completed (or failed with --error):
+- Called by Claude Code when work is done
+- Supports both bead IDs and task IDs (task IDs contain dots like "w-xxx.1")
+- Use `--error "message"` to mark a task as failed
+- Use `--pr "url"` to associate a PR URL with completion
+
+### `co estimate <bead-id>`
+Reports complexity estimate for a bead:
+- Called by Claude Code during estimation tasks
+- Required flags: `--score` (1-10) and `--tokens` (5000-50000)
+- Optional: `--task` to specify the task ID
+
+### `co list`
+Lists tracked beads in the database:
+- Filter by status with `--status` (pending, processing, completed, failed)
+- Shows ID, status, title, and PR URL
+
+### `co status [bead-id]`
+Shows bead tracking status:
+- With a bead ID: shows detailed status including zellij session/pane info
+- Without ID: shows all beads currently processing with their session/pane
+
+### `co poll [work-id|task-id]`
+Monitors work/task progress with a live TUI:
+- Without arguments: monitors all active works or detected work from directory
+- With work ID: monitors that work's tasks
+- With task ID: monitors that specific task
+- Use `--quiet` for simple text output without TUI
+- Use `--interval` to set polling interval (default: 2s)
+
+### `co sync`
+Pulls from upstream in all repositories:
+- Runs git pull in each worktree (main and all work worktrees)
+- Skips internal beads worktrees
+
+### `co work pr [<id>]`
+Creates a PR task for Claude to generate a pull request:
+- Work must be completed before creating PR
+- If no ID provided, uses work from current directory
+
+### `co work review [<id>]`
+Creates a review task to examine code changes:
+- Claude examines the work's branch for quality and security issues
+- Generates unique review task IDs (w-xxx.review-1, w-xxx.review-2, etc.)
+
+### `co work create --bead=<bead-ids>`
+Automated end-to-end workflow:
+- Accepts comma-delimited bead IDs
+- Auto-generates branch name from bead title(s)
+- Collects transitive dependencies
+- Plans tasks with auto-grouping
+- Executes all tasks
+- Runs review-fix loop until clean
+- Creates a pull request
