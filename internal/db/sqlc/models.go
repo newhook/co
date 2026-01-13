@@ -62,6 +62,12 @@ type TaskBead struct {
 	Status string `json:"status"`
 }
 
+type TaskDependency struct {
+	TaskID          string    `json:"task_id"`
+	DependsOnTaskID string    `json:"depends_on_task_id"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
 type TaskMetadatum struct {
 	TaskID    string    `json:"task_id"`
 	Key       string    `json:"key"`
@@ -93,15 +99,4 @@ type WorkTask struct {
 type WorkTaskCounter struct {
 	WorkID      string `json:"work_id"`
 	NextTaskNum int64  `json:"next_task_num"`
-}
-
-type WorkflowState struct {
-	WorkflowID   string         `json:"workflow_id"`
-	WorkID       sql.NullString `json:"work_id"`
-	CurrentStep  int64          `json:"current_step"`
-	StepStatus   string         `json:"step_status"`
-	StepData     string         `json:"step_data"`
-	ErrorMessage string         `json:"error_message"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
 }

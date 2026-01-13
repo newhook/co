@@ -25,9 +25,10 @@ Instructions:
 
    a. First, create a review epic to group all issues:
       ```
-      bd create "Review: {{.WorkID}}" --type epic --silent
+      EPIC_ID=$(bd create "Review: {{.WorkID}}" --type epic --silent)
+      co task set-review-epic $EPIC_ID
       ```
-      This outputs the epic ID (e.g., "ac-abc").
+      This creates the epic and registers it with the task so the fix loop knows which issues to address.
 
    b. For each issue found, create a child bead under the epic:
       ```
@@ -40,6 +41,9 @@ Instructions:
    ```
    # Create epic
    EPIC_ID=$(bd create "Review: {{.WorkID}}" --type epic --silent)
+
+   # Register the epic with the current review task (REQUIRED for fix loop)
+   co task set-review-epic $EPIC_ID
 
    # Create issues as children
    bd create "Fix SQL injection in user handler" --parent $EPIC_ID --type bug \

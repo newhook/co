@@ -347,23 +347,20 @@ func BuildUpdatePRDescriptionPrompt(taskID string, workID string, prURL string, 
 	return buf.String()
 }
 
-// SpawnOrchestration creates a zellij tab and runs the orchestrate command in it.
-// This is used by `co work create --bead` to run the workflow in a visible tab.
-// The function returns immediately after spawning - the workflow runs in the tab.
-// Note: hooks.env is applied by the orchestrate command itself, not here.
-func SpawnOrchestration(ctx context.Context, workflowID string, projectName string, workDir string) error {
+// SpawnWorkOrchestrator creates a zellij tab and runs the orchestrate command for a work unit.
+// The tab is named "work-<work-id>" for easy identification.
+// The function returns immediately after spawning - the orchestrator runs in the tab.
+func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string) error {
 	sessionName := SessionNameForProject(projectName)
-	tabName := fmt.Sprintf("workflow-%s", workflowID)
+	tabName := fmt.Sprintf("work-%s", workID)
 
 	// Ensure session exists
 	if err := ensureSession(ctx, sessionName); err != nil {
 		return err
 	}
 
-	// Build the orchestration command
-	// Use "co" since we assume it's in PATH (user is already running it)
-	// Note: co orchestrate will apply hooks.env itself
-	orchestrateCommand := fmt.Sprintf("co orchestrate --workflow %s", workflowID)
+	// Build the orchestrate command with --work flag
+	orchestrateCommand := fmt.Sprintf("co orchestrate --work %s", workID)
 
 	// Check if tab already exists
 	if TabExists(ctx, sessionName, tabName) {
@@ -426,6 +423,32 @@ func SpawnOrchestration(ctx context.Context, workflowID string, projectName stri
 		return fmt.Errorf("failed to execute orchestrate command: %w", err)
 	}
 
-	fmt.Printf("Workflow spawned in zellij session %s, tab %s\n", sessionName, tabName)
+	fmt.Printf("Work orchestrator spawned in zellij session %s, tab %s\n", sessionName, tabName)
 	return nil
+}
+
+// EnsureWorkOrchestrator checks if a work orchestrator tab exists and spawns one if not.
+// This is used for resilience - if the orchestrator crashes or is killed, it can be restarted.
+// Returns true if the orchestrator was spawned, false if it was already running.
+func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string) (bool, error) {
+	sessionName := SessionNameForProject(projectName)
+	tabName := fmt.Sprintf("work-%s", workID)
+
+	// Check if the tab already exists
+	if TabExists(ctx, sessionName, tabName) {
+		fmt.Printf("Work orchestrator tab %s already exists\n", tabName)
+		return false, nil
+	}
+
+	// Spawn the orchestrator
+	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+// WorkOrchestratorTabName returns the zellij tab name for a work orchestrator.
+func WorkOrchestratorTabName(workID string) string {
+	return fmt.Sprintf("work-%s", workID)
 }

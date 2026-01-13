@@ -286,3 +286,281 @@ func TestListTasks(t *testing.T) {
 	require.NoError(t, err, "ListTasks failed")
 	assert.Len(t, tasks, 1, "expected 1 failed task")
 }
+
+// Task dependency tests
+
+func TestAddTaskDependency(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create work and tasks
+	err := db.CreateWork(ctx, "work-1", "/tmp/worktree", "feat/test", "main")
+	require.NoError(t, err, "CreateWork failed")
+
+	err = db.CreateTask(ctx, "task-1", "implement", []string{"bead-1"}, 0, "work-1")
+	require.NoError(t, err, "CreateTask task-1 failed")
+
+	err = db.CreateTask(ctx, "task-2", "implement", []string{"bead-2"}, 0, "work-1")
+	require.NoError(t, err, "CreateTask task-2 failed")
+
+	// Add dependency: task-2 depends on task-1
+	err = db.AddTaskDependency(ctx, "task-2", "task-1")
+	require.NoError(t, err, "AddTaskDependency failed")
+
+	// Verify dependencies
+	deps, err := db.GetTaskDependencies(ctx, "task-2")
+	require.NoError(t, err, "GetTaskDependencies failed")
+	assert.Len(t, deps, 1)
+	assert.Equal(t, "task-1", deps[0])
+
+	// Verify dependents
+	dependents, err := db.GetTaskDependents(ctx, "task-1")
+	require.NoError(t, err, "GetTaskDependents failed")
+	assert.Len(t, dependents, 1)
+	assert.Equal(t, "task-2", dependents[0])
+}
+
+func TestGetReadyTasksForWork(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create work
+	err := db.CreateWork(ctx, "work-1", "/tmp/worktree", "feat/test", "main")
+	require.NoError(t, err, "CreateWork failed")
+
+	// Create tasks: task-1 has no deps, task-2 depends on task-1, task-3 depends on task-2
+	err = db.CreateTask(ctx, "task-1", "implement", nil, 0, "work-1")
+	require.NoError(t, err, "CreateTask task-1 failed")
+
+	err = db.CreateTask(ctx, "task-2", "implement", nil, 0, "work-1")
+	require.NoError(t, err, "CreateTask task-2 failed")
+	err = db.AddTaskDependency(ctx, "task-2", "task-1")
+	require.NoError(t, err, "AddTaskDependency task-2 -> task-1 failed")
+
+	err = db.CreateTask(ctx, "task-3", "implement", nil, 0, "work-1")
+	require.NoError(t, err, "CreateTask task-3 failed")
+	err = db.AddTaskDependency(ctx, "task-3", "task-2")
+	require.NoError(t, err, "AddTaskDependency task-3 -> task-2 failed")
+
+	// Initially, only task-1 should be ready (no dependencies)
+	ready, err := db.GetReadyTasksForWork(ctx, "work-1")
+	require.NoError(t, err, "GetReadyTasksForWork failed")
+	assert.Len(t, ready, 1, "expected 1 ready task initially")
+	assert.Equal(t, "task-1", ready[0].ID)
+
+	// Complete task-1, now task-2 should be ready
+	db.StartTask(ctx, "task-1", "session", "pane")
+	db.CompleteTask(ctx, "task-1", "")
+
+	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
+	require.NoError(t, err, "GetReadyTasksForWork failed")
+	assert.Len(t, ready, 1, "expected 1 ready task after task-1 completes")
+	assert.Equal(t, "task-2", ready[0].ID)
+
+	// Complete task-2, now task-3 should be ready
+	db.StartTask(ctx, "task-2", "session", "pane")
+	db.CompleteTask(ctx, "task-2", "")
+
+	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
+	require.NoError(t, err, "GetReadyTasksForWork failed")
+	assert.Len(t, ready, 1, "expected 1 ready task after task-2 completes")
+	assert.Equal(t, "task-3", ready[0].ID)
+
+	// Complete task-3, no more ready tasks
+	db.StartTask(ctx, "task-3", "session", "pane")
+	db.CompleteTask(ctx, "task-3", "")
+
+	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
+	require.NoError(t, err, "GetReadyTasksForWork failed")
+	assert.Len(t, ready, 0, "expected no ready tasks after all complete")
+}
+
+func TestGetReadyTasksForWorkMultipleDependencies(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create work
+	err := db.CreateWork(ctx, "work-1", "/tmp/worktree", "feat/test", "main")
+	require.NoError(t, err, "CreateWork failed")
+
+	// task-3 depends on both task-1 AND task-2
+	err = db.CreateTask(ctx, "task-1", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	err = db.CreateTask(ctx, "task-2", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	err = db.CreateTask(ctx, "task-3", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	err = db.AddTaskDependency(ctx, "task-3", "task-1")
+	require.NoError(t, err)
+	err = db.AddTaskDependency(ctx, "task-3", "task-2")
+	require.NoError(t, err)
+
+	// Both task-1 and task-2 should be ready (no deps)
+	ready, err := db.GetReadyTasksForWork(ctx, "work-1")
+	require.NoError(t, err)
+	assert.Len(t, ready, 2, "expected 2 ready tasks initially")
+
+	// Complete only task-1, task-3 should NOT be ready yet
+	db.StartTask(ctx, "task-1", "s", "p")
+	db.CompleteTask(ctx, "task-1", "")
+
+	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
+	require.NoError(t, err)
+	assert.Len(t, ready, 1, "expected only task-2 ready")
+	assert.Equal(t, "task-2", ready[0].ID)
+
+	// Complete task-2, now task-3 should be ready
+	db.StartTask(ctx, "task-2", "s", "p")
+	db.CompleteTask(ctx, "task-2", "")
+
+	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
+	require.NoError(t, err)
+	assert.Len(t, ready, 1, "expected task-3 ready")
+	assert.Equal(t, "task-3", ready[0].ID)
+}
+
+func TestHasPendingDependencies(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create work and tasks
+	err := db.CreateWork(ctx, "work-1", "/tmp/worktree", "feat/test", "main")
+	require.NoError(t, err)
+
+	err = db.CreateTask(ctx, "task-1", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	err = db.CreateTask(ctx, "task-2", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	err = db.AddTaskDependency(ctx, "task-2", "task-1")
+	require.NoError(t, err)
+
+	// task-1 has no dependencies
+	hasPending, err := db.HasPendingDependencies(ctx, "task-1")
+	require.NoError(t, err)
+	assert.False(t, hasPending, "task-1 should have no pending dependencies")
+
+	// task-2 has pending dependency (task-1 is not completed)
+	hasPending, err = db.HasPendingDependencies(ctx, "task-2")
+	require.NoError(t, err)
+	assert.True(t, hasPending, "task-2 should have pending dependencies")
+
+	// Complete task-1
+	db.StartTask(ctx, "task-1", "s", "p")
+	db.CompleteTask(ctx, "task-1", "")
+
+	// Now task-2 should have no pending dependencies
+	hasPending, err = db.HasPendingDependencies(ctx, "task-2")
+	require.NoError(t, err)
+	assert.False(t, hasPending, "task-2 should have no pending dependencies after task-1 completes")
+}
+
+func TestDeleteTaskDependency(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create work and tasks
+	err := db.CreateWork(ctx, "work-1", "/tmp/worktree", "feat/test", "main")
+	require.NoError(t, err)
+
+	err = db.CreateTask(ctx, "task-1", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	err = db.CreateTask(ctx, "task-2", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	err = db.AddTaskDependency(ctx, "task-2", "task-1")
+	require.NoError(t, err)
+
+	// Verify dependency exists
+	deps, err := db.GetTaskDependencies(ctx, "task-2")
+	require.NoError(t, err)
+	assert.Len(t, deps, 1)
+
+	// Delete the dependency
+	err = db.DeleteTaskDependency(ctx, "task-2", "task-1")
+	require.NoError(t, err)
+
+	// Verify dependency is gone
+	deps, err = db.GetTaskDependencies(ctx, "task-2")
+	require.NoError(t, err)
+	assert.Len(t, deps, 0, "expected no dependencies after deletion")
+}
+
+func TestBlockedTasksNotReady(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create work
+	err := db.CreateWork(ctx, "work-1", "/tmp/worktree", "feat/test", "main")
+	require.NoError(t, err)
+
+	// Create a chain: task-1 -> task-2 -> task-3
+	err = db.CreateTask(ctx, "task-1", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	err = db.CreateTask(ctx, "task-2", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+	err = db.AddTaskDependency(ctx, "task-2", "task-1")
+	require.NoError(t, err)
+
+	err = db.CreateTask(ctx, "task-3", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+	err = db.AddTaskDependency(ctx, "task-3", "task-2")
+	require.NoError(t, err)
+
+	// Start task-1 (now processing, not completed)
+	db.StartTask(ctx, "task-1", "s", "p")
+
+	// task-2 should still be blocked (task-1 is processing, not completed)
+	ready, err := db.GetReadyTasksForWork(ctx, "work-1")
+	require.NoError(t, err)
+	assert.Len(t, ready, 0, "no tasks should be ready when task-1 is only processing")
+
+	hasPending, err := db.HasPendingDependencies(ctx, "task-2")
+	require.NoError(t, err)
+	assert.True(t, hasPending, "task-2 should still have pending dependencies")
+}
+
+func TestFailedTaskBlocksDependents(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create work
+	err := db.CreateWork(ctx, "work-1", "/tmp/worktree", "feat/test", "main")
+	require.NoError(t, err)
+
+	// Create: task-2 depends on task-1
+	err = db.CreateTask(ctx, "task-1", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	err = db.CreateTask(ctx, "task-2", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+	err = db.AddTaskDependency(ctx, "task-2", "task-1")
+	require.NoError(t, err)
+
+	// Fail task-1
+	db.StartTask(ctx, "task-1", "s", "p")
+	db.FailTask(ctx, "task-1", "error")
+
+	// task-2 should still have pending dependencies (failed != completed)
+	hasPending, err := db.HasPendingDependencies(ctx, "task-2")
+	require.NoError(t, err)
+	assert.True(t, hasPending, "task-2 should have pending dependencies when task-1 failed")
+
+	// task-2 should NOT be ready
+	ready, err := db.GetReadyTasksForWork(ctx, "work-1")
+	require.NoError(t, err)
+	assert.Len(t, ready, 0, "no tasks should be ready when dependency failed")
+}
