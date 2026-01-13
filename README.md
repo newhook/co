@@ -299,6 +299,23 @@ CO uses a hierarchical ID system:
   - Project-specific prefixes
   - Content-based hashing similar to works
 
+### Monitoring Commands
+
+| Command | Description |
+|---------|-------------|
+| `co tui` | Interactive TUI for managing works and beads (lazygit-style) |
+| `co poll [work-id\|task-id]` | Monitor work/task progress with text output |
+
+The TUI (`co tui`) provides a full management interface with:
+- Three-panel drill-down: Beads → Works → Tasks
+- Create/destroy works, plan and run tasks
+- Bead filtering (ready/open/closed), search, multi-select
+- Keyboard shortcuts for all operations (press `?` for help)
+
+The poll command (`co poll`) provides simple text-based monitoring:
+- Use `--interval` to set polling interval (default: 2s)
+- Useful for scripting or when you don't need interactive features
+
 ### Other Commands
 
 | Command | Description |
@@ -410,6 +427,8 @@ co/
 │   ├── run.go           # Run command (execute pending tasks)
 │   ├── proj.go          # Project management commands
 │   ├── task.go          # Task management commands
+│   ├── tui.go           # Interactive TUI (lazygit-style)
+│   ├── poll.go          # Text-based progress monitoring
 │   ├── status.go        # Status command
 │   ├── list.go          # List command
 │   └── complete.go      # Complete command
