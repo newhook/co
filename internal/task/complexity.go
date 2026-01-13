@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
@@ -121,7 +120,12 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead,
 	if e.workID == "" {
 		return nil, fmt.Errorf("workID is required for creating estimate tasks")
 	}
-	taskID := fmt.Sprintf("%s.estimate-%d", e.workID, time.Now().Unix())
+	// Use sequential task numbering instead of timestamps
+	nextNum, err := e.database.GetNextTaskNumber(ctx, e.workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get next task number: %w", err)
+	}
+	taskID := fmt.Sprintf("%s.%d", e.workID, nextNum)
 	if err := e.database.CreateTask(ctx, taskID, "estimate", result.UncachedIDs, 0, e.workID); err != nil {
 		return nil, fmt.Errorf("failed to create estimate task: %w", err)
 	}
@@ -165,7 +169,7 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead,
 	fmt.Println("Spawning estimation task...")
 	// Never auto-close estimation task tabs - they're system tasks
 	// Note: hooks.env is applied by co claude itself
-	_, err := claude.Run(ctx, taskID, uncachedBeads, prompt, worktreePath, e.projectName, false)
+	_, err = claude.Run(ctx, taskID, uncachedBeads, prompt, worktreePath, e.projectName, false)
 	if err != nil {
 		fmt.Printf("Failed to spawn estimation: %v\n", err)
 		return nil, fmt.Errorf("failed to spawn estimation: %w", err)
