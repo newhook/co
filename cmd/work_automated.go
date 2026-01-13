@@ -50,6 +50,99 @@ func generateBranchNameFromBead(bead *beads.Bead) string {
 	return fmt.Sprintf("feat/%s", title)
 }
 
+// parseBeadIDs parses a comma-delimited string of bead IDs into a slice.
+// It trims whitespace from each ID and filters out empty strings.
+func parseBeadIDs(beadIDStr string) []string {
+	if beadIDStr == "" {
+		return nil
+	}
+
+	parts := strings.Split(beadIDStr, ",")
+	var result []string
+	for _, part := range parts {
+		id := strings.TrimSpace(part)
+		if id != "" {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+// generateBranchNameFromBeads creates a git-friendly branch name from multiple beads' titles.
+// For a single bead, it uses that bead's title.
+// For multiple beads, it combines titles (truncated) or uses a generic name if too long.
+func generateBranchNameFromBeads(beadList []*beads.Bead) string {
+	if len(beadList) == 0 {
+		return "feat/automated-work"
+	}
+
+	if len(beadList) == 1 {
+		return generateBranchNameFromBead(beadList[0])
+	}
+
+	// For multiple beads, combine their titles
+	var titles []string
+	for _, bead := range beadList {
+		titles = append(titles, bead.Title)
+	}
+	combined := strings.Join(titles, " and ")
+
+	// Convert to lowercase
+	combined = strings.ToLower(combined)
+
+	// Replace spaces and underscores with hyphens
+	combined = strings.ReplaceAll(combined, " ", "-")
+	combined = strings.ReplaceAll(combined, "_", "-")
+
+	// Remove characters that aren't alphanumeric or hyphens
+	reg := regexp.MustCompile(`[^a-z0-9-]`)
+	combined = reg.ReplaceAllString(combined, "")
+
+	// Collapse multiple hyphens into one
+	reg = regexp.MustCompile(`-+`)
+	combined = reg.ReplaceAllString(combined, "-")
+
+	// Trim leading/trailing hyphens
+	combined = strings.Trim(combined, "-")
+
+	// Truncate if too long (git branch names can be long, but let's be reasonable)
+	if len(combined) > 50 {
+		combined = combined[:50]
+		// Don't end with a hyphen
+		combined = strings.TrimRight(combined, "-")
+	}
+
+	return fmt.Sprintf("feat/%s", combined)
+}
+
+// collectBeadsForMultipleIDs collects all beads to include for multiple bead IDs.
+// It collects transitive dependencies for each bead and deduplicates the results.
+func collectBeadsForMultipleIDs(beadIDList []string, dir string) ([]beads.BeadWithDeps, error) {
+	// Use a map to deduplicate beads by ID
+	beadMap := make(map[string]beads.BeadWithDeps)
+
+	for _, beadID := range beadIDList {
+		beadsForID, err := collectBeadsForAutomatedWorkflow(beadID, dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range beadsForID {
+			// Only add if not already present (first occurrence wins)
+			if _, exists := beadMap[b.ID]; !exists {
+				beadMap[b.ID] = b
+			}
+		}
+	}
+
+	// Convert map to slice
+	var result []beads.BeadWithDeps
+	for _, b := range beadMap {
+		result = append(result, b)
+	}
+
+	return result, nil
+}
+
 // ensureUniqueBranchName checks if a branch already exists and appends a suffix if needed.
 // Returns a unique branch name that doesn't conflict with existing branches.
 func ensureUniqueBranchName(repoPath, baseName string) (string, error) {
@@ -135,26 +228,42 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 	return beads.GetTransitiveDependenciesInDir(beadID, dir)
 }
 
-// runAutomatedWorkflow creates a work unit from a bead and spawns the orchestrator.
+// runAutomatedWorkflow creates a work unit from beads and spawns the orchestrator.
 // The workflow:
-// 1. Creates work unit with worktree and branch (auto-generated from bead title)
+// 1. Creates work unit with worktree and branch (auto-generated from bead title(s))
 // 2. Collects all beads to include (transitive dependencies or epic children)
 // 3. Creates tasks with explicit dependencies: estimate -> implement -> review -> pr
 // 4. Spawns orchestrator which polls for ready tasks and executes them
-func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch string) error {
+//
+// The beadIDs parameter can be a single bead ID or comma-delimited list of bead IDs.
+func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch string) error {
 	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
-	fmt.Printf("Starting automated workflow for bead: %s\n", beadID)
-
-	// Step 1: Get the main bead and generate branch name
-	mainBead, err := beads.GetBeadInDir(beadID, mainRepoPath)
-	if err != nil {
-		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+	// Parse comma-delimited bead IDs
+	beadIDList := parseBeadIDs(beadIDs)
+	if len(beadIDList) == 0 {
+		return fmt.Errorf("no bead IDs provided")
 	}
 
-	branchName := generateBranchNameFromBead(mainBead)
-	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+	if len(beadIDList) == 1 {
+		fmt.Printf("Starting automated workflow for bead: %s\n", beadIDList[0])
+	} else {
+		fmt.Printf("Starting automated workflow for beads: %s\n", strings.Join(beadIDList, ", "))
+	}
+
+	// Step 1: Get the main beads and generate branch name
+	var mainBeads []*beads.Bead
+	for _, beadID := range beadIDList {
+		bead, err := beads.GetBeadInDir(beadID, mainRepoPath)
+		if err != nil {
+			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		}
+		mainBeads = append(mainBeads, bead)
+	}
+
+	branchName := generateBranchNameFromBeads(mainBeads)
+	branchName, err := ensureUniqueBranchName(mainRepoPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to find unique branch name: %w", err)
 	}
@@ -213,27 +322,27 @@ func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch strin
 
 	// Step 3: Collect beads
 	fmt.Println("Collecting beads...")
-	beadsToProcess, err := collectBeadsForAutomatedWorkflow(beadID, mainRepoPath)
+	beadsToProcess, err := collectBeadsForMultipleIDs(beadIDList, mainRepoPath)
 	if err != nil {
 		return fmt.Errorf("failed to collect beads: %w", err)
 	}
 
 	if len(beadsToProcess) == 0 {
-		return fmt.Errorf("no beads to process for %s", beadID)
+		return fmt.Errorf("no beads to process for %s", strings.Join(beadIDList, ", "))
 	}
 
 	fmt.Printf("Collected %d bead(s):\n", len(beadsToProcess))
-	var beadIDs []string
+	var collectedBeadIDs []string
 	for _, b := range beadsToProcess {
 		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
-		beadIDs = append(beadIDs, b.ID)
+		collectedBeadIDs = append(collectedBeadIDs, b.ID)
 	}
 
 	// Step 4: Create estimate task only (implement/review/pr tasks created after estimation completes)
 	fmt.Println("\nCreating estimate task...")
 
 	estimateTaskID := fmt.Sprintf("%s.estimate-%d", workID, time.Now().UnixMilli())
-	if err := proj.DB.CreateTask(ctx, estimateTaskID, "estimate", beadIDs, 0, workID); err != nil {
+	if err := proj.DB.CreateTask(ctx, estimateTaskID, "estimate", collectedBeadIDs, 0, workID); err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
 	fmt.Printf("Created estimate task: %s\n", estimateTaskID)

@@ -365,3 +365,80 @@ func TestCollectBeadsForAutomatedWorkflow_NoBeadsAvailable(t *testing.T) {
 	// Should return an error since the bead doesn't exist
 	assert.Error(t, err)
 }
+
+func TestParseBeadIDs_Single(t *testing.T) {
+	result := parseBeadIDs("bead-1")
+	assert.Equal(t, []string{"bead-1"}, result)
+}
+
+func TestParseBeadIDs_Multiple(t *testing.T) {
+	result := parseBeadIDs("bead-1,bead-2,bead-3")
+	assert.Equal(t, []string{"bead-1", "bead-2", "bead-3"}, result)
+}
+
+func TestParseBeadIDs_WithWhitespace(t *testing.T) {
+	result := parseBeadIDs("bead-1, bead-2 , bead-3")
+	assert.Equal(t, []string{"bead-1", "bead-2", "bead-3"}, result)
+}
+
+func TestParseBeadIDs_Empty(t *testing.T) {
+	result := parseBeadIDs("")
+	assert.Nil(t, result)
+}
+
+func TestParseBeadIDs_OnlyCommas(t *testing.T) {
+	result := parseBeadIDs(",,,")
+	assert.Empty(t, result)
+}
+
+func TestParseBeadIDs_EmptyEntries(t *testing.T) {
+	result := parseBeadIDs("bead-1,,bead-2,")
+	assert.Equal(t, []string{"bead-1", "bead-2"}, result)
+}
+
+func TestGenerateBranchNameFromBeads_Single(t *testing.T) {
+	beadList := []*beads.Bead{
+		{ID: "test-1", Title: "Add user authentication"},
+	}
+
+	result := generateBranchNameFromBeads(beadList)
+
+	assert.Equal(t, "feat/add-user-authentication", result)
+}
+
+func TestGenerateBranchNameFromBeads_Multiple(t *testing.T) {
+	beadList := []*beads.Bead{
+		{ID: "test-1", Title: "Fix bug"},
+		{ID: "test-2", Title: "Add test"},
+	}
+
+	result := generateBranchNameFromBeads(beadList)
+
+	assert.Equal(t, "feat/fix-bug-and-add-test", result)
+}
+
+func TestGenerateBranchNameFromBeads_MultipleTruncated(t *testing.T) {
+	beadList := []*beads.Bead{
+		{ID: "test-1", Title: "Add comprehensive user authentication"},
+		{ID: "test-2", Title: "Add role based access control"},
+	}
+
+	result := generateBranchNameFromBeads(beadList)
+
+	// Should be truncated to 50 chars max (excluding feat/ prefix)
+	titlePart := result[len("feat/"):]
+	assert.True(t, len(titlePart) <= 50, "title part should be at most 50 chars")
+	assert.NotEqual(t, "-", string(titlePart[len(titlePart)-1]), "should not end with hyphen")
+}
+
+func TestGenerateBranchNameFromBeads_Empty(t *testing.T) {
+	result := generateBranchNameFromBeads([]*beads.Bead{})
+
+	assert.Equal(t, "feat/automated-work", result)
+}
+
+func TestGenerateBranchNameFromBeads_Nil(t *testing.T) {
+	result := generateBranchNameFromBeads(nil)
+
+	assert.Equal(t, "feat/automated-work", result)
+}

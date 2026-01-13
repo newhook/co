@@ -31,12 +31,14 @@ The branch argument specifies the git branch name to create.
 A unique work ID will be auto-generated using content-based hashing (w-abc format).
 
 With --bead flag, runs an automated end-to-end workflow:
-1. Auto-generates branch name from bead title
+1. Auto-generates branch name from bead title(s)
 2. Collects transitive dependencies (if any)
 3. Plans tasks with auto-grouping
 4. Executes all tasks
 5. Runs review-fix loop until clean
-6. Creates a pull request`,
+6. Creates a pull request
+
+The --bead flag accepts comma-delimited bead IDs (e.g., --bead=bead-1,bead-2,bead-3).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runWorkCreate,
 }
@@ -97,7 +99,7 @@ var (
 
 func init() {
 	workCreateCmd.Flags().StringVar(&flagBaseBranch, "base", "main", "base branch to create feature branch from (also used as PR target)")
-	workCreateCmd.Flags().StringVar(&flagBeadID, "bead", "", "bead ID to run automated end-to-end workflow (plan, run, review-fix, PR)")
+	workCreateCmd.Flags().StringVar(&flagBeadID, "bead", "", "bead ID(s) to run automated end-to-end workflow (comma-delimited for multiple)")
 	workCmd.AddCommand(workCreateCmd)
 	workCmd.AddCommand(workListCmd)
 	workCmd.AddCommand(workShowCmd)
