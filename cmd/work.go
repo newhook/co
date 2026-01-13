@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
@@ -179,18 +180,24 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 
-	// Note: We don't create a zellij tab here - tasks create their own tabs when they run.
-	// This avoids creating an unused tab that would sit empty until tasks are executed.
-
 	fmt.Printf("Created work: %s\n", workID)
 	fmt.Printf("Directory: %s\n", workDir)
 	fmt.Printf("Worktree: %s\n", worktreePath)
 	fmt.Printf("Branch: %s\n", branchName)
 	fmt.Printf("Base Branch: %s\n", baseBranch)
+
+	// Spawn the orchestrator for this work
+	fmt.Println("\nSpawning orchestrator...")
+	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath); err != nil {
+		fmt.Printf("Warning: failed to spawn orchestrator: %v\n", err)
+		fmt.Println("You can start it manually with: co run")
+	} else {
+		fmt.Println("Orchestrator is running in zellij tab.")
+	}
+
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  cd %s\n", workID)
 	fmt.Printf("  co plan              # Plan tasks for this work\n")
-	fmt.Printf("  co run               # Execute tasks\n")
 
 	return nil
 }
