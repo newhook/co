@@ -229,6 +229,110 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 	return beads.GetTransitiveDependenciesInDir(beadID, dir)
 }
 
+// runWorkCreateWithBeads creates a work unit with an auto-generated branch name from beads.
+// Unlike runAutomatedWorkflow, this does NOT plan tasks or spawn the orchestrator.
+// The user is expected to manually run 'co plan' and 'co run' afterward.
+//
+// The beadIDs parameter can be a single bead ID or comma-delimited list of bead IDs.
+func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch string) error {
+	ctx := GetContext()
+	mainRepoPath := proj.MainRepoPath()
+
+	// Parse comma-delimited bead IDs
+	beadIDList := parseBeadIDs(beadIDs)
+	if len(beadIDList) == 0 {
+		return fmt.Errorf("no bead IDs provided")
+	}
+
+	if len(beadIDList) == 1 {
+		fmt.Printf("Creating work for bead: %s\n", beadIDList[0])
+	} else {
+		fmt.Printf("Creating work for beads: %s\n", strings.Join(beadIDList, ", "))
+	}
+
+	// Get the beads and generate branch name
+	var mainBeads []*beads.Bead
+	for _, beadID := range beadIDList {
+		bead, err := beads.GetBeadInDir(beadID, mainRepoPath)
+		if err != nil {
+			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		}
+		mainBeads = append(mainBeads, bead)
+	}
+
+	branchName := generateBranchNameFromBeads(mainBeads)
+	branchName, err := ensureUniqueBranchName(mainRepoPath, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to find unique branch name: %w", err)
+	}
+	fmt.Printf("Branch name: %s\n", branchName)
+
+	// Generate work ID and create work directory
+	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
+	if err != nil {
+		return fmt.Errorf("failed to generate work ID: %w", err)
+	}
+	fmt.Printf("Work ID: %s\n", workID)
+
+	// Create work subdirectory
+	workDir := filepath.Join(proj.Root, workID)
+	if err := os.Mkdir(workDir, 0755); err != nil {
+		return fmt.Errorf("failed to create work directory: %w", err)
+	}
+
+	// Create git worktree inside work directory
+	worktreePath := filepath.Join(workDir, "tree")
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	// Create worktree with new branch
+	if err := worktree.Create(mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
+		os.RemoveAll(workDir)
+		return err
+	}
+
+	// Push branch and set upstream
+	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
+		worktree.RemoveForce(mainRepoPath, worktreePath)
+		os.RemoveAll(workDir)
+		return err
+	}
+
+	// Initialize mise in worktree if needed
+	if err := mise.Initialize(worktreePath); err != nil {
+		fmt.Printf("Warning: mise initialization failed: %v\n", err)
+	}
+
+	// Create work record in database
+	if err := proj.DB.CreateWork(ctx, workID, worktreePath, branchName, baseBranch); err != nil {
+		worktree.RemoveForce(mainRepoPath, worktreePath)
+		os.RemoveAll(workDir)
+		return fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Spawn the orchestrator for this work
+	fmt.Println("\nSpawning orchestrator...")
+	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath); err != nil {
+		fmt.Printf("Warning: failed to spawn orchestrator: %v\n", err)
+		fmt.Println("You can start it manually with: co run")
+	} else {
+		fmt.Println("Orchestrator is running in zellij tab.")
+	}
+
+	fmt.Printf("\nCreated work: %s\n", workID)
+	fmt.Printf("Directory: %s\n", workDir)
+	fmt.Printf("Worktree: %s\n", worktreePath)
+	fmt.Printf("Branch: %s\n", branchName)
+	fmt.Printf("Base Branch: %s\n", baseBranch)
+
+	fmt.Printf("\nNext steps:\n")
+	fmt.Printf("  cd %s\n", workID)
+	fmt.Printf("  co plan              # Plan tasks for this work\n")
+
+	return nil
+}
+
 // runAutomatedWorkflow creates a work unit from beads and spawns the orchestrator.
 // The workflow:
 // 1. Creates work unit with worktree and branch (auto-generated from bead title(s))

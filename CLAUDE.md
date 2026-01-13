@@ -17,7 +17,7 @@ go test ./...
 - `cmd/list.go` - List command (list tracked beads)
 - `cmd/orchestrate.go` - Orchestrate command (internal, execute tasks)
 - `cmd/plan.go` - Plan command (create tasks from beads)
-- `cmd/poll.go` - Poll command (monitor progress with TUI)
+- `cmd/poll.go` - Poll command (monitor progress with text output)
 - `cmd/proj.go` - Project management (create/destroy/status)
 - `cmd/run.go` - Run command (execute pending tasks or works)
 - `cmd/status.go` - Status command (show bead tracking status)
@@ -236,12 +236,12 @@ Shows bead tracking status:
 - Without ID: shows all beads currently processing with their session/pane
 
 ### `co poll [work-id|task-id]`
-Monitors work/task progress with a live TUI:
+Monitors work/task progress with simple text output:
 - Without arguments: monitors all active works or detected work from directory
 - With work ID: monitors that work's tasks
 - With task ID: monitors that specific task
-- Use `--quiet` for simple text output without TUI
 - Use `--interval` to set polling interval (default: 2s)
+- For interactive TUI with management features, use `co tui` instead
 
 ### `co sync`
 Pulls from upstream in all repositories:
