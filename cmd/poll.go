@@ -40,7 +40,10 @@ The TUI shows:
 - Color-coded status indicators
 - Live updates at configurable intervals
 
-Use --quiet for simple text output without the TUI.`,
+Use --quiet for simple text output without the TUI.
+
+For full management capabilities (create, destroy, plan, run works),
+use 'co tui' instead.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runPoll,
 }
