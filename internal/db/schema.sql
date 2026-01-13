@@ -134,5 +134,7 @@ CREATE INDEX idx_task_dependencies_depends_on ON task_dependencies(depends_on_ta
 -- Schema migrations table: tracks applied database migrations
 CREATE TABLE schema_migrations (
     version TEXT PRIMARY KEY,
-    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    name TEXT NOT NULL DEFAULT '',
+    down_sql TEXT NOT NULL DEFAULT ''
 );

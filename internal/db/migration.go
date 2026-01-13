@@ -65,6 +65,12 @@ func RunMigrationsForFS(ctx context.Context, db *sql.DB, fsys embed.FS) error {
 		cosignal.UnblockSignals()
 	}
 
+	// Backfill down_sql for any migrations that don't have it yet
+	if err := backfillMigrationDownSQL(ctx, db, migrations); err != nil {
+		// Log warning but don't fail - backfill is best-effort
+		fmt.Printf("Warning: failed to backfill migration down_sql: %v\n", err)
+	}
+
 	return nil
 }
 
@@ -73,7 +79,9 @@ func RollbackMigration(ctx context.Context, db *sql.DB) error {
 	return RollbackMigrationForFS(ctx, db, migrationsFS)
 }
 
-// RollbackMigrationForFS rolls back the last applied migration from the specified filesystem
+// RollbackMigrationForFS rolls back the last applied migration.
+// It first tries to get down_sql from the database (stored when migration was applied).
+// Falls back to reading from the filesystem if not available in DB.
 func RollbackMigrationForFS(ctx context.Context, db *sql.DB, fsys embed.FS) error {
 	queries := sqlc.New(db)
 
@@ -86,22 +94,32 @@ func RollbackMigrationForFS(ctx context.Context, db *sql.DB, fsys embed.FS) erro
 		return fmt.Errorf("failed to get last migration: %w", err)
 	}
 
-	// Read all migrations to find the one to rollback
-	migrations, err := readMigrationsFromFS(fsys)
-	if err != nil {
-		return fmt.Errorf("failed to read migrations: %w", err)
-	}
-
+	// First, try to get down_sql from database
 	var migration *Migration
-	for _, m := range migrations {
-		if m.Version == version {
-			migration = &m
-			break
+	dbMigration, err := queries.GetMigrationDownSQL(ctx, version)
+	if err == nil && dbMigration.DownSql != "" {
+		migration = &Migration{
+			Version: version,
+			Name:    dbMigration.Name,
+			DownSQL: dbMigration.DownSql,
+		}
+	} else {
+		// Fall back to reading from filesystem
+		migrations, err := readMigrationsFromFS(fsys)
+		if err != nil {
+			return fmt.Errorf("failed to read migrations: %w", err)
+		}
+
+		for _, m := range migrations {
+			if m.Version == version {
+				migration = &m
+				break
+			}
 		}
 	}
 
 	if migration == nil {
-		return fmt.Errorf("migration %s not found", version)
+		return fmt.Errorf("migration %s not found in database or filesystem", version)
 	}
 
 	if migration.DownSQL == "" {
@@ -268,7 +286,8 @@ func applyMigration(ctx context.Context, db *sql.DB, m Migration) error {
 		}
 	}
 
-	// Record migration using sqlc within transaction
+	// Record migration (just version) using sqlc within transaction
+	// The backfill step will add name and down_sql after migration 012 adds those columns
 	txQueries := sqlc.New(tx)
 	if err := txQueries.RecordMigration(ctx, m.Version); err != nil {
 		return fmt.Errorf("failed to record migration: %w", err)
@@ -363,12 +382,7 @@ func splitSQLStatements(sql string) []string {
 	return statements
 }
 
-// MigrationStatus returns the current migration status
-func MigrationStatus(ctx context.Context, db *sql.DB) ([]string, error) {
-	return MigrationStatusContext(ctx, db)
-}
-
-// MigrationStatusContext returns the current migration status with context
+// MigrationStatusContext returns the current migration status
 func MigrationStatusContext(ctx context.Context, db *sql.DB) ([]string, error) {
 	queries := sqlc.New(db)
 	versions, err := queries.ListMigrationVersions(ctx)
@@ -379,4 +393,49 @@ func MigrationStatusContext(ctx context.Context, db *sql.DB) ([]string, error) {
 		return nil, err
 	}
 	return versions, nil
+}
+
+// backfillMigrationDownSQL updates existing migration records with their down_sql.
+// This is called after applying migrations to ensure all records have down_sql populated.
+func backfillMigrationDownSQL(ctx context.Context, db *sql.DB, migrations []Migration) error {
+	queries := sqlc.New(db)
+
+	// Get all applied migrations with their current down_sql
+	appliedList, err := queries.ListMigrationsWithDetails(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list migrations: %w", err)
+	}
+
+	// Create a map for quick lookup
+	migrationMap := make(map[string]Migration)
+	for _, m := range migrations {
+		migrationMap[m.Version] = m
+	}
+
+	// Update any migrations that have empty down_sql
+	for _, applied := range appliedList {
+		if applied.DownSql != "" {
+			continue // Already has down_sql
+		}
+
+		m, ok := migrationMap[applied.Version]
+		if !ok {
+			continue // Migration file not found (shouldn't happen)
+		}
+
+		if m.DownSQL == "" {
+			continue // No down_sql in file
+		}
+
+		// Update the record with down_sql from the file
+		if err := queries.UpdateMigrationDownSQL(ctx, sqlc.UpdateMigrationDownSQLParams{
+			Name:    m.Name,
+			DownSql: m.DownSQL,
+			Version: m.Version,
+		}); err != nil {
+			return fmt.Errorf("failed to update migration %s: %w", m.Version, err)
+		}
+	}
+
+	return nil
 }

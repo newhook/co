@@ -69,7 +69,7 @@ func TestRunMigrations(t *testing.T) {
 	assert.Equal(t, 1, count, "Expected schema_migrations table to exist")
 
 	// Verify migrations were recorded
-	versions, err := MigrationStatus(ctx, db)
+	versions, err := MigrationStatusContext(ctx, db)
 	require.NoError(t, err, "Failed to get migration status")
 	assert.Len(t, versions, 2, "Expected 2 migrations to be recorded")
 
@@ -111,7 +111,7 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 }
 
 // TestMigrationStatus tests the MigrationStatus function
-func TestMigrationStatus(t *testing.T) {
+func TestMigrationStatusContext(t *testing.T) {
 	// Create an in-memory database
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err, "Failed to open database")
@@ -119,7 +119,7 @@ func TestMigrationStatus(t *testing.T) {
 	ctx := context.Background()
 
 	// Check status before migrations
-	versions, err := MigrationStatus(ctx, db)
+	versions, err := MigrationStatusContext(ctx, db)
 	require.NoError(t, err, "Failed to get migration status")
 	assert.Empty(t, versions, "Expected no migrations before running")
 
@@ -128,7 +128,7 @@ func TestMigrationStatus(t *testing.T) {
 	require.NoError(t, err, "Failed to run migrations")
 
 	// Check status after migrations
-	versions, err = MigrationStatus(ctx, db)
+	versions, err = MigrationStatusContext(ctx, db)
 	require.NoError(t, err, "Failed to get migration status")
 	require.Len(t, versions, 2, "Expected 2 migrations")
 	assert.Equal(t, "001", versions[0], "Expected first migration 001")
@@ -285,7 +285,7 @@ func TestRollbackMigration(t *testing.T) {
 	require.NoError(t, err, "Failed to run migrations")
 
 	// Verify we have 2 migrations
-	versions, err := MigrationStatus(ctx, db)
+	versions, err := MigrationStatusContext(ctx, db)
 	require.NoError(t, err, "Failed to get migration status")
 	assert.Len(t, versions, 2, "Expected 2 migrations before rollback")
 
@@ -299,7 +299,7 @@ func TestRollbackMigration(t *testing.T) {
 	require.NoError(t, err, "Failed to rollback migration")
 
 	// Verify we now have 1 migration left (001)
-	versions, err = MigrationStatus(ctx, db)
+	versions, err = MigrationStatusContext(ctx, db)
 	require.NoError(t, err, "Failed to get migration status after rollback")
 	require.Len(t, versions, 1, "Expected 1 migration after rollback")
 	assert.Equal(t, "001", versions[0], "Expected migration 001 to remain")
@@ -363,7 +363,7 @@ func TestMultipleMigrations(t *testing.T) {
 	require.NoError(t, err, "Failed to run migrations")
 
 	// Check that both migrations were applied
-	versions, err := MigrationStatus(ctx, db)
+	versions, err := MigrationStatusContext(ctx, db)
 	require.NoError(t, err, "Failed to get migration status")
 	assert.Len(t, versions, 2, "Expected 2 migrations")
 
@@ -377,7 +377,7 @@ func TestMultipleMigrations(t *testing.T) {
 	require.NoError(t, err, "Failed to rollback migration")
 
 	// Verify only first migration remains
-	versions, err = MigrationStatus(ctx, db)
+	versions, err = MigrationStatusContext(ctx, db)
 	require.NoError(t, err, "Failed to get migration status after rollback")
 	require.Len(t, versions, 1, "Expected 1 migration after rollback")
 	assert.Equal(t, "001", versions[0], "Expected migration 001 to remain")

@@ -78,9 +78,3 @@ func UnblockSignals() {
 	}
 }
 
-// IsBlocked returns true if signals are currently blocked.
-func IsBlocked() bool {
-	mu.Lock()
-	defer mu.Unlock()
-	return blocked
-}

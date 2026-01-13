@@ -48,6 +48,7 @@ type Querier interface {
 	GetLastMigration(ctx context.Context) (string, error)
 	GetLastWorkID(ctx context.Context) (string, error)
 	GetLatestReviewTaskWithMetadata(ctx context.Context, workID string) (string, error)
+	GetMigrationDownSQL(ctx context.Context, version string) (GetMigrationDownSQLRow, error)
 	GetReadyTasksForWork(ctx context.Context, workID string) ([]Task, error)
 	GetTask(ctx context.Context, id string) (Task, error)
 	GetTaskBeadStatus(ctx context.Context, arg GetTaskBeadStatusParams) (string, error)
@@ -64,11 +65,13 @@ type Querier interface {
 	ListBeads(ctx context.Context) ([]Bead, error)
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)
 	ListMigrationVersions(ctx context.Context) ([]string, error)
+	ListMigrationsWithDetails(ctx context.Context) ([]ListMigrationsWithDetailsRow, error)
 	ListTasks(ctx context.Context) ([]Task, error)
 	ListTasksByStatus(ctx context.Context, status string) ([]Task, error)
 	ListWorks(ctx context.Context) ([]Work, error)
 	ListWorksByStatus(ctx context.Context, status string) ([]Work, error)
 	RecordMigration(ctx context.Context, version string) error
+	RecordMigrationWithDown(ctx context.Context, arg RecordMigrationWithDownParams) error
 	ResetTaskBeadStatuses(ctx context.Context, taskID string) (int64, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
 	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error
@@ -76,6 +79,7 @@ type Querier interface {
 	StartBead(ctx context.Context, arg StartBeadParams) error
 	StartTask(ctx context.Context, arg StartTaskParams) (int64, error)
 	StartWork(ctx context.Context, arg StartWorkParams) (int64, error)
+	UpdateMigrationDownSQL(ctx context.Context, arg UpdateMigrationDownSQLParams) error
 }
 
 var _ Querier = (*Queries)(nil)

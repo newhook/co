@@ -16,12 +16,6 @@ var configFiles = []string{
 	".tool-versions",
 }
 
-// IsEnabled checks if mise is configured in the given directory.
-// Returns true if any mise config file exists.
-func IsEnabled(dir string) bool {
-	return findConfigFile(dir) != ""
-}
-
 // findConfigFile returns the first mise config file found in dir, or empty string if none.
 func findConfigFile(dir string) string {
 	for _, file := range configFiles {

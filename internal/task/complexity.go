@@ -144,7 +144,7 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead,
 		worktreePath = filepath.Join(filepath.Dir(e.workDir), taskID)
 
 		fmt.Printf("Creating worktree for estimation task at %s...\n", worktreePath)
-		if err := worktree.Create(e.workDir, worktreePath, branchName); err != nil {
+		if err := worktree.Create(e.workDir, worktreePath, branchName, ""); err != nil {
 			return nil, fmt.Errorf("failed to create worktree for estimation: %w", err)
 		}
 

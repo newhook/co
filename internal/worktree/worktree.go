@@ -16,21 +16,16 @@ type Worktree struct {
 }
 
 // Create creates a new worktree at worktreePath from repoPath with a new branch.
-// Uses: git -C <repo> worktree add <path> -b <branch>
-func Create(repoPath, worktreePath, branch string) error {
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "add", worktreePath, "-b", branch)
+// If baseBranch is non-empty, the new branch is created from that base.
+// Uses: git -C <repo> worktree add <path> -b <branch> [<base>]
+func Create(repoPath, worktreePath, branch, baseBranch string) error {
+	args := []string{"-C", repoPath, "worktree", "add", worktreePath, "-b", branch}
+	if baseBranch != "" {
+		args = append(args, baseBranch)
+	}
+	cmd := exec.Command("git", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create worktree: %w\n%s", err, output)
-	}
-	return nil
-}
-
-// Remove removes a worktree.
-// Uses: git -C <repo> worktree remove <path>
-func Remove(repoPath, worktreePath string) error {
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "remove", worktreePath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to remove worktree: %w\n%s", err, output)
 	}
 	return nil
 }

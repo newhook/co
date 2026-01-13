@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const createMigrationsTable = `-- name: CreateMigrationsTable :exec
@@ -70,6 +71,22 @@ func (q *Queries) GetLastMigration(ctx context.Context) (string, error) {
 	return version, err
 }
 
+const getMigrationDownSQL = `-- name: GetMigrationDownSQL :one
+SELECT name, down_sql FROM schema_migrations WHERE version = ?
+`
+
+type GetMigrationDownSQLRow struct {
+	Name    string `json:"name"`
+	DownSql string `json:"down_sql"`
+}
+
+func (q *Queries) GetMigrationDownSQL(ctx context.Context, version string) (GetMigrationDownSQLRow, error) {
+	row := q.db.QueryRowContext(ctx, getMigrationDownSQL, version)
+	var i GetMigrationDownSQLRow
+	err := row.Scan(&i.Name, &i.DownSql)
+	return i, err
+}
+
 const listMigrationVersions = `-- name: ListMigrationVersions :many
 SELECT version FROM schema_migrations ORDER BY version
 `
@@ -97,11 +114,80 @@ func (q *Queries) ListMigrationVersions(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listMigrationsWithDetails = `-- name: ListMigrationsWithDetails :many
+SELECT version, name, down_sql, applied_at FROM schema_migrations ORDER BY version
+`
+
+type ListMigrationsWithDetailsRow struct {
+	Version   string       `json:"version"`
+	Name      string       `json:"name"`
+	DownSql   string       `json:"down_sql"`
+	AppliedAt sql.NullTime `json:"applied_at"`
+}
+
+func (q *Queries) ListMigrationsWithDetails(ctx context.Context) ([]ListMigrationsWithDetailsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMigrationsWithDetails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMigrationsWithDetailsRow{}
+	for rows.Next() {
+		var i ListMigrationsWithDetailsRow
+		if err := rows.Scan(
+			&i.Version,
+			&i.Name,
+			&i.DownSql,
+			&i.AppliedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recordMigration = `-- name: RecordMigration :exec
 INSERT INTO schema_migrations (version) VALUES (?)
 `
 
 func (q *Queries) RecordMigration(ctx context.Context, version string) error {
 	_, err := q.db.ExecContext(ctx, recordMigration, version)
+	return err
+}
+
+const recordMigrationWithDown = `-- name: RecordMigrationWithDown :exec
+INSERT INTO schema_migrations (version, name, down_sql) VALUES (?, ?, ?)
+`
+
+type RecordMigrationWithDownParams struct {
+	Version string `json:"version"`
+	Name    string `json:"name"`
+	DownSql string `json:"down_sql"`
+}
+
+func (q *Queries) RecordMigrationWithDown(ctx context.Context, arg RecordMigrationWithDownParams) error {
+	_, err := q.db.ExecContext(ctx, recordMigrationWithDown, arg.Version, arg.Name, arg.DownSql)
+	return err
+}
+
+const updateMigrationDownSQL = `-- name: UpdateMigrationDownSQL :exec
+UPDATE schema_migrations SET name = ?, down_sql = ? WHERE version = ?
+`
+
+type UpdateMigrationDownSQLParams struct {
+	Name    string `json:"name"`
+	DownSql string `json:"down_sql"`
+	Version string `json:"version"`
+}
+
+func (q *Queries) UpdateMigrationDownSQL(ctx context.Context, arg UpdateMigrationDownSQLParams) error {
+	_, err := q.db.ExecContext(ctx, updateMigrationDownSQL, arg.Name, arg.DownSql, arg.Version)
 	return err
 }
