@@ -176,9 +176,21 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 			createdDisplay,
 			strings.Join(beadIDs, ", "))
 
+		// Show dependencies (what this task depends on)
+		deps, err := proj.DB.GetTaskDependencies(ctx, task.ID)
+		if err == nil && len(deps) > 0 {
+			fmt.Printf("  ├─ Depends on: %s\n", strings.Join(deps, ", "))
+		}
+
+		// Show dependents (what depends on this task)
+		dependents, err := proj.DB.GetTaskDependents(ctx, task.ID)
+		if err == nil && len(dependents) > 0 {
+			fmt.Printf("  ├─ Blocks: %s\n", strings.Join(dependents, ", "))
+		}
+
 		// Show error message if failed
 		if task.Status == db.StatusFailed && task.ErrorMessage != "" {
-			fmt.Printf("  └─ Error: %s\n", task.ErrorMessage)
+			fmt.Printf("  ├─ Error: %s\n", task.ErrorMessage)
 		}
 
 		// Show PR URL if completed

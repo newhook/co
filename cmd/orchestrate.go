@@ -138,60 +138,11 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 // executeTask executes a single task inline based on its type.
 func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 	ctx := GetContext()
-	mainRepoPath := proj.MainRepoPath()
 
-	var prompt string
-	var err error
-
-	switch t.TaskType {
-	case "estimate":
-		// Build estimation prompt
-		beadIDs, err := proj.DB.GetTaskBeads(ctx, t.ID)
-		if err != nil {
-			return fmt.Errorf("failed to get task beads: %w", err)
-		}
-		var beadList []beads.Bead
-		for _, beadID := range beadIDs {
-			bead, err := beads.GetBeadInDir(beadID, mainRepoPath)
-			if err != nil {
-				fmt.Printf("Warning: failed to get bead %s: %v\n", beadID, err)
-				continue
-			}
-			beadList = append(beadList, *bead)
-		}
-		prompt = claude.BuildEstimatePrompt(t.ID, beadList)
-
-	case "implement":
-		// Build implementation prompt
-		beadIDs, err := proj.DB.GetTaskBeads(ctx, t.ID)
-		if err != nil {
-			return fmt.Errorf("failed to get task beads: %w", err)
-		}
-		var beadList []beads.Bead
-		for _, beadID := range beadIDs {
-			bead, err := beads.GetBeadInDir(beadID, mainRepoPath)
-			if err != nil {
-				fmt.Printf("Warning: failed to get bead %s: %v\n", beadID, err)
-				continue
-			}
-			beadList = append(beadList, *bead)
-		}
-		prompt = claude.BuildTaskPrompt(t.ID, beadList, work.BranchName, work.BaseBranch)
-
-	case "review":
-		// Build review prompt
-		prompt = claude.BuildReviewPrompt(t.ID, work.ID, work.BranchName, work.BaseBranch)
-
-	case "pr":
-		// Build PR prompt
-		prompt = claude.BuildPRPrompt(t.ID, work.ID, work.BranchName, work.BaseBranch)
-
-	case "update-pr-description":
-		// Build update PR description prompt
-		prompt = claude.BuildUpdatePRDescriptionPrompt(t.ID, work.ID, work.PRURL, work.BranchName, work.BaseBranch)
-
-	default:
-		return fmt.Errorf("unknown task type: %s", t.TaskType)
+	// Build prompt for Claude based on task type
+	prompt, err := buildPromptForTask(ctx, proj, t, work)
+	if err != nil {
+		return err
 	}
 
 	// Execute Claude inline

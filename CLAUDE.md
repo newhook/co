@@ -166,3 +166,28 @@ Destroys a work unit and its resources:
 - Deletes work subdirectory
 - Updates database records
 - Use with caution - destructive operation
+
+## Task Commands
+
+### `co task list`
+Lists all tasks with their status:
+- Shows ID, status, type, budget, creation time, and associated beads
+- Filter by status: `--status pending|processing|completed|failed`
+- Filter by type: `--type estimate|implement`
+
+### `co task show <id>`
+Shows detailed information about a task:
+- Displays status, type, budget, timestamps
+- Lists associated beads and their completion status
+- Shows worktree path, zellij session/pane if applicable
+
+### `co task delete <id>...`
+Deletes one or more tasks from the database:
+- Removes task and all associated records
+- Accepts multiple task IDs
+
+### `co task reset <id>`
+Resets a failed or stuck task to pending:
+- Changes task status from processing/failed back to pending
+- Resets all bead statuses for the task
+- Use when a task gets stuck or needs to be rerun
