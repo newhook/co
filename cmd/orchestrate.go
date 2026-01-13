@@ -110,12 +110,19 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 
 			// If pending tasks exist but none are ready, they're blocked
 			if pendingCount > 0 {
-				return fmt.Errorf("work has %d pending task(s) but none are ready (blocked by dependencies)", pendingCount)
+				fmt.Printf("Waiting: %d pending task(s) blocked by dependencies...\n", pendingCount)
+				time.Sleep(5 * time.Second)
+				continue
 			}
 
-			// All tasks completed
-			fmt.Printf("\n=== All tasks completed (%d total) ===\n", completedCount)
-			break
+			// No tasks at all or all completed - wait for new tasks
+			if completedCount > 0 {
+				fmt.Printf("All %d task(s) completed. Waiting for new tasks...\n", completedCount)
+			} else {
+				fmt.Println("No tasks yet. Waiting for tasks to be created...")
+			}
+			time.Sleep(5 * time.Second)
+			continue
 		}
 
 		// Execute the first ready task
@@ -126,14 +133,6 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("task %s failed: %w", task.ID, err)
 		}
 	}
-
-	// Mark work as completed
-	if err := proj.DB.CompleteWork(ctx, workID, work.PRURL); err != nil {
-		fmt.Printf("Warning: failed to mark work as completed: %v\n", err)
-	}
-
-	fmt.Println("\n=== Work orchestration completed successfully ===")
-	return nil
 }
 
 // executeTask executes a single task inline based on its type.
