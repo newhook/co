@@ -6,13 +6,13 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/zellij"
 )
 
 //go:embed templates/estimate.tmpl
@@ -69,8 +69,10 @@ func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt stri
 		TaskID: taskID,
 	}
 
+	zc := zellij.New()
+
 	// Ensure session exists
-	if err := ensureSession(ctx, sessionName); err != nil {
+	if err := zc.EnsureSession(ctx, sessionName); err != nil {
 		return nil, err
 	}
 
@@ -93,42 +95,22 @@ func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt stri
 	// Check if tab with this task name already exists
 	// Since each task gets its own tab, this shouldn't normally happen
 	// But handle it gracefully by terminating and restarting
-	if TabExists(ctx, sessionName, tabName) {
+	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
+	if tabExists {
 		fmt.Printf("Tab %s already exists, terminating any running process and restarting...\n", tabName)
 
 		// Switch to the existing tab
-		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
-		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
-		if err := switchCmd.Run(); err != nil {
+		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
 			fmt.Printf("Warning: failed to switch to existing tab: %v\n", err)
 		}
 
 		// Send Ctrl+C to terminate any running process
 		fmt.Println("Terminating any existing process...")
-		ctrlCArgs := []string{"-s", sessionName, "action", "write", "3"} // Ctrl+C
-		exec.CommandContext(ctx, "zellij", ctrlCArgs...).Run()
-		time.Sleep(500 * time.Millisecond)
+		zc.SendCtrlC(ctx, sessionName)
+		time.Sleep(zc.CtrlCDelay)
 
 		// Clear the line for a clean start
-		clearArgs := []string{"-s", sessionName, "action", "write-chars", "clear"}
-		exec.CommandContext(ctx, "zellij", clearArgs...).Run()
-		time.Sleep(100 * time.Millisecond)
-		exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
-		time.Sleep(100 * time.Millisecond)
-
-		// Now launch Claude wrapper
-		fmt.Println("Starting Claude wrapper...")
-		runArgs := []string{"-s", sessionName, "action", "write-chars", claudeCommand}
-		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
-		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
-		if err := runCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to write claude wrapper command: %w", err)
-		}
-
-		// Send Enter to execute the command
-		enterArgs := []string{"-s", sessionName, "action", "write", "13"}
-		enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
-		if err := enterCmd.Run(); err != nil {
+		if err := zc.ClearAndExecute(ctx, sessionName, claudeCommand); err != nil {
 			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
 		}
 
@@ -137,40 +119,20 @@ func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt stri
 		time.Sleep(3 * time.Second)
 	} else {
 		// Create a new tab with the task name
-		tabArgs := []string{
-			"-s", sessionName, "action", "new-tab",
-			"--cwd", workDir,
-			"--name", tabName,
-		}
-		fmt.Printf("Running: zellij %s\n", strings.Join(tabArgs, " "))
-		tabCmd := exec.CommandContext(ctx, "zellij", tabArgs...)
-		if err := tabCmd.Run(); err != nil {
+		fmt.Printf("Creating tab: %s in session %s\n", tabName, sessionName)
+		if err := zc.CreateTab(ctx, sessionName, tabName, workDir); err != nil {
 			return nil, fmt.Errorf("failed to create tab: %w", err)
 		}
 
-		// Wait a moment for tab to be created
-		time.Sleep(500 * time.Millisecond)
-
 		// Switch to the new tab
-		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
-		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
-		if err := switchCmd.Run(); err != nil {
+		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
 			// Non-fatal: just log it
 			fmt.Printf("Warning: failed to switch to tab: %v\n", err)
 		}
 
 		// Run Claude wrapper in the new tab
-		runArgs := []string{"-s", sessionName, "action", "write-chars", claudeCommand}
-		fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
-		runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
-		if err := runCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to write claude wrapper command: %w", err)
-		}
-
-		// Send Enter to execute the command
-		enterArgs := []string{"-s", sessionName, "action", "write", "13"}
-		enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
-		if err := enterCmd.Run(); err != nil {
+		fmt.Printf("Executing: %s\n", claudeCommand)
+		if err := zc.ExecuteCommand(ctx, sessionName, claudeCommand); err != nil {
 			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
 		}
 
@@ -219,14 +181,11 @@ func getBeadIDs(beads []beads.Bead) []string {
 	return ids
 }
 
+// TabExists checks if a tab with the given name exists in the session.
 func TabExists(ctx context.Context, sessionName, tabName string) bool {
-	// Use zellij action to list tabs and check if one with this name exists
-	cmd := exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "query-tab-names")
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(output), tabName)
+	zc := zellij.New()
+	exists, _ := zc.TabExists(ctx, sessionName, tabName)
+	return exists
 }
 
 // TerminateWorkTabs terminates all zellij tabs associated with a work unit.
@@ -234,25 +193,23 @@ func TabExists(ctx context.Context, sessionName, tabName string) bool {
 // Each tab's running process is terminated with Ctrl+C before the tab is closed.
 func TerminateWorkTabs(ctx context.Context, workID string, projectName string) error {
 	sessionName := SessionNameForProject(projectName)
+	zc := zellij.New()
 
 	// Check if session exists
-	listCmd := exec.CommandContext(ctx, "zellij", "list-sessions")
-	output, err := listCmd.Output()
-	if err != nil || !strings.Contains(string(output), sessionName) {
+	exists, err := zc.SessionExists(ctx, sessionName)
+	if err != nil || !exists {
 		// Session doesn't exist, nothing to terminate
 		return nil
 	}
 
 	// Get list of all tab names
-	tabCmd := exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "query-tab-names")
-	tabOutput, err := tabCmd.Output()
+	tabNames, err := zc.QueryTabNames(ctx, sessionName)
 	if err != nil {
 		// Can't query tabs, maybe session is dead
 		return nil
 	}
 
 	// Find tabs to terminate
-	tabNames := strings.Split(strings.TrimSpace(string(tabOutput)), "\n")
 	workTabName := fmt.Sprintf("work-%s", workID)
 	taskTabPrefix := fmt.Sprintf("task-%s.", workID)
 
@@ -275,67 +232,14 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string) e
 	fmt.Printf("Terminating %d zellij tab(s) for work %s...\n", len(tabsToClose), workID)
 
 	for _, tabName := range tabsToClose {
-		if err := terminateTab(ctx, sessionName, tabName); err != nil {
+		if err := zc.TerminateAndCloseTab(ctx, sessionName, tabName); err != nil {
 			fmt.Printf("Warning: failed to terminate tab %s: %v\n", tabName, err)
 			// Continue with other tabs
+		} else {
+			fmt.Printf("  Terminated tab: %s\n", tabName)
 		}
 	}
 
-	return nil
-}
-
-// terminateTab switches to a tab, sends Ctrl+C to terminate any running process, then closes the tab.
-func terminateTab(ctx context.Context, sessionName, tabName string) error {
-	// Switch to the tab
-	switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
-	if err := exec.CommandContext(ctx, "zellij", switchArgs...).Run(); err != nil {
-		return fmt.Errorf("failed to switch to tab: %w", err)
-	}
-
-	// Send Ctrl+C to terminate any running process
-	ctrlCArgs := []string{"-s", sessionName, "action", "write", "3"} // ASCII 3 = Ctrl+C
-	exec.CommandContext(ctx, "zellij", ctrlCArgs...).Run()
-	time.Sleep(500 * time.Millisecond)
-
-	// Send another Ctrl+C in case the first one was caught by a signal handler
-	exec.CommandContext(ctx, "zellij", ctrlCArgs...).Run()
-	time.Sleep(500 * time.Millisecond)
-
-	// Close the tab
-	closeArgs := []string{"-s", sessionName, "action", "close-tab"}
-	if err := exec.CommandContext(ctx, "zellij", closeArgs...).Run(); err != nil {
-		return fmt.Errorf("failed to close tab: %w", err)
-	}
-
-	fmt.Printf("  Terminated tab: %s\n", tabName)
-	return nil
-}
-
-func ensureSession(ctx context.Context, sessionName string) error {
-	// Check if session exists
-	listCmd := exec.CommandContext(ctx, "zellij", "list-sessions")
-	output, err := listCmd.Output()
-	if err != nil {
-		// No sessions, create one
-		return createSession(ctx, sessionName)
-	}
-
-	// Check if requested session exists
-	if strings.Contains(string(output), sessionName) {
-		return nil
-	}
-
-	return createSession(ctx, sessionName)
-}
-
-func createSession(ctx context.Context, sessionName string) error {
-	// Start session detached
-	cmd := exec.CommandContext(ctx, "zellij", "-s", sessionName)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to create zellij session: %w", err)
-	}
-	// Give it time to start
-	time.Sleep(1 * time.Second)
 	return nil
 }
 
@@ -435,9 +339,10 @@ func BuildUpdatePRDescriptionPrompt(taskID string, workID string, prURL string, 
 func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string) error {
 	sessionName := SessionNameForProject(projectName)
 	tabName := fmt.Sprintf("work-%s", workID)
+	zc := zellij.New()
 
 	// Ensure session exists
-	if err := ensureSession(ctx, sessionName); err != nil {
+	if err := zc.EnsureSession(ctx, sessionName); err != nil {
 		return err
 	}
 
@@ -445,64 +350,40 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 	orchestrateCommand := fmt.Sprintf("co orchestrate --work %s", workID)
 
 	// Check if tab already exists
-	if TabExists(ctx, sessionName, tabName) {
+	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
+	if tabExists {
 		fmt.Printf("Tab %s already exists, reusing...\n", tabName)
 
 		// Switch to the existing tab
-		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
-		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
-		if err := switchCmd.Run(); err != nil {
+		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
 			fmt.Printf("Warning: failed to switch to existing tab: %v\n", err)
 		}
 
 		// Send Ctrl+C to terminate any running process
-		ctrlCArgs := []string{"-s", sessionName, "action", "write", "3"}
-		exec.CommandContext(ctx, "zellij", ctrlCArgs...).Run()
-		time.Sleep(500 * time.Millisecond)
+		zc.SendCtrlC(ctx, sessionName)
+		time.Sleep(zc.CtrlCDelay)
 
-		// Clear the line
-		clearArgs := []string{"-s", sessionName, "action", "write-chars", "clear"}
-		exec.CommandContext(ctx, "zellij", clearArgs...).Run()
-		time.Sleep(100 * time.Millisecond)
-		exec.CommandContext(ctx, "zellij", "-s", sessionName, "action", "write", "13").Run()
-		time.Sleep(100 * time.Millisecond)
+		// Clear the line and execute the command
+		if err := zc.ClearAndExecute(ctx, sessionName, orchestrateCommand); err != nil {
+			return fmt.Errorf("failed to execute orchestrate command: %w", err)
+		}
 	} else {
 		// Create a new tab
-		tabArgs := []string{
-			"-s", sessionName, "action", "new-tab",
-			"--cwd", workDir,
-			"--name", tabName,
-		}
-		fmt.Printf("Creating tab: zellij %s\n", strings.Join(tabArgs, " "))
-		tabCmd := exec.CommandContext(ctx, "zellij", tabArgs...)
-		if err := tabCmd.Run(); err != nil {
+		fmt.Printf("Creating tab: %s in session %s\n", tabName, sessionName)
+		if err := zc.CreateTab(ctx, sessionName, tabName, workDir); err != nil {
 			return fmt.Errorf("failed to create tab: %w", err)
 		}
 
-		// Wait a moment for tab to be created
-		time.Sleep(500 * time.Millisecond)
-
 		// Switch to the new tab
-		switchArgs := []string{"-s", sessionName, "action", "go-to-tab-name", tabName}
-		switchCmd := exec.CommandContext(ctx, "zellij", switchArgs...)
-		if err := switchCmd.Run(); err != nil {
+		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
 			fmt.Printf("Warning: failed to switch to tab: %v\n", err)
 		}
-	}
 
-	// Write the orchestrate command
-	runArgs := []string{"-s", sessionName, "action", "write-chars", orchestrateCommand}
-	fmt.Printf("Running: zellij %s\n", strings.Join(runArgs, " "))
-	runCmd := exec.CommandContext(ctx, "zellij", runArgs...)
-	if err := runCmd.Run(); err != nil {
-		return fmt.Errorf("failed to write orchestrate command: %w", err)
-	}
-
-	// Send Enter to execute the command
-	enterArgs := []string{"-s", sessionName, "action", "write", "13"}
-	enterCmd := exec.CommandContext(ctx, "zellij", enterArgs...)
-	if err := enterCmd.Run(); err != nil {
-		return fmt.Errorf("failed to execute orchestrate command: %w", err)
+		// Execute the orchestrate command
+		fmt.Printf("Executing: %s\n", orchestrateCommand)
+		if err := zc.ExecuteCommand(ctx, sessionName, orchestrateCommand); err != nil {
+			return fmt.Errorf("failed to execute orchestrate command: %w", err)
+		}
 	}
 
 	fmt.Printf("Work orchestrator spawned in zellij session %s, tab %s\n", sessionName, tabName)
