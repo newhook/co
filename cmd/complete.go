@@ -43,7 +43,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 	// If error flag is set, mark task as failed
 	if flagCompleteError != "" {
 		// Try to fail it as a task
-		if err := proj.DB.FailTask(GetContext(), id, flagCompleteError); err == nil {
+		if err := proj.DB.FailTask(ctx, id, flagCompleteError); err == nil {
 			fmt.Printf("Task %s marked as failed: %s\n", id, flagCompleteError)
 			return nil
 		}
@@ -93,20 +93,20 @@ func runComplete(cmd *cobra.Command, args []string) error {
 	beadID := id
 
 	// Check if this bead is part of a task
-	taskID, err := proj.DB.GetTaskForBead(GetContext(), beadID)
+	taskID, err := proj.DB.GetTaskForBead(ctx, beadID)
 	if err != nil {
 		return fmt.Errorf("failed to look up task for bead: %w", err)
 	}
 
 	if taskID != "" {
 		// Bead is part of a task - mark it complete in task_beads
-		if err := proj.DB.CompleteTaskBead(GetContext(), taskID, beadID); err != nil {
+		if err := proj.DB.CompleteTaskBead(ctx, taskID, beadID); err != nil {
 			return fmt.Errorf("failed to complete task bead: %w", err)
 		}
 		fmt.Printf("Marked bead %s as completed in task %s\n", beadID, taskID)
 
 		// Check if all beads in the task are complete and auto-complete the task
-		autoCompleted, err := proj.DB.CheckAndCompleteTask(GetContext(), taskID, flagCompletePRURL)
+		autoCompleted, err := proj.DB.CheckAndCompleteTask(ctx, taskID, flagCompletePRURL)
 		if err != nil {
 			return fmt.Errorf("failed to check task completion: %w", err)
 		}
