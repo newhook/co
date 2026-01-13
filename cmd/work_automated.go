@@ -10,8 +10,10 @@ import (
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
+	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/worktree"
 )
 
 // generateBranchNameFromBead creates a git-friendly branch name from a bead's title.
@@ -288,20 +290,16 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 	}
 
 	// Create worktree with new branch
-	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName, baseBranch)
-	cmd.Dir = mainRepoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if err := worktree.Create(mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
 		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to create worktree: %w\n%s", err, output)
+		return err
 	}
 
 	// Push branch and set upstream
-	cmd = exec.Command("git", "push", "--set-upstream", "origin", branchName)
-	cmd.Dir = worktreePath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		exec.Command("git", "worktree", "remove", worktreePath).Run()
+	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
+		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to push and set upstream: %w\n%s", err, output)
+		return err
 	}
 
 	// Initialize mise in worktree if needed
@@ -311,7 +309,7 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 
 	// Create work record in database
 	if err := proj.DB.CreateWork(ctx, workID, worktreePath, branchName, baseBranch); err != nil {
-		exec.Command("git", "worktree", "remove", worktreePath).Run()
+		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}

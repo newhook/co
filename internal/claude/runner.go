@@ -447,8 +447,3 @@ func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName stri
 
 	return true, nil
 }
-
-// WorkOrchestratorTabName returns the zellij tab name for a work orchestrator.
-func WorkOrchestratorTabName(workID string) string {
-	return fmt.Sprintf("work-%s", workID)
-}

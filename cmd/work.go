@@ -3,15 +3,16 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
 	cosignal "github.com/newhook/co/internal/signal"
+	"github.com/newhook/co/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -151,22 +152,18 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	worktreePath := filepath.Join(workDir, "tree")
 
 	// Create worktree with new branch based on the specified base branch
-	cmd1 := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName, baseBranch)
-	cmd1.Dir = proj.MainRepoPath()
-	if output, err := cmd1.CombinedOutput(); err != nil {
+	if err := worktree.Create(proj.MainRepoPath(), worktreePath, branchName, baseBranch); err != nil {
 		// Clean up on failure
 		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to create worktree: %w\n%s", err, output)
+		return err
 	}
 
 	// Push branch and set upstream to avoid "no upstream branch" errors later
-	cmd2 := exec.Command("git", "push", "--set-upstream", "origin", branchName)
-	cmd2.Dir = worktreePath
-	if output, err := cmd2.CombinedOutput(); err != nil {
+	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
 		// Clean up on failure
-		exec.Command("git", "worktree", "remove", worktreePath).Run()
+		worktree.RemoveForce(proj.MainRepoPath(), worktreePath)
 		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to push and set upstream: %w\n%s", err, output)
+		return err
 	}
 
 	// Initialize mise in worktree if needed
@@ -177,7 +174,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// Create work record in database
 	if err := proj.DB.CreateWork(ctx, workID, worktreePath, branchName, baseBranch); err != nil {
 		// Clean up on failure
-		exec.Command("git", "worktree", "remove", worktreePath).Run()
+		worktree.RemoveForce(proj.MainRepoPath(), worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
@@ -384,11 +381,9 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 
 	// Remove git worktree if it exists
 	if work.WorktreePath != "" {
-		cmd := exec.Command("git", "worktree", "remove", "--force", work.WorktreePath)
-		cmd.Dir = proj.MainRepoPath()
-		if output, err := cmd.CombinedOutput(); err != nil {
+		if err := worktree.RemoveForce(proj.MainRepoPath(), work.WorktreePath); err != nil {
 			// Warn but continue - worktree might not exist
-			fmt.Printf("Warning: failed to remove worktree: %v\n%s", err, output)
+			fmt.Printf("Warning: failed to remove worktree: %v\n", err)
 		}
 	}
 

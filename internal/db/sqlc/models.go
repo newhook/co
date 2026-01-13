@@ -35,6 +35,8 @@ type ComplexityCache struct {
 type SchemaMigration struct {
 	Version   string       `json:"version"`
 	AppliedAt sql.NullTime `json:"applied_at"`
+	Name      string       `json:"name"`
+	DownSql   string       `json:"down_sql"`
 }
 
 type Task struct {
