@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
@@ -341,7 +340,12 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 	// Step 4: Create estimate task only (implement/review/pr tasks created after estimation completes)
 	fmt.Println("\nCreating estimate task...")
 
-	estimateTaskID := fmt.Sprintf("%s.estimate-%d", workID, time.Now().UnixMilli())
+	// Use sequential task numbering instead of timestamps
+	nextNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get next task number: %w", err)
+	}
+	estimateTaskID := fmt.Sprintf("%s.%d", workID, nextNum)
 	if err := proj.DB.CreateTask(ctx, estimateTaskID, "estimate", collectedBeadIDs, 0, workID); err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}

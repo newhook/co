@@ -16,6 +16,9 @@ import (
 
 const maxReviewIterations = 5
 
+// Spinner frames for animated waiting display
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 var (
 	flagOrchestrateWork string
 )
@@ -65,6 +68,16 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
+		// Check if work still exists (may have been destroyed)
+		work, err = proj.DB.GetWork(ctx, workID)
+		if err != nil {
+			return fmt.Errorf("failed to check work status: %w", err)
+		}
+		if work == nil {
+			fmt.Println("Work has been destroyed, exiting orchestrator.")
+			return nil
+		}
+
 		// Get ready tasks (pending with all dependencies completed)
 		readyTasks, err := proj.DB.GetReadyTasksForWork(ctx, workID)
 		if err != nil {
@@ -115,13 +128,14 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			// No tasks at all or all completed - wait for new tasks
+			// No tasks at all or all completed - wait for new tasks with spinner
+			var msg string
 			if completedCount > 0 {
-				fmt.Printf("All %d task(s) completed. Waiting for new tasks...\n", completedCount)
+				msg = fmt.Sprintf("All %d task(s) completed. Waiting for new tasks...", completedCount)
 			} else {
-				fmt.Println("No tasks yet. Waiting for tasks to be created...")
+				msg = "No tasks yet. Waiting for tasks to be created..."
 			}
-			time.Sleep(5 * time.Second)
+			spinnerWait(msg, 5*time.Second)
 			continue
 		}
 
@@ -344,6 +358,20 @@ func createPRTask(proj *project.Project, work *db.Work, reviewTaskID string) err
 	}
 	fmt.Printf("Created PR task: %s (depends on %s)\n", prTaskID, reviewTaskID)
 	return nil
+}
+
+// spinnerWait displays an animated spinner with a message for the specified duration.
+// The spinner updates every 100ms to create a smooth animation effect.
+func spinnerWait(msg string, duration time.Duration) {
+	start := time.Now()
+	frameIdx := 0
+	for time.Since(start) < duration {
+		fmt.Printf("\r%s %s", spinnerFrames[frameIdx], msg)
+		frameIdx = (frameIdx + 1) % len(spinnerFrames)
+		time.Sleep(100 * time.Millisecond)
+	}
+	// Clear the line and print newline after waiting
+	fmt.Printf("\r%s\n", strings.Repeat(" ", len(msg)+2))
 }
 
 // countReviewIterations counts how many review tasks exist for a work unit.
