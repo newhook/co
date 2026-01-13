@@ -77,7 +77,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		// We also verify it exists as a task in the proj.DB to handle edge cases
 		if strings.Contains(argID, ".") {
 			// This looks like a task ID - verify it exists as a task
-			dbTask, err := proj.DB.GetTask(GetContext(), argID)
+			dbTask, err := proj.DB.GetTask(ctx, argID)
 			if err != nil {
 				return fmt.Errorf("failed to check task %s: %w", argID, err)
 			}
@@ -188,6 +188,7 @@ func processTask(proj *project.Project, taskID string) error {
 // processWork processes all tasks within a work unit.
 // Task A depends on Task B if any bead in A depends on any bead in B.
 func sortTasksByDependency(database *db.DB, tasks []*db.Task, mainRepoPath string) ([]*db.Task, error) {
+	ctx := GetContext()
 	if len(tasks) <= 1 {
 		return tasks, nil
 	}
@@ -196,7 +197,7 @@ func sortTasksByDependency(database *db.DB, tasks []*db.Task, mainRepoPath strin
 	beadToTask := make(map[string]string)
 	taskBeads := make(map[string][]string)
 	for _, t := range tasks {
-		beadIDs, err := database.GetTaskBeads(GetContext(), t.ID)
+		beadIDs, err := database.GetTaskBeads(ctx, t.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get beads for task %s: %w", t.ID, err)
 		}
@@ -357,8 +358,9 @@ func createFinalPR(featureBranch string, processedBeads []beads.Bead, dir string
 // This function is non-blocking - it spawns a single task and returns immediately.
 // The co claude wrapper process handles task completion and spawning subsequent tasks.
 func processWork(proj *project.Project, workID string) error {
+	ctx := GetContext()
 	// Get work details
-	work, err := proj.DB.GetWork(GetContext(), workID)
+	work, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
@@ -371,7 +373,7 @@ func processWork(proj *project.Project, workID string) error {
 	fmt.Printf("Worktree: %s\n", work.WorktreePath)
 
 	// Get tasks for this work
-	tasks, err := proj.DB.GetWorkTasks(GetContext(), workID)
+	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
 	}
@@ -433,14 +435,14 @@ func processWork(proj *project.Project, workID string) error {
 	if work.Status == db.StatusPending {
 		sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
 		tabName := fmt.Sprintf("work-%s", work.ID)
-		if err := proj.DB.StartWork(GetContext(), workID, sessionName, tabName); err != nil {
+		if err := proj.DB.StartWork(ctx, workID, sessionName, tabName); err != nil {
 			return fmt.Errorf("failed to start work: %w", err)
 		}
 	}
 
 	// Get bead details for the pending task
 	fmt.Printf("\n--- Spawning task %s ---\n", pendingTask.ID)
-	beadIDs, err := proj.DB.GetTaskBeads(GetContext(), pendingTask.ID)
+	beadIDs, err := proj.DB.GetTaskBeads(ctx, pendingTask.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get beads for task %s: %w", pendingTask.ID, err)
 	}
@@ -457,7 +459,7 @@ func processWork(proj *project.Project, workID string) error {
 
 	// Spawn the task (non-blocking)
 	if err := processTaskInWork(proj, pendingTask, work, taskBeads); err != nil {
-		proj.DB.FailTask(GetContext(), pendingTask.ID, err.Error())
+		proj.DB.FailTask(ctx, pendingTask.ID, err.Error())
 		return fmt.Errorf("failed to spawn task %s: %w", pendingTask.ID, err)
 	}
 
@@ -474,6 +476,7 @@ func processWork(proj *project.Project, workID string) error {
 // This function is non-blocking - it spawns Claude and returns immediately.
 // The co claude wrapper process handles database updates when the task completes.
 func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, taskBeads []beads.Bead) error {
+	ctx := GetContext()
 	fmt.Printf("Spawning task %s with %d bead(s)\n", dbTask.ID, len(taskBeads))
 	for _, b := range taskBeads {
 		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
@@ -481,7 +484,7 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 
 	// Start task in proj.DB
 	sessionName := claude.SessionNameForProject(proj.Config.Project.Name)
-	if err := proj.DB.StartTask(GetContext(), dbTask.ID, sessionName, dbTask.ID); err != nil {
+	if err := proj.DB.StartTask(ctx, dbTask.ID, sessionName, dbTask.ID); err != nil {
 		return fmt.Errorf("failed to start task in proj.DB: %w", err)
 	}
 
@@ -515,7 +518,6 @@ func processTaskInWork(proj *project.Project, dbTask *db.Task, work *db.Work, ta
 	}
 
 	// Spawn Claude in the work's worktree directory (non-blocking)
-	ctx := GetContext()
 	projectName := proj.Config.Project.Name
 	_, err := claude.Run(ctx, dbTask.ID, taskBeads, prompt, work.WorktreePath, projectName, flagAutoClose)
 	if err != nil {

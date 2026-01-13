@@ -73,7 +73,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	// Use provided task ID or find which task contains this bead
 	taskID := flagEstimateTask
 	if taskID == "" {
-		taskID, err = proj.DB.GetTaskForBead(GetContext(), beadID)
+		taskID, err = proj.DB.GetTaskForBead(ctx, beadID)
 		if err != nil {
 			return fmt.Errorf("failed to find task for bead: %w", err)
 		}
@@ -86,20 +86,20 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Mark this bead as completed in the task
-	if err := proj.DB.CompleteTaskBead(GetContext(), taskID, beadID); err != nil {
+	if err := proj.DB.CompleteTaskBead(ctx, taskID, beadID); err != nil {
 		// Non-fatal: bead might not be in a task or already completed
 		fmt.Printf("Note: could not mark bead complete in task: %v\n", err)
 	}
 
 	// Check if this is an estimate task
-	task, err := proj.DB.GetTask(GetContext(), taskID)
+	task, err := proj.DB.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
 
 	if task != nil && task.TaskType == "estimate" {
 		// Get all beads in the task
-		taskBeadIDs, err := proj.DB.GetTaskBeads(GetContext(), taskID)
+		taskBeadIDs, err := proj.DB.GetTaskBeads(ctx, taskID)
 		if err != nil {
 			return fmt.Errorf("failed to get task beads: %w", err)
 		}
@@ -112,7 +112,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 
 		if allEstimated {
 			// Auto-complete the estimation task
-			if err := proj.DB.CompleteTask(GetContext(), taskID, ""); err != nil {
+			if err := proj.DB.CompleteTask(ctx, taskID, ""); err != nil {
 				return fmt.Errorf("failed to complete task: %w", err)
 			}
 			fmt.Printf("✓ Estimated %s: complexity=%d, tokens=%d\n", beadID, flagEstimateScore, flagEstimateTokens)

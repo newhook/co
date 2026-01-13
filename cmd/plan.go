@@ -69,7 +69,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Validate work exists if specified
 	var work *db.Work
 	if workID != "" {
-		work, err = proj.DB.GetWork(GetContext(), workID)
+		work, err = proj.DB.GetWork(ctx, workID)
 		if err != nil {
 			return fmt.Errorf("failed to get work %s: %w", workID, err)
 		}
@@ -126,7 +126,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check for beads already in pending tasks
-	pendingTasks, err := proj.DB.ListTasks(GetContext(), db.StatusPending)
+	pendingTasks, err := proj.DB.ListTasks(ctx, db.StatusPending)
 	if err != nil {
 		return fmt.Errorf("failed to check pending tasks: %w", err)
 	}
@@ -134,7 +134,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Build set of beads that are already in pending tasks
 	beadsInPendingTasks := make(map[string]bool)
 	for _, task := range pendingTasks {
-		beadIDs, err := proj.DB.GetTaskBeads(GetContext(), task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(ctx, task.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get beads for task %s: %w", task.ID, err)
 		}
@@ -197,10 +197,11 @@ type taskGroup struct {
 
 // planManualGroups creates tasks from manual groupings like "bead-1,bead-2 bead-3"
 func planManualGroups(proj *project.Project, args []string, workID string, work *db.Work) error {
+	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
 	// First, check for beads already in pending tasks
-	pendingTasks, err := proj.DB.ListTasks(GetContext(), db.StatusPending)
+	pendingTasks, err := proj.DB.ListTasks(ctx, db.StatusPending)
 	if err != nil {
 		return fmt.Errorf("failed to check pending tasks: %w", err)
 	}
@@ -208,7 +209,7 @@ func planManualGroups(proj *project.Project, args []string, workID string, work 
 	// Build set of beads that are already in pending tasks
 	beadsInPendingTasks := make(map[string]bool)
 	for _, t := range pendingTasks {
-		beadIDs, err := proj.DB.GetTaskBeads(GetContext(), t.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(ctx, t.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get beads for task %s: %w", t.ID, err)
 		}
@@ -297,13 +298,13 @@ func planManualGroups(proj *project.Project, args []string, workID string, work 
 	// Create tasks in dependency order
 	for _, g := range sortedGroups {
 		// Generate hierarchical task ID (work is always required)
-		nextNum, err := proj.DB.GetNextTaskNumber(GetContext(), workID)
+		nextNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
 		if err != nil {
 			return fmt.Errorf("failed to get next task number for work %s: %w", workID, err)
 		}
 		taskID := fmt.Sprintf("%s.%d", workID, nextNum)
 
-		if err := proj.DB.CreateTask(GetContext(), taskID, "implement", g.beadIDs, 0, workID); err != nil {
+		if err := proj.DB.CreateTask(ctx, taskID, "implement", g.beadIDs, 0, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", taskID, err)
 		}
 		fmt.Printf("Created implement task %s with %d bead(s): %s\n", taskID, len(g.beadIDs), strings.Join(g.beadIDs, ", "))
@@ -456,7 +457,7 @@ func planAutoGroup(proj *project.Project, beadList []beads.Bead, workID string, 
 	// Update task IDs to use hierarchical format (work is always required)
 	for i := range tasks {
 		// Get next task number for this work
-		nextNum, err := proj.DB.GetNextTaskNumber(GetContext(), workID)
+		nextNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
 		if err != nil {
 			return fmt.Errorf("failed to get next task number for work %s: %w", workID, err)
 		}
@@ -466,7 +467,7 @@ func planAutoGroup(proj *project.Project, beadList []beads.Bead, workID string, 
 
 	// Create tasks in proj.DB
 	for _, t := range tasks {
-		if err := proj.DB.CreateTask(GetContext(), t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
+		if err := proj.DB.CreateTask(ctx, t.ID, "implement", t.BeadIDs, t.Complexity, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", t.ID, err)
 		}
 		fmt.Printf("Created implement task %s (complexity: %d) with %d bead(s): %s\n",
@@ -479,6 +480,7 @@ func planAutoGroup(proj *project.Project, beadList []beads.Bead, workID string, 
 
 // planSingleBead creates one task per bead in dependency order
 func planSingleBead(proj *project.Project, beadList []beads.Bead, workID string) error {
+	ctx := GetContext()
 	fmt.Printf("Creating %d single-bead task(s)...\n", len(beadList))
 
 	// Fetch dependency information for all beads
@@ -497,13 +499,13 @@ func planSingleBead(proj *project.Project, beadList []beads.Bead, workID string)
 	// Create tasks in dependency order
 	for _, bead := range sortedBeads {
 		// Generate hierarchical task ID (work is always required)
-		nextNum, err := proj.DB.GetNextTaskNumber(GetContext(), workID)
+		nextNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
 		if err != nil {
 			return fmt.Errorf("failed to get next task number for work %s: %w", workID, err)
 		}
 		taskID := fmt.Sprintf("%s.%d", workID, nextNum)
 
-		if err := proj.DB.CreateTask(GetContext(), taskID, "implement", []string{bead.ID}, 0, workID); err != nil {
+		if err := proj.DB.CreateTask(ctx, taskID, "implement", []string{bead.ID}, 0, workID); err != nil {
 			return fmt.Errorf("failed to create task %s: %w", taskID, err)
 		}
 		fmt.Printf("Created implement task %s: %s\n", taskID, bead.Title)
