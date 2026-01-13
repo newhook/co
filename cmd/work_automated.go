@@ -229,54 +229,15 @@ func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch strin
 		beadIDs = append(beadIDs, b.ID)
 	}
 
-	// Step 4: Create tasks with dependencies
-	fmt.Println("\nCreating tasks with dependencies...")
+	// Step 4: Create estimate task only (implement/review/pr tasks created after estimation completes)
+	fmt.Println("\nCreating estimate task...")
 
-	// 4a: Create estimate task (no dependencies - first to run)
 	estimateTaskID := fmt.Sprintf("%s.estimate-%d", workID, time.Now().UnixMilli())
 	if err := proj.DB.CreateTask(ctx, estimateTaskID, "estimate", beadIDs, 0, workID); err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
 	fmt.Printf("Created estimate task: %s\n", estimateTaskID)
-
-	// 4b: Create implement tasks (depend on estimate)
-	// For now, create one implement task per bead (simple approach)
-	// More sophisticated grouping would use complexity estimates
-	var implementTaskIDs []string
-	for i, b := range beadsToProcess {
-		taskID := fmt.Sprintf("%s.%d", workID, i+1)
-		if err := proj.DB.CreateTask(ctx, taskID, "implement", []string{b.ID}, 0, workID); err != nil {
-			return fmt.Errorf("failed to create implement task: %w", err)
-		}
-		// Add dependency: implement depends on estimate
-		if err := proj.DB.AddTaskDependency(ctx, taskID, estimateTaskID); err != nil {
-			return fmt.Errorf("failed to add dependency for %s: %w", taskID, err)
-		}
-		implementTaskIDs = append(implementTaskIDs, taskID)
-		fmt.Printf("Created implement task: %s (depends on %s)\n", taskID, estimateTaskID)
-	}
-
-	// 4c: Create review task (depends on all implement tasks)
-	reviewTaskID := fmt.Sprintf("%s.review-1", workID)
-	if err := proj.DB.CreateTask(ctx, reviewTaskID, "review", nil, 0, workID); err != nil {
-		return fmt.Errorf("failed to create review task: %w", err)
-	}
-	for _, implID := range implementTaskIDs {
-		if err := proj.DB.AddTaskDependency(ctx, reviewTaskID, implID); err != nil {
-			return fmt.Errorf("failed to add dependency for review: %w", err)
-		}
-	}
-	fmt.Printf("Created review task: %s (depends on %d implement tasks)\n", reviewTaskID, len(implementTaskIDs))
-
-	// 4d: Create PR task (depends on review)
-	prTaskID := fmt.Sprintf("%s.pr", workID)
-	if err := proj.DB.CreateTask(ctx, prTaskID, "pr", nil, 0, workID); err != nil {
-		return fmt.Errorf("failed to create PR task: %w", err)
-	}
-	if err := proj.DB.AddTaskDependency(ctx, prTaskID, reviewTaskID); err != nil {
-		return fmt.Errorf("failed to add dependency for PR: %w", err)
-	}
-	fmt.Printf("Created PR task: %s (depends on %s)\n", prTaskID, reviewTaskID)
+	fmt.Println("Note: Implement, review, and PR tasks will be created after estimation completes.")
 
 	// Step 5: Spawn the orchestrator
 	fmt.Println("\nSpawning orchestrator...")

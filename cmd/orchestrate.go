@@ -10,6 +10,7 @@ import (
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/task"
 	"github.com/spf13/cobra"
 )
 
@@ -136,17 +137,17 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 }
 
 // executeTask executes a single task inline based on its type.
-func executeTask(proj *project.Project, task *db.Task, work *db.Work) error {
+func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
 	var prompt string
 	var err error
 
-	switch task.TaskType {
+	switch t.TaskType {
 	case "estimate":
 		// Build estimation prompt
-		beadIDs, err := proj.DB.GetTaskBeads(ctx, task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(ctx, t.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get task beads: %w", err)
 		}
@@ -159,11 +160,11 @@ func executeTask(proj *project.Project, task *db.Task, work *db.Work) error {
 			}
 			beadList = append(beadList, *bead)
 		}
-		prompt = claude.BuildEstimatePrompt(task.ID, beadList)
+		prompt = claude.BuildEstimatePrompt(t.ID, beadList)
 
 	case "implement":
 		// Build implementation prompt
-		beadIDs, err := proj.DB.GetTaskBeads(ctx, task.ID)
+		beadIDs, err := proj.DB.GetTaskBeads(ctx, t.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get task beads: %w", err)
 		}
@@ -176,32 +177,37 @@ func executeTask(proj *project.Project, task *db.Task, work *db.Work) error {
 			}
 			beadList = append(beadList, *bead)
 		}
-		prompt = claude.BuildTaskPrompt(task.ID, beadList, work.BranchName, work.BaseBranch)
+		prompt = claude.BuildTaskPrompt(t.ID, beadList, work.BranchName, work.BaseBranch)
 
 	case "review":
 		// Build review prompt
-		prompt = claude.BuildReviewPrompt(task.ID, work.ID, work.BranchName, work.BaseBranch)
+		prompt = claude.BuildReviewPrompt(t.ID, work.ID, work.BranchName, work.BaseBranch)
 
 	case "pr":
 		// Build PR prompt
-		prompt = claude.BuildPRPrompt(task.ID, work.ID, work.BranchName, work.BaseBranch)
+		prompt = claude.BuildPRPrompt(t.ID, work.ID, work.BranchName, work.BaseBranch)
 
 	case "update-pr-description":
 		// Build update PR description prompt
-		prompt = claude.BuildUpdatePRDescriptionPrompt(task.ID, work.ID, work.PRURL, work.BranchName, work.BaseBranch)
+		prompt = claude.BuildUpdatePRDescriptionPrompt(t.ID, work.ID, work.PRURL, work.BranchName, work.BaseBranch)
 
 	default:
-		return fmt.Errorf("unknown task type: %s", task.TaskType)
+		return fmt.Errorf("unknown task type: %s", t.TaskType)
 	}
 
 	// Execute Claude inline
-	if err = claude.RunInline(ctx, proj.DB, task.ID, prompt, work.WorktreePath); err != nil {
+	if err = claude.RunInline(ctx, proj.DB, t.ID, prompt, work.WorktreePath); err != nil {
 		return err
 	}
 
-	// Post-execution: handle review-fix loop for review tasks
-	if task.TaskType == "review" {
-		if err := handleReviewFixLoop(proj, task, work); err != nil {
+	// Post-execution handling based on task type
+	switch t.TaskType {
+	case "estimate":
+		if err := handlePostEstimation(proj, t, work); err != nil {
+			return fmt.Errorf("failed to create post-estimation tasks: %w", err)
+		}
+	case "review":
+		if err := handleReviewFixLoop(proj, t, work); err != nil {
 			return fmt.Errorf("failed to handle review-fix loop: %w", err)
 		}
 	}
@@ -209,8 +215,95 @@ func executeTask(proj *project.Project, task *db.Task, work *db.Work) error {
 	return nil
 }
 
+// handlePostEstimation creates implement, review, and PR tasks after estimation completes.
+// Uses bin-packing to group beads based on their complexity estimates.
+func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db.Work) error {
+	ctx := GetContext()
+	mainRepoPath := proj.MainRepoPath()
+
+	fmt.Println("Creating implement, review, and PR tasks based on complexity estimates...")
+
+	// Get the beads that were estimated
+	beadIDs, err := proj.DB.GetTaskBeads(ctx, estimateTask.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get task beads: %w", err)
+	}
+
+	if len(beadIDs) == 0 {
+		return fmt.Errorf("no beads found for estimate task %s", estimateTask.ID)
+	}
+
+	// Get beads with dependencies for planning
+	var beadsWithDeps []beads.BeadWithDeps
+	for _, beadID := range beadIDs {
+		bwd, err := beads.GetBeadWithDepsInDir(beadID, mainRepoPath)
+		if err != nil {
+			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		}
+		beadsWithDeps = append(beadsWithDeps, *bwd)
+	}
+
+	// Create planner with cached complexity estimator
+	estimator := task.NewLLMEstimator(proj.DB, work.WorktreePath, proj.Config.Project.Name, work.ID)
+	planner := task.NewDefaultPlanner(estimator)
+
+	// Use default budget of 70 for bin-packing
+	const budget = 70
+	fmt.Printf("Planning tasks with budget %d...\n", budget)
+
+	tasks, err := planner.Plan(ctx, beadsWithDeps, budget)
+	if err != nil {
+		return fmt.Errorf("failed to plan tasks: %w", err)
+	}
+
+	if len(tasks) == 0 {
+		return fmt.Errorf("planner returned no tasks for %d beads", len(beadIDs))
+	}
+
+	// Create implement tasks
+	var implementTaskIDs []string
+	for _, t := range tasks {
+		nextNum, err := proj.DB.GetNextTaskNumber(ctx, work.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get next task number: %w", err)
+		}
+		taskID := fmt.Sprintf("%s.%d", work.ID, nextNum)
+
+		if err := proj.DB.CreateTask(ctx, taskID, "implement", t.BeadIDs, t.Complexity, work.ID); err != nil {
+			return fmt.Errorf("failed to create implement task: %w", err)
+		}
+
+		// Add dependency: implement depends on estimate
+		if err := proj.DB.AddTaskDependency(ctx, taskID, estimateTask.ID); err != nil {
+			return fmt.Errorf("failed to add dependency for %s: %w", taskID, err)
+		}
+
+		implementTaskIDs = append(implementTaskIDs, taskID)
+		fmt.Printf("Created implement task %s (complexity: %d) with %d bead(s): %v\n",
+			taskID, t.Complexity, len(t.BeadIDs), t.BeadIDs)
+	}
+
+	// Create review task (depends on all implement tasks)
+	// PR task is NOT created here - it will be created after review passes
+	reviewTaskID := fmt.Sprintf("%s.review-1", work.ID)
+	if err := proj.DB.CreateTask(ctx, reviewTaskID, "review", nil, 0, work.ID); err != nil {
+		return fmt.Errorf("failed to create review task: %w", err)
+	}
+	for _, implID := range implementTaskIDs {
+		if err := proj.DB.AddTaskDependency(ctx, reviewTaskID, implID); err != nil {
+			return fmt.Errorf("failed to add dependency for review: %w", err)
+		}
+	}
+	fmt.Printf("Created review task: %s (depends on %d implement tasks)\n", reviewTaskID, len(implementTaskIDs))
+
+	fmt.Printf("Successfully created %d implement task(s) and 1 review task\n", len(implementTaskIDs))
+	fmt.Println("PR task will be created after review passes.")
+	return nil
+}
+
 // handleReviewFixLoop checks if a review task found issues and creates fix tasks.
-// It also creates a new review task and updates the PR task dependencies.
+// If review passes (no issues), creates the PR task.
+// If review finds issues, creates fix tasks and a new review task.
 func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Work) error {
 	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
@@ -219,7 +312,7 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 	reviewCount := countReviewIterations(proj, work.ID)
 	if reviewCount >= maxReviewIterations {
 		fmt.Printf("Warning: Maximum review iterations (%d) reached, proceeding to PR\n", maxReviewIterations)
-		return nil
+		return createPRTask(proj, work, reviewTask.ID)
 	}
 
 	// Check if the review created any issue beads via review_epic_id
@@ -246,7 +339,7 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 
 	if len(beadsToFix) == 0 {
 		fmt.Println("Review passed - no issues found!")
-		return nil
+		return createPRTask(proj, work, reviewTask.ID)
 	}
 
 	fmt.Printf("Review found %d issue(s) - creating fix tasks...\n", len(beadsToFix))
@@ -285,17 +378,21 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 	}
 	fmt.Printf("Created new review task: %s (depends on %d fix tasks)\n", newReviewTaskID, len(fixTaskIDs))
 
-	// Update PR task to depend on the new review task instead of this one
-	prTaskID := fmt.Sprintf("%s.pr", work.ID)
-	// Remove old dependency and add new one
-	if err := proj.DB.DeleteTaskDependency(ctx, prTaskID, reviewTask.ID); err != nil {
-		fmt.Printf("Warning: failed to remove old PR dependency: %v\n", err)
-	}
-	if err := proj.DB.AddTaskDependency(ctx, prTaskID, newReviewTaskID); err != nil {
-		return fmt.Errorf("failed to add new PR dependency: %w", err)
-	}
-	fmt.Printf("Updated PR task %s to depend on new review %s\n", prTaskID, newReviewTaskID)
+	return nil
+}
 
+// createPRTask creates the PR task that depends on a review task.
+func createPRTask(proj *project.Project, work *db.Work, reviewTaskID string) error {
+	ctx := GetContext()
+
+	prTaskID := fmt.Sprintf("%s.pr", work.ID)
+	if err := proj.DB.CreateTask(ctx, prTaskID, "pr", nil, 0, work.ID); err != nil {
+		return fmt.Errorf("failed to create PR task: %w", err)
+	}
+	if err := proj.DB.AddTaskDependency(ctx, prTaskID, reviewTaskID); err != nil {
+		return fmt.Errorf("failed to add dependency for PR: %w", err)
+	}
+	fmt.Printf("Created PR task: %s (depends on %s)\n", prTaskID, reviewTaskID)
 	return nil
 }
 
