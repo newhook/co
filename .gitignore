@@ -5,14 +5,12 @@
 ac
 .swp
 
-# bd database (not tracked - JSONL is source of truth)
-.beads/beads.db
-.beads/beads.db-*
-.beads/bd.sock
+# bd daemon state (items not covered by .beads/.gitignore)
 .beads/bd.pipe
-
-# bd daemon state
 .beads/.exclusive-lock
 
 # Git worktrees (if using protected branches)
 .git/beads-worktrees/
+
+# bv (beads viewer) local config and caches
+.bv/
