@@ -78,6 +78,7 @@ type TaskMetadatum struct {
 type Work struct {
 	ID            string       `json:"id"`
 	Status        string       `json:"status"`
+	Name          string       `json:"name"`
 	ZellijSession string       `json:"zellij_session"`
 	ZellijTab     string       `json:"zellij_tab"`
 	WorktreePath  string       `json:"worktree_path"`

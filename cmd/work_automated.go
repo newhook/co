@@ -304,8 +304,8 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 		fmt.Printf("Warning: mise initialization failed: %v\n", err)
 	}
 
-	// Create work record in database
-	if err := proj.DB.CreateWork(ctx, workID, worktreePath, branchName, baseBranch); err != nil {
+	// Create work record in database (name will be assigned when names package is implemented)
+	if err := proj.DB.CreateWork(ctx, workID, "", worktreePath, branchName, baseBranch); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
@@ -411,8 +411,8 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 		fmt.Printf("Warning: mise initialization failed: %v\n", err)
 	}
 
-	// Create work record in database
-	if err := proj.DB.CreateWork(ctx, workID, worktreePath, branchName, baseBranch); err != nil {
+	// Create work record in database (name will be assigned when names package is implemented)
+	if err := proj.DB.CreateWork(ctx, workID, "", worktreePath, branchName, baseBranch); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)

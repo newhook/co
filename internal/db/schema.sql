@@ -6,6 +6,7 @@
 CREATE TABLE works (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'pending',
+    name TEXT NOT NULL DEFAULT '',
     zellij_session TEXT NOT NULL DEFAULT '',
     zellij_tab TEXT NOT NULL DEFAULT '',
     worktree_path TEXT NOT NULL DEFAULT '',

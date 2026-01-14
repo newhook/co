@@ -20,7 +20,7 @@ func TestDeleteWork(t *testing.T) {
 	baseBranch := "main"
 	worktreePath := "/tmp/test-work/tree"
 
-	err := db.CreateWork(ctx, workID, worktreePath, branchName, baseBranch)
+	err := db.CreateWork(ctx, workID, "", worktreePath, branchName, baseBranch)
 	require.NoError(t, err, "Failed to create work")
 
 	// Create tasks for the work
@@ -87,7 +87,7 @@ func TestAddWorkBeads(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "/tmp/tree", "feature/test", "main")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main")
 	require.NoError(t, err)
 
 	// Add beads to work
@@ -106,7 +106,7 @@ func TestAddWorkBeadsDuplicateError(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "/tmp/tree", "feature/test", "main")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main")
 	require.NoError(t, err)
 
 	// Add initial beads
@@ -126,7 +126,7 @@ func TestAddWorkBeadsEmptyList(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "/tmp/tree", "feature/test", "main")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main")
 	require.NoError(t, err)
 
 	// Add empty list - should succeed with no effect
@@ -144,7 +144,7 @@ func TestAddWorkBeadsWithGroup(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "/tmp/tree", "feature/test", "main")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main")
 	require.NoError(t, err)
 
 	// Add beads with different groups

@@ -1,6 +1,6 @@
 -- name: CreateWork :exec
-INSERT INTO works (id, status, worktree_path, branch_name, base_branch)
-VALUES (?, 'pending', ?, ?, ?);
+INSERT INTO works (id, status, name, worktree_path, branch_name, base_branch)
+VALUES (?, 'pending', ?, ?, ?, ?);
 
 -- name: StartWork :execrows
 UPDATE works
@@ -26,6 +26,7 @@ WHERE id = ?;
 
 -- name: GetWork :one
 SELECT id, status,
+       name,
        zellij_session,
        zellij_tab,
        worktree_path,
@@ -41,6 +42,7 @@ WHERE id = ?;
 
 -- name: ListWorks :many
 SELECT id, status,
+       name,
        zellij_session,
        zellij_tab,
        worktree_path,
@@ -56,6 +58,7 @@ ORDER BY created_at DESC;
 
 -- name: ListWorksByStatus :many
 SELECT id, status,
+       name,
        zellij_session,
        zellij_tab,
        worktree_path,
@@ -77,6 +80,7 @@ LIMIT 1;
 
 -- name: GetWorkByDirectory :one
 SELECT id, status,
+       name,
        zellij_session,
        zellij_tab,
        worktree_path,
