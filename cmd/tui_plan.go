@@ -46,6 +46,13 @@ type planModel struct {
 	createBeadType     int // 0=task, 1=bug, 2=feature
 	createBeadPriority int // 0-4, default 2
 
+	// Add child bead state
+	parentBeadID string // ID of parent when adding child
+
+	// Add to work state
+	availableWorks []workItem // List of works to choose from
+	worksCursor    int        // Cursor position in works list
+
 	// Loading state
 	loading bool
 
@@ -164,6 +171,28 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case worksLoadedMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Failed to load works: %v", msg.err)
+			m.statusIsError = true
+			return m, nil
+		}
+		m.availableWorks = msg.works
+		m.worksCursor = 0
+		m.viewMode = ViewAddToWork
+		return m, nil
+
+	case beadAddedToWorkMsg:
+		m.viewMode = ViewNormal
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Failed to add issue: %v", msg.err)
+			m.statusIsError = true
+		} else {
+			m.statusMessage = fmt.Sprintf("Added %s to work %s", msg.beadID, msg.workID)
+			m.statusIsError = false
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 
@@ -221,6 +250,10 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateCreateBead(msg)
 	case ViewCreateEpic:
 		return m.updateCreateEpic(msg)
+	case ViewAddChildBead:
+		return m.updateAddChildBead(msg)
+	case ViewAddToWork:
+		return m.updateAddToWork(msg)
 	case ViewBeadSearch:
 		return m.updateBeadSearch(msg)
 	case ViewLabelFilter:
@@ -330,6 +363,25 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "a":
+		// Add child issue to selected issue
+		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+			m.parentBeadID = m.beadItems[m.beadsCursor].id
+			m.viewMode = ViewAddChildBead
+			m.textInput.Reset()
+			m.textInput.Focus()
+			m.createBeadType = 0
+			m.createBeadPriority = 2
+		}
+		return m, nil
+
+	case "W":
+		// Add selected issue to existing work
+		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+			return m, m.loadAvailableWorks()
+		}
+		return m, nil
+
 	case "?":
 		m.viewMode = ViewHelp
 		return m, nil
@@ -349,6 +401,10 @@ func (m *planModel) View() string {
 		return m.renderWithDialog(m.renderCreateBeadDialogContent())
 	case ViewCreateEpic:
 		return m.renderWithDialog(m.renderCreateEpicDialogContent())
+	case ViewAddChildBead:
+		return m.renderWithDialog(m.renderAddChildBeadDialogContent())
+	case ViewAddToWork:
+		return m.renderWithDialog(m.renderAddToWorkDialogContent())
 	case ViewBeadSearch:
 		return m.renderWithDialog(m.renderBeadSearchDialogContent())
 	case ViewLabelFilter:
@@ -594,9 +650,10 @@ func (m *planModel) renderHelp() string {
   ────────────────────────────
   n             Create new issue (task)
   e             Create new epic (feature)
+  a             Add child issue (blocked by selected)
   x             Close selected issue
   w             Create work from issue
-  Space         Toggle selection
+  W             Add issue to existing work
 
   Filtering & Sorting
   ────────────────────────────
@@ -1175,4 +1232,228 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 	}
 
 	return result
+}
+
+// updateAddChildBead handles input for the add child bead dialog
+func (m *planModel) updateAddChildBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+		m.viewMode = ViewNormal
+		m.textInput.Blur()
+		m.parentBeadID = ""
+		return m, nil
+	}
+	switch msg.String() {
+	case "enter":
+		title := strings.TrimSpace(m.textInput.Value())
+		if title != "" {
+			return m, m.createChildBead(title, beadTypes[m.createBeadType], m.createBeadPriority)
+		}
+		return m, nil
+	case "tab":
+		m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
+		return m, nil
+	case "+", "=":
+		if m.createBeadPriority > 0 {
+			m.createBeadPriority--
+		}
+		return m, nil
+	case "-":
+		if m.createBeadPriority < 4 {
+			m.createBeadPriority++
+		}
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.textInput, cmd = m.textInput.Update(msg)
+		return m, cmd
+	}
+}
+
+// updateAddToWork handles input for the add to work dialog
+func (m *planModel) updateAddToWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+		m.viewMode = ViewNormal
+		return m, nil
+	}
+	switch msg.String() {
+	case "j", "down":
+		if m.worksCursor < len(m.availableWorks)-1 {
+			m.worksCursor++
+		}
+		return m, nil
+	case "k", "up":
+		if m.worksCursor > 0 {
+			m.worksCursor--
+		}
+		return m, nil
+	case "enter":
+		if len(m.availableWorks) > 0 && m.worksCursor < len(m.availableWorks) {
+			workID := m.availableWorks[m.worksCursor].id
+			beadID := m.beadItems[m.beadsCursor].id
+			return m, m.addBeadToWork(beadID, workID)
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+// renderAddChildBeadDialogContent renders the add child bead dialog
+func (m *planModel) renderAddChildBeadDialogContent() string {
+	var typeOptions []string
+	for i, t := range beadTypes {
+		if i == m.createBeadType {
+			typeOptions = append(typeOptions, fmt.Sprintf("[%s]", t))
+		} else {
+			typeOptions = append(typeOptions, fmt.Sprintf(" %s ", t))
+		}
+	}
+	typeSelector := strings.Join(typeOptions, " ")
+
+	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
+	priorityDisplay := priorityLabels[m.createBeadPriority]
+
+	content := fmt.Sprintf(`
+  Add Child Issue to %s
+
+  Title:
+  %s
+
+  Type (Tab to cycle):    %s
+  Priority (+/- to adjust): %s
+
+  The new issue will be blocked by %s.
+
+  [Enter] Create  [Esc] Cancel
+`, issueIDStyle.Render(m.parentBeadID), m.textInput.View(), typeSelector, priorityDisplay, m.parentBeadID)
+
+	return tuiDialogStyle.Render(content)
+}
+
+// renderAddToWorkDialogContent renders the add to work dialog
+func (m *planModel) renderAddToWorkDialogContent() string {
+	beadID := ""
+	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		beadID = m.beadItems[m.beadsCursor].id
+	}
+
+	var worksList strings.Builder
+	if len(m.availableWorks) == 0 {
+		worksList.WriteString("  No available works.\n")
+	} else {
+		for i, work := range m.availableWorks {
+			prefix := "  "
+			if i == m.worksCursor {
+				prefix = "> "
+			}
+			worksList.WriteString(fmt.Sprintf("%s%s (%s) - %s\n", prefix, work.id, work.status, work.branch))
+		}
+	}
+
+	content := fmt.Sprintf(`
+  Add Issue to Work
+
+  Issue: %s
+
+  Select a work:
+%s
+  [Enter] Add  [j/k] Navigate  [Esc] Cancel
+`, issueIDStyle.Render(beadID), worksList.String())
+
+	return tuiDialogStyle.Render(content)
+}
+
+// worksLoadedMsg indicates available works have been loaded
+type worksLoadedMsg struct {
+	works []workItem
+	err   error
+}
+
+// beadAddedToWorkMsg indicates a bead was added to a work
+type beadAddedToWorkMsg struct {
+	beadID string
+	workID string
+	err    error
+}
+
+// loadAvailableWorks loads the list of available works
+func (m *planModel) loadAvailableWorks() tea.Cmd {
+	return func() tea.Msg {
+		// Empty string means no filter (all statuses)
+		works, err := m.proj.DB.ListWorks(m.ctx, "")
+		if err != nil {
+			return worksLoadedMsg{err: err}
+		}
+
+		var items []workItem
+		for _, w := range works {
+			// Only show pending/processing works (not completed/failed)
+			if w.Status == "pending" || w.Status == "processing" {
+				items = append(items, workItem{
+					id:     w.ID,
+					status: w.Status,
+					branch: w.BranchName,
+				})
+			}
+		}
+		return worksLoadedMsg{works: items}
+	}
+}
+
+// addBeadToWork adds a bead to an existing work
+func (m *planModel) addBeadToWork(beadID, workID string) tea.Cmd {
+	return func() tea.Msg {
+		mainRepoPath := m.proj.MainRepoPath()
+
+		// Use co work add command
+		cmd := exec.Command("co", "work", "add", beadID, "--work="+workID)
+		cmd.Dir = mainRepoPath
+		if err := cmd.Run(); err != nil {
+			return beadAddedToWorkMsg{beadID: beadID, workID: workID, err: fmt.Errorf("failed to add issue to work: %w", err)}
+		}
+
+		return beadAddedToWorkMsg{beadID: beadID, workID: workID}
+	}
+}
+
+// createChildBead creates a new bead that depends on the parent bead
+func (m *planModel) createChildBead(title, beadType string, priority int) tea.Cmd {
+	return func() tea.Msg {
+		mainRepoPath := m.proj.MainRepoPath()
+		parentID := m.parentBeadID
+
+		// Create the new bead
+		args := []string{"create", "--title=" + title, "--type=" + beadType, fmt.Sprintf("--priority=%d", priority)}
+		createCmd := exec.Command("bd", args...)
+		createCmd.Dir = mainRepoPath
+		output, err := createCmd.Output()
+		if err != nil {
+			return planDataMsg{err: fmt.Errorf("failed to create issue: %w", err)}
+		}
+
+		// Parse the new bead ID from output (bd create outputs the new ID)
+		newBeadID := strings.TrimSpace(string(output))
+		// Handle case where output might have extra text
+		if strings.Contains(newBeadID, " ") {
+			parts := strings.Fields(newBeadID)
+			for _, p := range parts {
+				if strings.HasPrefix(p, "ac-") || strings.HasPrefix(p, "bd-") {
+					newBeadID = p
+					break
+				}
+			}
+		}
+
+		// Add dependency: new bead depends on parent (parent blocks new bead)
+		if newBeadID != "" && parentID != "" {
+			depCmd := exec.Command("bd", "dep", "add", newBeadID, parentID)
+			depCmd.Dir = mainRepoPath
+			_ = depCmd.Run() // Best effort, don't fail if dependency add fails
+		}
+
+		// Refresh after creation
+		items, err := m.loadBeads()
+		session := m.sessionName()
+		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
+		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
+	}
 }

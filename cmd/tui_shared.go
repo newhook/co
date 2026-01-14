@@ -130,6 +130,8 @@ const (
 	ViewCreateWork
 	ViewCreateBead
 	ViewCreateEpic
+	ViewAddChildBead // Add child issue to selected issue
+	ViewAddToWork    // Add issue to existing work
 	ViewDestroyConfirm
 	ViewCloseBeadConfirm
 	ViewPlanDialog
@@ -138,6 +140,13 @@ const (
 	ViewLabelFilter
 	ViewHelp
 )
+
+// workItem represents a work unit for selection
+type workItem struct {
+	id     string
+	status string
+	branch string
+}
 
 // beadItem represents a bead in the beads panel
 type beadItem struct {
