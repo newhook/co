@@ -12,6 +12,12 @@ import (
 	"github.com/newhook/co/internal/db"
 )
 
+// signalProcessGroup sends a signal to an entire process group.
+// Uses negative PID to signal the group instead of just the leader.
+func signalProcessGroup(pid int, sig syscall.Signal) {
+	syscall.Kill(-pid, sig)
+}
+
 // RunInline executes Claude directly in the current terminal (fork/exec).
 // This blocks until Claude exits or the task is marked complete in the database.
 // Unlike Run(), this does not create a separate zellij tab.
@@ -40,6 +46,8 @@ func RunInline(ctx context.Context, database *db.DB, taskID string, prompt strin
 	claudeCmd.Stdin = os.Stdin
 	claudeCmd.Stdout = os.Stdout
 	claudeCmd.Stderr = os.Stderr
+	// Create a new process group so we can kill Claude and all its children
+	claudeCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Start Claude
 	if err := claudeCmd.Start(); err != nil {
@@ -96,8 +104,8 @@ func RunInline(ctx context.Context, database *db.DB, taskID string, prompt strin
 				if task.Status == db.StatusCompleted || task.Status == db.StatusFailed {
 					fmt.Printf("\nTask marked as %s in database, terminating Claude...\n", task.Status)
 
-					// Send SIGTERM to Claude
-					claudeCmd.Process.Signal(syscall.SIGTERM)
+					// Send SIGTERM to Claude's process group (kills Claude and any children)
+					signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGTERM)
 
 					// Give it 5 seconds to exit gracefully
 					select {
@@ -106,7 +114,7 @@ func RunInline(ctx context.Context, database *db.DB, taskID string, prompt strin
 					case <-time.After(5 * time.Second):
 						// Force kill if still running
 						fmt.Println("Claude didn't exit gracefully, force killing...")
-						claudeCmd.Process.Kill()
+						signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGKILL)
 						<-done // Wait for process to actually exit
 					}
 
@@ -118,7 +126,12 @@ func RunInline(ctx context.Context, database *db.DB, taskID string, prompt strin
 
 		case sig := <-sigChan:
 			fmt.Printf("\nReceived signal %v, forwarding to Claude...\n", sig)
-			claudeCmd.Process.Signal(sig)
+			// Forward signal to Claude's process group
+			if sysSig, ok := sig.(syscall.Signal); ok {
+				signalProcessGroup(claudeCmd.Process.Pid, sysSig)
+			} else {
+				signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGTERM)
+			}
 
 			// Wait for Claude to exit
 			select {
@@ -126,7 +139,7 @@ func RunInline(ctx context.Context, database *db.DB, taskID string, prompt strin
 				// Claude exited
 			case <-time.After(5 * time.Second):
 				fmt.Println("Claude didn't exit, force killing...")
-				claudeCmd.Process.Kill()
+				signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGKILL)
 				<-done
 			}
 
@@ -134,12 +147,12 @@ func RunInline(ctx context.Context, database *db.DB, taskID string, prompt strin
 
 		case <-ctx.Done():
 			fmt.Println("\nContext cancelled, terminating Claude...")
-			claudeCmd.Process.Signal(syscall.SIGTERM)
+			signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGTERM)
 
 			select {
 			case <-done:
 			case <-time.After(5 * time.Second):
-				claudeCmd.Process.Kill()
+				signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGKILL)
 				<-done
 			}
 
