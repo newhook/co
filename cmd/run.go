@@ -1,41 +1,47 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
+	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/task"
 	"github.com/newhook/co/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
 var (
-	flagLimit     int
-	flagDryRun    bool
-	flagProject   string
-	flagWork      string
-	flagAutoClose bool
+	flagLimit         int
+	flagDryRun        bool
+	flagProject       string
+	flagWork          string
+	flagAutoClose     bool
+	flagRunPlan       bool
+	flagRunAuto       bool
+	flagForceEstimate bool
 )
 
 var runCmd = &cobra.Command{
 	Use:   "run [work-id]",
 	Short: "Execute pending tasks for a work unit",
-	Long: `Run ensures the work orchestrator is running for a work unit.
+	Long: `Run creates tasks from work beads and executes them.
 
-The orchestrator polls for ready tasks and executes them in dependency order.
-Tasks run sequentially within the work's worktree until all are complete.
+Before spawning the orchestrator, any unassigned beads in work_beads
+are automatically converted to tasks based on their grouping.
+
+Flags:
+  --plan     Use LLM complexity estimation to auto-group beads into tasks
+  --auto     Run full automated workflow (implement, review/fix loop, PR)
 
 Without arguments:
-- If in a work directory or --work specified: runs that work's orchestrator
+- If in a work directory or --work specified: runs that work
 
 With an ID:
-- If ID is a work ID (e.g., w-xxx): runs that work's orchestrator
-
-The orchestrator handles:
-- Polling for ready tasks (pending with all dependencies satisfied)
-- Executing each task inline in sequence
-- Error handling and status updates`,
+- If ID is a work ID (e.g., w-xxx): runs that work`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runTasks,
 }
@@ -46,6 +52,9 @@ func init() {
 	runCmd.Flags().StringVar(&flagProject, "project", "", "project directory (default: auto-detect from cwd)")
 	runCmd.Flags().StringVar(&flagWork, "work", "", "work ID to run (default: auto-detect from cwd)")
 	runCmd.Flags().BoolVar(&flagAutoClose, "auto-close", false, "automatically close tabs after task completion")
+	runCmd.Flags().BoolVar(&flagRunPlan, "plan", false, "use LLM complexity estimation to auto-group beads")
+	runCmd.Flags().BoolVar(&flagRunAuto, "auto", false, "run full automated workflow (implement, review/fix, PR)")
+	runCmd.Flags().BoolVar(&flagForceEstimate, "force-estimate", false, "force re-estimation of complexity (with --plan)")
 }
 
 func runTasks(cmd *cobra.Command, args []string) error {
@@ -69,16 +78,19 @@ func runTasks(cmd *cobra.Command, args []string) error {
 
 	if argID != "" {
 		// Check if it looks like a work ID
-		if strings.HasPrefix(argID, "work-") || strings.HasPrefix(argID, "w-") {
+		if strings.HasPrefix(argID, "w-") {
 			workID = argID
 		} else {
-			return fmt.Errorf("invalid ID format: %s (expected w-xxx or work-N)", argID)
+			return fmt.Errorf("invalid ID format: %s (expected w-xxx)", argID)
 		}
 	} else if flagWork != "" {
 		workID = flagWork
 	} else {
 		// Try to detect work from current directory
-		workID, _ = detectWorkFromDirectory(proj)
+		workID, err = detectWorkFromDirectory(proj)
+		if err != nil {
+			return fmt.Errorf("failed to detect work directory: %w", err)
+		}
 		if workID == "" {
 			return fmt.Errorf("no work context found. Use --work flag or run from a work directory")
 		}
@@ -106,6 +118,23 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
 	}
 
+	mainRepoPath := proj.MainRepoPath()
+
+	// Create tasks from unassigned work beads
+	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, flagRunPlan)
+	if err != nil {
+		return fmt.Errorf("failed to create tasks: %w", err)
+	}
+	if tasksCreated > 0 {
+		fmt.Printf("\nCreated %d task(s) from work beads.\n", tasksCreated)
+	}
+
+	// If --auto, run the full automated workflow
+	if flagRunAuto {
+		fmt.Println("\nRunning automated workflow...")
+		return runFullAutomatedWorkflow(proj, workID, work.WorktreePath)
+	}
+
 	// Ensure orchestrator is running
 	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath)
 	if err != nil {
@@ -119,5 +148,165 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("Switch to the zellij session to monitor progress.")
+	return nil
+}
+
+// createTasksFromWorkBeads creates tasks from unassigned beads in work_beads.
+// If usePlan is true, uses LLM complexity estimation to group beads.
+// Returns the number of tasks created.
+func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID, mainRepoPath string, usePlan bool) (int, error) {
+	// Get unassigned beads
+	unassigned, err := proj.DB.GetUnassignedWorkBeads(ctx, workID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get unassigned beads: %w", err)
+	}
+
+	if len(unassigned) == 0 {
+		return 0, nil
+	}
+
+	fmt.Printf("\nFound %d unassigned bead(s)\n", len(unassigned))
+
+	// Get bead details for each unassigned bead
+	var beadsWithDeps []beads.BeadWithDeps
+	for _, wb := range unassigned {
+		bead, err := beads.GetBeadWithDepsInDir(wb.BeadID, mainRepoPath)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get bead %s: %w", wb.BeadID, err)
+		}
+		beadsWithDeps = append(beadsWithDeps, *bead)
+	}
+
+	// Group beads into tasks
+	var taskGroups [][]string // Each inner slice is a group of bead IDs for one task
+
+	if usePlan {
+		// Use LLM complexity estimation to group beads
+		fmt.Println("Using LLM complexity estimation to group beads...")
+		taskGroups, err = planBeadsWithComplexity(proj, beadsWithDeps, mainRepoPath, workID, flagForceEstimate)
+		if err != nil {
+			return 0, fmt.Errorf("failed to plan beads: %w", err)
+		}
+	} else {
+		// Use existing group assignments from work_beads
+		taskGroups = groupBeadsByWorkBeadGroup(unassigned)
+	}
+
+	// Create tasks from groups
+	tasksCreated := 0
+	for _, beadIDs := range taskGroups {
+		if len(beadIDs) == 0 {
+			continue
+		}
+
+		// Get next task number
+		taskNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
+		if err != nil {
+			return tasksCreated, fmt.Errorf("failed to get next task number: %w", err)
+		}
+
+		taskID := fmt.Sprintf("%s.%d", workID, taskNum)
+		if err := proj.DB.CreateTask(ctx, taskID, "implement", beadIDs, 0, workID); err != nil {
+			return tasksCreated, fmt.Errorf("failed to create task: %w", err)
+		}
+
+		fmt.Printf("  Created task %s with %d bead(s)\n", taskID, len(beadIDs))
+		tasksCreated++
+	}
+
+	return tasksCreated, nil
+}
+
+// groupBeadsByWorkBeadGroup groups beads by their group_id in work_beads.
+// Beads with group_id=0 each become their own task.
+// Beads with the same group_id > 0 are grouped together.
+func groupBeadsByWorkBeadGroup(workBeads []*db.WorkBead) [][]string {
+	// Group beads by group_id
+	groupMap := make(map[int64][]string)
+	for _, wb := range workBeads {
+		groupMap[wb.GroupID] = append(groupMap[wb.GroupID], wb.BeadID)
+	}
+
+	var result [][]string
+
+	// First, add ungrouped beads (group_id = 0) as individual tasks
+	if ungrouped, ok := groupMap[0]; ok {
+		for _, beadID := range ungrouped {
+			result = append(result, []string{beadID})
+		}
+		delete(groupMap, 0)
+	}
+
+	// Then add grouped beads
+	for _, beadIDs := range groupMap {
+		result = append(result, beadIDs)
+	}
+
+	return result
+}
+
+// planBeadsWithComplexity uses LLM complexity estimation to group beads.
+// If forceEstimate is true, re-estimates complexity even if cached values exist.
+func planBeadsWithComplexity(proj *project.Project, beadsWithDeps []beads.BeadWithDeps, mainRepoPath, workID string, forceEstimate bool) ([][]string, error) {
+	ctx := GetContext()
+
+	// Use the task planner with complexity estimation
+	estimator := task.NewLLMEstimator(proj.DB, mainRepoPath, proj.Config.Project.Name, workID)
+	planner := task.NewDefaultPlanner(estimator)
+
+	// Convert BeadWithDeps to Bead for EstimateBatch
+	beadList := make([]beads.Bead, len(beadsWithDeps))
+	for i, b := range beadsWithDeps {
+		beadList[i] = beads.Bead{
+			ID:          b.ID,
+			Title:       b.Title,
+			Description: b.Description,
+		}
+	}
+
+	// Estimate complexity for each bead
+	result, err := estimator.EstimateBatch(ctx, beadList, forceEstimate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to estimate complexity: %w", err)
+	}
+
+	// If a task was spawned for estimation, we need to wait for it
+	if result.TaskSpawned {
+		return nil, fmt.Errorf("estimation task %s spawned - re-run after it completes", result.TaskID)
+	}
+
+	// Plan tasks using the bin-packing algorithm with default budget of 70
+	planned, err := planner.Plan(ctx, beadsWithDeps, 70)
+	if err != nil {
+		return nil, fmt.Errorf("failed to plan tasks: %w", err)
+	}
+
+	// Convert planned tasks to bead ID groups
+	var groups [][]string
+	for _, p := range planned {
+		groups = append(groups, p.BeadIDs)
+	}
+
+	return groups, nil
+}
+
+// runFullAutomatedWorkflow runs the complete automated workflow:
+// 1. Execute all implement tasks
+// 2. Run review-fix loop until clean
+// 3. Create PR
+func runFullAutomatedWorkflow(proj *project.Project, workID, worktreePath string) error {
+	ctx := GetContext()
+
+	// Spawn the orchestrator which will handle the tasks
+	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath); err != nil {
+		return fmt.Errorf("failed to spawn orchestrator: %w", err)
+	}
+
+	fmt.Println("Automated workflow started in zellij tab.")
+	fmt.Println("The orchestrator will:")
+	fmt.Println("  1. Execute all implement tasks")
+	fmt.Println("  2. Run review-fix loop until clean")
+	fmt.Println("  3. Create a pull request")
+
 	return nil
 }
