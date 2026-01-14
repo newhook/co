@@ -16,7 +16,6 @@ go test ./...
 - `cmd/estimate.go` - Estimate command (report complexity for beads)
 - `cmd/list.go` - List command (list tracked beads)
 - `cmd/orchestrate.go` - Orchestrate command (internal, execute tasks)
-- `cmd/plan.go` - Plan command (create tasks from beads)
 - `cmd/poll.go` - Poll command (monitor progress with text output)
 - `cmd/proj.go` - Project management (create/destroy/status)
 - `cmd/run.go` - Run command (execute pending tasks or works)
@@ -115,51 +114,68 @@ The system uses a 3-tier hierarchy: **Work → Tasks → Beads**
 
 ## Workflow
 
-Three-phase workflow: **work** → **plan** → **run**.
+Two-phase workflow: **work** → **run**.
 
 1. Create project: `co proj create <dir> <repo>`
    - Initializes beads: `bd init` and `bd hooks install`
    - If mise enabled (`.mise.toml` or `.tool-versions`): runs `mise trust`, `mise install`
    - If mise `setup` task defined: runs `mise run setup` (use for npm/pnpm install)
 
-2. Create work unit: `co work create`
+2. Create work unit with beads: `co work create <bead-args...>`
+   - Syntax: `co work create bead-1,bead-2 bead-3` (comma = same group, space = different groups)
    - Auto-generates work ID (w-abc, w-xyz, etc.)
+   - Generates branch name from bead titles, prompts for confirmation
+   - Expands epics to include all child beads
    - Creates subdirectory with git worktree: `<project>/<work-id>/tree/`
-   - Creates feature branch based on bead titles
+   - Use `--auto` for full automated workflow (implement, review/fix loop, PR)
 
-3. Plan tasks within work:
-   - `cd <work-id> && co plan` - context-aware planning
-   - `co plan --work <work-id>` - explicit work specification
-   - `co plan --auto-group` - LLM groups beads by complexity
-   - `co plan bead-1,bead-2 bead-3` - manual grouping (comma = same task)
-
-4. Execute work: `co run`
+3. Execute work: `co run`
    - From work directory: `cd <work-id> && co run`
    - Or explicitly: `co run --work <work-id>`
-   - Or run specific work: `co run w-abc`
+   - Automatically creates tasks from unassigned work beads
+   - Use `--plan` for LLM complexity estimation to auto-group beads
+   - Use `--auto` for full automated workflow (implement, review/fix loop, PR)
    - Executes all tasks in the work sequentially:
      - Creates single zellij tab for the work
      - Tasks run in sequence within the work's tab
      - All tasks share the same worktree
      - Claude Code implements changes in the work's worktree
      - Closes beads with `bd close <id> --reason "..."`
-   - Creates single PR for entire work when all tasks complete
    - Worktree persists (managed at work level, not task level)
 
 Zellij sessions are named `co-<project-name>` for isolation between projects.
 
 ## Work Commands
 
-### `co work create <branch>`
-Creates a new work unit with auto-generated ID:
-- Requires branch name argument (e.g., `co work create feat/my-feature`)
-- Generates hash-based ID: w-abc, w-xyz, etc.
+### `co work create <bead-args...>`
+Creates a new work unit with beads:
+- Syntax: `co work create bead-1,bead-2 bead-3`
+  - Comma-separated beads are grouped together for a single task
+  - Space-separated arguments create separate task groups
+- Generates branch name from bead titles, prompts for confirmation
+- Expands epics to include all child beads with transitive dependencies
+- Auto-generates work ID (w-abc, w-xyz, etc.)
 - Creates subdirectory: `<project>/<work-id>/`
 - Creates git worktree: `<project>/<work-id>/tree/`
 - Pushes branch and sets upstream
 - Spawns orchestrator in zellij tab
 - Initializes mise if configured
 - Use `--base` to specify base branch (default: main)
+- Use `--auto` for full automated workflow (implement, review/fix loop, PR)
+
+### `co work add <bead-args...>`
+Adds beads to an existing work:
+- Syntax: `co work add bead-4,bead-5 bead-6 [--work=<id>]`
+  - Same grouping syntax as `create`
+- Detects work from current directory or uses `--work` flag
+- Expands epics to include all child beads
+- Cannot add beads already assigned to a task
+
+### `co work remove <bead-ids...>`
+Removes beads from an existing work:
+- Syntax: `co work remove bead-4 bead-5 [--work=<id>]`
+- Detects work from current directory or uses `--work` flag
+- Cannot remove beads already assigned to a pending/processing task
 
 ### `co work list`
 Lists all work units with their status:
@@ -170,7 +186,7 @@ Lists all work units with their status:
 Shows detailed information about a work:
 - If no ID provided, detects from current directory
 - Displays status, branch, worktree path, PR URL
-- Lists associated tasks and their status
+- Lists associated beads and tasks with their status
 
 ### `co work destroy <id>`
 Destroys a work unit and its resources:
@@ -257,13 +273,4 @@ Creates a PR task for Claude to generate a pull request:
 Creates a review task to examine code changes:
 - Claude examines the work's branch for quality and security issues
 - Generates unique review task IDs (w-xxx.review-1, w-xxx.review-2, etc.)
-
-### `co work create --bead=<bead-ids>`
-Automated end-to-end workflow:
-- Accepts comma-delimited bead IDs
-- Auto-generates branch name from bead title(s)
-- Collects transitive dependencies
-- Plans tasks with auto-grouping
-- Executes all tasks
-- Runs review-fix loop until clean
-- Creates a pull request
+- Use `--auto` for review-fix loop until clean (max 3 iterations)
