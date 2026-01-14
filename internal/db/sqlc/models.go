@@ -46,8 +46,6 @@ type Task struct {
 	ComplexityBudget int64        `json:"complexity_budget"`
 	ActualComplexity int64        `json:"actual_complexity"`
 	WorkID           string       `json:"work_id"`
-	ZellijSession    string       `json:"zellij_session"`
-	ZellijPane       string       `json:"zellij_pane"`
 	WorktreePath     string       `json:"worktree_path"`
 	PrUrl            string       `json:"pr_url"`
 	ErrorMessage     string       `json:"error_message"`

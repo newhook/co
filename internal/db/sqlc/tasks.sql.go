@@ -221,8 +221,6 @@ SELECT id, status,
        complexity_budget,
        actual_complexity,
        work_id,
-       zellij_session,
-       zellij_pane,
        worktree_path,
        pr_url,
        error_message,
@@ -245,8 +243,6 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.ComplexityBudget,
 		&i.ActualComplexity,
 		&i.WorkID,
-		&i.ZellijSession,
-		&i.ZellijPane,
 		&i.WorktreePath,
 		&i.PrUrl,
 		&i.ErrorMessage,
@@ -325,8 +321,6 @@ SELECT id, status,
        complexity_budget,
        actual_complexity,
        work_id,
-       zellij_session,
-       zellij_pane,
        worktree_path,
        pr_url,
        error_message,
@@ -355,8 +349,6 @@ func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
 			&i.ComplexityBudget,
 			&i.ActualComplexity,
 			&i.WorkID,
-			&i.ZellijSession,
-			&i.ZellijPane,
 			&i.WorktreePath,
 			&i.PrUrl,
 			&i.ErrorMessage,
@@ -385,8 +377,6 @@ SELECT id, status,
        complexity_budget,
        actual_complexity,
        work_id,
-       zellij_session,
-       zellij_pane,
        worktree_path,
        pr_url,
        error_message,
@@ -416,8 +406,6 @@ func (q *Queries) ListTasksByStatus(ctx context.Context, status string) ([]Task,
 			&i.ComplexityBudget,
 			&i.ActualComplexity,
 			&i.WorkID,
-			&i.ZellijSession,
-			&i.ZellijPane,
 			&i.WorktreePath,
 			&i.PrUrl,
 			&i.ErrorMessage,
@@ -457,8 +445,6 @@ func (q *Queries) ResetTaskBeadStatuses(ctx context.Context, taskID string) (int
 const resetTaskStatus = `-- name: ResetTaskStatus :execrows
 UPDATE tasks
 SET status = 'pending',
-    zellij_session = '',
-    zellij_pane = '',
     started_at = NULL,
     error_message = ''
 WHERE id = ?
@@ -496,29 +482,19 @@ func (q *Queries) SpawnTask(ctx context.Context, arg SpawnTaskParams) (int64, er
 const startTask = `-- name: StartTask :execrows
 UPDATE tasks
 SET status = 'processing',
-    zellij_session = ?,
-    zellij_pane = ?,
     worktree_path = ?,
     started_at = ?
 WHERE id = ?
 `
 
 type StartTaskParams struct {
-	ZellijSession string       `json:"zellij_session"`
-	ZellijPane    string       `json:"zellij_pane"`
-	WorktreePath  string       `json:"worktree_path"`
-	StartedAt     sql.NullTime `json:"started_at"`
-	ID            string       `json:"id"`
+	WorktreePath string       `json:"worktree_path"`
+	StartedAt    sql.NullTime `json:"started_at"`
+	ID           string       `json:"id"`
 }
 
 func (q *Queries) StartTask(ctx context.Context, arg StartTaskParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, startTask,
-		arg.ZellijSession,
-		arg.ZellijPane,
-		arg.WorktreePath,
-		arg.StartedAt,
-		arg.ID,
-	)
+	result, err := q.db.ExecContext(ctx, startTask, arg.WorktreePath, arg.StartedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}
