@@ -253,3 +253,49 @@ func (c *Client) TerminateAndCloseTab(ctx context.Context, session, tabName stri
 
 	return nil
 }
+
+// Floating pane operations
+
+// RunFloating runs a command in a new floating pane in the specified session.
+// The name parameter sets the pane name for identification.
+// The cwd parameter sets the working directory.
+func (c *Client) RunFloating(ctx context.Context, session, name, cwd string, command ...string) error {
+	args := []string{"-s", session, "run", "--floating", "--name", name}
+	if cwd != "" {
+		args = append(args, "--cwd", cwd)
+	}
+	args = append(args, "--")
+	args = append(args, command...)
+	cmd := exec.CommandContext(ctx, "zellij", args...)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to run floating pane: %w", err)
+	}
+	return nil
+}
+
+// ToggleFloatingPanes toggles the visibility of floating panes in the session.
+func (c *Client) ToggleFloatingPanes(ctx context.Context, session string) error {
+	args := []string{"-s", session, "action", "toggle-floating-panes"}
+	cmd := exec.CommandContext(ctx, "zellij", args...)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to toggle floating panes: %w", err)
+	}
+	return nil
+}
+
+// Run runs a command in a new pane in the specified session.
+// The name parameter sets the pane name for identification.
+// The cwd parameter sets the working directory.
+func (c *Client) Run(ctx context.Context, session, name, cwd string, command ...string) error {
+	args := []string{"-s", session, "run", "--name", name}
+	if cwd != "" {
+		args = append(args, "--cwd", cwd)
+	}
+	args = append(args, "--")
+	args = append(args, command...)
+	cmd := exec.CommandContext(ctx, "zellij", args...)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to run pane: %w", err)
+	}
+	return nil
+}

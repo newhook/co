@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/zellij"
 )
 
 // planModel is the Plan Mode model focused on issue/bead management
@@ -48,6 +49,10 @@ type planModel struct {
 
 	// Loading state
 	loading bool
+
+	// Claude pane state
+	claudeSpawned bool
+	zj            *zellij.Client
 }
 
 // newPlanModel creates a new Plan Mode model
@@ -71,6 +76,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		textInput:          ti,
 		selectedBeads:      make(map[string]bool),
 		createBeadPriority: 2,
+		zj:                 zellij.New(),
 		filters: beadFilters{
 			status: "ready",
 			sortBy: "default",
@@ -89,7 +95,15 @@ func (m *planModel) FocusChanged(focused bool) tea.Cmd {
 	if focused {
 		// Refresh data when gaining focus
 		m.loading = true
-		return m.refreshData()
+		cmds := []tea.Cmd{m.refreshData(), m.startPeriodicRefresh()}
+
+		// Spawn Claude in zellij pane if not already spawned
+		if !m.claudeSpawned {
+			m.claudeSpawned = true
+			cmds = append(cmds, m.spawnClaudePane())
+		}
+
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
@@ -117,11 +131,35 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMessage = msg.err.Error()
 			m.statusIsError = true
+		} else {
+			m.statusMessage = ""
+			m.statusIsError = false
 		}
 		return m, nil
 
 	case planTickMsg:
-		return m, m.refreshData()
+		// Refresh data and continue periodic refresh
+		return m, tea.Batch(m.refreshData(), m.startPeriodicRefresh())
+
+	case planClaudeSpawnedMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Failed to spawn Claude: %v", msg.err)
+			m.statusIsError = true
+		} else {
+			m.statusMessage = "Claude spawned in floating pane"
+			m.statusIsError = false
+		}
+		return m, nil
+
+	case planSentToClaudeMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Failed to send to Claude: %v", msg.err)
+			m.statusIsError = true
+		} else {
+			m.statusMessage = fmt.Sprintf("Sent %s to Claude", msg.beadID)
+			m.statusIsError = false
+		}
+		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
@@ -251,9 +289,9 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
-		// Launch planning session for selected bead
+		// Send selected issue to Claude pane
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			return m, m.launchPlanningSession()
+			return m, m.sendToClaude()
 		}
 		return m, nil
 
@@ -348,7 +386,7 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 }
 
 func (m *planModel) renderStatusBar() string {
-	actions := "[n] New [e] Epic [x] Close [/] Search [L] Label [o/c/r] Filter [s] Sort [v] Expand [Enter] Plan [?] Help"
+	actions := "[n] New [e] Epic [x] Close [/] Search [L] Label [o/c/r] Filter [s] Sort [v] Expand [Enter] Send to Claude [?] Help"
 
 	var statusStr string
 	if m.statusMessage != "" {
@@ -374,10 +412,13 @@ func (m *planModel) renderHelp() string {
 	help := `
   Plan Mode - Help
 
+  Claude is spawned in a floating pane when entering Plan mode.
+  Use Enter to send issues to Claude for investigation.
+
   Navigation
   ────────────────────────────
   j/k, ↑/↓      Navigate list
-  Enter         Launch planning session for selected issue
+  Enter         Send issue to Claude pane
 
   Issue Management
   ────────────────────────────
@@ -682,25 +723,73 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 	}
 }
 
-func (m *planModel) launchPlanningSession() tea.Cmd {
+// sessionName returns the zellij session name for this project
+func (m *planModel) sessionName() string {
+	return fmt.Sprintf("co-%s", m.proj.Config.Project.Name)
+}
+
+// spawnClaudePane launches Claude Code in a new zellij pane
+func (m *planModel) spawnClaudePane() tea.Cmd {
+	return func() tea.Msg {
+		mainRepoPath := m.proj.MainRepoPath()
+		session := m.sessionName()
+
+		// Ensure session exists
+		if err := m.zj.EnsureSession(m.ctx, session); err != nil {
+			return planClaudeSpawnedMsg{err: err}
+		}
+
+		// Launch Claude in a floating pane
+		if err := m.zj.RunFloating(m.ctx, session, "claude-plan", mainRepoPath, "claude"); err != nil {
+			return planClaudeSpawnedMsg{err: err}
+		}
+
+		return planClaudeSpawnedMsg{}
+	}
+}
+
+// planClaudeSpawnedMsg indicates Claude pane was spawned
+type planClaudeSpawnedMsg struct {
+	err error
+}
+
+// startPeriodicRefresh starts the periodic refresh timer
+func (m *planModel) startPeriodicRefresh() tea.Cmd {
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+		return planTickMsg(t)
+	})
+}
+
+// sendToClaude sends the selected issue context to the Claude pane
+func (m *planModel) sendToClaude() tea.Cmd {
 	return func() tea.Msg {
 		if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
 			return nil
 		}
 
 		beadID := m.beadItems[m.beadsCursor].id
-		mainRepoPath := m.proj.MainRepoPath()
+		session := m.sessionName()
 
-		// Launch a planning session using zellij run
-		args := []string{
-			"run", "--name", "plan-" + beadID, "--",
-			"claude", "--", "bd show " + beadID,
+		// Toggle to the floating pane (where Claude is running)
+		if err := m.zj.ToggleFloatingPanes(m.ctx, session); err != nil {
+			return planSentToClaudeMsg{beadID: beadID, err: err}
 		}
 
-		cmd := exec.Command("zellij", args...)
-		cmd.Dir = mainRepoPath
-		_ = cmd.Start()
+		// Small delay to ensure pane is focused
+		time.Sleep(100 * time.Millisecond)
 
-		return nil
+		// Write the command to show the issue
+		writeCmd := fmt.Sprintf("bd show %s", beadID)
+		if err := m.zj.WriteChars(m.ctx, session, writeCmd); err != nil {
+			return planSentToClaudeMsg{beadID: beadID, err: err}
+		}
+
+		return planSentToClaudeMsg{beadID: beadID}
 	}
+}
+
+// planSentToClaudeMsg indicates an issue was sent to Claude
+type planSentToClaudeMsg struct {
+	beadID string
+	err    error
 }
