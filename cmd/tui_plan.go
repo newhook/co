@@ -788,9 +788,9 @@ func (m *planModel) sendToClaude() tea.Cmd {
 		// Small delay to ensure tab is focused
 		time.Sleep(100 * time.Millisecond)
 
-		// Write the command to show the issue
+		// Write the command to show the issue and send Enter
 		writeCmd := fmt.Sprintf("bd show %s", beadID)
-		if err := m.zj.WriteChars(m.ctx, session, writeCmd); err != nil {
+		if err := m.zj.ExecuteCommand(m.ctx, session, writeCmd); err != nil {
 			return planSentToClaudeMsg{beadID: beadID, err: err}
 		}
 
