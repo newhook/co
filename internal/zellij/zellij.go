@@ -67,7 +67,7 @@ const (
 
 // ListSessions returns a list of all zellij session names.
 func (c *Client) ListSessions(ctx context.Context) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "zellij", "list-sessions")
+	cmd := exec.CommandContext(ctx, "zellij", "list-sessions", "-s")
 	output, err := cmd.Output()
 	if err != nil {
 		// No sessions or zellij not running
@@ -99,10 +99,10 @@ func (c *Client) SessionExists(ctx context.Context, name string) (bool, error) {
 }
 
 // CreateSession creates a new zellij session with the given name.
-// The session is started detached.
+// The session is started in the background (detached) using zellij attach -b.
 func (c *Client) CreateSession(ctx context.Context, name string) error {
-	cmd := exec.CommandContext(ctx, "zellij", "-s", name)
-	if err := cmd.Start(); err != nil {
+	cmd := exec.CommandContext(ctx, "zellij", "attach", "-b", name)
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create zellij session: %w", err)
 	}
 	// Give it time to start

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -308,6 +309,7 @@ func (m rootModel) View() string {
 
 	// Render tab bar
 	tabBar := m.renderTabBar()
+	tabBarHeight := lipgloss.Height(tabBar)
 
 	// Render active mode content
 	var content string
@@ -326,15 +328,20 @@ func (m rootModel) View() string {
 		}
 	}
 
-	// Calculate content height (total height minus tab bar)
-	contentHeight := m.height - lipgloss.Height(tabBar)
+	contentHeight := lipgloss.Height(content)
+	availableHeight := m.height - tabBarHeight
+
+	// Truncate content if too tall
+	if contentHeight > availableHeight {
+		lines := strings.Split(content, "\n")
+		if len(lines) > availableHeight {
+			lines = lines[:availableHeight]
+		}
+		content = strings.Join(lines, "\n")
+	}
 
 	// Combine tab bar and content
-	return lipgloss.JoinVertical(
-		lipgloss.Top,
-		tabBar,
-		lipgloss.NewStyle().Height(contentHeight).Render(content),
-	)
+	return lipgloss.JoinVertical(lipgloss.Top, tabBar, content)
 }
 
 // renderTabBar renders the mode switching tab bar

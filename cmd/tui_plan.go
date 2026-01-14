@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -14,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
@@ -52,9 +51,9 @@ type planModel struct {
 	// Loading state
 	loading bool
 
-	// Claude pane state
-	claudeSpawned bool
-	zj            *zellij.Client
+	// Per-bead session tracking
+	activeBeadSessions map[string]bool // beadID -> has active session
+	zj                 *zellij.Client
 }
 
 // newPlanModel creates a new Plan Mode model
@@ -77,6 +76,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		spinner:            s,
 		textInput:          ti,
 		selectedBeads:      make(map[string]bool),
+		activeBeadSessions: make(map[string]bool),
 		createBeadPriority: 2,
 		zj:                 zellij.New(),
 		filters: beadFilters{
@@ -97,15 +97,7 @@ func (m *planModel) FocusChanged(focused bool) tea.Cmd {
 	if focused {
 		// Refresh data when gaining focus
 		m.loading = true
-		cmds := []tea.Cmd{m.refreshData(), m.startPeriodicRefresh()}
-
-		// Spawn Claude in zellij tab if not already spawned
-		if !m.claudeSpawned {
-			m.claudeSpawned = true
-			cmds = append(cmds, m.spawnClaudeTab())
-		}
-
-		return tea.Batch(cmds...)
+		return tea.Batch(m.refreshData(), m.startPeriodicRefresh())
 	}
 	return nil
 }
@@ -128,6 +120,9 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case planDataMsg:
 		m.beadItems = msg.beads
+		if msg.activeSessions != nil {
+			m.activeBeadSessions = msg.activeSessions
+		}
 		m.loading = false
 		m.lastUpdate = time.Now()
 		if msg.err != nil {
@@ -143,25 +138,24 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh data and continue periodic refresh
 		return m, tea.Batch(m.refreshData(), m.startPeriodicRefresh())
 
-	case planClaudeSpawnedMsg:
-		if msg.err != nil {
-			m.statusMessage = fmt.Sprintf("Failed to spawn Claude: %v", msg.err)
-			m.statusIsError = true
-		} else {
-			m.statusMessage = "Claude spawned in plan tab (co plan)"
-			m.statusIsError = false
-		}
+	case planStatusMsg:
+		m.statusMessage = msg.message
+		m.statusIsError = msg.isError
 		return m, nil
 
-	case planSentToClaudeMsg:
+	case planSessionSpawnedMsg:
 		if msg.err != nil {
-			m.statusMessage = fmt.Sprintf("Failed to send to Claude: %v", msg.err)
+			m.statusMessage = fmt.Sprintf("Failed: %v", msg.err)
 			m.statusIsError = true
+		} else if msg.resumed {
+			m.statusMessage = fmt.Sprintf("Resumed session for %s", msg.beadID)
+			m.statusIsError = false
 		} else {
-			m.statusMessage = fmt.Sprintf("Sent %s to Claude", msg.beadID)
+			m.statusMessage = fmt.Sprintf("Started session for %s", msg.beadID)
 			m.statusIsError = false
 		}
-		return m, nil
+		// Refresh to update session indicators
+		return m, m.refreshData()
 
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
@@ -175,12 +169,26 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // planDataMsg is sent when data is refreshed
 type planDataMsg struct {
-	beads []beadItem
-	err   error
+	beads          []beadItem
+	activeSessions map[string]bool
+	err            error
+}
+
+// planStatusMsg is sent to update status text
+type planStatusMsg struct {
+	message string
+	isError bool
 }
 
 // planTickMsg triggers periodic refresh
 type planTickMsg time.Time
+
+// planSessionSpawnedMsg indicates a planning session was spawned or resumed
+type planSessionSpawnedMsg struct {
+	beadID  string
+	resumed bool
+	err     error
+}
 
 func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle dialog-specific input
@@ -291,9 +299,10 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
-		// Send selected issue to Claude pane
+		// Spawn/resume planning session for selected bead
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			return m, m.sendToClaude()
+			beadID := m.beadItems[m.beadsCursor].id
+			return m, m.spawnPlanSession(beadID)
 		}
 		return m, nil
 
@@ -326,84 +335,184 @@ func (m *planModel) View() string {
 		return m.renderHelp()
 	}
 
-	// Single pane view
+	// Calculate available lines for list content
+	// Total = issuesPanel + detailPanel + statusBar
+	// Each panel has: border(2) + title(1) + content
+	// Status bar = 1 line
+	// So: m.height = (2+1+issuesLines) + (2+1+detailLines) + 1
+	//              = issuesLines + detailLines + 7
+	issuesContentLines := 10 // Fixed height for issues content
+	issuesPanelHeight := issuesContentLines + 3 // +3 for border (2) and title (1)
+	detailsPanelHeight := m.height - issuesPanelHeight - 1 // -1 for status bar
+	detailsContentLines := max(detailsPanelHeight-3, 2)
+
+	issuesPanel := m.renderFixedPanel("Issues", m.renderIssuesList(issuesContentLines), m.width-4, issuesPanelHeight)
+	detailPanel := m.renderFixedPanel("Details", m.renderDetailsContent(detailsContentLines), m.width-4, detailsPanelHeight)
+	statusBar := m.renderCommandsBar()
+
+	// Stack panels and status bar
+	content := lipgloss.JoinVertical(lipgloss.Left, issuesPanel, detailPanel)
+
+	// Use Place to position content at top and status bar at bottom
+	return lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Height(m.height-1).Render(content),
+		statusBar,
+	)
+}
+
+// renderFixedPanel renders a panel with border and fixed height
+func (m *planModel) renderFixedPanel(title, content string, width, height int) string {
+	titleLine := tuiTitleStyle.Render(title)
+
 	var b strings.Builder
+	b.WriteString(titleLine)
+	b.WriteString("\n")
+	b.WriteString(content)
 
-	// Title
-	b.WriteString(tuiTitleStyle.Render("Plan Mode - Issue Management"))
-	b.WriteString("\n\n")
+	// Height-2 for the border lines
+	return tuiPanelStyle.Width(width).Height(height - 2).Render(b.String())
+}
 
-	// Filter info
-	filterInfo := fmt.Sprintf("Filter: %s | Sort: %s | %d issue(s)",
-		m.filters.status, m.filters.sortBy, len(m.beadItems))
+// renderIssuesList renders just the list content for the given number of visible lines
+func (m *planModel) renderIssuesList(visibleLines int) string {
+	filterInfo := fmt.Sprintf("Filter: %s | Sort: %s", m.filters.status, m.filters.sortBy)
 	if m.filters.searchText != "" {
 		filterInfo += fmt.Sprintf(" | Search: %s", m.filters.searchText)
 	}
 	if m.filters.label != "" {
 		filterInfo += fmt.Sprintf(" | Label: %s", m.filters.label)
 	}
-	b.WriteString(tuiDimStyle.Render(filterInfo))
-	b.WriteString("\n\n")
 
-	// Bead list
+	var content strings.Builder
+	content.WriteString(tuiDimStyle.Render(filterInfo))
+	content.WriteString("\n")
+
 	if len(m.beadItems) == 0 {
-		b.WriteString(tuiDimStyle.Render("No issues found"))
+		content.WriteString(tuiDimStyle.Render("No issues found"))
 	} else {
-		for i, bead := range m.beadItems {
-			line := m.renderBeadLine(i, bead)
-			b.WriteString(line)
-			b.WriteString("\n")
+		visibleItems := max(visibleLines-1, 1) // -1 for filter line
+
+		start := 0
+		if m.beadsCursor >= visibleItems {
+			start = m.beadsCursor - visibleItems + 1
+		}
+		end := min(start+visibleItems, len(m.beadItems))
+
+		for i := start; i < end; i++ {
+			content.WriteString(m.renderBeadLine(i, m.beadItems[i]))
+			if i < end-1 {
+				content.WriteString("\n")
+			}
 		}
 	}
 
-	// Status bar
-	b.WriteString("\n")
-	b.WriteString(m.renderStatusBar())
+	return content.String()
+}
 
-	return b.String()
+// renderDetailsContent renders the detail panel content
+func (m *planModel) renderDetailsContent(visibleLines int) string {
+	var content strings.Builder
+
+	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
+		content.WriteString(tuiDimStyle.Render("No issue selected"))
+	} else {
+		bead := m.beadItems[m.beadsCursor]
+
+		content.WriteString(tuiLabelStyle.Render("ID: "))
+		content.WriteString(tuiValueStyle.Render(bead.id))
+		content.WriteString("  ")
+		content.WriteString(tuiLabelStyle.Render("Type: "))
+		content.WriteString(tuiValueStyle.Render(bead.beadType))
+		content.WriteString("  ")
+		content.WriteString(tuiLabelStyle.Render("P"))
+		content.WriteString(tuiValueStyle.Render(fmt.Sprintf("%d", bead.priority)))
+		content.WriteString("  ")
+		content.WriteString(tuiLabelStyle.Render("Status: "))
+		content.WriteString(tuiValueStyle.Render(bead.status))
+		if m.activeBeadSessions[bead.id] {
+			content.WriteString("  ")
+			content.WriteString(tuiSuccessStyle.Render("[Session Active]"))
+		}
+		content.WriteString("\n")
+		content.WriteString(tuiValueStyle.Render(bead.title))
+
+		if bead.description != "" && visibleLines > 3 {
+			content.WriteString("\n")
+			desc := bead.description
+			maxLen := (visibleLines - 3) * 80
+			if len(desc) > maxLen && maxLen > 0 {
+				desc = desc[:maxLen] + "..."
+			}
+			content.WriteString(tuiDimStyle.Render(desc))
+		}
+	}
+
+	return content.String()
+}
+
+func (m *planModel) renderCommandsBar() string {
+	// Show Enter action based on session state
+	enterAction := "[Enter]Plan"
+	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		beadID := m.beadItems[m.beadsCursor].id
+		if m.activeBeadSessions[beadID] {
+			enterAction = "[Enter]Resume"
+		}
+	}
+
+	// Commands on the left
+	commands := fmt.Sprintf("[n]New [e]Epic [x]Close %s [o/c/r]Filter [/]Search [s]Sort [?]Help", enterAction)
+
+	// Status on the right
+	var status string
+	if m.statusMessage != "" {
+		if m.statusIsError {
+			status = tuiErrorStyle.Render(m.statusMessage)
+		} else {
+			status = tuiSuccessStyle.Render(m.statusMessage)
+		}
+	} else if m.loading {
+		status = m.spinner.View() + " Loading..."
+	}
+
+	// Build bar with commands left, status right
+	if status != "" {
+		// Pad between commands and status
+		padding := max(m.width-len(commands)-len(m.statusMessage)-4, 2)
+		return tuiStatusBarStyle.Width(m.width).Render(commands + strings.Repeat(" ", padding) + status)
+	}
+
+	return tuiStatusBarStyle.Width(m.width).Render(commands)
 }
 
 func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 	icon := statusIcon(bead.status)
 
+	// Session indicator
+	var sessionIndicator string
+	if m.activeBeadSessions[bead.id] {
+		sessionIndicator = tuiSuccessStyle.Render("[C]") + " "
+	}
+
 	// Selection indicator
 	var prefix string
 	if m.selectedBeads[bead.id] {
-		prefix = tuiSelectedCheckStyle.Render("[●]")
+		prefix = tuiSelectedCheckStyle.Render("[*]")
 	} else {
 		prefix = "[ ]"
 	}
 
 	var line string
 	if m.beadsExpanded {
-		line = fmt.Sprintf("%s %s %s [P%d %s] %s", prefix, icon, bead.id, bead.priority, bead.beadType, bead.title)
+		line = fmt.Sprintf("%s %s%s %s [P%d %s] %s", prefix, sessionIndicator, icon, bead.id, bead.priority, bead.beadType, bead.title)
 	} else {
-		line = fmt.Sprintf("%s %s %s %s", prefix, icon, bead.id, bead.title)
+		line = fmt.Sprintf("%s %s%s %s %s", prefix, sessionIndicator, icon, bead.id, bead.title)
 	}
 
 	if i == m.beadsCursor {
 		return tuiSelectedStyle.Render(line)
 	}
 	return line
-}
-
-func (m *planModel) renderStatusBar() string {
-	actions := "[n] New [e] Epic [x] Close [/] Search [L] Label [o/c/r] Filter [s] Sort [v] Expand [Enter] Send to Claude [?] Help"
-
-	var statusStr string
-	if m.statusMessage != "" {
-		if m.statusIsError {
-			statusStr = tuiErrorStyle.Render(m.statusMessage)
-		} else {
-			statusStr = tuiSuccessStyle.Render(m.statusMessage)
-		}
-	} else if m.loading {
-		statusStr = m.spinner.View() + " Loading..."
-	} else {
-		statusStr = tuiDimStyle.Render(fmt.Sprintf("Updated: %s", m.lastUpdate.Format("15:04:05")))
-	}
-
-	return tuiStatusBarStyle.Width(m.width).Render(actions + "  " + statusStr)
 }
 
 func (m *planModel) renderWithDialog(dialog string) string {
@@ -414,13 +523,13 @@ func (m *planModel) renderHelp() string {
 	help := `
   Plan Mode - Help
 
-  Claude is spawned in a 'plan' tab (via co plan) when entering Plan mode.
-  Use Enter to send issues to Claude for investigation.
+  Each issue gets its own dedicated Claude session in a separate tab.
+  Use Enter to start or resume a planning session for an issue.
 
   Navigation
   ────────────────────────────
   j/k, ↑/↓      Navigate list
-  Enter         Send issue to Claude tab
+  Enter         Start/Resume planning session
 
   Issue Management
   ────────────────────────────
@@ -438,6 +547,10 @@ func (m *planModel) renderHelp() string {
   L             Filter by label
   s             Cycle sort mode
   v             Toggle expanded view
+
+  Session Indicators
+  ────────────────────────────
+  [C]           Issue has an active Claude session
 
   Press any key to close...
 `
@@ -660,7 +773,16 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 func (m *planModel) refreshData() tea.Cmd {
 	return func() tea.Msg {
 		items, err := m.loadBeads()
-		return planDataMsg{beads: items, err: err}
+
+		// Also fetch active sessions
+		session := m.sessionName()
+		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
+
+		return planDataMsg{
+			beads:          items,
+			activeSessions: activeSessions,
+			err:            err,
+		}
 	}
 }
 
@@ -705,14 +827,27 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 
 		// Refresh after creation
 		items, err := m.loadBeads()
-		return planDataMsg{beads: items, err: err}
+		session := m.sessionName()
+		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
+		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
 	}
 }
 
 func (m *planModel) closeBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
 		mainRepoPath := m.proj.MainRepoPath()
+		session := m.sessionName()
+		tabName := db.TabNameForBead(beadID)
 
+		// If there's an active session for this bead, close it
+		if m.activeBeadSessions[beadID] {
+			// Terminate and close the tab
+			_ = m.zj.TerminateAndCloseTab(m.ctx, session, tabName)
+			// Unregister from database
+			_ = m.proj.DB.UnregisterPlanSession(m.ctx, beadID)
+		}
+
+		// Close the bead
 		cmd := exec.Command("bd", "close", beadID)
 		cmd.Dir = mainRepoPath
 		if err := cmd.Run(); err != nil {
@@ -721,7 +856,8 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 
 		// Refresh after close
 		items, err := m.loadBeads()
-		return planDataMsg{beads: items, err: err}
+		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
+		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
 	}
 }
 
@@ -730,56 +866,56 @@ func (m *planModel) sessionName() string {
 	return fmt.Sprintf("co-%s", m.proj.Config.Project.Name)
 }
 
-// spawnClaudeTab launches Claude Code in a new zellij tab named "plan"
-func (m *planModel) spawnClaudeTab() tea.Cmd {
+// spawnPlanSession spawns or resumes a planning session for a specific bead
+func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		mainRepoPath := m.proj.MainRepoPath()
 		session := m.sessionName()
+		tabName := db.TabNameForBead(beadID)
+		mainRepoPath := m.proj.MainRepoPath()
 
-		// Debug: log to file using slog
-		logFile, _ := os.OpenFile("/tmp/co-plan-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		var logger *slog.Logger
-		if logFile != nil {
-			defer logFile.Close()
-			logger = slog.New(slog.NewTextHandler(logFile, nil))
-		} else {
-			logger = slog.Default()
+		// Ensure zellij session exists
+		if err := m.zj.EnsureSession(m.ctx, session); err != nil {
+			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
 
-		logger.Info("spawnClaudeTab called", "session", session, "cwd", mainRepoPath)
-		logger.Info("zellij env", "ZELLIJ_SESSION_NAME", zellij.CurrentSessionName())
+		// Check if session already running for this bead
+		running, _ := m.proj.DB.IsPlanSessionRunning(m.ctx, beadID)
+		if running {
+			// Session exists - just switch to it
+			if err := m.zj.SwitchToTab(m.ctx, session, tabName); err != nil {
+				return planSessionSpawnedMsg{beadID: beadID, err: err}
+			}
+			return planSessionSpawnedMsg{beadID: beadID, resumed: true}
+		}
 
-		// 1. Is there a tab "plan"?
-		exists, err := m.zj.TabExists(m.ctx, session, "plan")
-		logger.Info("TabExists result", "exists", exists, "err", err)
+		// Check if tab exists (might be orphaned)
+		exists, _ := m.zj.TabExists(m.ctx, session, tabName)
 		if exists {
-			logger.Info("Tab already exists, returning")
-			return planClaudeSpawnedMsg{}
+			// Tab exists but session not registered - terminate and recreate
+			_ = m.zj.TerminateAndCloseTab(m.ctx, session, tabName)
+			time.Sleep(200 * time.Millisecond)
 		}
 
-		// 2. No? Create the tab
-		logger.Info("Creating tab...")
-		if err := m.zj.CreateTab(m.ctx, session, "plan", mainRepoPath); err != nil {
-			logger.Error("CreateTab failed", "err", err)
-			return planClaudeSpawnedMsg{err: err}
+		// Create new tab for this bead
+		if err := m.zj.CreateTab(m.ctx, session, tabName, mainRepoPath); err != nil {
+			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
-		logger.Info("Tab created successfully")
 
-		// 3. In the tab run co plan
-		logger.Info("Executing co plan...")
-		if err := m.zj.ExecuteCommand(m.ctx, session, "co plan"); err != nil {
-			logger.Error("ExecuteCommand failed", "err", err)
-			return planClaudeSpawnedMsg{err: err}
+		// Switch to the tab
+		time.Sleep(200 * time.Millisecond)
+		if err := m.zj.SwitchToTab(m.ctx, session, tabName); err != nil {
+			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
-		logger.Info("co plan executed successfully")
 
-		return planClaudeSpawnedMsg{}
+		// Run co plan with the bead ID
+		planCmd := fmt.Sprintf("co plan --bead=%s", beadID)
+		time.Sleep(200 * time.Millisecond)
+		if err := m.zj.ExecuteCommand(m.ctx, session, planCmd); err != nil {
+			return planSessionSpawnedMsg{beadID: beadID, err: err}
+		}
+
+		return planSessionSpawnedMsg{beadID: beadID, resumed: false}
 	}
-}
-
-// planClaudeSpawnedMsg indicates Claude pane was spawned
-type planClaudeSpawnedMsg struct {
-	err error
 }
 
 // startPeriodicRefresh starts the periodic refresh timer
@@ -787,45 +923,4 @@ func (m *planModel) startPeriodicRefresh() tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
 		return planTickMsg(t)
 	})
-}
-
-// sendToClaude sends the selected issue context to the Claude tab
-// Note: This writes to the plan tab but doesn't switch to it (user must switch manually)
-func (m *planModel) sendToClaude() tea.Cmd {
-	return func() tea.Msg {
-		if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
-			return nil
-		}
-
-		beadID := m.beadItems[m.beadsCursor].id
-		session := m.sessionName()
-
-		// Check if plan tab exists
-		exists, err := m.zj.TabExists(m.ctx, session, "plan")
-		if err != nil || !exists {
-			return planSentToClaudeMsg{beadID: beadID, err: fmt.Errorf("plan tab not found - press P to enter Plan mode first")}
-		}
-
-		// Switch to the plan tab, write the command, then switch back
-		if err := m.zj.SwitchToTab(m.ctx, session, "plan"); err != nil {
-			return planSentToClaudeMsg{beadID: beadID, err: err}
-		}
-
-		// Small delay to ensure tab is focused
-		time.Sleep(100 * time.Millisecond)
-
-		// Write the command to show the issue and send Enter
-		writeCmd := fmt.Sprintf("bd show %s", beadID)
-		if err := m.zj.ExecuteCommand(m.ctx, session, writeCmd); err != nil {
-			return planSentToClaudeMsg{beadID: beadID, err: err}
-		}
-
-		return planSentToClaudeMsg{beadID: beadID}
-	}
-}
-
-// planSentToClaudeMsg indicates an issue was sent to Claude
-type planSentToClaudeMsg struct {
-	beadID string
-	err    error
 }
