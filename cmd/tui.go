@@ -217,12 +217,14 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 
 	// Parse JSON output
 	type beadJSON struct {
-		ID          string `json:"id"`
-		Title       string `json:"title"`
-		Status      string `json:"status"`
-		Priority    int    `json:"priority"`
-		Type        string `json:"type"`
-		Description string `json:"description"`
+		ID              string `json:"id"`
+		Title           string `json:"title"`
+		Status          string `json:"status"`
+		Priority        int    `json:"priority"`
+		Type            string `json:"issue_type"`
+		Description     string `json:"description"`
+		DependencyCount int    `json:"dependency_count"`
+		DependentCount  int    `json:"dependent_count"`
 	}
 	var beadsJSON []beadJSON
 	if err := json.Unmarshal(output, &beadsJSON); err != nil {
@@ -249,13 +251,15 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 		}
 
 		items = append(items, beadItem{
-			id:          b.ID,
-			title:       b.Title,
-			status:      b.Status,
-			priority:    b.Priority,
-			beadType:    b.Type,
-			description: b.Description,
-			isReady:     readySet[b.ID],
+			id:              b.ID,
+			title:           b.Title,
+			status:          b.Status,
+			priority:        b.Priority,
+			beadType:        b.Type,
+			description:     b.Description,
+			isReady:         readySet[b.ID],
+			dependencyCount: b.DependencyCount,
+			dependentCount:  b.DependentCount,
 		})
 	}
 

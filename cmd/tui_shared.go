@@ -114,14 +114,18 @@ const (
 
 // beadItem represents a bead in the beads panel
 type beadItem struct {
-	id          string
-	title       string
-	status      string
-	priority    int
-	beadType    string // task, bug, feature
-	description string
-	isReady     bool
-	selected    bool // for multi-select
+	id              string
+	title           string
+	status          string
+	priority        int
+	beadType        string // task, bug, feature, etc.
+	description     string
+	isReady         bool
+	selected        bool     // for multi-select
+	dependencyCount int      // number of issues that block this one
+	dependentCount  int      // number of issues this blocks
+	dependencies    []string // IDs of issues that block this one
+	treeDepth       int      // depth in tree view (0 = root)
 }
 
 // beadFilters holds the current filter state for beads

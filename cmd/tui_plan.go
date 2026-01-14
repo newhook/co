@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -537,11 +538,50 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 		prefix = "[ ]"
 	}
 
+	// Tree indentation with connector lines
+	var treePrefix string
+	if bead.treeDepth > 0 {
+		// Add indentation and tree connector
+		indent := strings.Repeat("  ", bead.treeDepth-1)
+		treePrefix = indent + "└─"
+	}
+
+	// Short type indicator
+	typeChar := "?"
+	switch bead.beadType {
+	case "task":
+		typeChar = "T"
+	case "bug":
+		typeChar = "B"
+	case "feature":
+		typeChar = "F"
+	case "epic":
+		typeChar = "E"
+	case "chore":
+		typeChar = "C"
+	case "merge-request":
+		typeChar = "M"
+	case "molecule":
+		typeChar = "m"
+	case "gate":
+		typeChar = "G"
+	case "agent":
+		typeChar = "A"
+	case "role":
+		typeChar = "R"
+	case "rig":
+		typeChar = "r"
+	case "convoy":
+		typeChar = "c"
+	case "event":
+		typeChar = "v"
+	}
+
 	var line string
 	if m.beadsExpanded {
-		line = fmt.Sprintf("%s %s%s %s [P%d %s] %s", prefix, sessionIndicator, icon, bead.id, bead.priority, bead.beadType, bead.title)
+		line = fmt.Sprintf("%s %s%s%s %s [P%d %s] %s", prefix, treePrefix, sessionIndicator, icon, bead.id, bead.priority, bead.beadType, bead.title)
 	} else {
-		line = fmt.Sprintf("%s %s%s %s %s", prefix, sessionIndicator, icon, bead.id, bead.title)
+		line = fmt.Sprintf("%s %s%s%s %s %s %s", prefix, treePrefix, sessionIndicator, icon, bead.id, typeChar, bead.title)
 	}
 
 	if i == m.beadsCursor {
@@ -844,16 +884,30 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 		return nil, err
 	}
 
-	// Sort based on sortBy
-	switch m.filters.sortBy {
-	case "priority":
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].priority < items[j].priority
-		})
-	case "title":
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].title < items[j].title
-		})
+	// Build tree structure from dependencies
+	items = buildBeadTree(items, mainRepoPath)
+
+	// If no tree structure, apply regular sorting
+	hasTree := false
+	for _, item := range items {
+		if item.treeDepth > 0 || item.dependentCount > 0 {
+			hasTree = true
+			break
+		}
+	}
+
+	if !hasTree {
+		// Fall back to regular sorting if no tree structure
+		switch m.filters.sortBy {
+		case "priority":
+			sort.Slice(items, func(i, j int) bool {
+				return items[i].priority < items[j].priority
+			})
+		case "title":
+			sort.Slice(items, func(i, j int) bool {
+				return items[i].title < items[j].title
+			})
+		}
 	}
 
 	return items, nil
@@ -1006,4 +1060,135 @@ func (m *planModel) createWorkFromBead(beadID string) tea.Cmd {
 
 		return planWorkCreatedMsg{beadID: beadID, workID: tabName}
 	}
+}
+
+// fetchDependencies gets the list of issue IDs that block the given issue
+func fetchDependencies(dir, beadID string) ([]string, error) {
+	cmd := exec.Command("bd", "dep", "list", beadID, "--json")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	type depJSON struct {
+		ID   string `json:"id"`
+		Type string `json:"dependency_type"`
+	}
+	var deps []depJSON
+	if err := json.Unmarshal(output, &deps); err != nil {
+		return nil, err
+	}
+
+	var ids []string
+	for _, d := range deps {
+		if d.Type == "blocks" {
+			ids = append(ids, d.ID)
+		}
+	}
+	return ids, nil
+}
+
+// buildBeadTree takes a flat list of beads and organizes them into a tree
+// based on dependency relationships. Returns the items in tree order with
+// treeDepth set for each item.
+func buildBeadTree(items []beadItem, dir string) []beadItem {
+	if len(items) == 0 {
+		return items
+	}
+
+	// Build a map of ID -> beadItem for quick lookup
+	itemMap := make(map[string]*beadItem)
+	for i := range items {
+		itemMap[items[i].id] = &items[i]
+	}
+
+	// Fetch dependencies for items that have them
+	for i := range items {
+		if items[i].dependencyCount > 0 {
+			deps, err := fetchDependencies(dir, items[i].id)
+			if err == nil {
+				items[i].dependencies = deps
+			}
+		}
+	}
+
+	// Build parent -> children map (issues that block -> issues they block)
+	// If A blocks B, then B depends on A, so A is parent, B is child
+	children := make(map[string][]string)
+	for i := range items {
+		for _, depID := range items[i].dependencies {
+			// This item depends on depID, so depID is the parent
+			children[depID] = append(children[depID], items[i].id)
+		}
+	}
+
+	// Find root nodes (items with no dependencies within our set)
+	roots := []string{}
+	for i := range items {
+		if items[i].dependencyCount == 0 {
+			roots = append(roots, items[i].id)
+		}
+	}
+
+	// Sort roots by priority then ID for consistent ordering
+	sort.Slice(roots, func(i, j int) bool {
+		a, b := itemMap[roots[i]], itemMap[roots[j]]
+		if a.priority != b.priority {
+			return a.priority < b.priority
+		}
+		return a.id < b.id
+	})
+
+	// DFS to build tree order
+	var result []beadItem
+	visited := make(map[string]bool)
+
+	var visit func(id string, depth int)
+	visit = func(id string, depth int) {
+		if visited[id] {
+			return
+		}
+		visited[id] = true
+
+		item, ok := itemMap[id]
+		if !ok {
+			return
+		}
+
+		item.treeDepth = depth
+		result = append(result, *item)
+
+		// Sort children by priority
+		childIDs := children[id]
+		sort.Slice(childIDs, func(i, j int) bool {
+			a, b := itemMap[childIDs[i]], itemMap[childIDs[j]]
+			if a == nil || b == nil {
+				return childIDs[i] < childIDs[j]
+			}
+			if a.priority != b.priority {
+				return a.priority < b.priority
+			}
+			return a.id < b.id
+		})
+
+		for _, childID := range childIDs {
+			visit(childID, depth+1)
+		}
+	}
+
+	// Visit all roots
+	for _, rootID := range roots {
+		visit(rootID, 0)
+	}
+
+	// Add any orphaned items (not reachable from roots)
+	for i := range items {
+		if !visited[items[i].id] {
+			items[i].treeDepth = 0
+			result = append(result, items[i])
+		}
+	}
+
+	return result
 }
