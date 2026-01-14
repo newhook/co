@@ -78,11 +78,13 @@ func (m *monitorModel) SetSize(width, height int) {
 }
 
 // FocusChanged implements SubModel
-func (m *monitorModel) FocusChanged(focused bool) {
+func (m *monitorModel) FocusChanged(focused bool) tea.Cmd {
 	m.focused = focused
 	if focused {
 		m.loading = true
+		return m.refreshData()
 	}
+	return nil
 }
 
 // recalculateGrid calculates optimal grid dimensions based on workers and screen size
@@ -207,13 +209,16 @@ func (m *monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model
 func (m *monitorModel) View() string {
+	// Debug: always show something
+	header := fmt.Sprintf("MONITOR MODE - %d workers, loading=%v, size=%dx%d\n\n",
+		len(m.works), m.loading, m.width, m.height)
+
 	if m.loading && len(m.works) == 0 {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.spinner.View()+" Loading workers...")
+		return header + "Loading workers..."
 	}
 
 	if len(m.works) == 0 {
-		return m.renderEmptyState()
+		return header + m.renderEmptyState()
 	}
 
 	// Render grid of worker panels
@@ -222,7 +227,7 @@ func (m *monitorModel) View() string {
 	// Render status bar
 	statusBar := m.renderStatusBar()
 
-	return lipgloss.JoinVertical(lipgloss.Left, grid, statusBar)
+	return header + lipgloss.JoinVertical(lipgloss.Left, grid, statusBar)
 }
 
 func (m *monitorModel) renderEmptyState() string {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -52,8 +53,8 @@ type SubModel interface {
 	tea.Model
 	// SetSize updates the available dimensions for the sub-model
 	SetSize(width, height int)
-	// FocusChanged is called when this mode gains/loses focus
-	FocusChanged(focused bool)
+	// FocusChanged is called when this mode gains/loses focus, returns cmd to run
+	FocusChanged(focused bool) tea.Cmd
 }
 
 // rootModel is the top-level TUI model that manages mode switching
@@ -83,9 +84,17 @@ type rootModel struct {
 
 // Tab bar styles
 var (
+	modeHeaderStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("0")).
+			Background(lipgloss.Color("214")).
+			Padding(0, 1)
+
 	tabBarStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("235")).
-			Padding(0, 1)
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderBottom(true).
+			BorderForeground(lipgloss.Color("240"))
 
 	activeTabStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -156,8 +165,8 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Calculate available height after tab bar
-		availableHeight := m.height - 1 // 1 line for tab bar
+		// Calculate available height after tab bar (1 line + 1 border)
+		availableHeight := m.height - 2
 
 		// Update legacy model dimensions
 		m.legacyModel.width = m.width
@@ -183,22 +192,22 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeMode != ModePlan {
 				oldMode := m.activeMode
 				m.activeMode = ModePlan
-				m.notifyFocusChange(oldMode, ModePlan)
-				return m, nil
+				cmd := m.notifyFocusChange(oldMode, ModePlan)
+				return m, cmd
 			}
 		case "W":
 			if m.activeMode != ModeWork {
 				oldMode := m.activeMode
 				m.activeMode = ModeWork
-				m.notifyFocusChange(oldMode, ModeWork)
-				return m, nil
+				cmd := m.notifyFocusChange(oldMode, ModeWork)
+				return m, cmd
 			}
 		case "M":
 			if m.activeMode != ModeMonitor {
 				oldMode := m.activeMode
 				m.activeMode = ModeMonitor
-				m.notifyFocusChange(oldMode, ModeMonitor)
-				return m, nil
+				cmd := m.notifyFocusChange(oldMode, ModeMonitor)
+				return m, cmd
 			}
 		case "q", "ctrl+c":
 			m.quitting = true
@@ -214,21 +223,29 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// notifyFocusChange notifies models of focus changes
-func (m *rootModel) notifyFocusChange(oldMode, newMode Mode) {
+// notifyFocusChange notifies models of focus changes and returns commands to run
+func (m *rootModel) notifyFocusChange(oldMode, newMode Mode) tea.Cmd {
+	var cmds []tea.Cmd
+
 	// Notify old model it lost focus
 	switch oldMode {
 	case ModePlan:
 		if m.planModel != nil {
-			m.planModel.FocusChanged(false)
+			if cmd := m.planModel.FocusChanged(false); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	case ModeWork:
 		if m.workModel != nil {
-			m.workModel.FocusChanged(false)
+			if cmd := m.workModel.FocusChanged(false); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	case ModeMonitor:
 		if m.monitorModel != nil {
-			m.monitorModel.FocusChanged(false)
+			if cmd := m.monitorModel.FocusChanged(false); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 
@@ -236,17 +253,25 @@ func (m *rootModel) notifyFocusChange(oldMode, newMode Mode) {
 	switch newMode {
 	case ModePlan:
 		if m.planModel != nil {
-			m.planModel.FocusChanged(true)
+			if cmd := m.planModel.FocusChanged(true); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	case ModeWork:
 		if m.workModel != nil {
-			m.workModel.FocusChanged(true)
+			if cmd := m.workModel.FocusChanged(true); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	case ModeMonitor:
 		if m.monitorModel != nil {
-			m.monitorModel.FocusChanged(true)
+			if cmd := m.monitorModel.FocusChanged(true); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
+
+	return tea.Batch(cmds...)
 }
 
 // routeToActiveModel routes a message to the currently active mode model
@@ -314,24 +339,8 @@ func (m rootModel) View() string {
 
 // renderTabBar renders the mode switching tab bar
 func (m rootModel) renderTabBar() string {
-	modes := []Mode{ModePlan, ModeWork, ModeMonitor}
-
-	var tabs []string
-	for _, mode := range modes {
-		label := "[" + mode.Key() + "] " + mode.Label()
-
-		var tab string
-		if mode == m.activeMode {
-			tab = activeTabStyle.Render(label)
-		} else {
-			tab = inactiveTabStyle.Render(label)
-		}
-		tabs = append(tabs, tab)
-	}
-
-	return tabBarStyle.Width(m.width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Left, tabs...),
-	)
+	// Simple plain text mode indicator
+	return fmt.Sprintf("=== %s MODE === [P]lan [W]ork [M]onitor", m.activeMode.Label())
 }
 
 // runRootTUI starts the TUI with the new root model

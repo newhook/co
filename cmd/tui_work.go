@@ -103,12 +103,14 @@ func (m *workModel) SetSize(width, height int) {
 }
 
 // FocusChanged implements SubModel
-func (m *workModel) FocusChanged(focused bool) {
+func (m *workModel) FocusChanged(focused bool) tea.Cmd {
 	m.focused = focused
 	if focused {
 		// Refresh data when gaining focus
 		m.loading = true
+		return m.refreshData()
 	}
+	return nil
 }
 
 // Update implements tea.Model

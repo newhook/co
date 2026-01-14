@@ -85,15 +85,17 @@ func (m *planModel) SetSize(width, height int) {
 }
 
 // FocusChanged implements SubModel
-func (m *planModel) FocusChanged(focused bool) {
+func (m *planModel) FocusChanged(focused bool) tea.Cmd {
 	if focused {
 		// Refresh data when gaining focus
 		m.loading = true
+		return m.refreshData()
 	}
+	return nil
 }
 
 // Init implements tea.Model
-func (m planModel) Init() tea.Cmd {
+func (m *planModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		m.refreshData(),
@@ -101,7 +103,7 @@ func (m planModel) Init() tea.Cmd {
 }
 
 // Update implements tea.Model
-func (m planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -140,7 +142,7 @@ type planDataMsg struct {
 // planTickMsg triggers periodic refresh
 type planTickMsg time.Time
 
-func (m planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle dialog-specific input
 	switch m.viewMode {
 	case ViewCreateBead:
@@ -267,7 +269,7 @@ func (m planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // View implements tea.Model
-func (m planModel) View() string {
+func (m *planModel) View() string {
 	// Handle dialogs
 	switch m.viewMode {
 	case ViewCreateBead:
@@ -284,7 +286,7 @@ func (m planModel) View() string {
 		return m.renderHelp()
 	}
 
-	// Normal view
+	// Single pane view
 	var b strings.Builder
 
 	// Title
@@ -321,7 +323,7 @@ func (m planModel) View() string {
 	return b.String()
 }
 
-func (m planModel) renderBeadLine(i int, bead beadItem) string {
+func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 	icon := statusIcon(bead.status)
 
 	// Selection indicator
@@ -345,7 +347,7 @@ func (m planModel) renderBeadLine(i int, bead beadItem) string {
 	return line
 }
 
-func (m planModel) renderStatusBar() string {
+func (m *planModel) renderStatusBar() string {
 	actions := "[n] New [e] Epic [x] Close [/] Search [L] Label [o/c/r] Filter [s] Sort [v] Expand [Enter] Plan [?] Help"
 
 	var statusStr string
@@ -364,11 +366,11 @@ func (m planModel) renderStatusBar() string {
 	return tuiStatusBarStyle.Width(m.width).Render(actions + "  " + statusStr)
 }
 
-func (m planModel) renderWithDialog(dialog string) string {
+func (m *planModel) renderWithDialog(dialog string) string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog)
 }
 
-func (m planModel) renderHelp() string {
+func (m *planModel) renderHelp() string {
 	help := `
   Plan Mode - Help
 
@@ -400,7 +402,7 @@ func (m planModel) renderHelp() string {
 }
 
 // Dialog update handlers
-func (m planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.viewMode = ViewNormal
@@ -431,7 +433,7 @@ func (m planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m planModel) updateCreateEpic(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *planModel) updateCreateEpic(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.viewMode = ViewNormal
@@ -459,7 +461,7 @@ func (m planModel) updateCreateEpic(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.viewMode = ViewNormal
@@ -476,7 +478,7 @@ func (m planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m planModel) updateLabelFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *planModel) updateLabelFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.viewMode = ViewNormal
@@ -492,7 +494,7 @@ func (m planModel) updateLabelFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
@@ -510,7 +512,7 @@ func (m planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // Dialog render helpers
-func (m planModel) renderCreateBeadDialogContent() string {
+func (m *planModel) renderCreateBeadDialogContent() string {
 	var typeOptions []string
 	for i, t := range beadTypes {
 		if i == m.createBeadType {
@@ -539,7 +541,7 @@ func (m planModel) renderCreateBeadDialogContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
-func (m planModel) renderCreateEpicDialogContent() string {
+func (m *planModel) renderCreateEpicDialogContent() string {
 	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
 	priorityDisplay := priorityLabels[m.createBeadPriority]
 
@@ -558,7 +560,7 @@ func (m planModel) renderCreateEpicDialogContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
-func (m planModel) renderBeadSearchDialogContent() string {
+func (m *planModel) renderBeadSearchDialogContent() string {
 	content := fmt.Sprintf(`
   Search Issues
 
@@ -571,7 +573,7 @@ func (m planModel) renderBeadSearchDialogContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
-func (m planModel) renderLabelFilterDialogContent() string {
+func (m *planModel) renderLabelFilterDialogContent() string {
 	currentLabel := m.filters.label
 	if currentLabel == "" {
 		currentLabel = "(none)"
@@ -591,7 +593,7 @@ func (m planModel) renderLabelFilterDialogContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
-func (m planModel) renderCloseBeadConfirmContent() string {
+func (m *planModel) renderCloseBeadConfirmContent() string {
 	beadID := ""
 	beadTitle := ""
 	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
@@ -612,14 +614,14 @@ func (m planModel) renderCloseBeadConfirmContent() string {
 }
 
 // Command generators
-func (m planModel) refreshData() tea.Cmd {
+func (m *planModel) refreshData() tea.Cmd {
 	return func() tea.Msg {
 		items, err := m.loadBeads()
 		return planDataMsg{beads: items, err: err}
 	}
 }
 
-func (m planModel) loadBeads() ([]beadItem, error) {
+func (m *planModel) loadBeads() ([]beadItem, error) {
 	mainRepoPath := m.proj.MainRepoPath()
 
 	// Use the shared fetchBeadsWithFilters function
@@ -643,7 +645,7 @@ func (m planModel) loadBeads() ([]beadItem, error) {
 	return items, nil
 }
 
-func (m planModel) createBead(title, beadType string, priority int, isEpic bool) tea.Cmd {
+func (m *planModel) createBead(title, beadType string, priority int, isEpic bool) tea.Cmd {
 	return func() tea.Msg {
 		mainRepoPath := m.proj.MainRepoPath()
 
@@ -664,7 +666,7 @@ func (m planModel) createBead(title, beadType string, priority int, isEpic bool)
 	}
 }
 
-func (m planModel) closeBead(beadID string) tea.Cmd {
+func (m *planModel) closeBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
 		mainRepoPath := m.proj.MainRepoPath()
 
@@ -680,7 +682,7 @@ func (m planModel) closeBead(beadID string) tea.Cmd {
 	}
 }
 
-func (m planModel) launchPlanningSession() tea.Cmd {
+func (m *planModel) launchPlanningSession() tea.Cmd {
 	return func() tea.Msg {
 		if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
 			return nil
