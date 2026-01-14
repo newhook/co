@@ -370,6 +370,7 @@ func createPRTask(proj *project.Project, work *db.Work, reviewTaskID string) err
 
 // spinnerWait displays an animated spinner with a message for the specified duration.
 // The spinner updates every 100ms to create a smooth animation effect.
+// Does not print a newline so the spinner can continue on the same line.
 func spinnerWait(msg string, duration time.Duration) {
 	start := time.Now()
 	frameIdx := 0
@@ -378,8 +379,7 @@ func spinnerWait(msg string, duration time.Duration) {
 		frameIdx = (frameIdx + 1) % len(spinnerFrames)
 		time.Sleep(100 * time.Millisecond)
 	}
-	// Clear the line and print newline after waiting
-	fmt.Printf("\r%s\n", strings.Repeat(" ", len(msg)+2))
+	// Don't print newline - let caller decide or let next spinnerWait overwrite
 }
 
 // countReviewIterations counts how many review tasks exist for a work unit.
