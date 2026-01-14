@@ -92,6 +92,19 @@ type Work struct {
 	CreatedAt     time.Time    `json:"created_at"`
 }
 
+type WorkBead struct {
+	WorkID    string    `json:"work_id"`
+	BeadID    string    `json:"bead_id"`
+	GroupID   int64     `json:"group_id"`
+	Position  int64     `json:"position"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type WorkBeadGroupCounter struct {
+	WorkID      string `json:"work_id"`
+	NextGroupID int64  `json:"next_group_id"`
+}
+
 type WorkTask struct {
 	WorkID   string `json:"work_id"`
 	TaskID   string `json:"task_id"`

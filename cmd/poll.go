@@ -203,7 +203,7 @@ func runPoll(cmd *cobra.Command, args []string) error {
 		if strings.Contains(argID, ".") {
 			// Task ID
 			taskID = argID
-		} else if strings.HasPrefix(argID, "w-") || strings.HasPrefix(argID, "work-") {
+		} else if strings.HasPrefix(argID, "w-") {
 			// Work ID
 			workID = argID
 		} else {
@@ -213,6 +213,7 @@ func runPoll(cmd *cobra.Command, args []string) error {
 		workID = flagPollWork
 	} else {
 		// Try to detect from current directory
+		// Ignore errors - poll can show all works as fallback
 		workID, _ = detectWorkFromDirectory(proj)
 	}
 

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -66,6 +67,13 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Worktree: %s\n", work.WorktreePath)
 	fmt.Printf("Branch: %s (base: %s)\n", work.BranchName, work.BaseBranch)
 
+	// Reset any stuck processing tasks from a previous run
+	// When the orchestrator restarts, any tasks that were processing are now orphaned
+	// since the Claude process was killed along with the orchestrator
+	if err := resetStuckProcessingTasks(ctx, proj, workID); err != nil {
+		return fmt.Errorf("failed to reset stuck tasks: %w", err)
+	}
+
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
 		// Check if work still exists (may have been destroyed)
@@ -116,15 +124,15 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 
 			// If tasks are processing, wait and retry
 			if processingCount > 0 {
-				fmt.Printf("Waiting for %d processing task(s)...\n", processingCount)
-				time.Sleep(5 * time.Second)
+				msg := fmt.Sprintf("Waiting for %d processing task(s)...", processingCount)
+				spinnerWait(msg, 5*time.Second)
 				continue
 			}
 
 			// If pending tasks exist but none are ready, they're blocked
 			if pendingCount > 0 {
-				fmt.Printf("Waiting: %d pending task(s) blocked by dependencies...\n", pendingCount)
-				time.Sleep(5 * time.Second)
+				msg := fmt.Sprintf("Waiting: %d pending task(s) blocked by dependencies...", pendingCount)
+				spinnerWait(msg, 5*time.Second)
 				continue
 			}
 
@@ -420,4 +428,37 @@ func splitEnvVar(s string) []string {
 		return []string{s}
 	}
 	return []string{s[:idx], s[idx+1:]}
+}
+
+// resetStuckProcessingTasks finds tasks that are stuck in "processing" status
+// and resets them to "pending". This happens when the orchestrator is killed
+// while a task is running - the Claude process is also killed, but the task
+// remains marked as processing in the database.
+func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workID string) error {
+	// Get all tasks for this work
+	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
+	if err != nil {
+		return err
+	}
+
+	resetCount := 0
+	for _, t := range tasks {
+		if t.Status == db.StatusProcessing {
+			fmt.Printf("Resetting stuck task %s from processing to pending...\n", t.ID)
+			if err := proj.DB.ResetTaskStatus(ctx, t.ID); err != nil {
+				return fmt.Errorf("failed to reset task %s: %w", t.ID, err)
+			}
+			// Also reset bead statuses for this task
+			if err := proj.DB.ResetTaskBeadStatuses(ctx, t.ID); err != nil {
+				return fmt.Errorf("failed to reset task bead statuses for %s: %w", t.ID, err)
+			}
+			resetCount++
+		}
+	}
+
+	if resetCount > 0 {
+		fmt.Printf("Reset %d stuck task(s)\n", resetCount)
+	}
+
+	return nil
 }

@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
@@ -23,27 +25,27 @@ var workCmd = &cobra.Command{
 }
 
 var workCreateCmd = &cobra.Command{
-	Use:   "create [<branch>]",
-	Short: "Create a new work unit with the specified branch",
-	Long: `Create a new work unit with the specified branch name.
+	Use:   "create <bead-args...>",
+	Short: "Create a new work unit from beads",
+	Long: `Create a new work unit from one or more beads.
 Creates a subdirectory with a git worktree for isolated development.
 
-The branch argument specifies the git branch name to create.
-A unique work ID will be auto-generated using content-based hashing (w-abc format).
+Beads can be specified with grouping syntax:
+  co work create bead-1,bead-2 bead-3
+  - Comma-separated beads are grouped together for a single task
+  - Space-separated arguments create separate task groups
 
-With --bead flag, the branch name is auto-generated from the bead title(s).
-The work is created but no tasks are planned automatically - use 'co plan' to plan tasks.
+Epics are automatically expanded to include all child beads.
+Transitive dependencies are also included.
 
-With --bead and --auto flags together, runs an automated end-to-end workflow:
-1. Auto-generates branch name from bead title(s)
-2. Collects transitive dependencies (if any)
-3. Plans tasks with auto-grouping
-4. Executes all tasks
-5. Runs review-fix loop until clean
-6. Creates a pull request
+Branch name is auto-generated from bead titles - you'll be prompted to accept or customize.
 
-The --bead flag accepts comma-delimited bead IDs (e.g., --bead=bead-1,bead-2,bead-3).`,
-	Args: cobra.MaximumNArgs(1),
+With --auto flag, runs the full automated workflow:
+1. Creates tasks from beads
+2. Executes all tasks
+3. Runs review-fix loop until clean
+4. Creates a pull request`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runWorkCreate,
 }
 
@@ -96,22 +98,52 @@ and adherence to project standards.`,
 	RunE: runWorkReview,
 }
 
+var workAddCmd = &cobra.Command{
+	Use:   "add <bead-args...>",
+	Short: "Add beads to work",
+	Long: `Add beads to an existing work unit.
+
+Beads can be specified with grouping syntax:
+  co work add bead-4,bead-5 bead-6
+  - Comma-separated beads are grouped together for a single task
+  - Space-separated arguments create separate task groups
+
+Epics are automatically expanded to include all child beads.`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runWorkAdd,
+}
+
+var workRemoveCmd = &cobra.Command{
+	Use:   "remove <bead-ids...>",
+	Short: "Remove beads from work",
+	Long: `Remove beads from an existing work unit.
+Beads that are already assigned to a pending or processing task cannot be removed.`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runWorkRemove,
+}
+
 var (
-	flagBaseBranch string
-	flagBeadID     string
-	flagAutoRun    bool
+	flagBaseBranch  string
+	flagAutoRun     bool
+	flagReviewAuto  bool
+	flagAddWork     string
+	flagRemoveWork  string
 )
 
 func init() {
 	workCreateCmd.Flags().StringVar(&flagBaseBranch, "base", "main", "base branch to create feature branch from (also used as PR target)")
-	workCreateCmd.Flags().StringVar(&flagBeadID, "bead", "", "bead ID(s) to auto-generate branch name from (comma-delimited for multiple)")
-	workCreateCmd.Flags().BoolVar(&flagAutoRun, "auto", false, "run automated end-to-end workflow (estimate, implement, review, PR) when --bead is specified")
+	workCreateCmd.Flags().BoolVar(&flagAutoRun, "auto", false, "run full automated workflow (implement, review, fix, PR)")
+	workReviewCmd.Flags().BoolVar(&flagReviewAuto, "auto", false, "run review-fix loop until clean")
+	workAddCmd.Flags().StringVar(&flagAddWork, "work", "", "work ID (default: auto-detect from current directory)")
+	workRemoveCmd.Flags().StringVar(&flagRemoveWork, "work", "", "work ID (default: auto-detect from current directory)")
 	workCmd.AddCommand(workCreateCmd)
 	workCmd.AddCommand(workListCmd)
 	workCmd.AddCommand(workShowCmd)
 	workCmd.AddCommand(workDestroyCmd)
 	workCmd.AddCommand(workPRCmd)
 	workCmd.AddCommand(workReviewCmd)
+	workCmd.AddCommand(workAddCmd)
+	workCmd.AddCommand(workRemoveCmd)
 }
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
@@ -125,35 +157,47 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Check if --bead flag is used
-	if flagBeadID != "" {
-		// With --auto, run the full automated workflow
-		if flagAutoRun {
-			return runAutomatedWorkflow(proj, flagBeadID, baseBranch)
-		}
-		// Without --auto, just generate branch name from beads
-		return runWorkCreateWithBeads(proj, flagBeadID, baseBranch)
+	mainRepoPath := proj.MainRepoPath()
+
+	// Parse positional args into bead groups
+	// Each arg is a comma-separated list of bead IDs (same group)
+	// Different args are different groups
+	beadGroups, err := parseBeadGroups(args, mainRepoPath)
+	if err != nil {
+		return err
 	}
 
-	// --auto without --bead is an error
-	if flagAutoRun {
-		return fmt.Errorf("--auto requires --bead flag")
+	if len(beadGroups) == 0 {
+		return fmt.Errorf("no beads specified")
 	}
 
-	// Traditional mode: require branch name argument
-	if len(args) == 0 {
-		return fmt.Errorf("branch name is required (use --bead to auto-generate from bead titles)")
+	// Collect all beads for branch name generation
+	var allBeads []*beads.Bead
+	for _, group := range beadGroups {
+		allBeads = append(allBeads, group.beads...)
 	}
-	branchName := args[0]
 
-	// Generate content-based hash ID from branch name
+	// Generate branch name from bead titles
+	branchName := generateBranchNameFromBeads(allBeads)
+	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to find unique branch name: %w", err)
+	}
+
+	// Prompt user to accept or customize branch name
+	branchName, err = promptForBranchName(branchName)
+	if err != nil {
+		return err
+	}
+
+	// Generate work ID
 	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
 	if err != nil {
 		return fmt.Errorf("failed to generate work ID: %w", err)
 	}
-	fmt.Printf("Generated work ID: %s (from branch: %s)\n", workID, branchName)
+	fmt.Printf("Work ID: %s\n", workID)
 
-	// Block signals during critical worktree creation to avoid leaving inconsistent state
+	// Block signals during critical worktree creation
 	cosignal.BlockSignals()
 	defer cosignal.UnblockSignals()
 
@@ -166,17 +210,15 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// Create git worktree inside work directory
 	worktreePath := filepath.Join(workDir, "tree")
 
-	// Create worktree with new branch based on the specified base branch
-	if err := worktree.Create(proj.MainRepoPath(), worktreePath, branchName, baseBranch); err != nil {
-		// Clean up on failure
+	// Create worktree with new branch
+	if err := worktree.Create(mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
 		os.RemoveAll(workDir)
 		return err
 	}
 
-	// Push branch and set upstream to avoid "no upstream branch" errors later
+	// Push branch and set upstream
 	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
-		// Clean up on failure
-		worktree.RemoveForce(proj.MainRepoPath(), worktreePath)
+		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return err
 	}
@@ -188,17 +230,47 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	// Create work record in database
 	if err := proj.DB.CreateWork(ctx, workID, worktreePath, branchName, baseBranch); err != nil {
-		// Clean up on failure
-		worktree.RemoveForce(proj.MainRepoPath(), worktreePath)
+		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 
-	fmt.Printf("Created work: %s\n", workID)
+	// Initialize bead group counter
+	if err := proj.DB.InitializeBeadGroupCounter(ctx, workID); err != nil {
+		fmt.Printf("Warning: failed to initialize bead group counter: %v\n", err)
+	}
+
+	// Add beads to work_beads with group assignments
+	if err := addBeadGroupsToWork(ctx, proj, workID, beadGroups); err != nil {
+		worktree.RemoveForce(mainRepoPath, worktreePath)
+		os.RemoveAll(workDir)
+		return fmt.Errorf("failed to add beads to work: %w", err)
+	}
+
+	fmt.Printf("\nCreated work: %s\n", workID)
 	fmt.Printf("Directory: %s\n", workDir)
 	fmt.Printf("Worktree: %s\n", worktreePath)
 	fmt.Printf("Branch: %s\n", branchName)
 	fmt.Printf("Base Branch: %s\n", baseBranch)
+
+	// Display beads
+	fmt.Printf("\nBeads (%d):\n", countBeadsInGroups(beadGroups))
+	for i, group := range beadGroups {
+		if len(group.beads) > 1 {
+			fmt.Printf("  Group %d:\n", i+1)
+			for _, b := range group.beads {
+				fmt.Printf("    - %s: %s\n", b.ID, b.Title)
+			}
+		} else if len(group.beads) == 1 {
+			fmt.Printf("  - %s: %s\n", group.beads[0].ID, group.beads[0].Title)
+		}
+	}
+
+	// If --auto, run the full automated workflow
+	if flagAutoRun {
+		fmt.Println("\nRunning automated workflow...")
+		return runAutomatedWorkflowForWork(proj, workID, worktreePath)
+	}
 
 	// Spawn the orchestrator for this work
 	fmt.Println("\nSpawning orchestrator...")
@@ -211,8 +283,250 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  cd %s\n", workID)
-	fmt.Printf("  co plan              # Plan tasks for this work\n")
+	fmt.Printf("  co run               # Execute tasks\n")
 
+	return nil
+}
+
+// beadGroup represents a group of beads that should be in the same task.
+type beadGroup struct {
+	beads []*beads.Bead
+}
+
+// parseBeadGroups parses positional args into bead groups.
+// Each arg is a comma-separated list of bead IDs (same group).
+// Epics are expanded to their child beads.
+// Returns an error if duplicate bead IDs are found across groups.
+func parseBeadGroups(args []string, mainRepoPath string) ([]beadGroup, error) {
+	var groups []beadGroup
+	seenBeads := make(map[string]bool)
+
+	for _, arg := range args {
+		// Split comma-separated bead IDs
+		beadIDs := parseBeadIDs(arg)
+		if len(beadIDs) == 0 {
+			continue
+		}
+
+		var groupBeads []*beads.Bead
+		for _, beadID := range beadIDs {
+			// Expand this bead (handles epics and transitive deps)
+			expanded, err := collectBeadsForAutomatedWorkflow(beadID, mainRepoPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
+			}
+			for _, b := range expanded {
+				// Check for duplicates
+				if seenBeads[b.ID] {
+					return nil, fmt.Errorf("duplicate bead %s specified", b.ID)
+				}
+				seenBeads[b.ID] = true
+
+				// Convert BeadWithDeps to Bead
+				bead := &beads.Bead{
+					ID:          b.ID,
+					Title:       b.Title,
+					Description: b.Description,
+				}
+				groupBeads = append(groupBeads, bead)
+			}
+		}
+
+		if len(groupBeads) > 0 {
+			groups = append(groups, beadGroup{beads: groupBeads})
+		}
+	}
+
+	return groups, nil
+}
+
+// promptForBranchName prompts the user to accept or customize the branch name.
+func promptForBranchName(proposed string) (string, error) {
+	fmt.Printf("\nProposed branch name: %s\n", proposed)
+	fmt.Print("Accept? [Y/n/custom]: ")
+
+	var response string
+	fmt.Scanln(&response)
+	response = strings.TrimSpace(response)
+
+	if response == "" || strings.ToLower(response) == "y" {
+		return proposed, nil
+	}
+
+	if strings.ToLower(response) == "n" {
+		fmt.Print("Enter branch name: ")
+		fmt.Scanln(&response)
+		response = strings.TrimSpace(response)
+		if response == "" {
+			return "", fmt.Errorf("branch name cannot be empty")
+		}
+		return response, nil
+	}
+
+	// User entered a custom branch name directly
+	return response, nil
+}
+
+// addBeadGroupsToWork adds bead groups to work_beads table.
+func addBeadGroupsToWork(ctx context.Context, proj *project.Project, workID string, groups []beadGroup) error {
+	for _, group := range groups {
+		var groupID int64
+		if len(group.beads) > 1 {
+			// Get next group ID for grouped beads
+			var err error
+			groupID, err = proj.DB.GetNextBeadGroupID(ctx, workID)
+			if err != nil {
+				return fmt.Errorf("failed to get next group ID: %w", err)
+			}
+		}
+		// groupID = 0 for ungrouped beads (single bead in group)
+
+		// Extract bead IDs
+		var beadIDs []string
+		for _, b := range group.beads {
+			beadIDs = append(beadIDs, b.ID)
+		}
+
+		// Add beads to work
+		if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs, groupID); err != nil {
+			return fmt.Errorf("failed to add beads: %w", err)
+		}
+	}
+	return nil
+}
+
+// countBeadsInGroups counts total beads across all groups.
+func countBeadsInGroups(groups []beadGroup) int {
+	count := 0
+	for _, g := range groups {
+		count += len(g.beads)
+	}
+	return count
+}
+
+// runAutomatedWorkflowForWork runs the full automated workflow for an existing work.
+// This includes: create tasks -> execute -> review/fix loop -> PR
+// Delegates to runFullAutomatedWorkflow in run.go for the actual implementation.
+func runAutomatedWorkflowForWork(proj *project.Project, workID, worktreePath string) error {
+	return runFullAutomatedWorkflow(proj, workID, worktreePath)
+}
+
+// runWorkAdd adds beads to an existing work.
+func runWorkAdd(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
+
+	proj, err := project.Find(ctx, "")
+	if err != nil {
+		return err
+	}
+	defer proj.Close()
+
+	// Get work ID
+	workID := flagAddWork
+	if workID == "" {
+		workID, err = getCurrentWork(proj)
+		if err != nil {
+			return fmt.Errorf("not in a work directory and no --work specified")
+		}
+	}
+
+	// Verify work exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+
+	// Parse bead groups
+	beadGroups, err := parseBeadGroups(args, mainRepoPath)
+	if err != nil {
+		return err
+	}
+
+	if len(beadGroups) == 0 {
+		return fmt.Errorf("no beads specified")
+	}
+
+	// Check if any bead is already in a task
+	for _, group := range beadGroups {
+		for _, bead := range group.beads {
+			inTask, err := proj.DB.IsBeadInTask(ctx, workID, bead.ID)
+			if err != nil {
+				return fmt.Errorf("failed to check bead %s: %w", bead.ID, err)
+			}
+			if inTask {
+				return fmt.Errorf("bead %s is already assigned to a task", bead.ID)
+			}
+		}
+	}
+
+	// Add beads to work
+	if err := addBeadGroupsToWork(ctx, proj, workID, beadGroups); err != nil {
+		return fmt.Errorf("failed to add beads: %w", err)
+	}
+
+	fmt.Printf("Added %d bead(s) to work %s\n", countBeadsInGroups(beadGroups), workID)
+	return nil
+}
+
+// runWorkRemove removes beads from an existing work.
+func runWorkRemove(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
+
+	proj, err := project.Find(ctx, "")
+	if err != nil {
+		return err
+	}
+	defer proj.Close()
+
+	// Get work ID
+	workID := flagRemoveWork
+	if workID == "" {
+		workID, err = getCurrentWork(proj)
+		if err != nil {
+			return fmt.Errorf("not in a work directory and no --work specified")
+		}
+	}
+
+	// Verify work exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Remove each bead
+	removed := 0
+	for _, beadID := range args {
+		beadID = strings.TrimSpace(beadID)
+		if beadID == "" {
+			continue
+		}
+
+		// Check if bead is in a task
+		inTask, err := proj.DB.IsBeadInTask(ctx, workID, beadID)
+		if err != nil {
+			return fmt.Errorf("failed to check bead %s: %w", beadID, err)
+		}
+		if inTask {
+			return fmt.Errorf("bead %s is assigned to a task and cannot be removed", beadID)
+		}
+
+		// Remove the bead
+		if err := proj.DB.RemoveWorkBead(ctx, workID, beadID); err != nil {
+			fmt.Printf("Warning: failed to remove bead %s: %v\n", beadID, err)
+			continue
+		}
+		removed++
+	}
+
+	fmt.Printf("Removed %d bead(s) from work %s\n", removed, workID)
 	return nil
 }
 
@@ -482,6 +796,8 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 }
 
 func runWorkReview(cmd *cobra.Command, args []string) error {
+	const maxReviewIterations = 3
+
 	// Find project
 	ctx := GetContext()
 	proj, err := project.Find(ctx, "")
@@ -516,36 +832,129 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("work %s has not been started yet (status: pending)", workID)
 	}
 
-	// Generate unique task ID for review
-	// Find the next available review task number
-	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work tasks: %w", err)
-	}
+	mainRepoPath := proj.MainRepoPath()
 
-	// Count existing review tasks to generate unique ID
-	reviewCount := 0
-	reviewPrefix := fmt.Sprintf("%s.review", workID)
-	for _, task := range tasks {
-		if strings.HasPrefix(task.ID, reviewPrefix) {
-			reviewCount++
+	// Run review-fix loop if --auto is set
+	for iteration := 0; ; iteration++ {
+		// Check max iterations
+		if flagReviewAuto && iteration >= maxReviewIterations {
+			fmt.Printf("Warning: Maximum review iterations (%d) reached\n", maxReviewIterations)
+			break
 		}
+
+		// Generate unique task ID for review
+		tasks, err := proj.DB.GetWorkTasks(ctx, workID)
+		if err != nil {
+			return fmt.Errorf("failed to get work tasks: %w", err)
+		}
+
+		// Count existing review tasks to generate unique ID
+		reviewCount := 0
+		reviewPrefix := fmt.Sprintf("%s.review", workID)
+		for _, task := range tasks {
+			if strings.HasPrefix(task.ID, reviewPrefix) {
+				reviewCount++
+			}
+		}
+
+		// Generate unique review task ID (e.g., w-xxx.review-1, w-xxx.review-2)
+		reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
+
+		// Create a review task
+		err = proj.DB.CreateTask(ctx, reviewTaskID, "review", []string{}, 0, workID)
+		if err != nil {
+			return fmt.Errorf("failed to create review task: %w", err)
+		}
+
+		fmt.Printf("Created review task: %s\n", reviewTaskID)
+
+		// Run the review task
+		fmt.Printf("Running review task...\n")
+		if err := processTask(proj, reviewTaskID); err != nil {
+			return fmt.Errorf("review task failed: %w", err)
+		}
+
+		// If not in auto mode, we're done after one review
+		if !flagReviewAuto {
+			break
+		}
+
+		// Check if the review created any issues via review_epic_id
+		epicID, err := proj.DB.GetReviewEpicID(ctx, reviewTaskID)
+		if err != nil {
+			return fmt.Errorf("failed to get review epic ID: %w", err)
+		}
+
+		var beadsToFix []beads.BeadWithDeps
+		if epicID != "" {
+			// Get all children of the review epic
+			epicChildren, err := beads.GetBeadWithChildrenInDir(epicID, mainRepoPath)
+			if err != nil {
+				return fmt.Errorf("failed to get children of review epic %s: %w", epicID, err)
+			}
+
+			// Filter to only ready beads (excluding the epic itself)
+			for _, b := range epicChildren {
+				if b.ID != epicID && (b.Status == "" || b.Status == "ready" || b.Status == "open") {
+					beadsToFix = append(beadsToFix, b)
+				}
+			}
+		}
+
+		if len(beadsToFix) == 0 {
+			fmt.Println("Review passed - no issues found!")
+			break
+		}
+
+		fmt.Printf("Review found %d issue(s) - creating fix tasks...\n", len(beadsToFix))
+
+		// Create and run fix tasks for each bead
+		for _, b := range beadsToFix {
+			nextNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
+			if err != nil {
+				return fmt.Errorf("failed to get next task number: %w", err)
+			}
+			taskID := fmt.Sprintf("%s.%d", workID, nextNum)
+
+			if err := proj.DB.CreateTask(ctx, taskID, "implement", []string{b.ID}, 0, workID); err != nil {
+				return fmt.Errorf("failed to create fix task: %w", err)
+			}
+
+			fmt.Printf("Created fix task %s for bead %s: %s\n", taskID, b.ID, b.Title)
+
+			// Run the fix task
+			if err := processTask(proj, taskID); err != nil {
+				return fmt.Errorf("fix task %s failed: %w", taskID, err)
+			}
+		}
+
+		// Loop back for another review
 	}
 
-	// Generate unique review task ID (e.g., w-xxx.review-1, w-xxx.review-2)
-	reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
+	return nil
+}
 
-	// Create a review task
-	err = proj.DB.CreateTask(ctx, reviewTaskID, "review", []string{}, 0, workID)
+// detectWorkFromDirectory tries to detect the work from the current directory.
+// Returns empty string if not in a work directory.
+func detectWorkFromDirectory(proj *project.Project) (string, error) {
+	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to create review task: %w", err)
+		return "", err
 	}
 
-	fmt.Printf("Created review task: %s\n", reviewTaskID)
+	// Check if we're in a work subdirectory (format: /project/w-xxx/tree)
+	rel, err := filepath.Rel(proj.Root, cwd)
+	if err != nil {
+		return "", nil
+	}
 
-	// Auto-run the review task
-	fmt.Printf("Running review task...\n")
-	return processTask(proj, reviewTaskID)
+	// Check if we're in a work directory (w-xxx or w-xxx/tree/...)
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) >= 1 && strings.HasPrefix(parts[0], "w-") {
+		return parts[0], nil
+	}
+
+	return "", nil
 }
 
 // getCurrentWork tries to detect the work context from the current directory.

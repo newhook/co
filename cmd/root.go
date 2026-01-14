@@ -44,7 +44,6 @@ func GetContext() context.Context {
 }
 
 func init() {
-	rootCmd.AddCommand(planCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(completeCmd)
 	rootCmd.AddCommand(statusCmd)

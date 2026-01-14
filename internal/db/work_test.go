@@ -80,3 +80,90 @@ func TestDeleteWorkNotFound(t *testing.T) {
 	err := db.DeleteWork(ctx, "w-nonexistent")
 	assert.Error(t, err, "Expected error when deleting non-existent work")
 }
+
+func TestAddWorkBeads(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a work first
+	err := db.CreateWork(ctx, "w-test", "/tmp/tree", "feature/test", "main")
+	require.NoError(t, err)
+
+	// Add beads to work
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-1", "bead-2"}, 0)
+	require.NoError(t, err)
+
+	// Verify beads were added
+	beads, err := db.GetWorkBeads(ctx, "w-test")
+	require.NoError(t, err)
+	assert.Len(t, beads, 2)
+}
+
+func TestAddWorkBeadsDuplicateError(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a work first
+	err := db.CreateWork(ctx, "w-test", "/tmp/tree", "feature/test", "main")
+	require.NoError(t, err)
+
+	// Add initial beads
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-1", "bead-2"}, 0)
+	require.NoError(t, err)
+
+	// Try to add duplicate beads - should error
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-2", "bead-3"}, 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "beads already exist in work")
+	assert.Contains(t, err.Error(), "bead-2")
+}
+
+func TestAddWorkBeadsEmptyList(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a work first
+	err := db.CreateWork(ctx, "w-test", "/tmp/tree", "feature/test", "main")
+	require.NoError(t, err)
+
+	// Add empty list - should succeed with no effect
+	err = db.AddWorkBeads(ctx, "w-test", []string{}, 0)
+	require.NoError(t, err)
+
+	beads, err := db.GetWorkBeads(ctx, "w-test")
+	require.NoError(t, err)
+	assert.Empty(t, beads)
+}
+
+func TestAddWorkBeadsWithGroup(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a work first
+	err := db.CreateWork(ctx, "w-test", "/tmp/tree", "feature/test", "main")
+	require.NoError(t, err)
+
+	// Add beads with different groups
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-1", "bead-2"}, 1)
+	require.NoError(t, err)
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-3"}, 0)
+	require.NoError(t, err)
+
+	// Verify groups
+	beads, err := db.GetWorkBeads(ctx, "w-test")
+	require.NoError(t, err)
+	assert.Len(t, beads, 3)
+
+	// Check that grouped beads have the correct group ID
+	groupedCount := 0
+	for _, b := range beads {
+		if b.GroupID == 1 {
+			groupedCount++
+		}
+	}
+	assert.Equal(t, 2, groupedCount)
+}
