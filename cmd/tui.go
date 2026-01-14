@@ -2204,10 +2204,8 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	model := newTUIModel(ctx, proj)
-	p := tea.NewProgram(model, tea.WithAltScreen())
-
-	if _, err := p.Run(); err != nil {
+	// Use the new root model with mode switching
+	if err := runRootTUI(ctx, proj); err != nil {
 		return fmt.Errorf("error running TUI: %w", err)
 	}
 
