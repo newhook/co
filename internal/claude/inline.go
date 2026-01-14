@@ -12,12 +12,6 @@ import (
 	"github.com/newhook/co/internal/db"
 )
 
-// signalProcessGroup sends a signal to an entire process group.
-// Uses negative PID to signal the group instead of just the leader.
-func signalProcessGroup(pid int, sig syscall.Signal) {
-	syscall.Kill(-pid, sig)
-}
-
 // Run executes Claude directly in the current terminal (fork/exec).
 // This blocks until Claude exits or the task is marked complete in the database.
 func Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string) error {
@@ -45,21 +39,28 @@ func Run(ctx context.Context, database *db.DB, taskID string, prompt string, wor
 	claudeCmd.Stdin = os.Stdin
 	claudeCmd.Stdout = os.Stdout
 	claudeCmd.Stderr = os.Stderr
-	// Create a new process group so we can kill Claude and all its children
-	claudeCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Start Claude
 	if err := claudeCmd.Start(); err != nil {
-		database.FailTask(ctx, taskID, fmt.Sprintf("Failed to start Claude: %v", err))
+		if dbErr := database.FailTask(ctx, taskID, fmt.Sprintf("failed to start Claude: %v", err)); dbErr != nil {
+			fmt.Printf("Warning: failed to mark task as failed: %v\n", dbErr)
+		}
 		return fmt.Errorf("failed to start Claude: %w", err)
 	}
 
+	// Run the main monitoring loop
+	return monitorClaude(ctx, database, taskID, claudeCmd, startTime)
+}
+
+// monitorClaude handles the main event loop for monitoring Claude execution.
+// It watches for Claude exit, task completion in database, signals, and context cancellation.
+func monitorClaude(ctx context.Context, database *db.DB, taskID string, claudeCmd *exec.Cmd, startTime time.Time) error {
 	// Set up signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 
-	// Wait for Claude to complete, task completion in database, or signal
+	// Wait for Claude to complete
 	done := make(chan error, 1)
 	go func() {
 		done <- claudeCmd.Wait()
@@ -72,90 +73,89 @@ func Run(ctx context.Context, database *db.DB, taskID string, prompt string, wor
 	for {
 		select {
 		case err := <-done:
-			// Claude exited
-			elapsed := time.Since(startTime)
-			if err != nil {
-				// Check if it was killed by us due to completion
-				task, dbErr := database.GetTask(ctx, taskID)
-				if dbErr == nil && task != nil && (task.Status == db.StatusCompleted || task.Status == db.StatusFailed) {
-					fmt.Printf("\n=== Task %s %s (took %s) ===\n", taskID, task.Status, elapsed.Round(time.Second))
-					return nil
-				}
-				// Actual error
-				database.FailTask(ctx, taskID, fmt.Sprintf("Claude exited with error: %v", err))
-				return fmt.Errorf("Claude exited with error: %w", err)
-			}
-			// Claude exited successfully - check task status
-			task, _ := database.GetTask(ctx, taskID)
-			if task != nil && task.Status == db.StatusCompleted {
-				fmt.Printf("\n=== Task %s completed (took %s) ===\n", taskID, elapsed.Round(time.Second))
-			} else if task != nil && task.Status == db.StatusFailed {
-				fmt.Printf("\n=== Task %s failed (took %s) ===\n", taskID, elapsed.Round(time.Second))
-			} else {
-				fmt.Printf("\n=== Claude exited for task %s (took %s) ===\n", taskID, elapsed.Round(time.Second))
-			}
-			return nil
+			// Claude exited on its own - no termination needed
+			return handleClaudeExit(ctx, database, taskID, err, startTime)
 
 		case <-ticker.C:
 			// Check if task is marked as completed in database
 			task, err := database.GetTask(ctx, taskID)
-			if err == nil && task != nil {
-				if task.Status == db.StatusCompleted || task.Status == db.StatusFailed {
-					fmt.Printf("\nTask marked as %s in database, terminating Claude...\n", task.Status)
-
-					// Send SIGTERM to Claude's process group (kills Claude and any children)
-					signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGTERM)
-
-					// Give it 5 seconds to exit gracefully
-					select {
-					case <-done:
-						// Claude exited gracefully
-					case <-time.After(5 * time.Second):
-						// Force kill if still running
-						fmt.Println("Claude didn't exit gracefully, force killing...")
-						signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGKILL)
-						<-done // Wait for process to actually exit
-					}
-
-					elapsed := time.Since(startTime)
-					fmt.Printf("\n=== Task %s %s (took %s) ===\n", taskID, task.Status, elapsed.Round(time.Second))
-					return nil
-				}
+			if err != nil {
+				fmt.Printf("Warning: failed to check task status: %v\n", err)
+				continue
+			}
+			if task == nil {
+				fmt.Printf("\nTask %s no longer exists, terminating Claude...\n", taskID)
+				terminateGracefully(claudeCmd, done)
+				return fmt.Errorf("task %s was deleted", taskID)
+			}
+			if task.Status == db.StatusCompleted || task.Status == db.StatusFailed {
+				fmt.Printf("\nTask marked as %s in database, terminating Claude...\n", task.Status)
+				terminateGracefully(claudeCmd, done)
+				elapsed := time.Since(startTime)
+				fmt.Printf("\n=== Task %s %s (took %s) ===\n", taskID, task.Status, elapsed.Round(time.Second))
+				return nil
 			}
 
 		case sig := <-sigChan:
 			fmt.Printf("\nReceived signal %v, forwarding to Claude...\n", sig)
-			// Forward signal to Claude's process group
 			if sysSig, ok := sig.(syscall.Signal); ok {
-				signalProcessGroup(claudeCmd.Process.Pid, sysSig)
+				claudeCmd.Process.Signal(sysSig)
 			} else {
-				signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGTERM)
+				claudeCmd.Process.Signal(syscall.SIGTERM)
 			}
-
-			// Wait for Claude to exit
-			select {
-			case <-done:
-				// Claude exited
-			case <-time.After(5 * time.Second):
-				fmt.Println("Claude didn't exit, force killing...")
-				signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGKILL)
-				<-done
-			}
-
+			terminateGracefully(claudeCmd, done)
 			return fmt.Errorf("interrupted by signal %v", sig)
 
 		case <-ctx.Done():
 			fmt.Println("\nContext cancelled, terminating Claude...")
-			signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGTERM)
-
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				signalProcessGroup(claudeCmd.Process.Pid, syscall.SIGKILL)
-				<-done
-			}
-
+			terminateGracefully(claudeCmd, done)
 			return ctx.Err()
 		}
 	}
+}
+
+// terminateGracefully sends SIGTERM and waits for exit, force killing after 5 seconds.
+func terminateGracefully(cmd *exec.Cmd, done <-chan error) {
+	cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-done:
+		// Exited gracefully
+	case <-time.After(5 * time.Second):
+		fmt.Println("Claude didn't exit gracefully, force killing...")
+		cmd.Process.Kill()
+		<-done
+	}
+}
+
+// handleClaudeExit processes Claude's exit and returns the appropriate result.
+func handleClaudeExit(ctx context.Context, database *db.DB, taskID string, exitErr error, startTime time.Time) error {
+	elapsed := time.Since(startTime)
+
+	if exitErr != nil {
+		// Check if it was killed by us due to completion
+		task, dbErr := database.GetTask(ctx, taskID)
+		if dbErr == nil && task != nil && (task.Status == db.StatusCompleted || task.Status == db.StatusFailed) {
+			fmt.Printf("\n=== Task %s %s (took %s) ===\n", taskID, task.Status, elapsed.Round(time.Second))
+			return nil
+		}
+		// Actual error
+		if dbErr := database.FailTask(ctx, taskID, fmt.Sprintf("Claude exited with error: %v", exitErr)); dbErr != nil {
+			fmt.Printf("Warning: failed to mark task as failed: %v\n", dbErr)
+		}
+		return fmt.Errorf("Claude exited with error: %w", exitErr)
+	}
+
+	// Claude exited successfully - check task status
+	task, err := database.GetTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task %s: %w", taskID, err)
+	}
+	if task != nil && task.Status == db.StatusCompleted {
+		fmt.Printf("\n=== Task %s completed (took %s) ===\n", taskID, elapsed.Round(time.Second))
+	} else if task != nil && task.Status == db.StatusFailed {
+		fmt.Printf("\n=== Task %s failed (took %s) ===\n", taskID, elapsed.Round(time.Second))
+	} else {
+		fmt.Printf("\n=== Claude exited for task %s (took %s) ===\n", taskID, elapsed.Round(time.Second))
+	}
+	return nil
 }
