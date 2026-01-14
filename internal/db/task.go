@@ -19,8 +19,6 @@ func taskToLocal(t *sqlc.Task) *Task {
 		ComplexityBudget: int(t.ComplexityBudget),
 		ActualComplexity: int(t.ActualComplexity),
 		WorkID:           t.WorkID,
-		ZellijSession:    t.ZellijSession,
-		ZellijPane:       t.ZellijPane,
 		WorktreePath:     t.WorktreePath,
 		PRURL:            t.PrUrl,
 		ErrorMessage:     t.ErrorMessage,
@@ -47,8 +45,6 @@ type Task struct {
 	ComplexityBudget int
 	ActualComplexity int
 	WorkID           string
-	ZellijSession    string
-	ZellijPane       string
 	WorktreePath     string
 	PRURL            string
 	ErrorMessage     string
@@ -193,16 +189,13 @@ func (db *DB) CreateTasksBatch(ctx context.Context, tasks []struct {
 	return nil
 }
 
-// StartTask marks a task as processing with session info.
-// Note: worktree_path is now managed at the work level
-func (db *DB) StartTask(ctx context.Context, id, zellijSession, zellijPane string) error {
+// StartTask marks a task as processing.
+func (db *DB) StartTask(ctx context.Context, id string) error {
 	now := time.Now()
 	rows, err := db.queries.StartTask(ctx, sqlc.StartTaskParams{
-		ZellijSession: zellijSession,
-		ZellijPane:    zellijPane,
-		WorktreePath:  "", // Deprecated, kept for compatibility
-		StartedAt:     nullTime(now),
-		ID:            id,
+		WorktreePath: "", // Deprecated, kept for compatibility
+		StartedAt:    nullTime(now),
+		ID:           id,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start task %s: %w", id, err)

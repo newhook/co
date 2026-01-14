@@ -274,12 +274,6 @@ func runTaskShow(cmd *cobra.Command, args []string) error {
 	if task.WorktreePath != "" {
 		fmt.Printf("Worktree:    %s\n", task.WorktreePath)
 	}
-	if task.ZellijSession != "" {
-		fmt.Printf("Session:     %s\n", task.ZellijSession)
-	}
-	if task.ZellijPane != "" {
-		fmt.Printf("Pane:        %s\n", task.ZellijPane)
-	}
 
 	if task.PRURL != "" {
 		fmt.Printf("PR:          %s\n", task.PRURL)

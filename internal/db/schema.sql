@@ -46,8 +46,6 @@ CREATE TABLE tasks (
     complexity_budget INT NOT NULL DEFAULT 0,
     actual_complexity INT NOT NULL DEFAULT 0,
     work_id TEXT NOT NULL DEFAULT '' REFERENCES works(id),
-    zellij_session TEXT NOT NULL DEFAULT '',
-    zellij_pane TEXT NOT NULL DEFAULT '',
     worktree_path TEXT NOT NULL DEFAULT '',
     pr_url TEXT NOT NULL DEFAULT '',
     error_message TEXT NOT NULL DEFAULT '',

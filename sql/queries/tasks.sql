@@ -9,8 +9,6 @@ VALUES (?, ?, 'pending');
 -- name: StartTask :execrows
 UPDATE tasks
 SET status = 'processing',
-    zellij_session = ?,
-    zellij_pane = ?,
     worktree_path = ?,
     started_at = ?
 WHERE id = ?;
@@ -32,8 +30,6 @@ WHERE id = ?;
 -- name: ResetTaskStatus :execrows
 UPDATE tasks
 SET status = 'pending',
-    zellij_session = '',
-    zellij_pane = '',
     started_at = NULL,
     error_message = ''
 WHERE id = ?;
@@ -44,8 +40,6 @@ SELECT id, status,
        complexity_budget,
        actual_complexity,
        work_id,
-       zellij_session,
-       zellij_pane,
        worktree_path,
        pr_url,
        error_message,
@@ -89,8 +83,6 @@ SELECT id, status,
        complexity_budget,
        actual_complexity,
        work_id,
-       zellij_session,
-       zellij_pane,
        worktree_path,
        pr_url,
        error_message,
@@ -108,8 +100,6 @@ SELECT id, status,
        complexity_budget,
        actual_complexity,
        work_id,
-       zellij_session,
-       zellij_pane,
        worktree_path,
        pr_url,
        error_message,

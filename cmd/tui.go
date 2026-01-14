@@ -2012,18 +2012,6 @@ func (m tuiModel) renderTaskDetails(tp *taskProgress, width int) string {
 		b.WriteString("\n")
 	}
 
-	// Zellij info (if running)
-	if tp.task.ZellijSession != "" && tp.task.Status == db.StatusProcessing {
-		b.WriteString("\n")
-		b.WriteString(tuiLabelStyle.Render("Session: "))
-		b.WriteString(tuiDimStyle.Render(tp.task.ZellijSession))
-		if tp.task.ZellijPane != "" {
-			b.WriteString(" / ")
-			b.WriteString(tuiDimStyle.Render(tp.task.ZellijPane))
-		}
-		b.WriteString("\n")
-	}
-
 	// Beads in this task
 	b.WriteString("\n")
 	b.WriteString(tuiLabelStyle.Render(fmt.Sprintf("Beads (%d)", len(tp.beads))))
