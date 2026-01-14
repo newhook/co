@@ -12,6 +12,7 @@ import (
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/mise"
+	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/worktree"
 )
@@ -304,8 +305,14 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 		fmt.Printf("Warning: mise initialization failed: %v\n", err)
 	}
 
-	// Create work record in database (name will be assigned when names package is implemented)
-	if err := proj.DB.CreateWork(ctx, workID, "", worktreePath, branchName, baseBranch); err != nil {
+	// Get a human-readable name for this worker
+	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
+	if err != nil {
+		fmt.Printf("Warning: failed to get worker name: %v\n", err)
+	}
+
+	// Create work record in database
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
@@ -321,6 +328,9 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 	}
 
 	fmt.Printf("\nCreated work: %s\n", workID)
+	if workerName != "" {
+		fmt.Printf("Worker: %s\n", workerName)
+	}
 	fmt.Printf("Directory: %s\n", workDir)
 	fmt.Printf("Worktree: %s\n", worktreePath)
 	fmt.Printf("Branch: %s\n", branchName)
@@ -411,14 +421,23 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 		fmt.Printf("Warning: mise initialization failed: %v\n", err)
 	}
 
-	// Create work record in database (name will be assigned when names package is implemented)
-	if err := proj.DB.CreateWork(ctx, workID, "", worktreePath, branchName, baseBranch); err != nil {
+	// Get a human-readable name for this worker
+	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
+	if err != nil {
+		fmt.Printf("Warning: failed to get worker name: %v\n", err)
+	}
+
+	// Create work record in database
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 
 	fmt.Printf("Created work: %s\n", workID)
+	if workerName != "" {
+		fmt.Printf("Worker: %s\n", workerName)
+	}
 	fmt.Printf("Worktree: %s\n", worktreePath)
 
 	// Step 3: Collect beads
