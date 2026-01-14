@@ -270,13 +270,48 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 }
 
 func fetchReadyBeads(dir string, filters beadFilters) ([]beadItem, error) {
-	readyBeads, err := beads.GetReadyBeadsInDir(dir)
+	// Call bd ready --json directly to get full issue details
+	cmd := exec.Command("bd", "ready", "--json")
+	cmd.Dir = dir
+	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to run bd ready: %w", err)
+	}
+
+	// Parse JSON output
+	type beadJSON struct {
+		ID          string `json:"id"`
+		Title       string `json:"title"`
+		Status      string `json:"status"`
+		Priority    int    `json:"priority"`
+		Type        string `json:"issue_type"`
+		Description string `json:"description"`
+	}
+	var beadsJSON []beadJSON
+	if err := json.Unmarshal(output, &beadsJSON); err != nil {
+		return nil, fmt.Errorf("failed to parse bd ready output: %w", err)
+	}
+
+	// Get dependency counts from bd list (which includes them)
+	depCounts := make(map[string]struct{ dep, dependent int })
+	listCmd := exec.Command("bd", "list", "--status=open", "--json")
+	listCmd.Dir = dir
+	if listOutput, err := listCmd.Output(); err == nil {
+		type listJSON struct {
+			ID              string `json:"id"`
+			DependencyCount int    `json:"dependency_count"`
+			DependentCount  int    `json:"dependent_count"`
+		}
+		var listBeads []listJSON
+		if json.Unmarshal(listOutput, &listBeads) == nil {
+			for _, b := range listBeads {
+				depCounts[b.ID] = struct{ dep, dependent int }{b.DependencyCount, b.DependentCount}
+			}
+		}
 	}
 
 	var items []beadItem
-	for _, b := range readyBeads {
+	for _, b := range beadsJSON {
 		// Apply search filter
 		if filters.searchText != "" {
 			searchLower := strings.ToLower(filters.searchText)
@@ -287,12 +322,17 @@ func fetchReadyBeads(dir string, filters beadFilters) ([]beadItem, error) {
 			}
 		}
 
+		counts := depCounts[b.ID]
 		items = append(items, beadItem{
-			id:          b.ID,
-			title:       b.Title,
-			description: b.Description,
-			status:      "open",
-			isReady:     true,
+			id:              b.ID,
+			title:           b.Title,
+			description:     b.Description,
+			status:          b.Status,
+			priority:        b.Priority,
+			beadType:        b.Type,
+			isReady:         true,
+			dependencyCount: counts.dep,
+			dependentCount:  counts.dependent,
 		})
 	}
 
