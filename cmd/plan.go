@@ -40,6 +40,10 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to find project: %w", err)
 	}
+	defer proj.Close()
+
+	// Apply hooks.env to current process - inherited by child processes (Claude)
+	applyHooksEnv(proj.Config.Hooks.Env)
 
 	mainRepoPath := proj.MainRepoPath()
 
