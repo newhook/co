@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -734,21 +735,40 @@ func (m *planModel) spawnClaudeTab() tea.Cmd {
 		mainRepoPath := m.proj.MainRepoPath()
 		session := m.sessionName()
 
+		// Debug: log to file
+		debugLog := func(msg string) {
+			f, _ := os.OpenFile("/tmp/co-plan-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil {
+				f.WriteString(time.Now().Format("15:04:05") + " " + msg + "\n")
+				f.Close()
+			}
+		}
+
+		debugLog(fmt.Sprintf("spawnClaudeTab called, session=%s, cwd=%s", session, mainRepoPath))
+		debugLog(fmt.Sprintf("ZELLIJ_SESSION_NAME=%s", zellij.CurrentSessionName()))
+
 		// 1. Is there a tab "plan"?
-		exists, _ := m.zj.TabExists(m.ctx, session, "plan")
+		exists, err := m.zj.TabExists(m.ctx, session, "plan")
+		debugLog(fmt.Sprintf("TabExists: exists=%v, err=%v", exists, err))
 		if exists {
 			return planClaudeSpawnedMsg{}
 		}
 
 		// 2. No? Create the tab
+		debugLog("Creating tab...")
 		if err := m.zj.CreateTab(m.ctx, session, "plan", mainRepoPath); err != nil {
+			debugLog(fmt.Sprintf("CreateTab error: %v", err))
 			return planClaudeSpawnedMsg{err: err}
 		}
+		debugLog("Tab created")
 
 		// 3. In the tab run co plan
+		debugLog("Executing co plan...")
 		if err := m.zj.ExecuteCommand(m.ctx, session, "co plan"); err != nil {
+			debugLog(fmt.Sprintf("ExecuteCommand error: %v", err))
 			return planClaudeSpawnedMsg{err: err}
 		}
+		debugLog("co plan executed")
 
 		return planClaudeSpawnedMsg{}
 	}
