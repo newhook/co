@@ -24,8 +24,8 @@ func Run(ctx context.Context, database *db.DB, taskID string, prompt string, wor
 		return fmt.Errorf("task %s not found", taskID)
 	}
 
-	// Mark task as processing (empty session/pane since we're running inline)
-	if err := database.StartTask(ctx, taskID, "", ""); err != nil {
+	// Mark task as processing
+	if err := database.StartTask(ctx, taskID); err != nil {
 		return fmt.Errorf("failed to start task: %w", err)
 	}
 
