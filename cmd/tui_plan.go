@@ -728,44 +728,32 @@ func (m *planModel) sessionName() string {
 	return fmt.Sprintf("co-%s", m.proj.Config.Project.Name)
 }
 
-// spawnClaudeTab launches Claude Code in a new zellij tab, or switches to existing one
+// spawnClaudeTab launches Claude Code in a new zellij tab named "plan"
 func (m *planModel) spawnClaudeTab() tea.Cmd {
 	return func() tea.Msg {
 		mainRepoPath := m.proj.MainRepoPath()
 		session := m.sessionName()
 
-		// Ensure session exists
-		if err := m.zj.EnsureSession(m.ctx, session); err != nil {
-			return planClaudeSpawnedMsg{err: err}
+		// Check if we're inside a zellij session
+		if !zellij.IsInsideSession() {
+			return planClaudeSpawnedMsg{err: fmt.Errorf("not inside a zellij session - run 'zellij -s %s' first", session)}
 		}
 
 		// Check if plan tab already exists
 		exists, err := m.zj.TabExists(m.ctx, session, "plan")
 		if err != nil {
-			return planClaudeSpawnedMsg{err: err}
+			return planClaudeSpawnedMsg{err: fmt.Errorf("failed to check tabs: %w", err)}
 		}
 
 		if exists {
-			// Tab exists, just switch to it
-			if err := m.zj.SwitchToTab(m.ctx, session, "plan"); err != nil {
-				return planClaudeSpawnedMsg{err: err}
-			}
+			// Tab already exists
 			return planClaudeSpawnedMsg{}
 		}
 
-		// Create a new tab for planning
-		if err := m.zj.CreateTab(m.ctx, session, "plan", mainRepoPath); err != nil {
-			return planClaudeSpawnedMsg{err: err}
-		}
-
-		// Switch to the tab and run co plan
-		if err := m.zj.SwitchToTab(m.ctx, session, "plan"); err != nil {
-			return planClaudeSpawnedMsg{err: err}
-		}
-
-		// Execute co plan command
-		if err := m.zj.ExecuteCommand(m.ctx, session, "co plan"); err != nil {
-			return planClaudeSpawnedMsg{err: err}
+		// Create a new tab for planning and run co plan in it
+		// Using zellij run creates a tab with the command already running
+		if err := m.zj.Run(m.ctx, session, "plan", mainRepoPath, "co", "plan"); err != nil {
+			return planClaudeSpawnedMsg{err: fmt.Errorf("failed to create plan tab: %w", err)}
 		}
 
 		return planClaudeSpawnedMsg{}
@@ -785,6 +773,7 @@ func (m *planModel) startPeriodicRefresh() tea.Cmd {
 }
 
 // sendToClaude sends the selected issue context to the Claude tab
+// Note: This writes to the plan tab but doesn't switch to it (user must switch manually)
 func (m *planModel) sendToClaude() tea.Cmd {
 	return func() tea.Msg {
 		if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
@@ -794,7 +783,13 @@ func (m *planModel) sendToClaude() tea.Cmd {
 		beadID := m.beadItems[m.beadsCursor].id
 		session := m.sessionName()
 
-		// Switch to the plan tab (where Claude is running)
+		// Check if plan tab exists
+		exists, err := m.zj.TabExists(m.ctx, session, "plan")
+		if err != nil || !exists {
+			return planSentToClaudeMsg{beadID: beadID, err: fmt.Errorf("plan tab not found - press P to enter Plan mode first")}
+		}
+
+		// Switch to the plan tab, write the command, then switch back
 		if err := m.zj.SwitchToTab(m.ctx, session, "plan"); err != nil {
 			return planSentToClaudeMsg{beadID: beadID, err: err}
 		}
