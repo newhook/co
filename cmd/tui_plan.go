@@ -84,7 +84,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		createBeadPriority: 2,
 		zj:                 zellij.New(),
 		filters: beadFilters{
-			status: "ready",
+			status: "open",
 			sortBy: "default",
 		},
 	}
