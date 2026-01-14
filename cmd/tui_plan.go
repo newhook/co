@@ -157,6 +157,16 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh to update session indicators
 		return m, m.refreshData()
 
+	case planWorkCreatedMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Failed to create work: %v", msg.err)
+			m.statusIsError = true
+		} else {
+			m.statusMessage = fmt.Sprintf("Created work %s from %s", msg.workID, msg.beadID)
+			m.statusIsError = false
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 
@@ -198,6 +208,13 @@ type planSessionSpawnedMsg struct {
 	beadID  string
 	resumed bool
 	err     error
+}
+
+// planWorkCreatedMsg indicates work was created from a bead
+type planWorkCreatedMsg struct {
+	beadID string
+	workID string
+	err    error
 }
 
 func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -313,6 +330,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			beadID := m.beadItems[m.beadsCursor].id
 			return m, m.spawnPlanSession(beadID)
+		}
+		return m, nil
+
+	case "w":
+		// Create work from selected bead
+		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+			beadID := m.beadItems[m.beadsCursor].id
+			return m, m.createWorkFromBead(beadID)
 		}
 		return m, nil
 
@@ -471,7 +496,7 @@ func (m *planModel) renderCommandsBar() string {
 	}
 
 	// Commands on the left
-	commands := fmt.Sprintf("[n]New [e]Epic [x]Close %s [o/c/r]Filter [/]Search [s]Sort [?]Help", enterAction)
+	commands := fmt.Sprintf("[n]New [e]Epic [x]Close [w]Work %s [o/c/r]Filter [?]Help", enterAction)
 
 	// Status on the right
 	var status string
@@ -546,6 +571,7 @@ func (m *planModel) renderHelp() string {
   n             Create new issue (task)
   e             Create new epic (feature)
   x             Close selected issue
+  w             Create work from issue
   Space         Toggle selection
 
   Filtering & Sorting
@@ -946,4 +972,38 @@ func (m *planModel) startPeriodicRefresh() tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
 		return planTickMsg(t)
 	})
+}
+
+// createWorkFromBead creates a new work unit from a bead
+func (m *planModel) createWorkFromBead(beadID string) tea.Cmd {
+	return func() tea.Msg {
+		session := m.sessionName()
+		tabName := fmt.Sprintf("work-%s", beadID)
+		mainRepoPath := m.proj.MainRepoPath()
+
+		// Ensure zellij session exists
+		if err := m.zj.EnsureSession(m.ctx, session); err != nil {
+			return planWorkCreatedMsg{beadID: beadID, err: err}
+		}
+
+		// Create new tab for work creation
+		if err := m.zj.CreateTab(m.ctx, session, tabName, mainRepoPath); err != nil {
+			return planWorkCreatedMsg{beadID: beadID, err: err}
+		}
+
+		// Switch to the tab
+		time.Sleep(200 * time.Millisecond)
+		if err := m.zj.SwitchToTab(m.ctx, session, tabName); err != nil {
+			return planWorkCreatedMsg{beadID: beadID, err: err}
+		}
+
+		// Run co work create with the bead ID
+		workCmd := fmt.Sprintf("co work create %s", beadID)
+		time.Sleep(200 * time.Millisecond)
+		if err := m.zj.ExecuteCommand(m.ctx, session, workCmd); err != nil {
+			return planWorkCreatedMsg{beadID: beadID, err: err}
+		}
+
+		return planWorkCreatedMsg{beadID: beadID, workID: tabName}
+	}
 }
