@@ -736,7 +736,7 @@ func (m *planModel) spawnClaudeTab() tea.Cmd {
 
 		// Check if we're inside a zellij session
 		if !zellij.IsInsideSession() {
-			return planClaudeSpawnedMsg{err: fmt.Errorf("not inside a zellij session - run 'zellij -s %s' first", session)}
+			return planClaudeSpawnedMsg{err: fmt.Errorf("not inside zellij - run 'zellij -s %s' first", session)}
 		}
 
 		// Check if plan tab already exists
@@ -746,14 +746,23 @@ func (m *planModel) spawnClaudeTab() tea.Cmd {
 		}
 
 		if exists {
-			// Tab already exists
+			// Tab already exists, nothing to do
 			return planClaudeSpawnedMsg{}
 		}
 
-		// Create a new tab for planning and run co plan in it
-		// Using zellij run creates a tab with the command already running
-		if err := m.zj.Run(m.ctx, session, "plan", mainRepoPath, "co", "plan"); err != nil {
+		// Create a new tab with the specified name and cwd
+		if err := m.zj.CreateTab(m.ctx, session, "plan", mainRepoPath); err != nil {
 			return planClaudeSpawnedMsg{err: fmt.Errorf("failed to create plan tab: %w", err)}
+		}
+
+		// Switch to the new tab
+		if err := m.zj.SwitchToTab(m.ctx, session, "plan"); err != nil {
+			return planClaudeSpawnedMsg{err: fmt.Errorf("failed to switch to plan tab: %w", err)}
+		}
+
+		// Execute "co plan" in the new tab
+		if err := m.zj.ExecuteCommand(m.ctx, session, "co plan"); err != nil {
+			return planClaudeSpawnedMsg{err: fmt.Errorf("failed to run co plan: %w", err)}
 		}
 
 		return planClaudeSpawnedMsg{}
