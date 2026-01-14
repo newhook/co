@@ -67,31 +67,7 @@ func init() {
 	tuiCmd.Flags().StringVar(&flagTUIProject, "project", "", "project directory (default: auto-detect)")
 }
 
-// Panel represents which panel position is currently focused (relative to current depth)
-type Panel int
-
-const (
-	PanelLeft   Panel = iota // Left panel at current depth
-	PanelMiddle              // Middle panel at current depth
-	PanelRight               // Right panel (details) at current depth
-)
-
-// ViewMode represents the current view mode
-type ViewMode int
-
-const (
-	ViewNormal ViewMode = iota
-	ViewCreateWork
-	ViewCreateBead
-	ViewCreateEpic
-	ViewDestroyConfirm
-	ViewCloseBeadConfirm
-	ViewPlanDialog
-	ViewAssignBeads
-	ViewBeadSearch
-	ViewLabelFilter
-	ViewHelp
-)
+// Panel and ViewMode types are defined in tui_shared.go
 
 // tuiDataMsg is sent when data is refreshed
 type tuiDataMsg struct {
@@ -109,25 +85,7 @@ type tuiCommandMsg struct {
 	err    error
 }
 
-// beadItem represents a bead in the beads panel
-type beadItem struct {
-	id          string
-	title       string
-	status      string
-	priority    int
-	beadType    string // task, bug, feature
-	description string
-	isReady     bool
-	selected    bool // for multi-select
-}
-
-// beadFilters holds the current filter state for beads
-type beadFilters struct {
-	status     string // "open", "closed", "ready"
-	label      string // filter by label (empty = no filter)
-	searchText string // fuzzy search text
-	sortBy     string // "default", "priority", "created", "title"
-}
+// beadItem, beadFilters, and beadTypes are defined in tui_shared.go
 
 // tuiModel is the main TUI model
 type tuiModel struct {
@@ -952,7 +910,7 @@ func (m tuiModel) updateHelp(_ tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-var beadTypes = []string{"task", "bug", "feature"}
+// beadTypes is defined in tui_shared.go
 
 func (m tuiModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -2508,81 +2466,7 @@ func (m tuiModel) statusStyled(status string) string {
 	}
 }
 
-// TUI-specific styles
-var (
-	tuiTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205"))
-
-	tuiActiveTabStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("99"))
-
-	tuiInactiveTabStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("247"))
-
-	tuiPanelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("62")).
-			Padding(0, 1)
-
-	tuiSelectedStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("255")).
-			Background(lipgloss.Color("62"))
-
-	tuiSelectedCheckStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42"))
-
-	tuiLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("247"))
-
-	tuiValueStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255"))
-
-	tuiDimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
-
-	tuiErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196"))
-
-	tuiSuccessStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42"))
-
-	tuiStatusBarStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("236")).
-			Padding(0, 1)
-
-	tuiDialogStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("99")).
-			Padding(1, 2).
-			Background(lipgloss.Color("235"))
-
-	tuiHelpStyle = lipgloss.NewStyle().
-			Padding(2, 4).
-			Background(lipgloss.Color("235"))
-
-	tuiAssignStyle = lipgloss.NewStyle().
-			Padding(1, 2).
-			Background(lipgloss.Color("235"))
-
-	// Status indicator styles
-	statusPending = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
-
-	statusProcessing = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("214")).
-				Bold(true)
-
-	statusCompleted = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42")).
-			Bold(true)
-
-	statusFailed = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Bold(true)
-)
+// TUI styles, types, and helper functions are defined in tui_shared.go
 
 func runTUI(cmd *cobra.Command, args []string) error {
 	ctx := GetContext()
