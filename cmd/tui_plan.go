@@ -728,7 +728,7 @@ func (m *planModel) sessionName() string {
 	return fmt.Sprintf("co-%s", m.proj.Config.Project.Name)
 }
 
-// spawnClaudeTab launches Claude Code in a new zellij tab
+// spawnClaudeTab launches Claude Code in a new zellij tab, or switches to existing one
 func (m *planModel) spawnClaudeTab() tea.Cmd {
 	return func() tea.Msg {
 		mainRepoPath := m.proj.MainRepoPath()
@@ -737,6 +737,20 @@ func (m *planModel) spawnClaudeTab() tea.Cmd {
 		// Ensure session exists
 		if err := m.zj.EnsureSession(m.ctx, session); err != nil {
 			return planClaudeSpawnedMsg{err: err}
+		}
+
+		// Check if plan tab already exists
+		exists, err := m.zj.TabExists(m.ctx, session, "plan")
+		if err != nil {
+			return planClaudeSpawnedMsg{err: err}
+		}
+
+		if exists {
+			// Tab exists, just switch to it
+			if err := m.zj.SwitchToTab(m.ctx, session, "plan"); err != nil {
+				return planClaudeSpawnedMsg{err: err}
+			}
+			return planClaudeSpawnedMsg{}
 		}
 
 		// Create a new tab for planning
