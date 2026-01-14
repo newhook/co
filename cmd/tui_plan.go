@@ -51,7 +51,7 @@ type planModel struct {
 }
 
 // newPlanModel creates a new Plan Mode model
-func newPlanModel(ctx context.Context, proj *project.Project) planModel {
+func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
@@ -61,7 +61,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) planModel {
 	ti.CharLimit = 100
 	ti.Width = 40
 
-	return planModel{
+	return &planModel{
 		ctx:                ctx,
 		proj:               proj,
 		width:              80,

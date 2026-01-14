@@ -108,22 +108,45 @@ func newRootModel(ctx context.Context, proj *project.Project) rootModel {
 	// Create the legacy model for backwards compatibility
 	legacy := newTUIModel(ctx, proj)
 
+	// Create dedicated mode models
+	planModel := newPlanModel(ctx, proj)
+	workModel := newWorkModel(ctx, proj)
+	monitorModel := newMonitorModel(ctx, proj)
+
 	return rootModel{
-		ctx:         ctx,
-		proj:        proj,
-		width:       80,
-		height:      24,
-		activeMode:  ModeWork, // Start in Work mode (existing behavior)
-		legacyModel: legacy,
-		spinner:     s,
-		lastUpdate:  time.Now(),
+		ctx:          ctx,
+		proj:         proj,
+		width:        80,
+		height:       24,
+		activeMode:   ModeWork, // Start in Work mode (existing behavior)
+		planModel:    planModel,
+		workModel:    workModel,
+		monitorModel: monitorModel,
+		legacyModel:  legacy,
+		spinner:      s,
+		lastUpdate:   time.Now(),
 	}
 }
 
 // Init implements tea.Model
 func (m rootModel) Init() tea.Cmd {
-	// Initialize the legacy model for now
-	return m.legacyModel.Init()
+	// Initialize all mode models
+	cmds := []tea.Cmd{
+		m.legacyModel.Init(),
+	}
+
+	// Initialize mode models
+	if m.planModel != nil {
+		cmds = append(cmds, m.planModel.Init())
+	}
+	if m.workModel != nil {
+		cmds = append(cmds, m.workModel.Init())
+	}
+	if m.monitorModel != nil {
+		cmds = append(cmds, m.monitorModel.Init())
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // Update implements tea.Model
@@ -140,7 +163,7 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.legacyModel.width = m.width
 		m.legacyModel.height = availableHeight
 
-		// Update sub-models when implemented
+		// Update sub-models
 		if m.planModel != nil {
 			m.planModel.SetSize(m.width, availableHeight)
 		}
@@ -154,52 +177,102 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Global mode switching keys (only at top level, not in dialogs)
-		if m.legacyModel.viewMode == ViewNormal {
-			switch msg.String() {
-			case "P":
-				if m.activeMode != ModePlan {
-					m.activeMode = ModePlan
-					return m, nil
-				}
-			case "W":
-				if m.activeMode != ModeWork {
-					m.activeMode = ModeWork
-					return m, nil
-				}
-			case "M":
-				if m.activeMode != ModeMonitor {
-					m.activeMode = ModeMonitor
-					return m, nil
-				}
-			case "q", "ctrl+c":
-				m.quitting = true
-				return m, tea.Quit
+		// Global mode switching keys
+		switch msg.String() {
+		case "P":
+			if m.activeMode != ModePlan {
+				oldMode := m.activeMode
+				m.activeMode = ModePlan
+				m.notifyFocusChange(oldMode, ModePlan)
+				return m, nil
 			}
-		}
-
-		// Route to active sub-model
-		// For now, route to legacy model since sub-models aren't implemented
-		var cmd tea.Cmd
-		var newModel tea.Model
-		newModel, cmd = m.legacyModel.Update(msg)
-		m.legacyModel = newModel.(tuiModel)
-		if m.legacyModel.quitting {
+		case "W":
+			if m.activeMode != ModeWork {
+				oldMode := m.activeMode
+				m.activeMode = ModeWork
+				m.notifyFocusChange(oldMode, ModeWork)
+				return m, nil
+			}
+		case "M":
+			if m.activeMode != ModeMonitor {
+				oldMode := m.activeMode
+				m.activeMode = ModeMonitor
+				m.notifyFocusChange(oldMode, ModeMonitor)
+				return m, nil
+			}
+		case "q", "ctrl+c":
+			m.quitting = true
 			return m, tea.Quit
 		}
-		return m, cmd
+
+		// Route to active mode model
+		return m.routeToActiveModel(msg)
 
 	default:
-		// Route other messages to legacy model
-		var cmd tea.Cmd
-		var newModel tea.Model
-		newModel, cmd = m.legacyModel.Update(msg)
-		m.legacyModel = newModel.(tuiModel)
-		if m.legacyModel.quitting {
-			return m, tea.Quit
-		}
-		return m, cmd
+		// Route other messages to active model and all models (for timers etc)
+		return m.routeToActiveModel(msg)
 	}
+}
+
+// notifyFocusChange notifies models of focus changes
+func (m *rootModel) notifyFocusChange(oldMode, newMode Mode) {
+	// Notify old model it lost focus
+	switch oldMode {
+	case ModePlan:
+		if m.planModel != nil {
+			m.planModel.FocusChanged(false)
+		}
+	case ModeWork:
+		if m.workModel != nil {
+			m.workModel.FocusChanged(false)
+		}
+	case ModeMonitor:
+		if m.monitorModel != nil {
+			m.monitorModel.FocusChanged(false)
+		}
+	}
+
+	// Notify new model it gained focus
+	switch newMode {
+	case ModePlan:
+		if m.planModel != nil {
+			m.planModel.FocusChanged(true)
+		}
+	case ModeWork:
+		if m.workModel != nil {
+			m.workModel.FocusChanged(true)
+		}
+	case ModeMonitor:
+		if m.monitorModel != nil {
+			m.monitorModel.FocusChanged(true)
+		}
+	}
+}
+
+// routeToActiveModel routes a message to the currently active mode model
+func (m rootModel) routeToActiveModel(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	var newModel tea.Model
+
+	switch m.activeMode {
+	case ModePlan:
+		if m.planModel != nil {
+			newModel, cmd = m.planModel.Update(msg)
+			m.planModel = newModel.(SubModel)
+		}
+	case ModeWork:
+		if m.workModel != nil {
+			newModel, cmd = m.workModel.Update(msg)
+			m.workModel = newModel.(SubModel)
+		}
+	case ModeMonitor:
+		if m.monitorModel != nil {
+			newModel, cmd = m.monitorModel.Update(msg)
+			m.monitorModel = newModel.(SubModel)
+		}
+	}
+
+	return m, cmd
 }
 
 // View implements tea.Model
@@ -215,16 +288,17 @@ func (m rootModel) View() string {
 	var content string
 	switch m.activeMode {
 	case ModePlan:
-		// Plan mode - for now use legacy model with bead focus
-		// TODO: Replace with dedicated plan model
-		content = m.legacyModel.View()
+		if m.planModel != nil {
+			content = m.planModel.View()
+		}
 	case ModeWork:
-		// Work mode - existing behavior
-		content = m.legacyModel.View()
+		if m.workModel != nil {
+			content = m.workModel.View()
+		}
 	case ModeMonitor:
-		// Monitor mode - for now show legacy model
-		// TODO: Replace with grid-based monitor view
-		content = m.legacyModel.View()
+		if m.monitorModel != nil {
+			content = m.monitorModel.View()
+		}
 	}
 
 	// Calculate content height (total height minus tab bar)

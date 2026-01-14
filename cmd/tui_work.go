@@ -698,7 +698,7 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 			content.WriteString("\n")
 
 			if len(tp.beads) > 0 {
-				content.WriteString(tuiLabelStyle.Render("Beads: "))
+				content.WriteString(tuiLabelStyle.Render("Issues: "))
 				content.WriteString("\n")
 				for _, bp := range tp.beads {
 					content.WriteString(fmt.Sprintf("  %s %s\n", statusIcon(bp.status), bp.id))
@@ -747,7 +747,7 @@ func (m *workModel) renderCreateWorkDialog() string {
 
 	var beadOption string
 	if selectedCount > 0 {
-		beadOption = fmt.Sprintf("\n  [b] Use %d selected bead(s) to auto-generate branch", selectedCount)
+		beadOption = fmt.Sprintf("\n  [b] Use %d selected issue(s) to auto-generate branch", selectedCount)
 	}
 
 	content := fmt.Sprintf(`
@@ -805,7 +805,7 @@ func (m *workModel) renderPlanDialogContent() string {
 func (m *workModel) renderAssignBeadsView() string {
 	var b strings.Builder
 
-	b.WriteString(tuiTitleStyle.Render("Assign Beads to Work"))
+	b.WriteString(tuiTitleStyle.Render("Assign Issues to Work"))
 	b.WriteString("\n\n")
 
 	if len(m.works) > 0 && m.worksCursor < len(m.works) {
@@ -819,7 +819,7 @@ func (m *workModel) renderAssignBeadsView() string {
 		b.WriteString("\n\n")
 	}
 
-	b.WriteString("Select beads (Space to toggle, Enter to confirm, Esc to cancel):\n\n")
+	b.WriteString("Select issues (Space to toggle, Enter to confirm, Esc to cancel):\n\n")
 
 	for i, bead := range m.beadItems {
 		var checkbox string
@@ -847,7 +847,7 @@ func (m *workModel) renderAssignBeadsView() string {
 			selected++
 		}
 	}
-	b.WriteString(fmt.Sprintf("\n%d bead(s) selected", selected))
+	b.WriteString(fmt.Sprintf("\n%d issue(s) selected", selected))
 
 	return tuiAssignStyle.Width(m.width).Height(m.height).Render(b.String())
 }
@@ -871,7 +871,7 @@ func (m *workModel) renderHelp() string {
   d             Destroy selected work
   p             Plan work (create tasks)
   r             Run work (execute tasks)
-  a             Assign beads to work
+  a             Assign issues to work
   R             Create review task
   P             Create PR task
 
