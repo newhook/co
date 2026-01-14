@@ -161,6 +161,16 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyPress(msg)
 
 	default:
+		// Handle Kitty keyboard protocol escape sequences
+		// Kitty/Ghostty send escape key as CSI 27 u (bytes: '2' '7' 'u' = 50 55 117)
+		typeName := fmt.Sprintf("%T", msg)
+		if typeName == "tea.unknownCSISequenceMsg" {
+			msgStr := fmt.Sprintf("%s", msg)
+			// Check for Kitty protocol escape key: "?CSI[50 55 117]?" = "27u"
+			if strings.Contains(msgStr, "50 55 117") {
+				return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyEsc})
+			}
+		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
@@ -559,10 +569,13 @@ func (m *planModel) renderHelp() string {
 
 // Dialog update handlers
 func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	// Check escape/cancel keys
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
 		m.viewMode = ViewNormal
+		m.textInput.Blur()
 		return m, nil
+	}
+	switch msg.String() {
 	case "enter":
 		title := strings.TrimSpace(m.textInput.Value())
 		if title != "" {
@@ -590,10 +603,12 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *planModel) updateCreateEpic(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" || msg.String() == "escape" {
 		m.viewMode = ViewNormal
+		m.textInput.Blur()
 		return m, nil
+	}
+	switch msg.String() {
 	case "enter":
 		title := strings.TrimSpace(m.textInput.Value())
 		if title != "" {
@@ -618,11 +633,13 @@ func (m *planModel) updateCreateEpic(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" || msg.String() == "escape" {
 		m.viewMode = ViewNormal
+		m.textInput.Blur()
 		m.filters.searchText = ""
 		return m, m.refreshData()
+	}
+	switch msg.String() {
 	case "enter":
 		m.viewMode = ViewNormal
 		m.filters.searchText = m.textInput.Value()
@@ -635,10 +652,12 @@ func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *planModel) updateLabelFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" || msg.String() == "escape" {
 		m.viewMode = ViewNormal
+		m.textInput.Blur()
 		return m, nil
+	}
+	switch msg.String() {
 	case "enter":
 		m.viewMode = ViewNormal
 		m.filters.label = m.textInput.Value()
@@ -651,6 +670,10 @@ func (m *planModel) updateLabelFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" || msg.String() == "escape" {
+		m.viewMode = ViewNormal
+		return m, nil
+	}
 	switch msg.String() {
 	case "y", "Y":
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
@@ -660,7 +683,7 @@ func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		}
 		m.viewMode = ViewNormal
 		return m, nil
-	case "n", "N", "esc":
+	case "n", "N":
 		m.viewMode = ViewNormal
 		return m, nil
 	}
@@ -908,7 +931,7 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 		}
 
 		// Run co plan with the bead ID
-		planCmd := fmt.Sprintf("co plan --bead=%s", beadID)
+		planCmd := fmt.Sprintf("co plan %s", beadID)
 		time.Sleep(200 * time.Millisecond)
 		if err := m.zj.ExecuteCommand(m.ctx, session, planCmd); err != nil {
 			return planSessionSpawnedMsg{beadID: beadID, err: err}

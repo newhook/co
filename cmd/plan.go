@@ -11,17 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	flagPlanBead string
-)
-
 var planCmd = &cobra.Command{
-	Use:   "plan",
+	Use:   "plan <bead-id>",
 	Short: "Launch Claude for planning a specific issue",
 	Long: `Plan launches Claude Code for planning work on a specific issue.
 
 This command is typically invoked by the TUI's Plan mode, which creates a
-zellij tab for each issue and runs 'co plan --bead=<id>' within it.
+zellij tab for each issue and runs 'co plan <id>' within it.
 
 Claude can then be used to:
 - Investigate the issue (bd show <id>)
@@ -30,13 +26,12 @@ Claude can then be used to:
 - Create related issues
 
 Each issue gets its own dedicated planning session in a separate tab.`,
+	Args: cobra.ExactArgs(1),
 	RunE: runPlan,
 }
 
 func init() {
 	rootCmd.AddCommand(planCmd)
-	planCmd.Flags().StringVar(&flagPlanBead, "bead", "", "bead ID to plan for (required)")
-	_ = planCmd.MarkFlagRequired("bead")
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
@@ -49,12 +44,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Validate bead ID is provided
-	if flagPlanBead == "" {
-		return fmt.Errorf("--bead flag is required")
-	}
-
-	beadID := flagPlanBead
+	beadID := args[0]
 	zellijSession := fmt.Sprintf("co-%s", proj.Config.Project.Name)
 	tabName := db.TabNameForBead(beadID)
 
@@ -72,8 +62,22 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	mainRepoPath := proj.MainRepoPath()
 
-	// Launch Claude in the main repo
-	claudeCmd := exec.Command("claude")
+	// Build initial prompt for Claude
+	initialPrompt := fmt.Sprintf(`You are planning for issue %s.
+
+First, use the beads skill to investigate this issue:
+/beads show %s
+
+After reviewing the issue details, help plan the implementation by:
+- Breaking down the work into subtasks if needed
+- Identifying dependencies or blockers
+- Suggesting implementation approaches
+- Creating related issues with /beads create if needed
+
+Use /beads commands throughout to manage the issue tracker.`, beadID, beadID)
+
+	// Launch Claude in the main repo with the initial prompt
+	claudeCmd := exec.Command("claude", "--dangerously-skip-permissions", initialPrompt)
 	claudeCmd.Dir = mainRepoPath
 	claudeCmd.Stdin = os.Stdin
 	claudeCmd.Stdout = os.Stdout
