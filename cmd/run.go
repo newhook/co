@@ -120,19 +120,24 @@ func runTasks(cmd *cobra.Command, args []string) error {
 
 	mainRepoPath := proj.MainRepoPath()
 
-	// Create tasks from unassigned work beads
+	// If --auto, create estimate task and run full automated workflow
+	if flagRunAuto {
+		// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
+		err := createEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath)
+		if err != nil {
+			return fmt.Errorf("failed to create estimate task: %w", err)
+		}
+		fmt.Println("\nRunning automated workflow...")
+		return runFullAutomatedWorkflow(proj, workID, work.WorktreePath)
+	}
+
+	// Create tasks from unassigned work beads (non-auto mode)
 	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, flagRunPlan)
 	if err != nil {
 		return fmt.Errorf("failed to create tasks: %w", err)
 	}
 	if tasksCreated > 0 {
 		fmt.Printf("\nCreated %d task(s) from work beads.\n", tasksCreated)
-	}
-
-	// If --auto, run the full automated workflow
-	if flagRunAuto {
-		fmt.Println("\nRunning automated workflow...")
-		return runFullAutomatedWorkflow(proj, workID, work.WorktreePath)
 	}
 
 	// Ensure orchestrator is running
@@ -148,6 +153,46 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("Switch to the zellij session to monitor progress.")
+	return nil
+}
+
+// createEstimateTaskFromWorkBeads creates an estimate task from unassigned work beads.
+// This is used in --auto mode where the full automated workflow includes estimation.
+// After the estimate task completes, handlePostEstimation creates implement tasks.
+func createEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project, workID, _ string) error {
+	// Get unassigned beads
+	unassigned, err := proj.DB.GetUnassignedWorkBeads(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get unassigned beads: %w", err)
+	}
+
+	if len(unassigned) == 0 {
+		return fmt.Errorf("no unassigned beads found for work %s", workID)
+	}
+
+	fmt.Printf("\nFound %d unassigned bead(s)\n", len(unassigned))
+
+	// Collect bead IDs
+	var beadIDs []string
+	for _, wb := range unassigned {
+		beadIDs = append(beadIDs, wb.BeadID)
+	}
+
+	// Get next task number
+	taskNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get next task number: %w", err)
+	}
+
+	// Create the estimate task
+	taskID := fmt.Sprintf("%s.%d", workID, taskNum)
+	if err := proj.DB.CreateTask(ctx, taskID, "estimate", beadIDs, 0, workID); err != nil {
+		return fmt.Errorf("failed to create estimate task: %w", err)
+	}
+
+	fmt.Printf("  Created estimate task %s with %d bead(s)\n", taskID, len(beadIDs))
+	fmt.Println("  Implement tasks will be created after estimation completes.")
+
 	return nil
 }
 
