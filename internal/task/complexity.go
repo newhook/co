@@ -3,14 +3,10 @@ package task
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/mise"
-	"github.com/newhook/co/internal/worktree"
 )
 
 // LLMEstimator uses Claude Code via estimate tasks to estimate bead complexity.
@@ -116,68 +112,7 @@ func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead,
 		return result, nil
 	}
 
-	// Create estimate task under the work
-	if e.workID == "" {
-		return nil, fmt.Errorf("workID is required for creating estimate tasks")
-	}
-	// Use sequential task numbering instead of timestamps
-	nextNum, err := e.database.GetNextTaskNumber(ctx, e.workID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get next task number: %w", err)
-	}
-	taskID := fmt.Sprintf("%s.%d", e.workID, nextNum)
-	if err := e.database.CreateTask(ctx, taskID, "estimate", result.UncachedIDs, 0, e.workID); err != nil {
-		return nil, fmt.Errorf("failed to create estimate task: %w", err)
-	}
-	fmt.Printf("Created estimate task %s for %d bead(s): %s\n",
-		taskID, len(result.UncachedIDs), strings.Join(result.UncachedIDs, ", "))
-
-	result.TaskID = taskID
-
-	// Check if we're already in a worktree (work context)
-	worktreePath := e.workDir
-
-	// Only create a new worktree if we're not already in one (e.g., not in a work's worktree)
-	if !worktree.ExistsPath(e.workDir) {
-		// Create worktree for estimation task
-		branchName := fmt.Sprintf("task/%s", taskID)
-		worktreePath = filepath.Join(filepath.Dir(e.workDir), taskID)
-
-		fmt.Printf("Creating worktree for estimation task at %s...\n", worktreePath)
-		if err := worktree.Create(e.workDir, worktreePath, branchName, ""); err != nil {
-			return nil, fmt.Errorf("failed to create worktree for estimation: %w", err)
-		}
-
-		// Initialize mise in worktree (optional - warn on error)
-		if err := mise.Initialize(worktreePath); err != nil {
-			fmt.Printf("Warning: mise initialization in worktree failed: %v\n", err)
-		}
-	} else {
-		fmt.Printf("Using existing worktree at %s for estimation...\n", worktreePath)
-	}
-
-	// Start task in database
-	sessionName := claude.SessionNameForProject(e.projectName)
-	if err := e.database.StartTask(ctx, taskID, sessionName, ""); err != nil {
-		return nil, fmt.Errorf("failed to start estimation task in database: %w", err)
-	}
-
-	// Build prompt
-	prompt := claude.BuildEstimatePrompt(taskID, uncachedBeads)
-
-	// Spawn Claude to perform estimation in the worktree (non-blocking)
-	fmt.Println("Spawning estimation task...")
-	// Never auto-close estimation task tabs - they're system tasks
-	// Note: hooks.env is applied by co claude itself
-	_, err = claude.Run(ctx, taskID, uncachedBeads, prompt, worktreePath, e.projectName, false)
-	if err != nil {
-		fmt.Printf("Failed to spawn estimation: %v\n", err)
-		return nil, fmt.Errorf("failed to spawn estimation: %w", err)
-	}
-
-	result.TaskSpawned = true
-	fmt.Printf("Estimation task %s spawned successfully\n", taskID)
-	fmt.Println("Estimation is running in background. Re-run 'co plan --auto-group' after it completes.")
-
-	return result, nil
+	// Cannot estimate here - estimation must happen through tasks run by orchestrator
+	return nil, fmt.Errorf("missing complexity estimates for %d bead(s): %s. Use 'co run --auto' to run estimation through the orchestrator",
+		len(result.UncachedIDs), strings.Join(result.UncachedIDs, ", "))
 }

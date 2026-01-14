@@ -405,9 +405,18 @@ func countBeadsInGroups(groups []beadGroup) int {
 }
 
 // runAutomatedWorkflowForWork runs the full automated workflow for an existing work.
-// This includes: create tasks -> execute -> review/fix loop -> PR
+// This includes: create estimate task -> execute -> review/fix loop -> PR
 // Delegates to runFullAutomatedWorkflow in run.go for the actual implementation.
 func runAutomatedWorkflowForWork(proj *project.Project, workID, worktreePath string) error {
+	ctx := GetContext()
+	mainRepoPath := proj.MainRepoPath()
+
+	// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
+	err := createEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath)
+	if err != nil {
+		return fmt.Errorf("failed to create estimate task: %w", err)
+	}
+
 	return runFullAutomatedWorkflow(proj, workID, worktreePath)
 }
 

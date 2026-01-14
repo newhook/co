@@ -18,10 +18,9 @@ func signalProcessGroup(pid int, sig syscall.Signal) {
 	syscall.Kill(-pid, sig)
 }
 
-// RunInline executes Claude directly in the current terminal (fork/exec).
+// Run executes Claude directly in the current terminal (fork/exec).
 // This blocks until Claude exits or the task is marked complete in the database.
-// Unlike Run(), this does not create a separate zellij tab.
-func RunInline(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string) error {
+func Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string) error {
 	// Get task to verify it exists
 	task, err := database.GetTask(ctx, taskID)
 	if err != nil {

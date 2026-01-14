@@ -168,7 +168,7 @@ func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 	}
 
 	// Execute Claude inline
-	if err = claude.RunInline(ctx, proj.DB, t.ID, prompt, work.WorktreePath); err != nil {
+	if err = claude.Run(ctx, proj.DB, t.ID, prompt, work.WorktreePath); err != nil {
 		return err
 	}
 

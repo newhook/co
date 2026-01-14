@@ -5,8 +5,6 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -41,112 +39,6 @@ var (
 // SessionNameForProject returns the zellij session name for a specific project.
 func SessionNameForProject(projectName string) string {
 	return fmt.Sprintf("co-%s", projectName)
-}
-
-// TaskResult contains the result of a task execution.
-type TaskResult struct {
-	TaskID         string
-	Completed      bool
-	PartialFailure bool
-	CompletedBeads []string
-	FailedBeads    []string
-	Error          error
-}
-
-// Run spawns Claude Code for a task in a zellij tab using project-specific session naming.
-// This function is non-blocking - it returns immediately after spawning the command.
-// The co claude wrapper process handles database updates when the task completes or fails.
-// The returned TaskResult indicates successful spawn, not task completion.
-// Note: hooks.env is applied by the co claude command itself, not here.
-func Run(ctx context.Context, taskID string, taskBeads []beads.Bead, prompt string, workDir, projectName string, autoClose bool) (*TaskResult, error) {
-	sessionName := SessionNameForProject(projectName)
-
-	// Always use the full task ID as the tab name for clear task isolation
-	// This ensures each task gets its own tab that can be independently managed
-	tabName := fmt.Sprintf("task-%s", taskID)
-
-	result := &TaskResult{
-		TaskID: taskID,
-	}
-
-	zc := zellij.New()
-
-	// Ensure session exists
-	if err := zc.EnsureSession(ctx, sessionName); err != nil {
-		return nil, err
-	}
-
-	// Write prompt to a temporary file
-	tmpDir := os.TempDir()
-	promptFile := filepath.Join(tmpDir, fmt.Sprintf("co-prompt-%s.txt", taskID))
-	if err := os.WriteFile(promptFile, []byte(prompt), 0600); err != nil {
-		return nil, fmt.Errorf("failed to write prompt file: %w", err)
-	}
-	// Clean up the prompt file when done
-	defer os.Remove(promptFile)
-
-	// Build the wrapper command - assume co is in PATH since user is running it
-	// Note: co claude will apply hooks.env itself
-	claudeCommand := fmt.Sprintf("co claude %s --prompt-file %s", taskID, promptFile)
-	if autoClose {
-		claudeCommand += " --auto-close"
-	}
-
-	// Check if tab with this task name already exists
-	// Since each task gets its own tab, this shouldn't normally happen
-	// But handle it gracefully by terminating and restarting
-	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
-	if tabExists {
-		fmt.Printf("Tab %s already exists, terminating any running process and restarting...\n", tabName)
-
-		// Switch to the existing tab
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			fmt.Printf("Warning: failed to switch to existing tab: %v\n", err)
-		}
-
-		// Send Ctrl+C to terminate any running process
-		fmt.Println("Terminating any existing process...")
-		zc.SendCtrlC(ctx, sessionName)
-		time.Sleep(zc.CtrlCDelay)
-
-		// Clear the line for a clean start
-		if err := zc.ClearAndExecute(ctx, sessionName, claudeCommand); err != nil {
-			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
-		}
-
-		// Wait for Claude to initialize
-		fmt.Println("Waiting 3s for Claude to initialize...")
-		time.Sleep(3 * time.Second)
-	} else {
-		// Create a new tab with the task name
-		fmt.Printf("Creating tab: %s in session %s\n", tabName, sessionName)
-		if err := zc.CreateTab(ctx, sessionName, tabName, workDir); err != nil {
-			return nil, fmt.Errorf("failed to create tab: %w", err)
-		}
-
-		// Switch to the new tab
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			// Non-fatal: just log it
-			fmt.Printf("Warning: failed to switch to tab: %v\n", err)
-		}
-
-		// Run Claude wrapper in the new tab
-		fmt.Printf("Executing: %s\n", claudeCommand)
-		if err := zc.ExecuteCommand(ctx, sessionName, claudeCommand); err != nil {
-			return nil, fmt.Errorf("failed to execute claude wrapper command: %w", err)
-		}
-
-		// Wait for Claude to initialize
-		fmt.Println("Waiting 3s for Claude to initialize...")
-		time.Sleep(3 * time.Second)
-	}
-
-	fmt.Println("Claude spawned - returning immediately (non-blocking mode)")
-
-	// Return immediately after spawning. The co claude wrapper process will
-	// handle database updates when the task completes or fails.
-	// The result indicates the task was spawned successfully, not that it completed.
-	return result, nil
 }
 
 // BuildTaskPrompt builds a prompt for a task with multiple beads.
