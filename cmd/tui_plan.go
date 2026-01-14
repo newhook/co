@@ -42,9 +42,6 @@ type planModel struct {
 	statusIsError bool
 	lastUpdate    time.Time
 
-	// Selection state (for multi-select)
-	selectedBeads map[string]bool
-
 	// Create bead state
 	createBeadType     int // 0=task, 1=bug, 2=feature
 	createBeadPriority int // 0-4, default 2
@@ -76,7 +73,6 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		activePanel:        PanelLeft,
 		spinner:            s,
 		textInput:          ti,
-		selectedBeads:      make(map[string]bool),
 		activeBeadSessions: make(map[string]bool),
 		createBeadPriority: 2,
 		zj:                 zellij.New(),
@@ -318,14 +314,6 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.beadsExpanded = !m.beadsExpanded
 		return m, nil
 
-	case " ":
-		// Toggle selection
-		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			id := m.beadItems[m.beadsCursor].id
-			m.selectedBeads[id] = !m.selectedBeads[id]
-		}
-		return m, nil
-
 	case "enter":
 		// Spawn/resume planning session for selected bead
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
@@ -530,14 +518,6 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 		sessionIndicator = tuiSuccessStyle.Render("[C]") + " "
 	}
 
-	// Selection indicator
-	var prefix string
-	if m.selectedBeads[bead.id] {
-		prefix = tuiSelectedCheckStyle.Render("[*]")
-	} else {
-		prefix = "[ ]"
-	}
-
 	// Tree indentation with connector lines
 	var treePrefix string
 	if bead.treeDepth > 0 {
@@ -579,9 +559,9 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 
 	var line string
 	if m.beadsExpanded {
-		line = fmt.Sprintf("%s %s%s%s %s [P%d %s] %s", prefix, treePrefix, sessionIndicator, icon, bead.id, bead.priority, bead.beadType, bead.title)
+		line = fmt.Sprintf("%s%s%s %s [P%d %s] %s", treePrefix, sessionIndicator, icon, bead.id, bead.priority, bead.beadType, bead.title)
 	} else {
-		line = fmt.Sprintf("%s %s%s%s %s %s %s", prefix, treePrefix, sessionIndicator, icon, bead.id, typeChar, bead.title)
+		line = fmt.Sprintf("%s%s%s %s %s %s", treePrefix, sessionIndicator, icon, bead.id, typeChar, bead.title)
 	}
 
 	if i == m.beadsCursor {
