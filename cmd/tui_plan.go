@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"sort"
@@ -735,40 +736,42 @@ func (m *planModel) spawnClaudeTab() tea.Cmd {
 		mainRepoPath := m.proj.MainRepoPath()
 		session := m.sessionName()
 
-		// Debug: log to file
-		debugLog := func(msg string) {
-			f, _ := os.OpenFile("/tmp/co-plan-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if f != nil {
-				f.WriteString(time.Now().Format("15:04:05") + " " + msg + "\n")
-				f.Close()
-			}
+		// Debug: log to file using slog
+		logFile, _ := os.OpenFile("/tmp/co-plan-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		var logger *slog.Logger
+		if logFile != nil {
+			defer logFile.Close()
+			logger = slog.New(slog.NewTextHandler(logFile, nil))
+		} else {
+			logger = slog.Default()
 		}
 
-		debugLog(fmt.Sprintf("spawnClaudeTab called, session=%s, cwd=%s", session, mainRepoPath))
-		debugLog(fmt.Sprintf("ZELLIJ_SESSION_NAME=%s", zellij.CurrentSessionName()))
+		logger.Info("spawnClaudeTab called", "session", session, "cwd", mainRepoPath)
+		logger.Info("zellij env", "ZELLIJ_SESSION_NAME", zellij.CurrentSessionName())
 
 		// 1. Is there a tab "plan"?
 		exists, err := m.zj.TabExists(m.ctx, session, "plan")
-		debugLog(fmt.Sprintf("TabExists: exists=%v, err=%v", exists, err))
+		logger.Info("TabExists result", "exists", exists, "err", err)
 		if exists {
+			logger.Info("Tab already exists, returning")
 			return planClaudeSpawnedMsg{}
 		}
 
 		// 2. No? Create the tab
-		debugLog("Creating tab...")
+		logger.Info("Creating tab...")
 		if err := m.zj.CreateTab(m.ctx, session, "plan", mainRepoPath); err != nil {
-			debugLog(fmt.Sprintf("CreateTab error: %v", err))
+			logger.Error("CreateTab failed", "err", err)
 			return planClaudeSpawnedMsg{err: err}
 		}
-		debugLog("Tab created")
+		logger.Info("Tab created successfully")
 
 		// 3. In the tab run co plan
-		debugLog("Executing co plan...")
+		logger.Info("Executing co plan...")
 		if err := m.zj.ExecuteCommand(m.ctx, session, "co plan"); err != nil {
-			debugLog(fmt.Sprintf("ExecuteCommand error: %v", err))
+			logger.Error("ExecuteCommand failed", "err", err)
 			return planClaudeSpawnedMsg{err: err}
 		}
-		debugLog("co plan executed")
+		logger.Info("co plan executed successfully")
 
 		return planClaudeSpawnedMsg{}
 	}
