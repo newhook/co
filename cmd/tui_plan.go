@@ -97,10 +97,10 @@ func (m *planModel) FocusChanged(focused bool) tea.Cmd {
 		m.loading = true
 		cmds := []tea.Cmd{m.refreshData(), m.startPeriodicRefresh()}
 
-		// Spawn Claude in zellij pane if not already spawned
+		// Spawn Claude in zellij tab if not already spawned
 		if !m.claudeSpawned {
 			m.claudeSpawned = true
-			cmds = append(cmds, m.spawnClaudePane())
+			cmds = append(cmds, m.spawnClaudeTab())
 		}
 
 		return tea.Batch(cmds...)
@@ -146,7 +146,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = fmt.Sprintf("Failed to spawn Claude: %v", msg.err)
 			m.statusIsError = true
 		} else {
-			m.statusMessage = "Claude spawned in floating pane"
+			m.statusMessage = "Claude spawned in plan tab (co plan)"
 			m.statusIsError = false
 		}
 		return m, nil
@@ -412,13 +412,13 @@ func (m *planModel) renderHelp() string {
 	help := `
   Plan Mode - Help
 
-  Claude is spawned in a floating pane when entering Plan mode.
+  Claude is spawned in a 'plan' tab (via co plan) when entering Plan mode.
   Use Enter to send issues to Claude for investigation.
 
   Navigation
   ────────────────────────────
   j/k, ↑/↓      Navigate list
-  Enter         Send issue to Claude pane
+  Enter         Send issue to Claude tab
 
   Issue Management
   ────────────────────────────
@@ -728,8 +728,8 @@ func (m *planModel) sessionName() string {
 	return fmt.Sprintf("co-%s", m.proj.Config.Project.Name)
 }
 
-// spawnClaudePane launches Claude Code in a new zellij pane
-func (m *planModel) spawnClaudePane() tea.Cmd {
+// spawnClaudeTab launches Claude Code in a new zellij tab
+func (m *planModel) spawnClaudeTab() tea.Cmd {
 	return func() tea.Msg {
 		mainRepoPath := m.proj.MainRepoPath()
 		session := m.sessionName()
@@ -739,8 +739,18 @@ func (m *planModel) spawnClaudePane() tea.Cmd {
 			return planClaudeSpawnedMsg{err: err}
 		}
 
-		// Launch Claude in a floating pane
-		if err := m.zj.RunFloating(m.ctx, session, "claude-plan", mainRepoPath, "claude"); err != nil {
+		// Create a new tab for planning
+		if err := m.zj.CreateTab(m.ctx, session, "plan", mainRepoPath); err != nil {
+			return planClaudeSpawnedMsg{err: err}
+		}
+
+		// Switch to the tab and run co plan
+		if err := m.zj.SwitchToTab(m.ctx, session, "plan"); err != nil {
+			return planClaudeSpawnedMsg{err: err}
+		}
+
+		// Execute co plan command
+		if err := m.zj.ExecuteCommand(m.ctx, session, "co plan"); err != nil {
 			return planClaudeSpawnedMsg{err: err}
 		}
 
@@ -760,7 +770,7 @@ func (m *planModel) startPeriodicRefresh() tea.Cmd {
 	})
 }
 
-// sendToClaude sends the selected issue context to the Claude pane
+// sendToClaude sends the selected issue context to the Claude tab
 func (m *planModel) sendToClaude() tea.Cmd {
 	return func() tea.Msg {
 		if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
@@ -770,12 +780,12 @@ func (m *planModel) sendToClaude() tea.Cmd {
 		beadID := m.beadItems[m.beadsCursor].id
 		session := m.sessionName()
 
-		// Toggle to the floating pane (where Claude is running)
-		if err := m.zj.ToggleFloatingPanes(m.ctx, session); err != nil {
+		// Switch to the plan tab (where Claude is running)
+		if err := m.zj.SwitchToTab(m.ctx, session, "plan"); err != nil {
 			return planSentToClaudeMsg{beadID: beadID, err: err}
 		}
 
-		// Small delay to ensure pane is focused
+		// Small delay to ensure tab is focused
 		time.Sleep(100 * time.Millisecond)
 
 		// Write the command to show the issue
