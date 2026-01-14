@@ -518,50 +518,54 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 		sessionIndicator = tuiSuccessStyle.Render("[C]") + " "
 	}
 
-	// Tree indentation with connector lines
+	// Tree indentation with connector lines (styled dim)
 	var treePrefix string
 	if bead.treeDepth > 0 {
-		// Add indentation and tree connector
 		indent := strings.Repeat("  ", bead.treeDepth-1)
-		treePrefix = indent + "└─"
+		treePrefix = issueTreeStyle.Render(indent + "└─")
 	}
 
-	// Short type indicator
-	typeChar := "?"
+	// Styled issue ID
+	styledID := issueIDStyle.Render(bead.id)
+
+	// Short type indicator with color
+	var styledType string
 	switch bead.beadType {
 	case "task":
-		typeChar = "T"
+		styledType = typeTaskStyle.Render("T")
 	case "bug":
-		typeChar = "B"
+		styledType = typeBugStyle.Render("B")
 	case "feature":
-		typeChar = "F"
+		styledType = typeFeatureStyle.Render("F")
 	case "epic":
-		typeChar = "E"
+		styledType = typeEpicStyle.Render("E")
 	case "chore":
-		typeChar = "C"
+		styledType = typeChoreStyle.Render("C")
 	case "merge-request":
-		typeChar = "M"
+		styledType = typeDefaultStyle.Render("M")
 	case "molecule":
-		typeChar = "m"
+		styledType = typeDefaultStyle.Render("m")
 	case "gate":
-		typeChar = "G"
+		styledType = typeDefaultStyle.Render("G")
 	case "agent":
-		typeChar = "A"
+		styledType = typeDefaultStyle.Render("A")
 	case "role":
-		typeChar = "R"
+		styledType = typeDefaultStyle.Render("R")
 	case "rig":
-		typeChar = "r"
+		styledType = typeDefaultStyle.Render("r")
 	case "convoy":
-		typeChar = "c"
+		styledType = typeDefaultStyle.Render("c")
 	case "event":
-		typeChar = "v"
+		styledType = typeDefaultStyle.Render("v")
+	default:
+		styledType = typeDefaultStyle.Render("?")
 	}
 
 	var line string
 	if m.beadsExpanded {
-		line = fmt.Sprintf("%s%s%s %s [P%d %s] %s", treePrefix, sessionIndicator, icon, bead.id, bead.priority, bead.beadType, bead.title)
+		line = fmt.Sprintf("%s%s%s %s [P%d %s] %s", treePrefix, sessionIndicator, icon, styledID, bead.priority, bead.beadType, bead.title)
 	} else {
-		line = fmt.Sprintf("%s%s%s %s %s %s", treePrefix, sessionIndicator, icon, bead.id, typeChar, bead.title)
+		line = fmt.Sprintf("%s%s%s %s %s %s", treePrefix, sessionIndicator, icon, styledID, styledType, bead.title)
 	}
 
 	if i == m.beadsCursor {

@@ -84,6 +84,33 @@ var (
 	statusFailed = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("196")).
 			Bold(true)
+
+	// Issue line styles
+	issueIDStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("117")) // Light blue
+
+	issueTreeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")) // Dim gray for tree connectors
+
+	// Type indicator styles
+	typeTaskStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("75")) // Blue
+
+	typeBugStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")) // Red
+
+	typeFeatureStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("42")) // Green
+
+	typeEpicStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("213")). // Pink/magenta
+			Bold(true)
+
+	typeChoreStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("247")) // Gray
+
+	typeDefaultStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("247")) // Gray for others
 )
 
 // Panel represents which panel position is currently focused (relative to current depth)
