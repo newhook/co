@@ -142,6 +142,7 @@ var beadTypes = []string{"task", "bug", "feature"}
 // statusIcon returns the icon for a given status
 func statusIcon(status string) string {
 	switch status {
+	// Internal db statuses
 	case db.StatusPending:
 		return statusPending.Render("○")
 	case db.StatusProcessing:
@@ -150,6 +151,17 @@ func statusIcon(status string) string {
 		return statusCompleted.Render("✓")
 	case db.StatusFailed:
 		return statusFailed.Render("✗")
+	// Bead statuses from bd CLI
+	case "open":
+		return statusPending.Render("○")
+	case "in_progress":
+		return statusProcessing.Render("●")
+	case "blocked":
+		return statusFailed.Render("◐")
+	case "deferred":
+		return statusPending.Render("❄")
+	case "closed":
+		return statusCompleted.Render("✓")
 	default:
 		return "?"
 	}
@@ -158,6 +170,7 @@ func statusIcon(status string) string {
 // statusIconPlain returns the icon without styling (for use in selected items)
 func statusIconPlain(status string) string {
 	switch status {
+	// Internal db statuses
 	case db.StatusPending:
 		return "○"
 	case db.StatusProcessing:
@@ -166,6 +179,17 @@ func statusIconPlain(status string) string {
 		return "✓"
 	case db.StatusFailed:
 		return "✗"
+	// Bead statuses from bd CLI
+	case "open":
+		return "○"
+	case "in_progress":
+		return "●"
+	case "blocked":
+		return "◐"
+	case "deferred":
+		return "❄"
+	case "closed":
+		return "✓"
 	default:
 		return "?"
 	}
