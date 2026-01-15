@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -472,10 +473,28 @@ type WorkCreateResult struct {
 	BaseBranch  string
 }
 
+// WorkCreateOptions contains options for work creation.
+type WorkCreateOptions struct {
+	// Silent suppresses progress output (useful for TUI contexts).
+	Silent bool
+}
+
 // CreateWorkWithBranch creates a new work unit with the given branch name.
 // This is the core work creation logic that can be called from both the CLI and TUI.
 // Unlike runWorkCreate, this does not require beads - beads can be added later.
-func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName, baseBranch string) (*WorkCreateResult, error) {
+func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName, baseBranch string, opts ...WorkCreateOptions) (*WorkCreateResult, error) {
+	// Apply options
+	var opt WorkCreateOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
+	// Determine output writer based on silent option
+	var output io.Writer = os.Stdout
+	if opt.Silent {
+		output = io.Discard
+	}
+
 	if baseBranch == "" {
 		baseBranch = "main"
 	}
@@ -522,16 +541,16 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	}
 
 	// Initialize mise in worktree if needed
-	if err := mise.Initialize(worktreePath); err != nil {
+	if err := mise.InitializeWithOutput(worktreePath, output); err != nil {
 		// Non-fatal warning
-		fmt.Printf("Warning: mise initialization failed: %v\n", err)
+		fmt.Fprintf(output, "Warning: mise initialization failed: %v\n", err)
 	}
 
 	// Get a human-readable name for this worker
 	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
 	if err != nil {
 		// Non-fatal warning
-		fmt.Printf("Warning: failed to get worker name: %v\n", err)
+		fmt.Fprintf(output, "Warning: failed to get worker name: %v\n", err)
 	}
 
 	// Create work record in database
@@ -544,7 +563,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	// Initialize bead group counter
 	if err := proj.DB.InitializeBeadGroupCounter(ctx, workID); err != nil {
 		// Non-fatal warning
-		fmt.Printf("Warning: failed to initialize bead group counter: %v\n", err)
+		fmt.Fprintf(output, "Warning: failed to initialize bead group counter: %v\n", err)
 	}
 
 	return &WorkCreateResult{
