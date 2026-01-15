@@ -296,12 +296,12 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 }
 
 // OpenConsole creates a zellij tab with a shell in the work's worktree.
-// The tab is named "console-<work-id>" for easy identification.
+// The tab is named "console-<work-id>" or "console-<work-id> (friendlyName)" for easy identification.
 // The hooksEnv parameter contains environment variables to export (format: "KEY=value").
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func OpenConsole(ctx context.Context, workID string, projectName string, workDir string, hooksEnv []string, w io.Writer) error {
+func OpenConsole(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
-	tabName := fmt.Sprintf("console-%s", workID)
+	tabName := FormatTabName("console", workID, friendlyName)
 	zc := zellij.New()
 
 	// Ensure session exists
@@ -354,12 +354,12 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 }
 
 // OpenClaudeSession creates a zellij tab with an interactive Claude Code session in the work's worktree.
-// The tab is named "claude-<work-id>" for easy identification.
+// The tab is named "claude-<work-id>" or "claude-<work-id> (friendlyName)" for easy identification.
 // The hooksEnv parameter contains environment variables to export (format: "KEY=value").
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, hooksEnv []string, w io.Writer) error {
+func OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
-	tabName := fmt.Sprintf("claude-%s", workID)
+	tabName := FormatTabName("claude", workID, friendlyName)
 	zc := zellij.New()
 
 	// Ensure session exists
