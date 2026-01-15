@@ -28,6 +28,7 @@ type BeadWithDeps struct {
 	Description  string       `json:"description"`
 	Status       string       `json:"status"`
 	Dependencies []Dependency `json:"dependencies"`
+	Dependents   []Dependency `json:"dependents"`
 }
 
 // GetReadyBeadsInDir queries beads in a specific directory.
@@ -183,9 +184,9 @@ func GetBeadWithChildrenInDir(id, dir string) ([]BeadWithDeps, error) {
 
 		result = append(result, *bead)
 
-		// Recursively collect children (parent_of relationship)
-		for _, dep := range bead.Dependencies {
-			if dep.DependencyType == "parent_of" && !visited[dep.ID] {
+		// Recursively collect children (parent-child relationship in dependents)
+		for _, dep := range bead.Dependents {
+			if dep.DependencyType == "parent-child" && !visited[dep.ID] {
 				if err := collect(dep.ID); err != nil {
 					return err
 				}
