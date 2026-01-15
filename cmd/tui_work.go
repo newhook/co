@@ -1419,7 +1419,7 @@ func (m *workModel) openConsole() tea.Cmd {
 		wp := m.works[m.worksCursor]
 		workID := wp.work.ID
 
-		err := claude.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, io.Discard)
+		err := claude.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, m.proj.Config.Hooks.Env, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open console", err: err}
 		}

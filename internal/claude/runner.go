@@ -287,8 +287,9 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 
 // OpenConsole creates a zellij tab with a shell in the work's worktree.
 // The tab is named "console-<work-id>" for easy identification.
+// The hooksEnv parameter contains environment variables to export (format: "KEY=value").
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func OpenConsole(ctx context.Context, workID string, projectName string, workDir string, w io.Writer) error {
+func OpenConsole(ctx context.Context, workID string, projectName string, workDir string, hooksEnv []string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
 	tabName := fmt.Sprintf("console-%s", workID)
 	zc := zellij.New()
@@ -308,9 +309,28 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 		}
 	} else {
 		// Create a new tab
-		fmt.Fprintf(w, "Creating console tab: %s in session %s\n", tabName, sessionName)
+		fmt.Fprintf(w, "Creating console tab: %s in session %s with cwd=%s\n", tabName, sessionName, workDir)
 		if err := zc.CreateTab(ctx, sessionName, tabName, workDir); err != nil {
 			return fmt.Errorf("failed to create tab: %w", err)
+		}
+
+		// Send cd command and set env vars to ensure proper work context
+		// (zellij --cwd may not always work as expected)
+		if workDir != "" {
+			// Build export commands for hooks env
+			var exports []string
+			for _, env := range hooksEnv {
+				exports = append(exports, fmt.Sprintf("export %s", env))
+			}
+			var cmd string
+			if len(exports) > 0 {
+				cmd = fmt.Sprintf("cd %q && %s", workDir, strings.Join(exports, " && "))
+			} else {
+				cmd = fmt.Sprintf("cd %q", workDir)
+			}
+			if err := zc.ExecuteCommand(ctx, sessionName, cmd); err != nil {
+				fmt.Fprintf(w, "Warning: failed to initialize console: %v\n", err)
+			}
 		}
 
 		// Switch to the new tab

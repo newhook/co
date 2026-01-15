@@ -1214,5 +1214,5 @@ func runWorkConsole(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open console in the work's worktree
-	return claude.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, os.Stdout)
+	return claude.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, proj.Config.Hooks.Env, os.Stdout)
 }
