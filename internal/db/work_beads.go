@@ -237,3 +237,19 @@ func (db *DB) InitializeBeadGroupCounter(ctx context.Context, workID string) err
 	}
 	return nil
 }
+
+// GetAllAssignedBeads returns a map of bead IDs to work IDs for all beads
+// that are assigned to any work. This is used by plan mode to show which
+// beads are already assigned.
+func (db *DB) GetAllAssignedBeads(ctx context.Context) (map[string]string, error) {
+	rows, err := db.queries.GetAllAssignedBeads(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get assigned beads: %w", err)
+	}
+
+	result := make(map[string]string, len(rows))
+	for _, row := range rows {
+		result[row.BeadID] = row.WorkID
+	}
+	return result, nil
+}

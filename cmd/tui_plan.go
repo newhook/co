@@ -412,8 +412,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case " ":
 		// Toggle bead selection for multi-select
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			beadID := m.beadItems[m.beadsCursor].id
-			m.selectedBeads[beadID] = !m.selectedBeads[beadID]
+			bead := m.beadItems[m.beadsCursor]
+			// Prevent selecting already-assigned beads
+			if bead.assignedWorkID != "" {
+				m.statusMessage = fmt.Sprintf("Cannot select: already assigned to %s", bead.assignedWorkID)
+				m.statusIsError = true
+				return m, nil
+			}
+			m.selectedBeads[bead.id] = !m.selectedBeads[bead.id]
 		}
 		return m, nil
 
@@ -431,23 +437,43 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Collect selected beads, or use cursor bead if none selected
 			var selectedIDs []string
 			var branchBeads []*beads.Bead
+			var alreadyAssigned []string
 			for _, item := range m.beadItems {
 				if m.selectedBeads[item.id] {
-					selectedIDs = append(selectedIDs, item.id)
-					branchBeads = append(branchBeads, &beads.Bead{
-						ID:    item.id,
-						Title: item.title,
-					})
+					if item.assignedWorkID != "" {
+						alreadyAssigned = append(alreadyAssigned, item.id+" ("+item.assignedWorkID+")")
+					} else {
+						selectedIDs = append(selectedIDs, item.id)
+						branchBeads = append(branchBeads, &beads.Bead{
+							ID:    item.id,
+							Title: item.title,
+						})
+					}
 				}
 			}
 			// If no beads selected, use the cursor bead
-			if len(selectedIDs) == 0 {
+			if len(selectedIDs) == 0 && len(alreadyAssigned) == 0 {
 				bead := m.beadItems[m.beadsCursor]
+				if bead.assignedWorkID != "" {
+					m.statusMessage = fmt.Sprintf("Cannot create work: %s already assigned to %s", bead.id, bead.assignedWorkID)
+					m.statusIsError = true
+					return m, nil
+				}
 				selectedIDs = []string{bead.id}
 				branchBeads = []*beads.Bead{{
 					ID:    bead.id,
 					Title: bead.title,
 				}}
+			}
+			// Show error if some selected beads are already assigned
+			if len(alreadyAssigned) > 0 {
+				m.statusMessage = fmt.Sprintf("Skipped already-assigned: %s", strings.Join(alreadyAssigned, ", "))
+				m.statusIsError = true
+				// If all beads were assigned, abort
+				if len(selectedIDs) == 0 {
+					m.statusMessage = "All selected beads are already assigned to works"
+					return m, nil
+				}
 			}
 			m.createWorkBeadIDs = selectedIDs
 			// Generate proposed branch name from all selected beads
@@ -645,6 +671,10 @@ func (m *planModel) renderDetailsContent(visibleLines int) string {
 			content.WriteString("  ")
 			content.WriteString(tuiSuccessStyle.Render("[Session Active]"))
 		}
+		if bead.assignedWorkID != "" {
+			content.WriteString("  ")
+			content.WriteString(tuiDimStyle.Render("Work: " + bead.assignedWorkID))
+		}
 		content.WriteString("\n")
 		content.WriteString(tuiValueStyle.Render(bead.title))
 
@@ -758,6 +788,12 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 		sessionIndicator = tuiSuccessStyle.Render("[C]") + " "
 	}
 
+	// Work assignment indicator
+	var workIndicator string
+	if bead.assignedWorkID != "" {
+		workIndicator = tuiDimStyle.Render("["+bead.assignedWorkID+"]") + " "
+	}
+
 	// Tree indentation with connector lines (styled dim)
 	var treePrefix string
 	if bead.treeDepth > 0 {
@@ -803,9 +839,9 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 
 	var line string
 	if m.beadsExpanded {
-		line = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s", selectionIndicator, treePrefix, sessionIndicator, icon, styledID, bead.priority, bead.beadType, bead.title)
+		line = fmt.Sprintf("%s%s%s%s%s %s [P%d %s] %s", selectionIndicator, treePrefix, workIndicator, sessionIndicator, icon, styledID, bead.priority, bead.beadType, bead.title)
 	} else {
-		line = fmt.Sprintf("%s%s%s%s %s %s %s", selectionIndicator, treePrefix, sessionIndicator, icon, styledID, styledType, bead.title)
+		line = fmt.Sprintf("%s%s%s%s%s %s %s %s", selectionIndicator, treePrefix, workIndicator, sessionIndicator, icon, styledID, styledType, bead.title)
 	}
 
 	if i == m.beadsCursor {
@@ -855,6 +891,7 @@ func (m *planModel) renderHelp() string {
   ────────────────────────────
   ●             Issue is selected for multi-select
   [C]           Issue has an active Claude session
+  [w-xxx]       Issue is assigned to work w-xxx
 
   Press any key to close...
 `
@@ -1282,6 +1319,16 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 	items, err := fetchBeadsWithFilters(mainRepoPath, m.filters)
 	if err != nil {
 		return nil, err
+	}
+
+	// Fetch assigned beads from database and populate assignedWorkID
+	assignedBeads, err := m.proj.DB.GetAllAssignedBeads(m.ctx)
+	if err == nil {
+		for i := range items {
+			if workID, ok := assignedBeads[items[i].id]; ok {
+				items[i].assignedWorkID = workID
+			}
+		}
 	}
 
 	// Build tree structure from dependencies
