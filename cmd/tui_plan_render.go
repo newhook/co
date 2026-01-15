@@ -57,7 +57,13 @@ func (m *planModel) renderIssuesList(visibleLines int) string {
 }
 
 // renderDetailsContent renders the detail panel content
+// Deprecated: use renderDetailsPanel with width parameter for two-column layout
 func (m *planModel) renderDetailsContent(visibleLines int) string {
+	return m.renderDetailsPanel(visibleLines, m.width-4)
+}
+
+// renderDetailsPanel renders the detail panel content with width-aware text wrapping
+func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 	var content strings.Builder
 
 	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
@@ -85,7 +91,9 @@ func (m *planModel) renderDetailsContent(visibleLines int) string {
 			content.WriteString(tuiDimStyle.Render("Work: " + bead.assignedWorkID))
 		}
 		content.WriteString("\n")
-		content.WriteString(tuiValueStyle.Render(bead.title))
+		// Use width-aware wrapping for title
+		titleStyle := tuiValueStyle.Width(width - 4) // -4 for padding
+		content.WriteString(titleStyle.Render(bead.title))
 
 		// Calculate remaining lines for description and children
 		linesUsed := 2 // header + title
@@ -94,17 +102,20 @@ func (m *planModel) renderDetailsContent(visibleLines int) string {
 		// Show description if we have room
 		if bead.description != "" && remainingLines > 2 {
 			content.WriteString("\n")
+			// Use lipgloss word-wrapping for description
+			descStyle := tuiDimStyle.Width(width - 4) // -4 for padding
 			desc := bead.description
 			// Reserve lines for children section
 			descLines := remainingLines - 2 // Reserve 2 lines for children header + some items
 			if len(bead.children) > 0 {
-				descLines = min(descLines, 2) // Limit description to 2 lines if we have children
+				descLines = min(descLines, 3) // Limit description to 3 lines if we have children
 			}
-			maxLen := descLines * 80
+			// Estimate max characters based on width and lines
+			maxLen := descLines * (width - 4)
 			if len(desc) > maxLen && maxLen > 0 {
 				desc = desc[:maxLen] + "..."
 			}
-			content.WriteString(tuiDimStyle.Render(desc))
+			content.WriteString(descStyle.Render(desc))
 			linesUsed++
 			remainingLines--
 		}
@@ -122,19 +133,25 @@ func (m *planModel) renderDetailsContent(visibleLines int) string {
 				childMap[m.beadItems[i].id] = &m.beadItems[i]
 			}
 
-			// Show children with status
+			// Show children with status, truncate if needed to fit width
 			maxChildren := min(len(bead.children), remainingLines)
 			for i := 0; i < maxChildren; i++ {
 				childID := bead.children[i]
+				var childLine string
 				if child, ok := childMap[childID]; ok {
-					content.WriteString(fmt.Sprintf("\n  %s %s %s",
+					childLine = fmt.Sprintf("\n  %s %s %s",
 						statusIcon(child.status),
 						issueIDStyle.Render(child.id),
-						child.title))
+						child.title)
 				} else {
 					// Child not in current view (maybe filtered out)
-					content.WriteString(fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID)))
+					childLine = fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID))
 				}
+				// Truncate child line if it exceeds width
+				if len(childLine) > width {
+					childLine = childLine[:width-3] + "..."
+				}
+				content.WriteString(childLine)
 			}
 			if len(bead.children) > maxChildren {
 				content.WriteString(fmt.Sprintf("\n  ... and %d more", len(bead.children)-maxChildren))
