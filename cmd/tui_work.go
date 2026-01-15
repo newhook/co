@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -955,7 +956,7 @@ func (m *workModel) createWork(branchName string) tea.Cmd {
 		}
 
 		// Spawn the orchestrator for this work
-		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath); err != nil {
+		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, io.Discard); err != nil {
 			// Non-fatal: work was created but orchestrator failed to spawn
 			return workCommandMsg{action: fmt.Sprintf("Created work %s (orchestrator failed: %v)", result.WorkID, err)}
 		}
@@ -971,7 +972,7 @@ func (m *workModel) destroyWork() tea.Cmd {
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		if err := DestroyWork(m.ctx, m.proj, workID); err != nil {
+		if err := DestroyWork(m.ctx, m.proj, workID, io.Discard); err != nil {
 			return workCommandMsg{action: "Destroy work", err: err}
 		}
 		return workCommandMsg{action: "Destroy work"}
@@ -1004,7 +1005,7 @@ func (m *workModel) runWork() tea.Cmd {
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		result, err := RunWork(m.ctx, m.proj, workID, false)
+		result, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Run work", err: err}
 		}

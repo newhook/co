@@ -5,6 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"io"
 	"strings"
 	"text/template"
 	"time"
@@ -83,7 +84,8 @@ func TabExists(ctx context.Context, sessionName, tabName string) bool {
 // TerminateWorkTabs terminates all zellij tabs associated with a work unit.
 // This includes the work orchestrator tab (work-<workID>) and all task tabs (task-<workID>.*).
 // Each tab's running process is terminated with Ctrl+C before the tab is closed.
-func TerminateWorkTabs(ctx context.Context, workID string, projectName string) error {
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
 	zc := zellij.New()
 
@@ -121,14 +123,14 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string) e
 		return nil
 	}
 
-	fmt.Printf("Terminating %d zellij tab(s) for work %s...\n", len(tabsToClose), workID)
+	fmt.Fprintf(w, "Terminating %d zellij tab(s) for work %s...\n", len(tabsToClose), workID)
 
 	for _, tabName := range tabsToClose {
 		if err := zc.TerminateAndCloseTab(ctx, sessionName, tabName); err != nil {
-			fmt.Printf("Warning: failed to terminate tab %s: %v\n", tabName, err)
+			fmt.Fprintf(w, "Warning: failed to terminate tab %s: %v\n", tabName, err)
 			// Continue with other tabs
 		} else {
-			fmt.Printf("  Terminated tab: %s\n", tabName)
+			fmt.Fprintf(w, "  Terminated tab: %s\n", tabName)
 		}
 	}
 
@@ -228,7 +230,8 @@ func BuildUpdatePRDescriptionPrompt(taskID string, workID string, prURL string, 
 // SpawnWorkOrchestrator creates a zellij tab and runs the orchestrate command for a work unit.
 // The tab is named "work-<work-id>" for easy identification.
 // The function returns immediately after spawning - the orchestrator runs in the tab.
-func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string) error {
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
 	tabName := fmt.Sprintf("work-%s", workID)
 	zc := zellij.New()
@@ -244,11 +247,11 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 	// Check if tab already exists
 	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
 	if tabExists {
-		fmt.Printf("Tab %s already exists, reusing...\n", tabName)
+		fmt.Fprintf(w, "Tab %s already exists, reusing...\n", tabName)
 
 		// Switch to the existing tab
 		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			fmt.Printf("Warning: failed to switch to existing tab: %v\n", err)
+			fmt.Fprintf(w, "Warning: failed to switch to existing tab: %v\n", err)
 		}
 
 		// Send Ctrl+C to terminate any running process
@@ -261,42 +264,43 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 		}
 	} else {
 		// Create a new tab
-		fmt.Printf("Creating tab: %s in session %s\n", tabName, sessionName)
+		fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
 		if err := zc.CreateTab(ctx, sessionName, tabName, workDir); err != nil {
 			return fmt.Errorf("failed to create tab: %w", err)
 		}
 
 		// Switch to the new tab
 		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			fmt.Printf("Warning: failed to switch to tab: %v\n", err)
+			fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
 		}
 
 		// Execute the orchestrate command
-		fmt.Printf("Executing: %s\n", orchestrateCommand)
+		fmt.Fprintf(w, "Executing: %s\n", orchestrateCommand)
 		if err := zc.ExecuteCommand(ctx, sessionName, orchestrateCommand); err != nil {
 			return fmt.Errorf("failed to execute orchestrate command: %w", err)
 		}
 	}
 
-	fmt.Printf("Work orchestrator spawned in zellij session %s, tab %s\n", sessionName, tabName)
+	fmt.Fprintf(w, "Work orchestrator spawned in zellij session %s, tab %s\n", sessionName, tabName)
 	return nil
 }
 
 // EnsureWorkOrchestrator checks if a work orchestrator tab exists and spawns one if not.
 // This is used for resilience - if the orchestrator crashes or is killed, it can be restarted.
 // Returns true if the orchestrator was spawned, false if it was already running.
-func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string) (bool, error) {
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, w io.Writer) (bool, error) {
 	sessionName := SessionNameForProject(projectName)
 	tabName := fmt.Sprintf("work-%s", workID)
 
 	// Check if the tab already exists
 	if TabExists(ctx, sessionName, tabName) {
-		fmt.Printf("Work orchestrator tab %s already exists\n", tabName)
+		fmt.Fprintf(w, "Work orchestrator tab %s already exists\n", tabName)
 		return false, nil
 	}
 
 	// Spawn the orchestrator
-	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir); err != nil {
+	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir, w); err != nil {
 		return false, err
 	}
 

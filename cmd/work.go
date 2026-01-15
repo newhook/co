@@ -285,12 +285,12 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// If --auto, run the full automated workflow
 	if flagAutoRun {
 		fmt.Println("\nRunning automated workflow...")
-		return runAutomatedWorkflowForWork(proj, workID, worktreePath)
+		return runAutomatedWorkflowForWork(proj, workID, worktreePath, os.Stdout)
 	}
 
 	// Spawn the orchestrator for this work
 	fmt.Println("\nSpawning orchestrator...")
-	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath); err != nil {
+	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, os.Stdout); err != nil {
 		fmt.Printf("Warning: failed to spawn orchestrator: %v\n", err)
 		fmt.Println("You can start it manually with: co run")
 	} else {
@@ -579,7 +579,8 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 // DestroyWork destroys a work unit and all its resources.
 // This is the core work destruction logic that can be called from both the CLI and TUI.
 // It does not perform interactive confirmation - that should be handled by the caller.
-func DestroyWork(ctx context.Context, proj *project.Project, workID string) error {
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
 	// Get work to verify it exists
 	work, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
@@ -590,7 +591,7 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string) erro
 	}
 
 	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
-	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name); err != nil {
+	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, w); err != nil {
 		// Continue with destruction even if tab termination fails
 		// Caller can log this warning if needed
 	}
@@ -619,7 +620,8 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string) erro
 // runAutomatedWorkflowForWork runs the full automated workflow for an existing work.
 // This includes: create estimate task -> execute -> review/fix loop -> PR
 // Delegates to runFullAutomatedWorkflow in run.go for the actual implementation.
-func runAutomatedWorkflowForWork(proj *project.Project, workID, worktreePath string) error {
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func runAutomatedWorkflowForWork(proj *project.Project, workID, worktreePath string, w io.Writer) error {
 	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
@@ -629,7 +631,7 @@ func runAutomatedWorkflowForWork(proj *project.Project, workID, worktreePath str
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
 
-	return runFullAutomatedWorkflow(proj, workID, worktreePath)
+	return runFullAutomatedWorkflow(proj, workID, worktreePath, w)
 }
 
 // runWorkAdd adds beads to an existing work.
@@ -921,7 +923,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 
 	// Destroy the work
-	if err := DestroyWork(ctx, proj, workID); err != nil {
+	if err := DestroyWork(ctx, proj, workID, os.Stdout); err != nil {
 		return err
 	}
 
