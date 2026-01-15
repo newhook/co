@@ -141,6 +141,14 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 				}
 			}
 		}
+
+		// Rebuild itemMap to fix stale pointers.
+		// When append() exceeds capacity, Go reallocates the slice,
+		// making all previously stored pointers in itemMap stale.
+		itemMap = make(map[string]*beadItem)
+		for i := range items {
+			itemMap[items[i].id] = &items[i]
+		}
 	}
 
 	// Build parent -> children map (issues that block -> issues they block)
