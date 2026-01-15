@@ -5,7 +5,10 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/truncate"
 )
+
+const detailsPanelPadding = 4
 
 // renderFixedPanel renders a panel with border and fixed height
 func (m *planModel) renderFixedPanel(title, content string, width, height int) string {
@@ -18,6 +21,49 @@ func (m *planModel) renderFixedPanel(title, content string, width, height int) s
 
 	// Height-2 for the border lines
 	return tuiPanelStyle.Width(width).Height(height - 2).Render(b.String())
+}
+
+// renderTwoColumnLayout renders the issues and details panels side-by-side
+func (m *planModel) renderTwoColumnLayout() string {
+	// Calculate column widths based on ratio
+	// Account for separator (3 chars: " │ ") and panel borders
+	totalContentWidth := m.width - 4 // -4 for outer margins
+	separatorWidth := 3
+
+	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+	detailsWidth := totalContentWidth - separatorWidth - issuesWidth
+
+	// Calculate content height (total height - status bar)
+	contentHeight := m.height - 1 // -1 for status bar
+
+	// Calculate visible lines for each panel (subtract border and title)
+	issuesContentLines := contentHeight - 3 // -3 for border (2) + title (1)
+	detailsContentLines := contentHeight - 3
+
+	// Render issues panel
+	issuesContent := m.renderIssuesList(issuesContentLines)
+	issuesPanelStyle := tuiPanelStyle.Width(issuesWidth).Height(contentHeight - 2)
+	if m.activePanel == PanelLeft {
+		issuesPanelStyle = issuesPanelStyle.BorderForeground(lipgloss.Color("214")) // Highlight active panel
+	}
+	issuesPanel := issuesPanelStyle.Render(tuiTitleStyle.Render("Issues") + "\n" + issuesContent)
+
+	// Render details panel
+	detailsContent := m.renderDetailsPanel(detailsContentLines, detailsWidth)
+	detailsPanelStyle := tuiPanelStyle.Width(detailsWidth).Height(contentHeight - 2)
+	if m.activePanel == PanelRight {
+		detailsPanelStyle = detailsPanelStyle.BorderForeground(lipgloss.Color("214")) // Highlight active panel
+	}
+	detailsPanel := detailsPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
+
+	// Add vertical separator between columns
+	separator := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Height(contentHeight).
+		Render("│")
+
+	// Combine columns horizontally
+	return lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, separator, detailsPanel)
 }
 
 // renderIssuesList renders just the list content for the given number of visible lines
@@ -56,8 +102,8 @@ func (m *planModel) renderIssuesList(visibleLines int) string {
 	return content.String()
 }
 
-// renderDetailsContent renders the detail panel content
-func (m *planModel) renderDetailsContent(visibleLines int) string {
+// renderDetailsPanel renders the detail panel content with width-aware text wrapping
+func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 	var content strings.Builder
 
 	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
@@ -85,7 +131,9 @@ func (m *planModel) renderDetailsContent(visibleLines int) string {
 			content.WriteString(tuiDimStyle.Render("Work: " + bead.assignedWorkID))
 		}
 		content.WriteString("\n")
-		content.WriteString(tuiValueStyle.Render(bead.title))
+		// Use width-aware wrapping for title
+		titleStyle := tuiValueStyle.Width(width - detailsPanelPadding)
+		content.WriteString(titleStyle.Render(bead.title))
 
 		// Calculate remaining lines for description and children
 		linesUsed := 2 // header + title
@@ -94,17 +142,20 @@ func (m *planModel) renderDetailsContent(visibleLines int) string {
 		// Show description if we have room
 		if bead.description != "" && remainingLines > 2 {
 			content.WriteString("\n")
+			// Use lipgloss word-wrapping for description
+			descStyle := tuiDimStyle.Width(width - detailsPanelPadding)
 			desc := bead.description
 			// Reserve lines for children section
 			descLines := remainingLines - 2 // Reserve 2 lines for children header + some items
 			if len(bead.children) > 0 {
-				descLines = min(descLines, 2) // Limit description to 2 lines if we have children
+				descLines = min(descLines, 3) // Limit description to 3 lines if we have children
 			}
-			maxLen := descLines * 80
+			// Estimate max characters based on width and lines
+			maxLen := descLines * (width - detailsPanelPadding)
 			if len(desc) > maxLen && maxLen > 0 {
 				desc = desc[:maxLen] + "..."
 			}
-			content.WriteString(tuiDimStyle.Render(desc))
+			content.WriteString(descStyle.Render(desc))
 			linesUsed++
 			remainingLines--
 		}
@@ -122,19 +173,25 @@ func (m *planModel) renderDetailsContent(visibleLines int) string {
 				childMap[m.beadItems[i].id] = &m.beadItems[i]
 			}
 
-			// Show children with status
+			// Show children with status, truncate if needed to fit width
 			maxChildren := min(len(bead.children), remainingLines)
 			for i := 0; i < maxChildren; i++ {
 				childID := bead.children[i]
+				var childLine string
 				if child, ok := childMap[childID]; ok {
-					content.WriteString(fmt.Sprintf("\n  %s %s %s",
+					childLine = fmt.Sprintf("\n  %s %s %s",
 						statusIcon(child.status),
 						issueIDStyle.Render(child.id),
-						child.title))
+						child.title)
 				} else {
 					// Child not in current view (maybe filtered out)
-					content.WriteString(fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID)))
+					childLine = fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID))
 				}
+				// Truncate child line if it exceeds width (ANSI-aware)
+				if lipgloss.Width(childLine) > width {
+					childLine = truncate.StringWithTail(childLine, uint(width), "...")
+				}
+				content.WriteString(childLine)
 			}
 			if len(bead.children) > maxChildren {
 				content.WriteString(fmt.Sprintf("\n  ... and %d more", len(bead.children)-maxChildren))
@@ -282,6 +339,13 @@ func (m *planModel) renderHelp() string {
 
   Each issue gets its own dedicated Claude session in a separate tab.
   Use Enter to start or resume a planning session for an issue.
+
+  Layout
+  ────────────────────────────
+  Two-column layout:
+    - Left: Issues list (default 40% width)
+    - Right: Issue details (default 60% width)
+  [ / ]         Adjust column ratio (30/70, 40/60, 50/50)
 
   Navigation
   ────────────────────────────

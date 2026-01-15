@@ -80,6 +80,9 @@ type planModel struct {
 	// Per-bead session tracking
 	activeBeadSessions map[string]bool // beadID -> has active session
 	zj                 *zellij.Client
+
+	// Two-column layout settings
+	columnRatio float64 // Ratio of issues column width (0.0-1.0), default 0.4 for 40/60 split
 }
 
 // newPlanModel creates a new Plan Mode model
@@ -132,6 +135,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		selectedBeads:      make(map[string]bool),
 		createBeadPriority: 2,
 		zj:                 zellij.New(),
+		columnRatio:        0.4, // Default 40/60 split (issues/details)
 		filters: beadFilters{
 			status: "open",
 			sortBy: "default",
@@ -435,6 +439,26 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.beadsExpanded = !m.beadsExpanded
 		return m, nil
 
+	case "[":
+		// Decrease column ratio (make issues column narrower)
+		if m.columnRatio > 0.3 {
+			m.columnRatio -= 0.1
+			if m.columnRatio < 0.3 {
+				m.columnRatio = 0.3
+			}
+		}
+		return m, nil
+
+	case "]":
+		// Increase column ratio (make issues column wider)
+		if m.columnRatio < 0.5 {
+			m.columnRatio += 0.1
+			if m.columnRatio > 0.5 {
+				m.columnRatio = 0.5
+			}
+		}
+		return m, nil
+
 	case " ":
 		// Toggle bead selection for multi-select
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
@@ -600,29 +624,12 @@ func (m *planModel) View() string {
 		return m.renderHelp()
 	}
 
-	// Calculate available lines for list content
-	// Total = issuesPanel + detailPanel + statusBar
-	// Each panel has: border(2) + title(1) + content
-	// Status bar = 1 line
-	// So: m.height = (2+1+issuesLines) + (2+1+detailLines) + 1
-	//              = issuesLines + detailLines + 7
-	issuesContentLines := 10 // Fixed height for issues content
-	issuesPanelHeight := issuesContentLines + 3 // +3 for border (2) and title (1)
-	detailsPanelHeight := m.height - issuesPanelHeight - 1 // -1 for status bar
-	detailsContentLines := max(detailsPanelHeight-3, 2)
-
-	issuesPanel := m.renderFixedPanel("Issues", m.renderIssuesList(issuesContentLines), m.width-4, issuesPanelHeight)
-	detailPanel := m.renderFixedPanel("Details", m.renderDetailsContent(detailsContentLines), m.width-4, detailsPanelHeight)
+	// Use two-column layout
+	content := m.renderTwoColumnLayout()
 	statusBar := m.renderCommandsBar()
 
-	// Stack panels and status bar
-	content := lipgloss.JoinVertical(lipgloss.Left, issuesPanel, detailPanel)
-
-	// Use Place to position content at top and status bar at bottom
-	return lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Height(m.height-1).Render(content),
-		statusBar,
-	)
+	// Combine content and status bar
+	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 }
 
 // beadsForBranch is a minimal struct for branch name generation
