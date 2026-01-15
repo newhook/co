@@ -211,17 +211,17 @@ func (m *planModel) renderCommandsBar() string {
 		return tuiStatusBarStyle.Width(m.width).Render(searchPrompt + searchInput + hint)
 	}
 
-	// Show Enter action based on session state
-	enterAction := "[Enter]Plan"
+	// Show p action based on session state
+	pAction := "[p]Plan"
 	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 		beadID := m.beadItems[m.beadsCursor].id
 		if m.activeBeadSessions[beadID] {
-			enterAction = "[Enter]Resume"
+			pAction = "[p]Resume"
 		}
 	}
 
 	// Commands on the left (plain text for width calculation)
-	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work %s [?]Help", enterAction)
+	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work %s [?]Help", pAction)
 	commands := styleHotkeys(commandsPlain)
 
 	// Status on the right
@@ -338,7 +338,7 @@ func (m *planModel) renderHelp() string {
   Plan Mode - Help
 
   Each issue gets its own dedicated Claude session in a separate tab.
-  Use Enter to start or resume a planning session for an issue.
+  Use 'p' to start or resume a planning session for an issue.
 
   Layout
   ────────────────────────────
@@ -350,7 +350,7 @@ func (m *planModel) renderHelp() string {
   Navigation
   ────────────────────────────
   j/k, ↑/↓      Navigate list
-  Enter         Start/Resume planning session
+  p             Start/Resume planning session
 
   Issue Management
   ────────────────────────────

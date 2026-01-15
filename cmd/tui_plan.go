@@ -473,7 +473,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "enter":
+	case "p":
 		// Spawn/resume planning session for selected bead
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			beadID := m.beadItems[m.beadsCursor].id
