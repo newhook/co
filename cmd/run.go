@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
@@ -128,7 +130,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to create estimate task: %w", err)
 		}
 		fmt.Println("\nRunning automated workflow...")
-		return runFullAutomatedWorkflow(proj, workID, work.WorktreePath)
+		return runFullAutomatedWorkflow(proj, workID, work.WorktreePath, os.Stdout)
 	}
 
 	// Create tasks from unassigned work beads (non-auto mode)
@@ -141,7 +143,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	}
 
 	// Ensure orchestrator is running
-	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath)
+	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("failed to ensure orchestrator: %w", err)
 	}
@@ -339,19 +341,20 @@ func planBeadsWithComplexity(proj *project.Project, beadsWithDeps []beads.BeadWi
 // 1. Execute all implement tasks
 // 2. Run review-fix loop until clean
 // 3. Create PR
-func runFullAutomatedWorkflow(proj *project.Project, workID, worktreePath string) error {
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func runFullAutomatedWorkflow(proj *project.Project, workID, worktreePath string, w io.Writer) error {
 	ctx := GetContext()
 
 	// Spawn the orchestrator which will handle the tasks
-	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath); err != nil {
+	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, w); err != nil {
 		return fmt.Errorf("failed to spawn orchestrator: %w", err)
 	}
 
-	fmt.Println("Automated workflow started in zellij tab.")
-	fmt.Println("The orchestrator will:")
-	fmt.Println("  1. Execute all implement tasks")
-	fmt.Println("  2. Run review-fix loop until clean")
-	fmt.Println("  3. Create a pull request")
+	fmt.Fprintln(w, "Automated workflow started in zellij tab.")
+	fmt.Fprintln(w, "The orchestrator will:")
+	fmt.Fprintln(w, "  1. Execute all implement tasks")
+	fmt.Fprintln(w, "  2. Run review-fix loop until clean")
+	fmt.Fprintln(w, "  3. Create a pull request")
 
 	return nil
 }
@@ -365,7 +368,8 @@ type RunWorkResult struct {
 
 // RunWork creates tasks from unassigned beads and ensures an orchestrator is running.
 // This is the core logic used by both the CLI `co run` command and the TUI.
-func RunWork(ctx context.Context, proj *project.Project, workID string, usePlan bool) (*RunWorkResult, error) {
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func RunWork(ctx context.Context, proj *project.Project, workID string, usePlan bool, w io.Writer) (*RunWorkResult, error) {
 	// Get work details to verify it exists
 	work, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
@@ -393,7 +397,7 @@ func RunWork(ctx context.Context, proj *project.Project, workID string, usePlan 
 	}
 
 	// Ensure orchestrator is running
-	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath)
+	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure orchestrator: %w", err)
 	}

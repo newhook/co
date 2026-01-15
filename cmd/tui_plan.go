@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -1687,11 +1688,11 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 		if auto {
 			// Run automated workflow in a separate goroutine since it's long-running
 			go func() {
-				_ = runAutomatedWorkflowForWork(m.proj, result.WorkID, result.WorktreePath)
+				_ = runAutomatedWorkflowForWork(m.proj, result.WorkID, result.WorktreePath, io.Discard)
 			}()
 		} else {
 			// Spawn the orchestrator
-			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath); err != nil {
+			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, io.Discard); err != nil {
 				// Non-fatal: work was created but orchestrator failed to spawn
 				return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
 			}

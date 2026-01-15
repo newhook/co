@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"sort"
 	"strings"
@@ -1140,14 +1141,8 @@ func (m tuiModel) reopenBead(beadID string) tea.Cmd {
 
 func (m tuiModel) destroyWork(workID string) tea.Cmd {
 	return func() tea.Msg {
-		// Use exec to avoid stdin issues
-		cmd := exec.Command("co", "work", "destroy", workID)
-		cmd.Dir = m.proj.Root
-		// Auto-confirm by providing "y" to stdin
-		cmd.Stdin = strings.NewReader("y\n")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return tuiCommandMsg{action: "Destroy work", err: fmt.Errorf("%w: %s", err, output)}
+		if err := DestroyWork(m.ctx, m.proj, workID, io.Discard); err != nil {
+			return tuiCommandMsg{action: "Destroy work", err: err}
 		}
 		return tuiCommandMsg{action: "Destroy work"}
 	}
