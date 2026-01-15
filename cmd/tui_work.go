@@ -19,6 +19,7 @@ import (
 	"github.com/newhook/co/internal/project"
 )
 
+
 // workModel is the Work Mode model focused on work/task management
 type workModel struct {
 	ctx    context.Context
@@ -43,6 +44,11 @@ type workModel struct {
 	statusMessage string
 	statusIsError bool
 	lastUpdate    time.Time
+
+	// Mouse state
+	mouseX        int
+	mouseY        int
+	hoveredButton string
 
 	// Bead selection (for assign dialogs)
 	beadItems     []beadItem
@@ -146,6 +152,110 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		m.mouseX = msg.X
+		m.mouseY = msg.Y
+
+		// Calculate status bar Y position (at bottom of view)
+		statusBarY := m.height - 1
+
+		// Handle hover detection for motion events
+		if msg.Action == tea.MouseActionMotion {
+			if msg.Y == statusBarY {
+				m.hoveredButton = m.detectStatusBarButton(msg.X)
+			} else {
+				m.hoveredButton = ""
+			}
+			return m, nil
+		}
+
+		// Handle clicks on status bar buttons
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if msg.Y == statusBarY {
+				clickedButton := m.detectStatusBarButton(msg.X)
+				// Trigger the corresponding action by simulating a key press
+				switch clickedButton {
+				case "c":
+					// Create work
+					if m.activePanel == PanelLeft {
+						m.textInput.Reset()
+						m.textInput.Placeholder = "feature/my-branch"
+						m.textInput.Focus()
+						m.viewMode = ViewCreateWork
+					}
+					return m, nil
+				case "n":
+					// Create new bead and assign to current work
+					if m.activePanel == PanelLeft && len(m.works) > 0 {
+						m.viewMode = ViewCreateBead
+						m.textInput.Reset()
+						m.textInput.Placeholder = "Enter issue title..."
+						m.textInput.Focus()
+						m.createBeadType = 0
+						m.createBeadPriority = 2
+						m.createDialogFocus = 0
+						m.createDescTextarea.Reset()
+					}
+					return m, nil
+				case "d":
+					// Destroy work
+					if m.activePanel == PanelLeft && len(m.works) > 0 {
+						m.viewMode = ViewDestroyConfirm
+					}
+					return m, nil
+				case "p":
+					// Plan work
+					if m.activePanel == PanelLeft && len(m.works) > 0 {
+						m.viewMode = ViewPlanDialog
+					}
+					return m, nil
+				case "r":
+					// Run work
+					if m.activePanel == PanelLeft && len(m.works) > 0 {
+						return m, m.runWork()
+					}
+					return m, nil
+				case "a":
+					// Assign beads to work
+					if m.activePanel == PanelLeft && len(m.works) > 0 {
+						m.viewMode = ViewAssignBeads
+						m.beadsCursor = 0
+						return m, m.loadBeadsForAssign()
+					}
+					return m, nil
+				case "t":
+					// Open console tab for selected work
+					if m.activePanel == PanelLeft && len(m.works) > 0 {
+						return m, m.openConsole()
+					}
+					return m, nil
+				case "C":
+					// Open Claude Code session tab for selected work
+					if m.activePanel == PanelLeft && len(m.works) > 0 {
+						return m, m.openClaude()
+					}
+					return m, nil
+				case "R":
+					// Create review task
+					if m.activePanel == PanelLeft && len(m.works) > 0 {
+						return m, m.createReviewTask()
+					}
+					return m, nil
+				case "P":
+					// Create PR task
+					if m.activePanel == PanelLeft && len(m.works) > 0 {
+						return m, m.createPRTask()
+					}
+					return m, nil
+				case "?":
+					m.viewMode = ViewHelp
+					return m, nil
+				}
+			}
+		}
+
+		return m, nil
+
 	case tea.KeyMsg:
 		// Handle view-specific keys first
 		switch m.viewMode {
@@ -569,7 +679,8 @@ func (m *workModel) View() string {
 	panelWidth1 := m.width / 3
 	panelWidth2 := m.width / 3
 	panelWidth3 := m.width - panelWidth1 - panelWidth2
-	panelHeight := m.height - 2 // Reserve 2 lines for status bar
+	// Reserve 1 line for status bar, and account for panel borders (2 lines per panel)
+	panelHeight := m.height - 1 - 2 // -1 for status bar, -2 for border
 
 	// Render three panels: Works | Tasks | Details
 	leftPanel := m.renderWorksPanel(panelWidth1, panelHeight)
@@ -940,9 +1051,23 @@ func (m *workModel) renderStatusBar() string {
 		status = tuiDimStyle.Render(statusPlain)
 	}
 
-	// Commands on the left (plain text for width calculation)
+	// Commands on the left with hover effects
+	cButton := styleButtonWithHover("[c]reate", m.hoveredButton == "c")
+	nButton := styleButtonWithHover("[n]ew issue", m.hoveredButton == "n")
+	dButton := styleButtonWithHover("[d]estroy", m.hoveredButton == "d")
+	pButton := styleButtonWithHover("[p]lan", m.hoveredButton == "p")
+	rButton := styleButtonWithHover("[r]un", m.hoveredButton == "r")
+	aButton := styleButtonWithHover("[a]ssign", m.hoveredButton == "a")
+	tButton := styleButtonWithHover("[t]erminal", m.hoveredButton == "t")
+	CButton := styleButtonWithHover("[C]laude", m.hoveredButton == "C")
+	RButton := styleButtonWithHover("[R]eview", m.hoveredButton == "R")
+	PButton := styleButtonWithHover("[P]R", m.hoveredButton == "P")
+	helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
+
+	keys := cButton + " " + nButton + " " + dButton + " " + pButton + " " + rButton + " " + aButton + " " + tButton + " " + CButton + " " + RButton + " " + PButton + " " + helpButton
+
+	// Plain text for width calculation
 	keysPlain := "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [C]laude [R]eview [P]R [?]help"
-	keys := styleHotkeys(keysPlain)
 
 	// Build bar with commands left, status right
 	padding := max(m.width-len(keysPlain)-len(statusPlain)-4, 2)
@@ -1462,4 +1587,66 @@ func (m *workModel) openClaude() tea.Cmd {
 
 		return workCommandMsg{action: fmt.Sprintf("Opened Claude session for %s", workID)}
 	}
+}
+
+// detectStatusBarButton determines which button is at the given X position in the status bar
+func (m *workModel) detectStatusBarButton(x int) string {
+	// Account for the status bar's left padding (tuiStatusBarStyle has Padding(0, 1))
+	if x < 1 {
+		return ""
+	}
+	x = x - 1
+
+	// Status bar format: "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [C]laude [R]eview [P]R [?]help"
+	keysPlain := "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [C]laude [R]eview [P]R [?]help"
+
+	// Find positions of each button
+	cIdx := strings.Index(keysPlain, "[c]reate")
+	nIdx := strings.Index(keysPlain, "[n]ew issue")
+	dIdx := strings.Index(keysPlain, "[d]estroy")
+	pIdx := strings.Index(keysPlain, "[p]lan")
+	rIdx := strings.Index(keysPlain, "[r]un")
+	aIdx := strings.Index(keysPlain, "[a]ssign")
+	tIdx := strings.Index(keysPlain, "[t]erminal")
+	CIdx := strings.Index(keysPlain, "[C]laude")
+	RIdx := strings.Index(keysPlain, "[R]eview")
+	PIdx := strings.Index(keysPlain, "[P]R")
+	helpIdx := strings.Index(keysPlain, "[?]help")
+
+	// Check if mouse is over any button
+	if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]reate") {
+		return "c"
+	}
+	if nIdx >= 0 && x >= nIdx && x < nIdx+len("[n]ew issue") {
+		return "n"
+	}
+	if dIdx >= 0 && x >= dIdx && x < dIdx+len("[d]estroy") {
+		return "d"
+	}
+	if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]lan") {
+		return "p"
+	}
+	if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]un") {
+		return "r"
+	}
+	if aIdx >= 0 && x >= aIdx && x < aIdx+len("[a]ssign") {
+		return "a"
+	}
+	if tIdx >= 0 && x >= tIdx && x < tIdx+len("[t]erminal") {
+		return "t"
+	}
+	if CIdx >= 0 && x >= CIdx && x < CIdx+len("[C]laude") {
+		return "C"
+	}
+	if RIdx >= 0 && x >= RIdx && x < RIdx+len("[R]eview") {
+		return "R"
+	}
+	if PIdx >= 0 && x >= PIdx && x < PIdx+len("[P]R") {
+		return "P"
+	}
+	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]help") {
+		return "?"
+	}
+
+	return ""
 }

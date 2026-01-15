@@ -93,7 +93,7 @@ var (
 
 	// Issue line styles
 	issueIDStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("117")) // Light blue
+			Foreground(lipgloss.Color("214")) // Orange
 
 	issueTreeStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")) // Dim gray for tree connectors
@@ -135,6 +135,7 @@ const (
 	ViewNormal ViewMode = iota
 	ViewCreateWork
 	ViewCreateBead
+	ViewCreateBeadInline // Create issue inline in description area
 	ViewCreateEpic
 	ViewAddChildBead // Add child issue to selected issue
 	ViewAddToWork    // Add issue to existing work
@@ -299,4 +300,18 @@ func styleHotkeys(text string) string {
 		i++
 	}
 	return result.String()
+}
+
+// styleButtonWithHover styles a button with hover effect if hovered is true
+// This is used for clickable buttons and mode tabs in the TUI
+func styleButtonWithHover(text string, hovered bool) string {
+	hoverStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).   // Black text
+		Background(lipgloss.Color("214")). // Orange background
+		Bold(true)
+
+	if hovered {
+		return hoverStyle.Render(text)
+	}
+	return styleHotkeys(text)
 }
