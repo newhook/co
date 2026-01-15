@@ -51,8 +51,9 @@ func init() {
 
 // workProgress holds progress info for a work unit (used by tui.go)
 type workProgress struct {
-	work  *db.Work
-	tasks []*taskProgress
+	work               *db.Work
+	tasks              []*taskProgress
+	unassignedBeadCount int
 }
 
 // taskProgress holds progress info for a task (used by tui.go)
@@ -181,6 +182,12 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 			tp.beads = append(tp.beads, bp)
 		}
 		wp.tasks = append(wp.tasks, tp)
+	}
+
+	// Get count of unassigned beads for this work
+	unassignedBeads, err := proj.DB.GetUnassignedWorkBeads(ctx, work.ID)
+	if err == nil {
+		wp.unassignedBeadCount = len(unassignedBeads)
 	}
 
 	return wp, nil
