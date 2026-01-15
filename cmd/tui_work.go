@@ -683,6 +683,12 @@ func (m *workModel) renderWorksPanel(width, height int) string {
 				line = fmt.Sprintf("%s %s (%s)", icon, displayName, wp.work.ID)
 			}
 
+			// Add pending beads badge if there are unassigned beads
+			if wp.unassignedBeadCount > 0 {
+				badge := fmt.Sprintf(" [%d pending]", wp.unassignedBeadCount)
+				line += tuiDimStyle.Render(badge)
+			}
+
 			if isSelected {
 				fullLine := "> " + line
 				visWidth := lipgloss.Width(fullLine)
@@ -722,9 +728,16 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 	} else {
 		wp := m.works[m.worksCursor]
 		if len(wp.tasks) == 0 {
-			content.WriteString(tuiDimStyle.Render("No tasks"))
-			content.WriteString("\n")
-			content.WriteString(tuiDimStyle.Render("Press 'p' to plan"))
+			// Show warning if there are unassigned beads
+			if wp.unassignedBeadCount > 0 {
+				content.WriteString(tuiErrorStyle.Render(fmt.Sprintf("⚠ %d pending issue(s)", wp.unassignedBeadCount)))
+				content.WriteString("\n")
+				content.WriteString(tuiDimStyle.Render("Press 'r' to run or 'p' to plan"))
+			} else {
+				content.WriteString(tuiDimStyle.Render("No tasks"))
+				content.WriteString("\n")
+				content.WriteString(tuiDimStyle.Render("Press 'a' to assign issues"))
+			}
 		} else {
 			visibleLines := height - 3
 			if visibleLines < 1 {
@@ -867,6 +880,13 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 			content.WriteString(tuiValueStyle.Render(summary))
 		}
 		content.WriteString("\n")
+
+		// Pending issues count
+		if wp.unassignedBeadCount > 0 {
+			content.WriteString(tuiLabelStyle.Render("Pending Issues: "))
+			content.WriteString(tuiValueStyle.Render(fmt.Sprintf("%d", wp.unassignedBeadCount)))
+			content.WriteString("\n")
+		}
 
 		// If task is selected, show task details
 		if m.activePanel == PanelMiddle && len(wp.tasks) > 0 && m.tasksCursor < len(wp.tasks) {
