@@ -322,7 +322,7 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 
 	// Spawn the orchestrator for this work
 	fmt.Println("\nSpawning orchestrator...")
-	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, os.Stdout); err != nil {
+	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, workerName, os.Stdout); err != nil {
 		fmt.Printf("Warning: failed to spawn orchestrator: %v\n", err)
 		fmt.Println("You can start it manually with: co run")
 	} else {
@@ -477,7 +477,7 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 
 	// Step 5: Spawn the orchestrator
 	fmt.Println("\nSpawning orchestrator...")
-	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, os.Stdout); err != nil {
+	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, workerName, os.Stdout); err != nil {
 		return fmt.Errorf("failed to spawn orchestrator: %w", err)
 	}
 

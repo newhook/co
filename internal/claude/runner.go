@@ -238,12 +238,12 @@ func BuildUpdatePRDescriptionPrompt(taskID string, workID string, prURL string, 
 }
 
 // SpawnWorkOrchestrator creates a zellij tab and runs the orchestrate command for a work unit.
-// The tab is named "work-<work-id>" for easy identification.
+// The tab is named "work-<work-id>" or "work-<work-id> (friendlyName)" for easy identification.
 // The function returns immediately after spawning - the orchestrator runs in the tab.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, w io.Writer) error {
+func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
-	tabName := fmt.Sprintf("work-%s", workID)
+	tabName := FormatTabName("work", workID, friendlyName)
 	zc := zellij.New()
 
 	// Ensure session exists
@@ -413,9 +413,9 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 // This is used for resilience - if the orchestrator crashes or is killed, it can be restarted.
 // Returns true if the orchestrator was spawned, false if it was already running.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, w io.Writer) (bool, error) {
+func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) (bool, error) {
 	sessionName := SessionNameForProject(projectName)
-	tabName := fmt.Sprintf("work-%s", workID)
+	tabName := FormatTabName("work", workID, friendlyName)
 
 	// Check if the tab already exists
 	if TabExists(ctx, sessionName, tabName) {
@@ -424,7 +424,7 @@ func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName stri
 	}
 
 	// Spawn the orchestrator
-	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir, w); err != nil {
+	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w); err != nil {
 		return false, err
 	}
 

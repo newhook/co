@@ -143,7 +143,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	}
 
 	// Ensure orchestrator is running
-	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, os.Stdout)
+	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("failed to ensure orchestrator: %w", err)
 	}
@@ -347,8 +347,17 @@ func planBeadsWithComplexity(proj *project.Project, beadsWithDeps []beads.BeadWi
 func runFullAutomatedWorkflow(proj *project.Project, workID, worktreePath string, w io.Writer) error {
 	ctx := GetContext()
 
+	// Get work details for friendly name
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
 	// Spawn the orchestrator which will handle the tasks
-	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, w); err != nil {
+	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, work.Name, w); err != nil {
 		return fmt.Errorf("failed to spawn orchestrator: %w", err)
 	}
 
@@ -399,7 +408,7 @@ func RunWork(ctx context.Context, proj *project.Project, workID string, usePlan 
 	}
 
 	// Ensure orchestrator is running
-	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, w)
+	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure orchestrator: %w", err)
 	}
