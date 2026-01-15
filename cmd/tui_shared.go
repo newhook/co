@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/db"
 )
@@ -10,6 +12,10 @@ var (
 	tuiTitleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("205"))
+
+	tuiHotkeyStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("214")) // Orange for hotkeys
 
 	tuiActiveTabStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -132,6 +138,7 @@ const (
 	ViewCreateEpic
 	ViewAddChildBead // Add child issue to selected issue
 	ViewAddToWork    // Add issue to existing work
+	ViewEditBead     // Edit selected issue
 	ViewDestroyConfirm
 	ViewCloseBeadConfirm
 	ViewPlanDialog
@@ -154,13 +161,14 @@ type beadItem struct {
 	title           string
 	status          string
 	priority        int
-	beadType        string // task, bug, feature, etc.
+	beadType        string   // task, bug, feature, etc.
 	description     string
 	isReady         bool
 	selected        bool     // for multi-select
 	dependencyCount int      // number of issues that block this one
 	dependentCount  int      // number of issues this blocks
 	dependencies    []string // IDs of issues that block this one
+	children        []string // IDs of issues blocked by this one (computed from tree)
 	treeDepth       int      // depth in tree view (0 = root)
 }
 
@@ -173,7 +181,21 @@ type beadFilters struct {
 }
 
 // beadTypes is the list of valid bead types
-var beadTypes = []string{"task", "bug", "feature"}
+var beadTypes = []string{
+	"task",
+	"bug",
+	"feature",
+	"epic",
+	"chore",
+	"merge-request",
+	"molecule",
+	"gate",
+	"agent",
+	"role",
+	"rig",
+	"convoy",
+	"event",
+}
 
 // statusIcon returns the icon for a given status
 func statusIcon(status string) string {
@@ -245,4 +267,32 @@ func statusStyled(status string) string {
 	default:
 		return status
 	}
+}
+
+// styleHotkeys styles text with hotkeys like "[c]reate [d]elete" by coloring the keys
+// The keys inside brackets are rendered with tuiHotkeyStyle
+func styleHotkeys(text string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(text) {
+		if text[i] == '[' {
+			// Find the closing bracket
+			end := i + 1
+			for end < len(text) && text[end] != ']' {
+				end++
+			}
+			if end < len(text) {
+				// Found a complete [key] sequence
+				key := text[i+1 : end]
+				result.WriteString("[")
+				result.WriteString(tuiHotkeyStyle.Render(key))
+				result.WriteString("]")
+				i = end + 1
+				continue
+			}
+		}
+		result.WriteByte(text[i])
+		i++
+	}
+	return result.String()
 }

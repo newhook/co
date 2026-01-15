@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +13,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/project"
 )
+
+var rootDebugLog *log.Logger
+
+func init() {
+	f, _ := os.OpenFile("/tmp/root-key-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if f != nil {
+		rootDebugLog = log.New(f, "", log.LstdFlags)
+	}
+}
 
 // Mode represents the active TUI mode
 type Mode int
@@ -56,6 +67,8 @@ type SubModel interface {
 	SetSize(width, height int)
 	// FocusChanged is called when this mode gains/loses focus, returns cmd to run
 	FocusChanged(focused bool) tea.Cmd
+	// InModal returns true if the model is in a modal/dialog state where global keys shouldn't be intercepted
+	InModal() bool
 }
 
 // rootModel is the top-level TUI model that manages mode switching
@@ -78,9 +91,10 @@ type rootModel struct {
 	legacyModel tuiModel
 
 	// Global state
-	spinner    spinner.Model
-	lastUpdate time.Time
-	quitting   bool
+	spinner           spinner.Model
+	lastUpdate        time.Time
+	quitting          bool
+	pendingModeSwitch bool // true when 'c' was pressed, waiting for p/m/w
 }
 
 // Tab bar styles
@@ -128,7 +142,7 @@ func newRootModel(ctx context.Context, proj *project.Project) rootModel {
 		proj:         proj,
 		width:        80,
 		height:       24,
-		activeMode:   ModeWork, // Start in Work mode (existing behavior)
+		activeMode:   ModePlan, // Start in Plan mode
 		planModel:    planModel,
 		workModel:    workModel,
 		monitorModel: monitorModel,
@@ -161,6 +175,11 @@ func (m rootModel) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Log ALL messages to debug Ctrl key issues
+	if rootDebugLog != nil {
+		rootDebugLog.Printf("Update msg type=%T value=%v", msg, msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -187,29 +206,58 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Global mode switching keys
+		if rootDebugLog != nil {
+			activeModel := m.getActiveModel()
+			inModal := activeModel != nil && activeModel.InModal()
+			rootDebugLog.Printf("KeyMsg: key=%q type=%d inModal=%v", msg.String(), msg.Type, inModal)
+		}
+
+		// Check if active model is in modal state - if so, route directly to it
+		activeModel := m.getActiveModel()
+		if activeModel != nil && activeModel.InModal() {
+			return m.routeToActiveModel(msg)
+		}
+
+		// Handle pending mode switch (after 'c' was pressed)
+		if m.pendingModeSwitch {
+			m.pendingModeSwitch = false
+			switch msg.String() {
+			case "p", "P":
+				if m.activeMode != ModePlan {
+					oldMode := m.activeMode
+					m.activeMode = ModePlan
+					cmd := m.notifyFocusChange(oldMode, ModePlan)
+					return m, cmd
+				}
+				return m, nil
+			case "w", "W":
+				if m.activeMode != ModeWork {
+					oldMode := m.activeMode
+					m.activeMode = ModeWork
+					cmd := m.notifyFocusChange(oldMode, ModeWork)
+					return m, cmd
+				}
+				return m, nil
+			case "m", "M":
+				if m.activeMode != ModeMonitor {
+					oldMode := m.activeMode
+					m.activeMode = ModeMonitor
+					cmd := m.notifyFocusChange(oldMode, ModeMonitor)
+					return m, cmd
+				}
+				return m, nil
+			default:
+				// Any other key cancels mode switch, route to submodel
+				return m.routeToActiveModel(msg)
+			}
+		}
+
+		// Global keys (only when not in modal)
 		switch msg.String() {
-		case "P":
-			if m.activeMode != ModePlan {
-				oldMode := m.activeMode
-				m.activeMode = ModePlan
-				cmd := m.notifyFocusChange(oldMode, ModePlan)
-				return m, cmd
-			}
-		case "W":
-			if m.activeMode != ModeWork {
-				oldMode := m.activeMode
-				m.activeMode = ModeWork
-				cmd := m.notifyFocusChange(oldMode, ModeWork)
-				return m, cmd
-			}
-		case "M":
-			if m.activeMode != ModeMonitor {
-				oldMode := m.activeMode
-				m.activeMode = ModeMonitor
-				cmd := m.notifyFocusChange(oldMode, ModeMonitor)
-				return m, cmd
-			}
+		case "c":
+			// Start mode switch sequence
+			m.pendingModeSwitch = true
+			return m, nil
 		case "q", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
@@ -273,6 +321,20 @@ func (m *rootModel) notifyFocusChange(oldMode, newMode Mode) tea.Cmd {
 	}
 
 	return tea.Batch(cmds...)
+}
+
+// getActiveModel returns the currently active sub-model
+func (m *rootModel) getActiveModel() SubModel {
+	switch m.activeMode {
+	case ModePlan:
+		return m.planModel
+	case ModeWork:
+		return m.workModel
+	case ModeMonitor:
+		return m.monitorModel
+	default:
+		return nil
+	}
 }
 
 // routeToActiveModel routes a message to the currently active mode model
@@ -346,8 +408,16 @@ func (m rootModel) View() string {
 
 // renderTabBar renders the mode switching tab bar
 func (m rootModel) renderTabBar() string {
-	// Simple plain text mode indicator
-	return fmt.Sprintf("=== %s MODE === [P]lan [W]ork [M]onitor", m.activeMode.Label())
+	// Style the current mode name
+	modeName := tuiTitleStyle.Render(m.activeMode.Label())
+
+	// Style the mode switching keys
+	modeKeys := styleHotkeys("c-[P]lan c-[W]ork c-[M]onitor")
+
+	if m.pendingModeSwitch {
+		return fmt.Sprintf("=== %s MODE === %s  (waiting for p/w/m...)", modeName, modeKeys)
+	}
+	return fmt.Sprintf("=== %s MODE === %s", modeName, modeKeys)
 }
 
 // runRootTUI starts the TUI with the new root model

@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
@@ -45,9 +49,24 @@ type planModel struct {
 	// Create bead state
 	createBeadType     int // 0=task, 1=bug, 2=feature
 	createBeadPriority int // 0-4, default 2
+	createDialogFocus  int // 0=title, 1=type, 2=priority
 
 	// Add child bead state
 	parentBeadID string // ID of parent when adding child
+
+	// Edit bead state
+	editBeadID        string         // ID of bead being edited
+	editTitleTextarea textarea.Model // Textarea for title editing
+	editDescTextarea  textarea.Model // Textarea for description editing
+	editBeadType      int            // Index into beadTypes
+	editField         int            // 0=title, 1=type, 2=description, 3=buttons
+	editButtonIdx     int            // 0=OK, 1=Cancel
+
+	// Create work dialog state
+	createWorkBeadID    string         // Bead ID for work creation
+	createWorkBranch    textinput.Model // Editable branch name
+	createWorkField     int            // 0=branch, 1=buttons
+	createWorkButtonIdx int            // 0=Execute, 1=Auto, 2=Cancel
 
 	// Add to work state
 	availableWorks []workItem // List of works to choose from
@@ -72,7 +91,27 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	ti.CharLimit = 100
 	ti.Width = 40
 
+	titleTa := textarea.New()
+	titleTa.Placeholder = "Enter title..."
+	titleTa.CharLimit = 200
+	titleTa.SetWidth(60)
+	titleTa.SetHeight(2)
+
+	descTa := textarea.New()
+	descTa.Placeholder = "Enter description..."
+	descTa.CharLimit = 2000
+	descTa.SetWidth(60)
+	descTa.SetHeight(6)
+
+	branchInput := textinput.New()
+	branchInput.Placeholder = "Branch name..."
+	branchInput.CharLimit = 100
+	branchInput.Width = 60
+
 	return &planModel{
+		editTitleTextarea:  titleTa,
+		editDescTextarea:   descTa,
+		createWorkBranch:   branchInput,
 		ctx:                ctx,
 		proj:               proj,
 		width:              80,
@@ -104,6 +143,11 @@ func (m *planModel) FocusChanged(focused bool) tea.Cmd {
 		return tea.Batch(m.refreshData(), m.startPeriodicRefresh())
 	}
 	return nil
+}
+
+// InModal returns true if in a modal/dialog state
+func (m *planModel) InModal() bool {
+	return m.viewMode != ViewNormal
 }
 
 // Init implements tea.Model
@@ -193,18 +237,36 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case editorFinishedMsg:
+		// Refresh data after external editor closes
+		m.statusMessage = "Editor closed, refreshing..."
+		m.statusIsError = false
+		return m, m.refreshData()
+
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 
 	default:
 		// Handle Kitty keyboard protocol escape sequences
-		// Kitty/Ghostty send escape key as CSI 27 u (bytes: '2' '7' 'u' = 50 55 117)
+		// Kitty/Ghostty send keys as CSI <keycode> ; <modifiers> u
 		typeName := fmt.Sprintf("%T", msg)
 		if typeName == "tea.unknownCSISequenceMsg" {
 			msgStr := fmt.Sprintf("%s", msg)
 			// Check for Kitty protocol escape key: "?CSI[50 55 117]?" = "27u"
 			if strings.Contains(msgStr, "50 55 117") {
 				return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyEsc})
+			}
+			// Check for Ctrl+G: 103;5u = bytes "49 48 51 59 53 117"
+			if strings.Contains(msgStr, "49 48 51 59 53 117") {
+				return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyCtrlG})
+			}
+			// Check for Ctrl+S: 115;5u = bytes "49 49 53 59 53 117"
+			if strings.Contains(msgStr, "49 49 53 59 53 117") {
+				return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyCtrlS})
+			}
+			// Check for Ctrl+O: 111;5u = bytes "49 49 49 59 53 117"
+			if strings.Contains(msgStr, "49 49 49 59 53 117") {
+				return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyCtrlO})
 			}
 		}
 		var cmd tea.Cmd
@@ -248,10 +310,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.viewMode {
 	case ViewCreateBead:
 		return m.updateCreateBead(msg)
-	case ViewCreateEpic:
-		return m.updateCreateEpic(msg)
 	case ViewAddChildBead:
 		return m.updateAddChildBead(msg)
+	case ViewEditBead:
+		return m.updateEditBead(msg)
+	case ViewCreateWork:
+		return m.updateCreateWorkDialog(msg)
 	case ViewAddToWork:
 		return m.updateAddToWork(msg)
 	case ViewBeadSearch:
@@ -286,14 +350,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.textInput.Focus()
 		m.createBeadType = 0
 		m.createBeadPriority = 2
-		return m, nil
-
-	case "e":
-		// Create new epic
-		m.viewMode = ViewCreateEpic
-		m.textInput.Reset()
-		m.textInput.Focus()
-		m.createBeadPriority = 2
+		m.createDialogFocus = 0 // Start with title focused
 		return m, nil
 
 	case "x":
@@ -356,10 +413,20 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "w":
-		// Create work from selected bead
+		// Create work from selected bead - show dialog
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			beadID := m.beadItems[m.beadsCursor].id
-			return m, m.createWorkFromBead(beadID)
+			bead := m.beadItems[m.beadsCursor]
+			m.createWorkBeadID = bead.id
+			// Generate proposed branch name
+			branchName := generateBranchNameFromBeads([]*beads.Bead{{
+				ID:    bead.id,
+				Title: bead.title,
+			}})
+			m.createWorkBranch.SetValue(branchName)
+			m.createWorkBranch.Focus()
+			m.createWorkField = 0
+			m.createWorkButtonIdx = 0
+			m.viewMode = ViewCreateWork
 		}
 		return m, nil
 
@@ -372,6 +439,39 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.textInput.Focus()
 			m.createBeadType = 0
 			m.createBeadPriority = 2
+			m.createDialogFocus = 0 // Start with title focused
+		}
+		return m, nil
+
+	case "e":
+		// Edit selected issue with textarea
+		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+			bead := m.beadItems[m.beadsCursor]
+			m.editBeadID = bead.id
+			m.viewMode = ViewEditBead
+			m.editTitleTextarea.Reset()
+			m.editTitleTextarea.SetValue(bead.title)
+			m.editTitleTextarea.Focus()
+			m.editDescTextarea.Reset()
+			m.editDescTextarea.SetValue(bead.description)
+			// Find the type index
+			m.editBeadType = 0
+			for i, t := range beadTypes {
+				if t == bead.beadType {
+					m.editBeadType = i
+					break
+				}
+			}
+			m.editField = 0     // Start with title focused
+			m.editButtonIdx = 0 // OK selected by default
+		}
+		return m, nil
+
+	case "E":
+		// Edit selected issue in external editor
+		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+			bead := m.beadItems[m.beadsCursor]
+			return m, m.openInEditor(bead.id)
 		}
 		return m, nil
 
@@ -399,10 +499,12 @@ func (m *planModel) View() string {
 	switch m.viewMode {
 	case ViewCreateBead:
 		return m.renderWithDialog(m.renderCreateBeadDialogContent())
-	case ViewCreateEpic:
-		return m.renderWithDialog(m.renderCreateEpicDialogContent())
 	case ViewAddChildBead:
 		return m.renderWithDialog(m.renderAddChildBeadDialogContent())
+	case ViewEditBead:
+		return m.renderWithDialog(m.renderEditBeadDialogContent())
+	case ViewCreateWork:
+		return m.renderWithDialog(m.renderCreateWorkDialogContent())
 	case ViewAddToWork:
 		return m.renderWithDialog(m.renderAddToWorkDialogContent())
 	case ViewBeadSearch:
@@ -516,14 +618,58 @@ func (m *planModel) renderDetailsContent(visibleLines int) string {
 		content.WriteString("\n")
 		content.WriteString(tuiValueStyle.Render(bead.title))
 
-		if bead.description != "" && visibleLines > 3 {
+		// Calculate remaining lines for description and children
+		linesUsed := 2 // header + title
+		remainingLines := visibleLines - linesUsed
+
+		// Show description if we have room
+		if bead.description != "" && remainingLines > 2 {
 			content.WriteString("\n")
 			desc := bead.description
-			maxLen := (visibleLines - 3) * 80
+			// Reserve lines for children section
+			descLines := remainingLines - 2 // Reserve 2 lines for children header + some items
+			if len(bead.children) > 0 {
+				descLines = min(descLines, 2) // Limit description to 2 lines if we have children
+			}
+			maxLen := descLines * 80
 			if len(desc) > maxLen && maxLen > 0 {
 				desc = desc[:maxLen] + "..."
 			}
 			content.WriteString(tuiDimStyle.Render(desc))
+			linesUsed++
+			remainingLines--
+		}
+
+		// Show children (issues blocked by this one) if we have them
+		if len(bead.children) > 0 && remainingLines > 1 {
+			content.WriteString("\n")
+			content.WriteString(tuiLabelStyle.Render("Blocks: "))
+			linesUsed++
+			remainingLines--
+
+			// Build a map for quick lookup of child status
+			childMap := make(map[string]*beadItem)
+			for i := range m.beadItems {
+				childMap[m.beadItems[i].id] = &m.beadItems[i]
+			}
+
+			// Show children with status
+			maxChildren := min(len(bead.children), remainingLines)
+			for i := 0; i < maxChildren; i++ {
+				childID := bead.children[i]
+				if child, ok := childMap[childID]; ok {
+					content.WriteString(fmt.Sprintf("\n  %s %s %s",
+						statusIcon(child.status),
+						issueIDStyle.Render(child.id),
+						child.title))
+				} else {
+					// Child not in current view (maybe filtered out)
+					content.WriteString(fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID)))
+				}
+			}
+			if len(bead.children) > maxChildren {
+				content.WriteString(fmt.Sprintf("\n  ... and %d more", len(bead.children)-maxChildren))
+			}
 		}
 	}
 
@@ -540,29 +686,31 @@ func (m *planModel) renderCommandsBar() string {
 		}
 	}
 
-	// Commands on the left
-	commands := fmt.Sprintf("[n]New [e]Epic [x]Close [w]Work %s [o/c/r]Filter [?]Help", enterAction)
+	// Commands on the left (plain text for width calculation)
+	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work %s [?]Help", enterAction)
+	commands := styleHotkeys(commandsPlain)
 
 	// Status on the right
 	var status string
+	var statusPlain string
 	if m.statusMessage != "" {
+		statusPlain = m.statusMessage
 		if m.statusIsError {
 			status = tuiErrorStyle.Render(m.statusMessage)
 		} else {
 			status = tuiSuccessStyle.Render(m.statusMessage)
 		}
 	} else if m.loading {
+		statusPlain = "Loading..."
 		status = m.spinner.View() + " Loading..."
+	} else {
+		statusPlain = fmt.Sprintf("Updated: %s", m.lastUpdate.Format("15:04:05"))
+		status = tuiDimStyle.Render(statusPlain)
 	}
 
 	// Build bar with commands left, status right
-	if status != "" {
-		// Pad between commands and status
-		padding := max(m.width-len(commands)-len(m.statusMessage)-4, 2)
-		return tuiStatusBarStyle.Width(m.width).Render(commands + strings.Repeat(" ", padding) + status)
-	}
-
-	return tuiStatusBarStyle.Width(m.width).Render(commands)
+	padding := max(m.width-len(commandsPlain)-len(statusPlain)-4, 2)
+	return tuiStatusBarStyle.Width(m.width).Render(commands + strings.Repeat(" ", padding) + status)
 }
 
 func (m *planModel) renderBeadLine(i int, bead beadItem) string {
@@ -648,8 +796,9 @@ func (m *planModel) renderHelp() string {
 
   Issue Management
   ────────────────────────────
-  n             Create new issue (task)
-  e             Create new epic (feature)
+  n             Create new issue (any type)
+  e             Edit issue inline (textarea)
+  E             Edit issue in $EDITOR
   a             Add child issue (blocked by selected)
   x             Close selected issue
   w             Create work from issue
@@ -682,61 +831,78 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.textInput.Blur()
 		return m, nil
 	}
-	switch msg.String() {
-	case "enter":
-		title := strings.TrimSpace(m.textInput.Value())
-		if title != "" {
-			return m, m.createBead(title, beadTypes[m.createBeadType], m.createBeadPriority, false)
-		}
-		return m, nil
-	case "tab":
-		m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
-		return m, nil
-	case "+", "=":
-		if m.createBeadPriority > 0 {
-			m.createBeadPriority--
-		}
-		return m, nil
-	case "-":
-		if m.createBeadPriority < 4 {
-			m.createBeadPriority++
-		}
-		return m, nil
-	default:
-		var cmd tea.Cmd
-		m.textInput, cmd = m.textInput.Update(msg)
-		return m, cmd
-	}
-}
 
-func (m *planModel) updateCreateEpic(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc || msg.String() == "esc" || msg.String() == "escape" {
-		m.viewMode = ViewNormal
-		m.textInput.Blur()
+	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> title(0)
+	if msg.Type == tea.KeyTab || msg.String() == "tab" {
+		m.createDialogFocus = (m.createDialogFocus + 1) % 3
+		if m.createDialogFocus == 0 {
+			m.textInput.Focus()
+		} else {
+			m.textInput.Blur()
+		}
 		return m, nil
 	}
-	switch msg.String() {
-	case "enter":
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.createDialogFocus--
+		if m.createDialogFocus < 0 {
+			m.createDialogFocus = 2
+		}
+		if m.createDialogFocus == 0 {
+			m.textInput.Focus()
+		} else {
+			m.textInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Enter submits from any field
+	if msg.String() == "enter" {
 		title := strings.TrimSpace(m.textInput.Value())
 		if title != "" {
-			return m, m.createBead(title, "feature", m.createBeadPriority, true)
+			beadType := beadTypes[m.createBeadType]
+			isEpic := beadType == "epic"
+			m.viewMode = ViewNormal
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic)
 		}
 		return m, nil
-	case "+", "=":
-		if m.createBeadPriority > 0 {
-			m.createBeadPriority--
-		}
-		return m, nil
-	case "-":
-		if m.createBeadPriority < 4 {
-			m.createBeadPriority++
-		}
-		return m, nil
-	default:
+	}
+
+	// Handle input based on focused element
+	switch m.createDialogFocus {
+	case 0: // Title input
 		var cmd tea.Cmd
 		m.textInput, cmd = m.textInput.Update(msg)
 		return m, cmd
+
+	case 1: // Type selector
+		switch msg.String() {
+		case "j", "down":
+			m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
+		case "k", "up":
+			m.createBeadType--
+			if m.createBeadType < 0 {
+				m.createBeadType = len(beadTypes) - 1
+			}
+		}
+		return m, nil
+
+	case 2: // Priority
+		switch msg.String() {
+		case "j", "down", "-":
+			if m.createBeadPriority < 4 {
+				m.createBeadPriority++
+			}
+		case "k", "up", "+", "=":
+			if m.createBeadPriority > 0 {
+				m.createBeadPriority--
+			}
+		}
+		return m, nil
 	}
+
+	return m, nil
 }
 
 func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -797,51 +963,206 @@ func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-// Dialog render helpers
-func (m *planModel) renderCreateBeadDialogContent() string {
-	var typeOptions []string
-	for i, t := range beadTypes {
-		if i == m.createBeadType {
-			typeOptions = append(typeOptions, fmt.Sprintf("[%s]", t))
-		} else {
-			typeOptions = append(typeOptions, fmt.Sprintf(" %s ", t))
+var editDebugLog *log.Logger
+
+func init() {
+	f, _ := os.OpenFile("/tmp/edit-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if f != nil {
+		editDebugLog = log.New(f, "", log.LstdFlags)
+	}
+}
+
+func (m *planModel) updateEditBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if editDebugLog != nil {
+		editDebugLog.Printf("updateEditBead: key=%q type=%d field=%d", msg.String(), msg.Type, m.editField)
+	}
+
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+		m.viewMode = ViewNormal
+		m.editTitleTextarea.Blur()
+		m.editDescTextarea.Blur()
+		m.editBeadID = ""
+		return m, nil
+	}
+
+	// Tab cycles between title(0), type(1), description(2), buttons(3)
+	if msg.Type == tea.KeyTab {
+		m.editField = (m.editField + 1) % 4
+		m.editTitleTextarea.Blur()
+		m.editDescTextarea.Blur()
+		if m.editField == 0 {
+			m.editTitleTextarea.Focus()
+		} else if m.editField == 2 {
+			m.editDescTextarea.Focus()
+		}
+		return m, nil
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.editField--
+		if m.editField < 0 {
+			m.editField = 3
+		}
+		m.editTitleTextarea.Blur()
+		m.editDescTextarea.Blur()
+		if m.editField == 0 {
+			m.editTitleTextarea.Focus()
+		} else if m.editField == 2 {
+			m.editDescTextarea.Focus()
+		}
+		return m, nil
+	}
+
+	// Handle input based on focused field
+	var cmd tea.Cmd
+	switch m.editField {
+	case 0: // Title
+		m.editTitleTextarea, cmd = m.editTitleTextarea.Update(msg)
+	case 1: // Type selector
+		switch msg.String() {
+		case "j", "down", "h", "left":
+			m.editBeadType--
+			if m.editBeadType < 0 {
+				m.editBeadType = len(beadTypes) - 1
+			}
+		case "k", "up", "l", "right":
+			m.editBeadType = (m.editBeadType + 1) % len(beadTypes)
+		}
+	case 2: // Description
+		m.editDescTextarea, cmd = m.editDescTextarea.Update(msg)
+	case 3: // Buttons
+		switch msg.String() {
+		case "h", "left", "j", "k", "up", "down", "l", "right":
+			// Toggle between OK(0) and Cancel(1)
+			m.editButtonIdx = 1 - m.editButtonIdx
+		case "enter":
+			if m.editButtonIdx == 0 {
+				// OK - save
+				title := strings.TrimSpace(m.editTitleTextarea.Value())
+				desc := strings.TrimSpace(m.editDescTextarea.Value())
+				beadType := beadTypes[m.editBeadType]
+				if title != "" {
+					m.viewMode = ViewNormal
+					return m, m.saveBeadEdit(m.editBeadID, title, desc, beadType)
+				}
+			} else {
+				// Cancel
+				m.viewMode = ViewNormal
+				m.editTitleTextarea.Blur()
+				m.editDescTextarea.Blur()
+				m.editBeadID = ""
+			}
+			return m, nil
 		}
 	}
-	typeSelector := strings.Join(typeOptions, " ")
+	return m, cmd
+}
 
+// Dialog render helpers
+func (m *planModel) renderCreateBeadDialogContent() string {
+	typeFocused := m.createDialogFocus == 1
+	priorityFocused := m.createDialogFocus == 2
+
+	// Type rotator display
+	currentType := beadTypes[m.createBeadType]
+	var typeDisplay string
+	if typeFocused {
+		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
+	} else {
+		typeDisplay = typeFeatureStyle.Render(currentType)
+	}
+
+	// Priority display
 	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
-	priorityDisplay := priorityLabels[m.createBeadPriority]
+	var priorityDisplay string
+	if priorityFocused {
+		priorityDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(priorityLabels[m.createBeadPriority]))
+	} else {
+		priorityDisplay = priorityLabels[m.createBeadPriority]
+	}
 
-	content := fmt.Sprintf(`
-  Create New Issue
+	// Show focus labels
+	titleLabel := "Title:"
+	typeLabel := "Type:"
+	priorityLabel := "Priority:"
+	if m.createDialogFocus == 0 {
+		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
+	}
+	if typeFocused {
+		typeLabel = tuiValueStyle.Render("Type:") + " (j/k)"
+	}
+	if priorityFocused {
+		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
+	}
 
-  Title:
+	content := fmt.Sprintf(`  Create New Issue
+
+  %s
   %s
 
-  Type (Tab to cycle):    %s
-  Priority (+/- to adjust): %s
+  %s %s
+  %s %s
 
-  [Enter] Create  [Esc] Cancel
-`, m.textInput.View(), typeSelector, priorityDisplay)
+  [Tab] Next field  [Enter] Create  [Esc] Cancel
+`, titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay)
 
 	return tuiDialogStyle.Render(content)
 }
 
-func (m *planModel) renderCreateEpicDialogContent() string {
-	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
-	priorityDisplay := priorityLabels[m.createBeadPriority]
+func (m *planModel) renderEditBeadDialogContent() string {
+	// Show focus labels
+	titleLabel := "Title:"
+	typeLabel := "Type:"
+	descLabel := "Description:"
 
-	content := fmt.Sprintf(`
-  Create New Epic
+	switch m.editField {
+	case 0:
+		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
+	case 1:
+		typeLabel = tuiValueStyle.Render("Type:") + " (←/→)"
+	case 2:
+		descLabel = tuiValueStyle.Render("Description:") + " (editing)"
+	}
 
-  Title:
+	// Type rotator display
+	currentType := beadTypes[m.editBeadType]
+	var typeDisplay string
+	if m.editField == 1 {
+		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
+	} else {
+		typeDisplay = typeFeatureStyle.Render(currentType)
+	}
+
+	// Render OK/Cancel buttons
+	var okBtn, cancelBtn string
+	if m.editField == 3 {
+		if m.editButtonIdx == 0 {
+			okBtn = tuiSelectedStyle.Render(" OK ")
+			cancelBtn = tuiDimStyle.Render(" Cancel ")
+		} else {
+			okBtn = tuiDimStyle.Render(" OK ")
+			cancelBtn = tuiSelectedStyle.Render(" Cancel ")
+		}
+	} else {
+		okBtn = tuiDimStyle.Render(" OK ")
+		cancelBtn = tuiDimStyle.Render(" Cancel ")
+	}
+
+	content := fmt.Sprintf(`  Edit Issue %s
+
   %s
+%s
 
-  Type: feature (fixed for epics)
-  Priority (+/- to adjust): %s
+  %s %s
 
-  [Enter] Create  [Esc] Cancel
-`, m.textInput.View(), priorityDisplay)
+  %s
+%s
+
+  %s  %s
+
+  [Tab] Switch field  [Esc] Cancel
+`, issueIDStyle.Render(m.editBeadID), titleLabel, m.editTitleTextarea.View(), typeLabel, typeDisplay, descLabel, m.editDescTextarea.View(), okBtn, cancelBtn)
 
 	return tuiDialogStyle.Render(content)
 }
@@ -1005,6 +1326,49 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 	}
 }
 
+func (m *planModel) saveBeadEdit(beadID, title, description, beadType string) tea.Cmd {
+	return func() tea.Msg {
+		mainRepoPath := m.proj.MainRepoPath()
+
+		// Update the bead using bd update
+		args := []string{"update", beadID, "--title=" + title, "--type=" + beadType}
+		if description != "" {
+			args = append(args, "--description="+description)
+		}
+
+		cmd := exec.Command("bd", args...)
+		cmd.Dir = mainRepoPath
+		if err := cmd.Run(); err != nil {
+			return planDataMsg{err: fmt.Errorf("failed to update issue: %w", err)}
+		}
+
+		// Refresh after update
+		items, err := m.loadBeads()
+		session := m.sessionName()
+		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
+		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
+	}
+}
+
+// openInEditor opens the issue in $EDITOR using bd edit
+func (m *planModel) openInEditor(beadID string) tea.Cmd {
+	mainRepoPath := m.proj.MainRepoPath()
+
+	// Use bd edit which handles $EDITOR and the issue format
+	c := exec.Command("bd", "edit", beadID)
+	c.Dir = mainRepoPath
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			return planStatusMsg{message: fmt.Sprintf("Editor error: %v", err), isError: true}
+		}
+		// Refresh data after editing
+		return editorFinishedMsg{}
+	})
+}
+
+// editorFinishedMsg is sent when the external editor closes
+type editorFinishedMsg struct{}
+
 // sessionName returns the zellij session name for this project
 func (m *planModel) sessionName() string {
 	return fmt.Sprintf("co-%s", m.proj.Config.Project.Name)
@@ -1062,15 +1426,117 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 	}
 }
 
-// startPeriodicRefresh starts the periodic refresh timer
-func (m *planModel) startPeriodicRefresh() tea.Cmd {
-	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
-		return planTickMsg(t)
-	})
+// updateCreateWorkDialog handles input for the create work dialog
+func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		m.viewMode = ViewNormal
+		m.createWorkBranch.Blur()
+		return m, nil
+	}
+
+	// Tab cycles between branch(0), buttons(1)
+	if msg.Type == tea.KeyTab {
+		m.createWorkField = (m.createWorkField + 1) % 2
+		if m.createWorkField == 0 {
+			m.createWorkBranch.Focus()
+		} else {
+			m.createWorkBranch.Blur()
+		}
+		return m, nil
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.createWorkField = 1 - m.createWorkField
+		if m.createWorkField == 0 {
+			m.createWorkBranch.Focus()
+		} else {
+			m.createWorkBranch.Blur()
+		}
+		return m, nil
+	}
+
+	// Handle input based on focused field
+	var cmd tea.Cmd
+	switch m.createWorkField {
+	case 0: // Branch name input
+		m.createWorkBranch, cmd = m.createWorkBranch.Update(msg)
+	case 1: // Buttons
+		switch msg.String() {
+		case "h", "left":
+			m.createWorkButtonIdx--
+			if m.createWorkButtonIdx < 0 {
+				m.createWorkButtonIdx = 2
+			}
+		case "l", "right":
+			m.createWorkButtonIdx = (m.createWorkButtonIdx + 1) % 3
+		case "enter":
+			branchName := strings.TrimSpace(m.createWorkBranch.Value())
+			if branchName == "" {
+				return m, nil
+			}
+			switch m.createWorkButtonIdx {
+			case 0: // Execute
+				m.viewMode = ViewNormal
+				return m, m.executeCreateWork(m.createWorkBeadID, branchName, false)
+			case 1: // Auto
+				m.viewMode = ViewNormal
+				return m, m.executeCreateWork(m.createWorkBeadID, branchName, true)
+			case 2: // Cancel
+				m.viewMode = ViewNormal
+				m.createWorkBranch.Blur()
+			}
+			return m, nil
+		}
+	}
+	return m, cmd
 }
 
-// createWorkFromBead creates a new work unit from a bead
-func (m *planModel) createWorkFromBead(beadID string) tea.Cmd {
+// renderCreateWorkDialogContent renders the create work dialog
+func (m *planModel) renderCreateWorkDialogContent() string {
+	branchLabel := "Branch:"
+	if m.createWorkField == 0 {
+		branchLabel = tuiValueStyle.Render("Branch:") + " (editing)"
+	}
+
+	// Render buttons
+	var execBtn, autoBtn, cancelBtn string
+	if m.createWorkField == 1 {
+		switch m.createWorkButtonIdx {
+		case 0:
+			execBtn = tuiSelectedStyle.Render(" Execute ")
+			autoBtn = tuiDimStyle.Render(" Auto ")
+			cancelBtn = tuiDimStyle.Render(" Cancel ")
+		case 1:
+			execBtn = tuiDimStyle.Render(" Execute ")
+			autoBtn = tuiSelectedStyle.Render(" Auto ")
+			cancelBtn = tuiDimStyle.Render(" Cancel ")
+		case 2:
+			execBtn = tuiDimStyle.Render(" Execute ")
+			autoBtn = tuiDimStyle.Render(" Auto ")
+			cancelBtn = tuiSelectedStyle.Render(" Cancel ")
+		}
+	} else {
+		execBtn = tuiDimStyle.Render(" Execute ")
+		autoBtn = tuiDimStyle.Render(" Auto ")
+		cancelBtn = tuiDimStyle.Render(" Cancel ")
+	}
+
+	content := fmt.Sprintf(`  Create Work from %s
+
+  %s
+  %s
+
+  %s  %s  %s
+
+  [Tab] Switch field  [Esc] Cancel
+`, issueIDStyle.Render(m.createWorkBeadID), branchLabel, m.createWorkBranch.View(), execBtn, autoBtn, cancelBtn)
+
+	return tuiDialogStyle.Render(content)
+}
+
+// executeCreateWork creates a work unit with the given branch name
+func (m *planModel) executeCreateWork(beadID, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
 		session := m.sessionName()
 		tabName := fmt.Sprintf("work-%s", beadID)
@@ -1092,8 +1558,11 @@ func (m *planModel) createWorkFromBead(beadID string) tea.Cmd {
 			return planWorkCreatedMsg{beadID: beadID, err: err}
 		}
 
-		// Run co work create with the bead ID
-		workCmd := fmt.Sprintf("co work create %s", beadID)
+		// Run co work create with the bead ID and branch name (use -y to skip prompt)
+		workCmd := fmt.Sprintf("co work create %s --branch %q -y", beadID, branchName)
+		if auto {
+			workCmd += " --auto"
+		}
 		time.Sleep(200 * time.Millisecond)
 		if err := m.zj.ExecuteCommand(m.ctx, session, workCmd); err != nil {
 			return planWorkCreatedMsg{beadID: beadID, err: err}
@@ -1101,6 +1570,13 @@ func (m *planModel) createWorkFromBead(beadID string) tea.Cmd {
 
 		return planWorkCreatedMsg{beadID: beadID, workID: tabName}
 	}
+}
+
+// startPeriodicRefresh starts the periodic refresh timer
+func (m *planModel) startPeriodicRefresh() tea.Cmd {
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+		return planTickMsg(t)
+	})
 }
 
 // fetchDependencies gets the list of issue IDs that block the given issue
@@ -1156,12 +1632,17 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 
 	// Build parent -> children map (issues that block -> issues they block)
 	// If A blocks B, then B depends on A, so A is parent, B is child
-	children := make(map[string][]string)
+	childrenMap := make(map[string][]string)
 	for i := range items {
 		for _, depID := range items[i].dependencies {
 			// This item depends on depID, so depID is the parent
-			children[depID] = append(children[depID], items[i].id)
+			childrenMap[depID] = append(childrenMap[depID], items[i].id)
 		}
+	}
+
+	// Store children in each item
+	for i := range items {
+		items[i].children = childrenMap[items[i].id]
 	}
 
 	// Find root nodes (items with no dependencies within our set)
@@ -1201,7 +1682,7 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 		result = append(result, *item)
 
 		// Sort children by priority
-		childIDs := children[id]
+		childIDs := childrenMap[id]
 		sort.Slice(childIDs, func(i, j int) bool {
 			a, b := itemMap[childIDs[i]], itemMap[childIDs[j]]
 			if a == nil || b == nil {
@@ -1242,31 +1723,76 @@ func (m *planModel) updateAddChildBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.parentBeadID = ""
 		return m, nil
 	}
-	switch msg.String() {
-	case "enter":
+
+	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> title(0)
+	if msg.Type == tea.KeyTab || msg.String() == "tab" {
+		m.createDialogFocus = (m.createDialogFocus + 1) % 3
+		if m.createDialogFocus == 0 {
+			m.textInput.Focus()
+		} else {
+			m.textInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.createDialogFocus--
+		if m.createDialogFocus < 0 {
+			m.createDialogFocus = 2
+		}
+		if m.createDialogFocus == 0 {
+			m.textInput.Focus()
+		} else {
+			m.textInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Enter submits from any field
+	if msg.String() == "enter" {
 		title := strings.TrimSpace(m.textInput.Value())
 		if title != "" {
+			m.viewMode = ViewNormal
 			return m, m.createChildBead(title, beadTypes[m.createBeadType], m.createBeadPriority)
 		}
 		return m, nil
-	case "tab":
-		m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
-		return m, nil
-	case "+", "=":
-		if m.createBeadPriority > 0 {
-			m.createBeadPriority--
-		}
-		return m, nil
-	case "-":
-		if m.createBeadPriority < 4 {
-			m.createBeadPriority++
-		}
-		return m, nil
-	default:
+	}
+
+	// Handle input based on focused element
+	switch m.createDialogFocus {
+	case 0: // Title input
 		var cmd tea.Cmd
 		m.textInput, cmd = m.textInput.Update(msg)
 		return m, cmd
+
+	case 1: // Type selector
+		switch msg.String() {
+		case "j", "down":
+			m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
+		case "k", "up":
+			m.createBeadType--
+			if m.createBeadType < 0 {
+				m.createBeadType = len(beadTypes) - 1
+			}
+		}
+		return m, nil
+
+	case 2: // Priority
+		switch msg.String() {
+		case "j", "down", "-":
+			if m.createBeadPriority < 4 {
+				m.createBeadPriority++
+			}
+		case "k", "up", "+", "=":
+			if m.createBeadPriority > 0 {
+				m.createBeadPriority--
+			}
+		}
+		return m, nil
 	}
+
+	return m, nil
 }
 
 // updateAddToWork handles input for the add to work dialog
@@ -1299,32 +1825,53 @@ func (m *planModel) updateAddToWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // renderAddChildBeadDialogContent renders the add child bead dialog
 func (m *planModel) renderAddChildBeadDialogContent() string {
-	var typeOptions []string
-	for i, t := range beadTypes {
-		if i == m.createBeadType {
-			typeOptions = append(typeOptions, fmt.Sprintf("[%s]", t))
-		} else {
-			typeOptions = append(typeOptions, fmt.Sprintf(" %s ", t))
-		}
+	typeFocused := m.createDialogFocus == 1
+	priorityFocused := m.createDialogFocus == 2
+
+	// Type rotator display
+	currentType := beadTypes[m.createBeadType]
+	var typeDisplay string
+	if typeFocused {
+		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
+	} else {
+		typeDisplay = typeFeatureStyle.Render(currentType)
 	}
-	typeSelector := strings.Join(typeOptions, " ")
 
+	// Priority display
 	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
-	priorityDisplay := priorityLabels[m.createBeadPriority]
+	var priorityDisplay string
+	if priorityFocused {
+		priorityDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(priorityLabels[m.createBeadPriority]))
+	} else {
+		priorityDisplay = priorityLabels[m.createBeadPriority]
+	}
 
-	content := fmt.Sprintf(`
-  Add Child Issue to %s
+	// Show focus labels
+	titleLabel := "Title:"
+	typeLabel := "Type:"
+	priorityLabel := "Priority:"
+	if m.createDialogFocus == 0 {
+		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
+	}
+	if typeFocused {
+		typeLabel = tuiValueStyle.Render("Type:") + " (j/k)"
+	}
+	if priorityFocused {
+		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
+	}
 
-  Title:
+	content := fmt.Sprintf(`  Add Child Issue to %s
+
+  %s
   %s
 
-  Type (Tab to cycle):    %s
-  Priority (+/- to adjust): %s
+  %s %s
+  %s %s
 
   The new issue will be blocked by %s.
 
-  [Enter] Create  [Esc] Cancel
-`, issueIDStyle.Render(m.parentBeadID), m.textInput.View(), typeSelector, priorityDisplay, m.parentBeadID)
+  [Tab] Next field  [Enter] Create  [Esc] Cancel
+`, issueIDStyle.Render(m.parentBeadID), titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay, m.parentBeadID)
 
 	return tuiDialogStyle.Render(content)
 }

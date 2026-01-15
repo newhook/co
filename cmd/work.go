@@ -124,11 +124,15 @@ var (
 	flagReviewAuto  bool
 	flagAddWork     string
 	flagRemoveWork  string
+	flagBranchName  string
+	flagYes         bool
 )
 
 func init() {
 	workCreateCmd.Flags().StringVar(&flagBaseBranch, "base", "main", "base branch to create feature branch from (also used as PR target)")
 	workCreateCmd.Flags().BoolVar(&flagAutoRun, "auto", false, "run full automated workflow (implement, review, fix, PR)")
+	workCreateCmd.Flags().StringVar(&flagBranchName, "branch", "", "branch name to use (skip prompt)")
+	workCreateCmd.Flags().BoolVarP(&flagYes, "yes", "y", false, "skip confirmation prompts")
 	workReviewCmd.Flags().BoolVar(&flagReviewAuto, "auto", false, "run review-fix loop until clean")
 	workAddCmd.Flags().StringVar(&flagAddWork, "work", "", "work ID (default: auto-detect from current directory)")
 	workRemoveCmd.Flags().StringVar(&flagRemoveWork, "work", "", "work ID (default: auto-detect from current directory)")
@@ -177,17 +181,26 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 	beadGroups := []beadGroup{{beads: groupBeads}}
 
-	// Generate branch name from bead titles
-	branchName := generateBranchNameFromBeads(groupBeads)
-	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
-	if err != nil {
-		return fmt.Errorf("failed to find unique branch name: %w", err)
-	}
+	// Determine branch name
+	var branchName string
+	if flagBranchName != "" {
+		// Use provided branch name
+		branchName = flagBranchName
+	} else {
+		// Generate branch name from bead titles
+		branchName = generateBranchNameFromBeads(groupBeads)
+		branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+		if err != nil {
+			return fmt.Errorf("failed to find unique branch name: %w", err)
+		}
 
-	// Prompt user to accept or customize branch name
-	branchName, err = promptForBranchName(branchName)
-	if err != nil {
-		return err
+		// Prompt user unless -y flag is set
+		if !flagYes {
+			branchName, err = promptForBranchName(branchName)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	// Generate work ID
@@ -835,12 +848,6 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 	}
 	if work == nil {
 		return fmt.Errorf("work %s not found", workID)
-	}
-
-	// Check if work has changes to review
-	// Work should have at least been started (has commits on the branch)
-	if work.Status == db.StatusPending {
-		return fmt.Errorf("work %s has not been started yet (status: pending)", workID)
 	}
 
 	mainRepoPath := proj.MainRepoPath()

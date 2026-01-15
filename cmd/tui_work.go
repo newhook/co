@@ -63,6 +63,9 @@ type workCommandMsg struct {
 	err    error
 }
 
+// workTickMsg triggers periodic refresh
+type workTickMsg time.Time
+
 // newWorkModel creates a new Work Mode model
 func newWorkModel(ctx context.Context, proj *project.Project) *workModel {
 	s := spinner.New()
@@ -93,7 +96,14 @@ func (m *workModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		m.refreshData(),
+		m.tick(),
 	)
+}
+
+func (m *workModel) tick() tea.Cmd {
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		return workTickMsg(t)
+	})
 }
 
 // SetSize implements SubModel
@@ -111,6 +121,11 @@ func (m *workModel) FocusChanged(focused bool) tea.Cmd {
 		return m.refreshData()
 	}
 	return nil
+}
+
+// InModal returns true if in a modal/dialog state
+func (m *workModel) InModal() bool {
+	return m.viewMode != ViewNormal
 }
 
 // Update implements tea.Model
@@ -172,6 +187,10 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
 
+	case workTickMsg:
+		// Periodic refresh
+		cmds = append(cmds, m.refreshData())
+		cmds = append(cmds, m.tick())
 	}
 
 	return m, tea.Batch(cmds...)
@@ -272,6 +291,12 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Create PR task
 		if m.activePanel == PanelLeft && len(m.works) > 0 {
 			return m, m.createPRTask()
+		}
+
+	case "U":
+		// Update PR description task
+		if m.activePanel == PanelLeft && len(m.works) > 0 {
+			return m, m.updatePRDescriptionTask()
 		}
 
 	case "?":
@@ -422,12 +447,7 @@ func (m *workModel) renderWithDialog(dialog string) string {
 }
 
 func (m *workModel) renderWorksPanel(width, height int) string {
-	title := "[1] Workers"
-	if m.activePanel == PanelLeft {
-		title = tuiActiveTabStyle.Render(title)
-	} else {
-		title = tuiInactiveTabStyle.Render(title)
-	}
+	title := tuiTitleStyle.Render("Workers")
 
 	var content strings.Builder
 	content.WriteString(title)
@@ -468,8 +488,23 @@ func (m *workModel) renderWorksPanel(width, height int) string {
 			wp := m.works[i]
 			isSelected := i == m.worksCursor && m.activePanel == PanelLeft
 
+			// Check if any task is actively processing
+			hasActiveTask := false
+			for _, tp := range wp.tasks {
+				if tp.task.Status == db.StatusProcessing {
+					hasActiveTask = true
+					break
+				}
+			}
+
 			var icon string
-			if isSelected {
+			if wp.work.Status == db.StatusProcessing && hasActiveTask {
+				// Use spinner for works with active tasks
+				icon = m.spinner.View()
+			} else if wp.work.Status == db.StatusProcessing {
+				// Idle processing (no active task) - use pause icon
+				icon = statusProcessing.Render("◉")
+			} else if isSelected {
 				icon = statusIconPlain(wp.work.Status)
 			} else {
 				icon = statusIcon(wp.work.Status)
@@ -516,12 +551,7 @@ func (m *workModel) renderWorksPanel(width, height int) string {
 }
 
 func (m *workModel) renderTasksPanel(width, height int) string {
-	title := "[2] Tasks"
-	if m.activePanel == PanelMiddle {
-		title = tuiActiveTabStyle.Render(title)
-	} else {
-		title = tuiInactiveTabStyle.Render(title)
-	}
+	title := tuiTitleStyle.Render("Tasks")
 
 	var content strings.Builder
 	content.WriteString(title)
@@ -564,7 +594,10 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 				isSelected := i == m.tasksCursor && m.activePanel == PanelMiddle
 
 				var icon string
-				if isSelected {
+				if tp.task.Status == db.StatusProcessing {
+					// Use spinner for processing tasks
+					icon = m.spinner.View()
+				} else if isSelected {
 					icon = statusIconPlain(tp.task.Status)
 				} else {
 					icon = statusIcon(tp.task.Status)
@@ -601,12 +634,7 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 }
 
 func (m *workModel) renderDetailsPanel(width, height int) string {
-	title := "[3] Details"
-	if m.activePanel == PanelRight {
-		title = tuiActiveTabStyle.Render(title)
-	} else {
-		title = tuiInactiveTabStyle.Render(title)
-	}
+	title := tuiTitleStyle.Render("Details")
 
 	var content strings.Builder
 	content.WriteString(title)
@@ -717,26 +745,28 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 }
 
 func (m *workModel) renderStatusBar() string {
+	// Status on the right
 	var status string
+	var statusPlain string
 	if m.statusMessage != "" {
+		statusPlain = m.statusMessage
 		if m.statusIsError {
 			status = tuiErrorStyle.Render(m.statusMessage)
 		} else {
 			status = tuiSuccessStyle.Render(m.statusMessage)
 		}
 	} else {
-		status = tuiDimStyle.Render(fmt.Sprintf("Updated: %s", m.lastUpdate.Format("15:04:05")))
+		statusPlain = fmt.Sprintf("Updated: %s", m.lastUpdate.Format("15:04:05"))
+		status = tuiDimStyle.Render(statusPlain)
 	}
 
-	keys := "[c]reate [d]estroy [p]lan [r]un [a]ssign [R]eview [P]R [?]help"
+	// Commands on the left (plain text for width calculation)
+	keysPlain := "[c]reate [d]estroy [p]lan [r]un [a]ssign [R]eview [P]R [U]pdate PR [?]help"
+	keys := styleHotkeys(keysPlain)
 
-	return tuiStatusBarStyle.Width(m.width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Left,
-			status,
-			strings.Repeat(" ", max(0, m.width-lipgloss.Width(status)-lipgloss.Width(keys)-4)),
-			tuiDimStyle.Render(keys),
-		),
-	)
+	// Build bar with commands left, status right
+	padding := max(m.width-len(keysPlain)-len(statusPlain)-4, 2)
+	return tuiStatusBarStyle.Width(m.width).Render(keys + strings.Repeat(" ", padding) + status)
 }
 
 func (m *workModel) renderCreateWorkDialog() string {
@@ -860,10 +890,9 @@ func (m *workModel) renderHelp() string {
 
   Navigation
   ────────────────────────────
-  h, ←          Move to previous panel
-  l, →          Move to next panel
+  h/l, ←/→      Move between panels
   j/k, ↑/↓      Navigate list
-  Tab, 1-3      Jump to panel
+  Tab           Cycle panels
   g             Go to top
   G             Go to bottom
 
@@ -876,6 +905,7 @@ func (m *workModel) renderHelp() string {
   a             Assign issues to work
   R             Create review task
   P             Create PR task
+  U             Update PR description
 
   General
   ────────────────────────────
@@ -981,14 +1011,35 @@ func (m *workModel) createReviewTask() tea.Cmd {
 		if m.worksCursor >= len(m.works) {
 			return workCommandMsg{action: "Create review", err: fmt.Errorf("no work selected")}
 		}
-		workID := m.works[m.worksCursor].work.ID
+		wp := m.works[m.worksCursor]
+		workID := wp.work.ID
 
-		cmd := exec.Command("co", "work", "review", workID)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
-			return workCommandMsg{action: "Create review", err: err}
+		// Get existing tasks to generate unique review task ID
+		ctx := m.ctx
+		tasks, err := m.proj.DB.GetWorkTasks(ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create review", err: fmt.Errorf("failed to get work tasks: %w", err)}
 		}
-		return workCommandMsg{action: "Create review"}
+
+		// Count existing review tasks
+		reviewCount := 0
+		reviewPrefix := fmt.Sprintf("%s.review", workID)
+		for _, task := range tasks {
+			if strings.HasPrefix(task.ID, reviewPrefix) {
+				reviewCount++
+			}
+		}
+
+		// Generate unique review task ID
+		reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
+
+		// Create the review task
+		err = m.proj.DB.CreateTask(ctx, reviewTaskID, "review", []string{}, 0, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create review", err: fmt.Errorf("failed to create task: %w", err)}
+		}
+
+		return workCommandMsg{action: fmt.Sprintf("Created review task %s", reviewTaskID)}
 	}
 }
 
@@ -997,14 +1048,61 @@ func (m *workModel) createPRTask() tea.Cmd {
 		if m.worksCursor >= len(m.works) {
 			return workCommandMsg{action: "Create PR", err: fmt.Errorf("no work selected")}
 		}
-		workID := m.works[m.worksCursor].work.ID
+		wp := m.works[m.worksCursor]
+		workID := wp.work.ID
 
-		cmd := exec.Command("co", "work", "pr", workID)
+		// Check if work is completed
+		if wp.work.Status != db.StatusCompleted {
+			return workCommandMsg{action: "Create PR", err: fmt.Errorf("work %s is not completed (status: %s)", workID, wp.work.Status)}
+		}
+
+		// Check if PR already exists
+		if wp.work.PRURL != "" {
+			return workCommandMsg{action: fmt.Sprintf("PR already exists: %s", wp.work.PRURL)}
+		}
+
+		// Generate task ID for PR creation
+		prTaskID := fmt.Sprintf("%s.pr", workID)
+
+		// Create the PR task
+		ctx := m.ctx
+		err := m.proj.DB.CreateTask(ctx, prTaskID, "pr", []string{}, 0, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create PR", err: fmt.Errorf("failed to create task: %w", err)}
+		}
+
+		return workCommandMsg{action: fmt.Sprintf("Created PR task %s", prTaskID)}
+	}
+}
+
+func (m *workModel) updatePRDescriptionTask() tea.Cmd {
+	return func() tea.Msg {
+		if m.worksCursor >= len(m.works) {
+			return workCommandMsg{action: "Update PR", err: fmt.Errorf("no work selected")}
+		}
+		wp := m.works[m.worksCursor]
+		workID := wp.work.ID
+
+		// Check if work has a PR
+		if wp.work.PRURL == "" {
+			return workCommandMsg{action: "Update PR", err: fmt.Errorf("work %s has no PR", workID)}
+		}
+
+		// Create update-pr-description task
+		taskID := fmt.Sprintf("%s.update-pr-%d", workID, time.Now().Unix())
+		ctx := context.Background()
+		err := m.proj.DB.CreateTask(ctx, taskID, "update-pr-description", []string{}, 0, workID)
+		if err != nil {
+			return workCommandMsg{action: "Update PR", err: err}
+		}
+
+		// Process the task
+		cmd := exec.Command("co", "orchestrate", "--task", taskID)
 		cmd.Dir = m.proj.Root
 		if err := cmd.Run(); err != nil {
-			return workCommandMsg{action: "Create PR", err: err}
+			return workCommandMsg{action: "Update PR", err: err}
 		}
-		return workCommandMsg{action: "Create PR"}
+		return workCommandMsg{action: "Update PR"}
 	}
 }
 

@@ -87,6 +87,11 @@ func (m *monitorModel) FocusChanged(focused bool) tea.Cmd {
 	return nil
 }
 
+// InModal returns true if in a modal/dialog state (monitor mode has no dialogs)
+func (m *monitorModel) InModal() bool {
+	return false
+}
+
 // recalculateGrid calculates optimal grid dimensions based on workers and screen size
 func (m *monitorModel) recalculateGrid() {
 	numWorkers := len(m.works)
@@ -209,16 +214,12 @@ func (m *monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model
 func (m *monitorModel) View() string {
-	// Debug: always show something
-	header := fmt.Sprintf("MONITOR MODE - %d workers, loading=%v, size=%dx%d\n\n",
-		len(m.works), m.loading, m.width, m.height)
-
 	if m.loading && len(m.works) == 0 {
-		return header + "Loading workers..."
+		return "Loading workers..."
 	}
 
 	if len(m.works) == 0 {
-		return header + m.renderEmptyState()
+		return m.renderEmptyState()
 	}
 
 	// Render grid of worker panels
@@ -227,7 +228,7 @@ func (m *monitorModel) View() string {
 	// Render status bar
 	statusBar := m.renderStatusBar()
 
-	return header + lipgloss.JoinVertical(lipgloss.Left, grid, statusBar)
+	return lipgloss.JoinVertical(lipgloss.Left, grid, statusBar)
 }
 
 func (m *monitorModel) renderEmptyState() string {
@@ -240,7 +241,7 @@ func (m *monitorModel) renderEmptyState() string {
     - Task list with states
     - Progress indicators
 
-  Press W to switch to Work mode and create a worker.
+  Press c-w to switch to Work mode and create a worker.
 `
 	style := lipgloss.NewStyle().
 		Padding(2, 4).
@@ -425,14 +426,13 @@ func (m *monitorModel) renderEmptyPanel(width, height int) string {
 }
 
 func (m *monitorModel) renderStatusBar() string {
-	// Left: Update time
-	updateTime := tuiDimStyle.Render(fmt.Sprintf("Updated: %s (2s poll)", m.lastUpdate.Format("15:04:05")))
+	// Commands on the left (plain text for width calculation)
+	keysPlain := "[←↑↓→]navigate [r]efresh"
+	keys := styleHotkeys(keysPlain)
 
-	// Center: Worker count
-	workerInfo := ""
+	// Status on the right - worker count and update time
+	var statusParts []string
 	if len(m.works) > 0 {
-		workerInfo = fmt.Sprintf("Workers: %d", len(m.works))
-
 		// Count by status
 		pending := 0
 		processing := 0
@@ -447,30 +447,15 @@ func (m *monitorModel) renderStatusBar() string {
 				completed++
 			}
 		}
-		workerInfo = fmt.Sprintf("Workers: %d (●%d ✓%d ○%d)", len(m.works), processing, completed, pending)
+		statusParts = append(statusParts, fmt.Sprintf("Workers: %d (●%d ✓%d ○%d)", len(m.works), processing, completed, pending))
 	}
+	statusParts = append(statusParts, fmt.Sprintf("Updated: %s", m.lastUpdate.Format("15:04:05")))
+	statusPlain := strings.Join(statusParts, " | ")
+	status := tuiDimStyle.Render(statusPlain)
 
-	// Right: Key hints
-	keys := tuiDimStyle.Render("[←↑↓→]navigate [r]efresh")
-
-	// Calculate spacing
-	leftWidth := lipgloss.Width(updateTime)
-	centerWidth := lipgloss.Width(workerInfo)
-	rightWidth := lipgloss.Width(keys)
-	spacing := (m.width - leftWidth - centerWidth - rightWidth - 4) / 2
-	if spacing < 1 {
-		spacing = 1
-	}
-
-	return tuiStatusBarStyle.Width(m.width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Left,
-			updateTime,
-			strings.Repeat(" ", spacing),
-			workerInfo,
-			strings.Repeat(" ", spacing),
-			keys,
-		),
-	)
+	// Build bar with commands left, status right
+	padding := max(m.width-len(keysPlain)-len(statusPlain)-4, 2)
+	return tuiStatusBarStyle.Width(m.width).Render(keys + strings.Repeat(" ", padding) + status)
 }
 
 // Command generators
