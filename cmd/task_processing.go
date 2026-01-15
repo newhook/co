@@ -61,7 +61,7 @@ func getBeadsForTask(ctx context.Context, proj *project.Project, taskID, mainRep
 
 	var beadList []beads.Bead
 	for _, beadID := range beadIDs {
-		bead, err := beads.GetBeadInDir(beadID, mainRepoPath)
+		bead, err := beads.GetBead(ctx,beadID, mainRepoPath)
 		if err != nil {
 			fmt.Printf("Warning: failed to get bead %s: %v\n", beadID, err)
 			continue

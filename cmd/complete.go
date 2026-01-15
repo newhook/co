@@ -63,7 +63,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 		mainRepoPath := proj.MainRepoPath()
 		for _, beadID := range beadIDs {
 			// Check actual bead status in the beads system
-			bead, err := beads.GetBeadWithDepsInDir(beadID, mainRepoPath)
+			bead, err := beads.GetBeadWithDeps(ctx,beadID, mainRepoPath)
 			if err != nil {
 				fmt.Printf("Warning: failed to get bead %s status: %v\n", beadID, err)
 				continue

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -195,52 +194,32 @@ func (m tuiModel) fetchData() tea.Cmd {
 }
 
 func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) {
+	ctx := context.Background()
+
 	// For "ready" status, use bd ready command
 	if filters.status == "ready" {
 		return fetchReadyBeads(dir, filters)
 	}
 
-	// Build bd list command based on filters
-	args := []string{"list", "--json"}
-	if filters.status == "open" || filters.status == "closed" {
-		args = append(args, "--status="+filters.status)
+	// Use beads package for listing
+	listFilters := beads.ListFilters{
+		Status: filters.status,
+		Label:  filters.label,
 	}
-	if filters.label != "" {
-		args = append(args, "--label="+filters.label)
-	}
-
-	cmd := exec.Command("bd", args...)
-	cmd.Dir = dir
-	output, err := cmd.Output()
+	beadsList, err := beads.ListBeads(ctx, dir, listFilters)
 	if err != nil {
-		return nil, fmt.Errorf("failed to run bd list: %w", err)
-	}
-
-	// Parse JSON output
-	type beadJSON struct {
-		ID              string `json:"id"`
-		Title           string `json:"title"`
-		Status          string `json:"status"`
-		Priority        int    `json:"priority"`
-		Type            string `json:"issue_type"`
-		Description     string `json:"description"`
-		DependencyCount int    `json:"dependency_count"`
-		DependentCount  int    `json:"dependent_count"`
-	}
-	var beadsJSON []beadJSON
-	if err := json.Unmarshal(output, &beadsJSON); err != nil {
-		return nil, fmt.Errorf("failed to parse bd list output: %w", err)
+		return nil, err
 	}
 
 	// Check which beads are ready
-	readyBeads, _ := beads.GetReadyBeadsInDir(dir)
+	readyBeadsList, _ := beads.GetReadyBeads(ctx, dir)
 	readySet := make(map[string]bool)
-	for _, b := range readyBeads {
+	for _, b := range readyBeadsList {
 		readySet[b.ID] = true
 	}
 
 	var items []beadItem
-	for _, b := range beadsJSON {
+	for _, b := range beadsList {
 		// Apply search filter
 		if filters.searchText != "" {
 			searchLower := strings.ToLower(filters.searchText)
@@ -271,48 +250,25 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 }
 
 func fetchReadyBeads(dir string, filters beadFilters) ([]beadItem, error) {
-	// Call bd ready --json directly to get full issue details
-	cmd := exec.Command("bd", "ready", "--json")
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to run bd ready: %w", err)
-	}
+	ctx := context.Background()
 
-	// Parse JSON output
-	type beadJSON struct {
-		ID          string `json:"id"`
-		Title       string `json:"title"`
-		Status      string `json:"status"`
-		Priority    int    `json:"priority"`
-		Type        string `json:"issue_type"`
-		Description string `json:"description"`
-	}
-	var beadsJSON []beadJSON
-	if err := json.Unmarshal(output, &beadsJSON); err != nil {
-		return nil, fmt.Errorf("failed to parse bd ready output: %w", err)
+	// Use beads package to get ready beads with full details
+	readyBeadsList, err := beads.GetReadyBeadsFull(ctx, dir)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get dependency counts from bd list (which includes them)
 	depCounts := make(map[string]struct{ dep, dependent int })
-	listCmd := exec.Command("bd", "list", "--status=open", "--json")
-	listCmd.Dir = dir
-	if listOutput, err := listCmd.Output(); err == nil {
-		type listJSON struct {
-			ID              string `json:"id"`
-			DependencyCount int    `json:"dependency_count"`
-			DependentCount  int    `json:"dependent_count"`
-		}
-		var listBeads []listJSON
-		if json.Unmarshal(listOutput, &listBeads) == nil {
-			for _, b := range listBeads {
-				depCounts[b.ID] = struct{ dep, dependent int }{b.DependencyCount, b.DependentCount}
-			}
+	listBeadsList, err := beads.ListBeads(ctx, dir, beads.ListFilters{Status: "open"})
+	if err == nil {
+		for _, b := range listBeadsList {
+			depCounts[b.ID] = struct{ dep, dependent int }{b.DependencyCount, b.DependentCount}
 		}
 	}
 
 	var items []beadItem
-	for _, b := range beadsJSON {
+	for _, b := range readyBeadsList {
 		// Apply search filter
 		if filters.searchText != "" {
 			searchLower := strings.ToLower(filters.searchText)
@@ -1101,15 +1057,14 @@ func (m tuiModel) createWorkWithBeads(beadIDs []string) tea.Cmd {
 
 func (m tuiModel) createBead(title, beadType string, priority int) tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command("bd", "create",
-			"--title", title,
-			"--type", beadType,
-			"--priority", fmt.Sprintf("%d", priority),
-		)
-		cmd.Dir = m.proj.MainRepoPath()
-		output, err := cmd.CombinedOutput()
+		ctx := context.Background()
+		_, err := beads.Create(ctx, m.proj.MainRepoPath(), beads.CreateOptions{
+			Title:    title,
+			Type:     beadType,
+			Priority: priority,
+		})
 		if err != nil {
-			return tuiCommandMsg{action: "Create bead", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Create bead", err: err}
 		}
 		return tuiCommandMsg{action: fmt.Sprintf("Created %s", beadType)}
 	}
@@ -1117,11 +1072,10 @@ func (m tuiModel) createBead(title, beadType string, priority int) tea.Cmd {
 
 func (m tuiModel) closeBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command("bd", "close", beadID)
-		cmd.Dir = m.proj.MainRepoPath()
-		output, err := cmd.CombinedOutput()
+		ctx := context.Background()
+		err := beads.Close(ctx, beadID, m.proj.MainRepoPath())
 		if err != nil {
-			return tuiCommandMsg{action: "Close bead", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Close bead", err: err}
 		}
 		return tuiCommandMsg{action: fmt.Sprintf("Closed %s", beadID)}
 	}
@@ -1129,11 +1083,10 @@ func (m tuiModel) closeBead(beadID string) tea.Cmd {
 
 func (m tuiModel) reopenBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command("bd", "reopen", beadID)
-		cmd.Dir = m.proj.MainRepoPath()
-		output, err := cmd.CombinedOutput()
+		ctx := context.Background()
+		err := beads.Reopen(ctx, beadID, m.proj.MainRepoPath())
 		if err != nil {
-			return tuiCommandMsg{action: "Reopen bead", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Reopen bead", err: err}
 		}
 		return tuiCommandMsg{action: fmt.Sprintf("Reopened %s", beadID)}
 	}

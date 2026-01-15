@@ -1,12 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
 	"sort"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 )
 
@@ -94,19 +95,17 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 
 func (m *planModel) createBead(title, beadType string, priority int, isEpic bool, description string) tea.Cmd {
 	return func() tea.Msg {
+		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
 
-		args := []string{"create", "--title=" + title, "--type=" + beadType, fmt.Sprintf("--priority=%d", priority)}
-		if isEpic {
-			args = append(args, "--epic")
-		}
-		if description != "" {
-			args = append(args, "--description="+description)
-		}
-
-		cmd := exec.Command("bd", args...)
-		cmd.Dir = mainRepoPath
-		if err := cmd.Run(); err != nil {
+		_, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
+			Title:       title,
+			Type:        beadType,
+			Priority:    priority,
+			IsEpic:      isEpic,
+			Description: description,
+		})
+		if err != nil {
 			return planDataMsg{err: fmt.Errorf("failed to create issue: %w", err)}
 		}
 
@@ -120,6 +119,7 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 
 func (m *planModel) closeBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
+		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
 		session := m.sessionName()
 		tabName := db.TabNameForBead(beadID)
@@ -133,9 +133,7 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 		}
 
 		// Close the bead
-		cmd := exec.Command("bd", "close", beadID)
-		cmd.Dir = mainRepoPath
-		if err := cmd.Run(); err != nil {
+		if err := beads.Close(ctx, beadID, mainRepoPath); err != nil {
 			return planDataMsg{err: fmt.Errorf("failed to close issue: %w", err)}
 		}
 
@@ -148,17 +146,16 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 
 func (m *planModel) saveBeadEdit(beadID, title, description, beadType string) tea.Cmd {
 	return func() tea.Msg {
+		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
 
-		// Update the bead using bd update
-		args := []string{"update", beadID, "--title=" + title, "--type=" + beadType}
-		if description != "" {
-			args = append(args, "--description="+description)
-		}
-
-		cmd := exec.Command("bd", args...)
-		cmd.Dir = mainRepoPath
-		if err := cmd.Run(); err != nil {
+		// Update the bead using beads package
+		err := beads.Update(ctx, beadID, mainRepoPath, beads.UpdateOptions{
+			Title:       title,
+			Type:        beadType,
+			Description: description,
+		})
+		if err != nil {
 			return planDataMsg{err: fmt.Errorf("failed to update issue: %w", err)}
 		}
 
@@ -175,8 +172,7 @@ func (m *planModel) openInEditor(beadID string) tea.Cmd {
 	mainRepoPath := m.proj.MainRepoPath()
 
 	// Use bd edit which handles $EDITOR and the issue format
-	c := exec.Command("bd", "edit", beadID)
-	c.Dir = mainRepoPath
+	c := beads.EditCommand(beadID, mainRepoPath)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		if err != nil {
 			return planStatusMsg{message: fmt.Sprintf("Editor error: %v", err), isError: true}

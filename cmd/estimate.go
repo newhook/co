@@ -55,7 +55,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Get bead from beads DB to compute description hash
-	bead, err := beads.GetBeadInDir(beadID, proj.MainRepoPath())
+	bead, err := beads.GetBead(ctx,beadID, proj.MainRepoPath())
 	if err != nil {
 		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
 	}
@@ -122,7 +122,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 			fmt.Println("\nEstimation Summary:")
 			for _, id := range taskBeadIDs {
 				// Get bead info for display
-				b, err := beads.GetBeadInDir(id, proj.MainRepoPath())
+				b, err := beads.GetBead(ctx,id, proj.MainRepoPath())
 				if err != nil {
 					continue
 				}
@@ -143,7 +143,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 			// Count remaining
 			var remaining []string
 			for _, id := range taskBeadIDs {
-				b, _ := beads.GetBeadInDir(id, proj.MainRepoPath())
+				b, _ := beads.GetBead(ctx,id, proj.MainRepoPath())
 				if b != nil {
 					fullDesc := b.Title + "\n" + b.Description
 					hash := db.HashDescription(fullDesc)
