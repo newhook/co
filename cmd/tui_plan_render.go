@@ -343,6 +343,13 @@ func (m *planModel) renderHelp() string {
   Each issue gets its own dedicated Claude session in a separate tab.
   Use Enter to start or resume a planning session for an issue.
 
+  Layout
+  ────────────────────────────
+  Two-column layout:
+    - Left: Issues list (default 40% width)
+    - Right: Issue details (default 60% width)
+  [ / ]         Adjust column ratio (30/70, 40/60, 50/50)
+
   Navigation
   ────────────────────────────
   j/k, ↑/↓      Navigate list
