@@ -1,6 +1,7 @@
 package beads
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -124,8 +125,8 @@ func InstallHooksInDir(dir string) error {
 
 // CloseEligibleEpicsInDir closes any epics where all children are complete.
 // Runs: bd epic close-eligible
-func CloseEligibleEpicsInDir(dir string) error {
-	cmd := exec.Command("bd", "epic", "close-eligible")
+func CloseEligibleEpicsInDir(ctx context.Context, dir string) error {
+	cmd := exec.CommandContext(ctx, "bd", "epic", "close-eligible")
 	if dir != "" {
 		cmd.Dir = dir
 	}
