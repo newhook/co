@@ -180,6 +180,10 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMessage = fmt.Sprintf("%s completed", msg.action)
 			m.statusIsError = false
+			// Clear bead selections after successful assignment
+			if strings.HasPrefix(msg.action, "Assigned") {
+				m.selectedBeads = make(map[string]bool)
+			}
 		}
 		cmds = append(cmds, m.refreshData())
 
@@ -1143,9 +1147,6 @@ func (m *workModel) assignSelectedBeads() tea.Cmd {
 		if err != nil {
 			return workCommandMsg{action: "Assign beads", err: err}
 		}
-
-		// Clear selections after successful assignment
-		m.selectedBeads = make(map[string]bool)
 
 		return workCommandMsg{action: fmt.Sprintf("Assigned %d bead(s)", result.BeadsAdded)}
 	}
