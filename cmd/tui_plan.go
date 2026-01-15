@@ -814,9 +814,8 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 
 	// Tree indentation with connector lines (styled dim)
 	var treePrefix string
-	if bead.treeDepth > 0 {
-		indent := strings.Repeat("  ", bead.treeDepth-1)
-		treePrefix = issueTreeStyle.Render(indent + "└─")
+	if bead.treeDepth > 0 && bead.treePrefixPattern != "" {
+		treePrefix = issueTreeStyle.Render(bead.treePrefixPattern)
 	}
 
 	// Styled issue ID
@@ -1912,9 +1911,14 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 		}
 	}
 
-	// Sort roots by priority then ID for consistent ordering
+	// Sort roots: closed parents first (so their open children appear under them),
+	// then by priority, then by ID
 	sort.Slice(roots, func(i, j int) bool {
 		a, b := itemMap[roots[i]], itemMap[roots[j]]
+		// Closed parents come first
+		if a.isClosedParent != b.isClosedParent {
+			return a.isClosedParent
+		}
 		if a.priority != b.priority {
 			return a.priority < b.priority
 		}
@@ -1925,8 +1929,12 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 	var result []beadItem
 	visited := make(map[string]bool)
 
-	var visit func(id string, depth int)
-	visit = func(id string, depth int) {
+	// ancestorPattern tracks the prefix pattern for ancestor continuation lines.
+	// Each character represents one depth level:
+	// - "│" means the ancestor at that level has more siblings (needs continuation line)
+	// - " " means the ancestor at that level is the last child (no continuation needed)
+	var visit func(id string, depth int, ancestorPattern string, isLast bool)
+	visit = func(id string, depth int, ancestorPattern string, isLast bool) {
 		if visited[id] {
 			return
 		}
@@ -1938,6 +1946,28 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 		}
 
 		item.treeDepth = depth
+		item.isLastChild = isLast
+
+		// Build the tree prefix pattern for this item
+		if depth > 0 {
+			// Start with ancestor continuation pattern (each character becomes "│ " or "  ")
+			var prefix string
+			for _, c := range ancestorPattern {
+				if c == '│' {
+					prefix += "│ "
+				} else {
+					prefix += "  "
+				}
+			}
+			// Add the connector for this item
+			if isLast {
+				prefix += "└─"
+			} else {
+				prefix += "├─"
+			}
+			item.treePrefixPattern = prefix
+		}
+
 		result = append(result, *item)
 
 		// Sort children by priority
@@ -1953,14 +1983,29 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 			return a.id < b.id
 		})
 
-		for _, childID := range childIDs {
-			visit(childID, depth+1)
+		// Compute the ancestor pattern for children
+		// If this item is the last child, its continuation is " " (no vertical line)
+		// Otherwise, it's "│" (vertical line for siblings below)
+		var childAncestorPattern string
+		if depth == 0 {
+			// Root nodes don't add to ancestor pattern
+			childAncestorPattern = ancestorPattern
+		} else if isLast {
+			childAncestorPattern = ancestorPattern + " "
+		} else {
+			childAncestorPattern = ancestorPattern + "│"
+		}
+
+		for idx, childID := range childIDs {
+			isLastChild := idx == len(childIDs)-1
+			visit(childID, depth+1, childAncestorPattern, isLastChild)
 		}
 	}
 
 	// Visit all roots
-	for _, rootID := range roots {
-		visit(rootID, 0)
+	for idx, rootID := range roots {
+		isLastRoot := idx == len(roots)-1
+		visit(rootID, 0, "", isLastRoot)
 	}
 
 	// Add any orphaned items (not reachable from roots)
@@ -1971,7 +2016,39 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 		}
 	}
 
-	return result
+	// Filter out closed parents that have no visible children directly under them.
+	// They were only fetched to show tree structure, but if their children
+	// appear under other parents, these closed parents add no value.
+	// We check by looking at the next items in the result - if a closed parent
+	// at depth N has no items at depth N+1 immediately following, it has no visible children.
+	var filtered []beadItem
+	for i, item := range result {
+		// Keep the item if it's not a closed parent
+		if !item.isClosedParent {
+			filtered = append(filtered, item)
+			continue
+		}
+		// For closed parents, check if there are children directly following
+		hasVisibleChild := false
+		expectedChildDepth := item.treeDepth + 1
+		for j := i + 1; j < len(result); j++ {
+			nextItem := result[j]
+			if nextItem.treeDepth <= item.treeDepth {
+				// We've moved past this parent's subtree
+				break
+			}
+			if nextItem.treeDepth == expectedChildDepth {
+				// Found a direct child
+				hasVisibleChild = true
+				break
+			}
+		}
+		if hasVisibleChild {
+			filtered = append(filtered, item)
+		}
+	}
+
+	return filtered
 }
 
 // updateAddChildBead handles input for the add child bead dialog
