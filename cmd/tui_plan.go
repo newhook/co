@@ -63,14 +63,17 @@ type planModel struct {
 	editButtonIdx     int            // 0=OK, 1=Cancel
 
 	// Create work dialog state
-	createWorkBeadID    string         // Bead ID for work creation
+	createWorkBeadIDs   []string        // Bead IDs for work creation (supports multi-select)
 	createWorkBranch    textinput.Model // Editable branch name
-	createWorkField     int            // 0=branch, 1=buttons
-	createWorkButtonIdx int            // 0=Execute, 1=Auto, 2=Cancel
+	createWorkField     int             // 0=branch, 1=buttons
+	createWorkButtonIdx int             // 0=Execute, 1=Auto, 2=Cancel
 
 	// Add to work state
 	availableWorks []workItem // List of works to choose from
 	worksCursor    int        // Cursor position in works list
+
+	// Multi-select state
+	selectedBeads map[string]bool // beadID -> is selected
 
 	// Loading state
 	loading bool
@@ -120,6 +123,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		spinner:            s,
 		textInput:          ti,
 		activeBeadSessions: make(map[string]bool),
+		selectedBeads:      make(map[string]bool),
 		createBeadPriority: 2,
 		zj:                 zellij.New(),
 		filters: beadFilters{
@@ -404,6 +408,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.beadsExpanded = !m.beadsExpanded
 		return m, nil
 
+	case " ":
+		// Toggle bead selection for multi-select
+		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+			beadID := m.beadItems[m.beadsCursor].id
+			m.selectedBeads[beadID] = !m.selectedBeads[beadID]
+		}
+		return m, nil
+
 	case "enter":
 		// Spawn/resume planning session for selected bead
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
@@ -413,15 +425,32 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "w":
-		// Create work from selected bead - show dialog
+		// Create work from selected bead(s) - show dialog
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			bead := m.beadItems[m.beadsCursor]
-			m.createWorkBeadID = bead.id
-			// Generate proposed branch name
-			branchName := generateBranchNameFromBeads([]*beads.Bead{{
-				ID:    bead.id,
-				Title: bead.title,
-			}})
+			// Collect selected beads, or use cursor bead if none selected
+			var selectedIDs []string
+			var branchBeads []*beads.Bead
+			for _, item := range m.beadItems {
+				if m.selectedBeads[item.id] {
+					selectedIDs = append(selectedIDs, item.id)
+					branchBeads = append(branchBeads, &beads.Bead{
+						ID:    item.id,
+						Title: item.title,
+					})
+				}
+			}
+			// If no beads selected, use the cursor bead
+			if len(selectedIDs) == 0 {
+				bead := m.beadItems[m.beadsCursor]
+				selectedIDs = []string{bead.id}
+				branchBeads = []*beads.Bead{{
+					ID:    bead.id,
+					Title: bead.title,
+				}}
+			}
+			m.createWorkBeadIDs = selectedIDs
+			// Generate proposed branch name from all selected beads
+			branchName := generateBranchNameFromBeads(branchBeads)
 			m.createWorkBranch.SetValue(branchName)
 			m.createWorkBranch.Focus()
 			m.createWorkField = 0
@@ -716,6 +745,12 @@ func (m *planModel) renderCommandsBar() string {
 func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 	icon := statusIcon(bead.status)
 
+	// Selection indicator for multi-select
+	var selectionIndicator string
+	if m.selectedBeads[bead.id] {
+		selectionIndicator = tuiSelectedCheckStyle.Render("●") + " "
+	}
+
 	// Session indicator
 	var sessionIndicator string
 	if m.activeBeadSessions[bead.id] {
@@ -767,9 +802,9 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 
 	var line string
 	if m.beadsExpanded {
-		line = fmt.Sprintf("%s%s%s %s [P%d %s] %s", treePrefix, sessionIndicator, icon, styledID, bead.priority, bead.beadType, bead.title)
+		line = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s", selectionIndicator, treePrefix, sessionIndicator, icon, styledID, bead.priority, bead.beadType, bead.title)
 	} else {
-		line = fmt.Sprintf("%s%s%s %s %s %s", treePrefix, sessionIndicator, icon, styledID, styledType, bead.title)
+		line = fmt.Sprintf("%s%s%s%s %s %s %s", selectionIndicator, treePrefix, sessionIndicator, icon, styledID, styledType, bead.title)
 	}
 
 	if i == m.beadsCursor {
@@ -801,7 +836,8 @@ func (m *planModel) renderHelp() string {
   E             Edit issue in $EDITOR
   a             Add child issue (blocked by selected)
   x             Close selected issue
-  w             Create work from issue
+  Space         Toggle issue selection (for multi-select)
+  w             Create work from issue(s)
   W             Add issue to existing work
 
   Filtering & Sorting
@@ -814,8 +850,9 @@ func (m *planModel) renderHelp() string {
   s             Cycle sort mode
   v             Toggle expanded view
 
-  Session Indicators
+  Indicators
   ────────────────────────────
+  ●             Issue is selected for multi-select
   [C]           Issue has an active Claude session
 
   Press any key to close...
@@ -1478,10 +1515,14 @@ func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			switch m.createWorkButtonIdx {
 			case 0: // Execute
 				m.viewMode = ViewNormal
-				return m, m.executeCreateWork(m.createWorkBeadID, branchName, false)
+				// Clear selections after work creation
+				m.selectedBeads = make(map[string]bool)
+				return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, false)
 			case 1: // Auto
 				m.viewMode = ViewNormal
-				return m, m.executeCreateWork(m.createWorkBeadID, branchName, true)
+				// Clear selections after work creation
+				m.selectedBeads = make(map[string]bool)
+				return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, true)
 			case 2: // Cancel
 				m.viewMode = ViewNormal
 				m.createWorkBranch.Blur()
@@ -1522,6 +1563,14 @@ func (m *planModel) renderCreateWorkDialogContent() string {
 		cancelBtn = tuiDimStyle.Render(" Cancel ")
 	}
 
+	// Show bead IDs or count
+	var beadInfo string
+	if len(m.createWorkBeadIDs) == 1 {
+		beadInfo = issueIDStyle.Render(m.createWorkBeadIDs[0])
+	} else {
+		beadInfo = fmt.Sprintf("%d issues", len(m.createWorkBeadIDs))
+	}
+
 	content := fmt.Sprintf(`  Create Work from %s
 
   %s
@@ -1530,45 +1579,48 @@ func (m *planModel) renderCreateWorkDialogContent() string {
   %s  %s  %s
 
   [Tab] Switch field  [Esc] Cancel
-`, issueIDStyle.Render(m.createWorkBeadID), branchLabel, m.createWorkBranch.View(), execBtn, autoBtn, cancelBtn)
+`, beadInfo, branchLabel, m.createWorkBranch.View(), execBtn, autoBtn, cancelBtn)
 
 	return tuiDialogStyle.Render(content)
 }
 
 // executeCreateWork creates a work unit with the given branch name
-func (m *planModel) executeCreateWork(beadID, branchName string, auto bool) tea.Cmd {
+func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
 		session := m.sessionName()
-		tabName := fmt.Sprintf("work-%s", beadID)
+		// Use first bead ID for tab name
+		firstBeadID := beadIDs[0]
+		tabName := fmt.Sprintf("work-%s", firstBeadID)
 		mainRepoPath := m.proj.MainRepoPath()
 
 		// Ensure zellij session exists
 		if err := m.zj.EnsureSession(m.ctx, session); err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: err}
+			return planWorkCreatedMsg{beadID: firstBeadID, err: err}
 		}
 
 		// Create new tab for work creation
 		if err := m.zj.CreateTab(m.ctx, session, tabName, mainRepoPath); err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: err}
+			return planWorkCreatedMsg{beadID: firstBeadID, err: err}
 		}
 
 		// Switch to the tab
 		time.Sleep(200 * time.Millisecond)
 		if err := m.zj.SwitchToTab(m.ctx, session, tabName); err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: err}
+			return planWorkCreatedMsg{beadID: firstBeadID, err: err}
 		}
 
-		// Run co work create with the bead ID and branch name (use -y to skip prompt)
-		workCmd := fmt.Sprintf("co work create %s --branch %q -y", beadID, branchName)
+		// Run co work create with all bead IDs (comma-separated for same group) and branch name (use -y to skip prompt)
+		beadArgs := strings.Join(beadIDs, ",")
+		workCmd := fmt.Sprintf("co work create %s --branch %q -y", beadArgs, branchName)
 		if auto {
 			workCmd += " --auto"
 		}
 		time.Sleep(200 * time.Millisecond)
 		if err := m.zj.ExecuteCommand(m.ctx, session, workCmd); err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: err}
+			return planWorkCreatedMsg{beadID: firstBeadID, err: err}
 		}
 
-		return planWorkCreatedMsg{beadID: beadID, workID: tabName}
+		return planWorkCreatedMsg{beadID: firstBeadID, workID: tabName}
 	}
 }
 
