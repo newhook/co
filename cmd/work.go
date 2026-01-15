@@ -119,6 +119,18 @@ Beads that are already assigned to a pending or processing task cannot be remove
 	RunE: runWorkRemove,
 }
 
+var workConsoleCmd = &cobra.Command{
+	Use:   "console [<id>]",
+	Short: "Open a console tab in the work's worktree",
+	Long: `Open a zellij tab with a shell in the work's worktree.
+If no ID is provided, uses the work for the current directory context.
+
+This is useful for running tests, exploring the codebase, or debugging
+while the orchestrator runs in a separate tab.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runWorkConsole,
+}
+
 var (
 	flagBaseBranch  string
 	flagAutoRun     bool
@@ -145,6 +157,7 @@ func init() {
 	workCmd.AddCommand(workReviewCmd)
 	workCmd.AddCommand(workAddCmd)
 	workCmd.AddCommand(workRemoveCmd)
+	workCmd.AddCommand(workConsoleCmd)
 }
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
@@ -1169,4 +1182,37 @@ func getCurrentWork(proj *project.Project) (string, error) {
 	}
 
 	return "", fmt.Errorf("not in a work directory")
+}
+
+func runWorkConsole(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
+
+	proj, err := project.Find(ctx, "")
+	if err != nil {
+		return err
+	}
+	defer proj.Close()
+
+	var workID string
+	if len(args) > 0 {
+		workID = args[0]
+	} else {
+		// Try to detect work from current directory
+		workID, err = getCurrentWork(proj)
+		if err != nil {
+			return fmt.Errorf("not in a work directory and no work ID specified")
+		}
+	}
+
+	// Get work details
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Open console in the work's worktree
+	return claude.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, proj.Config.Hooks.Env, os.Stdout)
 }
