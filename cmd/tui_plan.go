@@ -80,6 +80,9 @@ type planModel struct {
 	// Loading state
 	loading bool
 
+	// Search sequence tracking to handle async refresh race conditions
+	searchSeq uint64 // Incremented on each search change
+
 	// Per-bead session tracking
 	activeBeadSessions map[string]bool // beadID -> has active session
 	zj                 *zellij.Client
@@ -173,6 +176,10 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case planDataMsg:
+		// Ignore stale search results from older requests
+		if msg.searchSeq < m.searchSeq {
+			return m, nil
+		}
 		m.beadItems = msg.beads
 		if msg.activeSessions != nil {
 			m.activeBeadSessions = msg.activeSessions
@@ -286,6 +293,7 @@ type planDataMsg struct {
 	beads          []beadItem
 	activeSessions map[string]bool
 	err            error
+	searchSeq      uint64 // Sequence number to detect stale results
 }
 
 // planStatusMsg is sent to update status text
@@ -1002,6 +1010,7 @@ func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewMode = ViewNormal
 		m.textInput.Blur()
 		m.filters.searchText = ""
+		m.searchSeq++ // Increment to invalidate any in-flight searches
 		return m, m.refreshData()
 	}
 	switch msg.String() {
@@ -1019,6 +1028,7 @@ func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filters.searchText = m.textInput.Value()
 		if m.filters.searchText != prevSearch {
 			m.beadsCursor = 0 // Reset cursor when search changes
+			m.searchSeq++     // Increment to invalidate any in-flight searches
 			// Trigger data refresh to apply filter
 			return m, tea.Batch(cmd, m.refreshData())
 		}
@@ -1312,8 +1322,17 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 
 // Command generators
 func (m *planModel) refreshData() tea.Cmd {
+	// Capture current filter and sequence at creation time to avoid race conditions
+	filters := m.filters
+	seq := m.searchSeq
+	return m.refreshDataWithFilters(filters, seq)
+}
+
+// refreshDataWithFilters creates a refresh command with captured filter values.
+// This prevents race conditions when the user types quickly.
+func (m *planModel) refreshDataWithFilters(filters beadFilters, seq uint64) tea.Cmd {
 	return func() tea.Msg {
-		items, err := m.loadBeads()
+		items, err := m.loadBeadsWithFilters(filters)
 
 		// Also fetch active sessions
 		session := m.sessionName()
@@ -1323,15 +1342,22 @@ func (m *planModel) refreshData() tea.Cmd {
 			beads:          items,
 			activeSessions: activeSessions,
 			err:            err,
+			searchSeq:      seq,
 		}
 	}
 }
 
 func (m *planModel) loadBeads() ([]beadItem, error) {
+	return m.loadBeadsWithFilters(m.filters)
+}
+
+// loadBeadsWithFilters loads beads using the provided filters.
+// This allows capturing filters at command creation time to avoid race conditions.
+func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error) {
 	mainRepoPath := m.proj.MainRepoPath()
 
 	// Use the shared fetchBeadsWithFilters function
-	items, err := fetchBeadsWithFilters(mainRepoPath, m.filters)
+	items, err := fetchBeadsWithFilters(mainRepoPath, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -1348,7 +1374,7 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 
 	// Build tree structure from dependencies
 	// When search is active, skip fetching parent beads to avoid adding unfiltered items
-	items = buildBeadTree(items, mainRepoPath, m.filters.searchText)
+	items = buildBeadTree(items, mainRepoPath, filters.searchText)
 
 	// If no tree structure, apply regular sorting
 	hasTree := false
@@ -1361,7 +1387,7 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 
 	if !hasTree {
 		// Fall back to regular sorting if no tree structure
-		switch m.filters.sortBy {
+		switch filters.sortBy {
 		case "priority":
 			sort.Slice(items, func(i, j int) bool {
 				return items[i].priority < items[j].priority
