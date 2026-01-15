@@ -104,6 +104,13 @@ func processTask(proj *project.Project, taskID string) error {
 		return fmt.Errorf("work %s not found for task %s", dbTask.WorkID, taskID)
 	}
 
+	// Mark work as started/processing if it's still pending
+	if work.Status == db.StatusPending {
+		if err := proj.DB.StartWork(ctx, work.ID, "", ""); err != nil {
+			fmt.Printf("Warning: failed to update work status: %v\n", err)
+		}
+	}
+
 	fmt.Printf("\n=== Processing task %s ===\n", taskID)
 	fmt.Printf("Work: %s\n", work.ID)
 	fmt.Printf("Branch: %s\n", work.BranchName)

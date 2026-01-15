@@ -6,6 +6,7 @@
 CREATE TABLE works (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'pending',
+    name TEXT NOT NULL DEFAULT '',
     zellij_session TEXT NOT NULL DEFAULT '',
     zellij_tab TEXT NOT NULL DEFAULT '',
     worktree_path TEXT NOT NULL DEFAULT '',
@@ -156,3 +157,14 @@ CREATE TABLE schema_migrations (
     name TEXT NOT NULL DEFAULT '',
     down_sql TEXT NOT NULL DEFAULT ''
 );
+
+-- Plan sessions table: tracks running plan mode Claude sessions per bead
+CREATE TABLE plan_sessions (
+    bead_id TEXT PRIMARY KEY,
+    zellij_session TEXT NOT NULL,
+    tab_name TEXT NOT NULL,
+    pid INTEGER NOT NULL,
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_plan_sessions_zellij_session ON plan_sessions(zellij_session);

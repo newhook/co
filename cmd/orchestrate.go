@@ -180,7 +180,7 @@ func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 		}
 	case "review":
 		if err := handleReviewFixLoop(proj, t, work); err != nil {
-			return fmt.Errorf("failed to handle review-fix loop: %w", err)
+			return fmt.Errorf("failed to handle review completion: %w", err)
 		}
 	}
 
@@ -271,6 +271,21 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 	fmt.Printf("Successfully created %d implement task(s) and 1 review task\n", len(implementTaskIDs))
 	fmt.Println("PR task will be created after review passes.")
 	return nil
+}
+
+
+// spinnerWait displays an animated spinner with a message for the specified duration.
+// The spinner updates every 100ms to create a smooth animation effect.
+// Does not print a newline so the spinner can continue on the same line.
+func spinnerWait(msg string, duration time.Duration) {
+	start := time.Now()
+	frameIdx := 0
+	for time.Since(start) < duration {
+		fmt.Printf("\r%s %s", spinnerFrames[frameIdx], msg)
+		frameIdx = (frameIdx + 1) % len(spinnerFrames)
+		time.Sleep(100 * time.Millisecond)
+	}
+	// Don't print newline - let caller decide or let next spinnerWait overwrite
 }
 
 // handleReviewFixLoop checks if a review task found issues and creates fix tasks.
@@ -366,20 +381,6 @@ func createPRTask(proj *project.Project, work *db.Work, reviewTaskID string) err
 	}
 	fmt.Printf("Created PR task: %s (depends on %s)\n", prTaskID, reviewTaskID)
 	return nil
-}
-
-// spinnerWait displays an animated spinner with a message for the specified duration.
-// The spinner updates every 100ms to create a smooth animation effect.
-// Does not print a newline so the spinner can continue on the same line.
-func spinnerWait(msg string, duration time.Duration) {
-	start := time.Now()
-	frameIdx := 0
-	for time.Since(start) < duration {
-		fmt.Printf("\r%s %s", spinnerFrames[frameIdx], msg)
-		frameIdx = (frameIdx + 1) % len(spinnerFrames)
-		time.Sleep(100 * time.Millisecond)
-	}
-	// Don't print newline - let caller decide or let next spinnerWait overwrite
 }
 
 // countReviewIterations counts how many review tasks exist for a work unit.

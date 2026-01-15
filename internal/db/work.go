@@ -18,6 +18,7 @@ func workToLocal(w *sqlc.Work) *Work {
 	work := &Work{
 		ID:            w.ID,
 		Status:        w.Status,
+		Name:          w.Name,
 		ZellijSession: w.ZellijSession,
 		ZellijTab:     w.ZellijTab,
 		WorktreePath:  w.WorktreePath,
@@ -40,6 +41,7 @@ func workToLocal(w *sqlc.Work) *Work {
 type Work struct {
 	ID            string
 	Status        string
+	Name          string
 	ZellijSession string
 	ZellijTab     string
 	WorktreePath  string
@@ -53,7 +55,7 @@ type Work struct {
 }
 
 // CreateWork creates a new work unit.
-func (db *DB) CreateWork(ctx context.Context, id, worktreePath, branchName, baseBranch string) error {
+func (db *DB) CreateWork(ctx context.Context, id, name, worktreePath, branchName, baseBranch string) error {
 	// Use transaction to create work and initialize counter atomically
 	tx, err := db.Begin()
 	if err != nil {
@@ -65,6 +67,7 @@ func (db *DB) CreateWork(ctx context.Context, id, worktreePath, branchName, base
 
 	err = qtx.CreateWork(ctx, sqlc.CreateWorkParams{
 		ID:           id,
+		Name:         name,
 		WorktreePath: worktreePath,
 		BranchName:   branchName,
 		BaseBranch:   baseBranch,

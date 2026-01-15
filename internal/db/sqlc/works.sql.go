@@ -49,12 +49,13 @@ func (q *Queries) CompleteWork(ctx context.Context, arg CompleteWorkParams) (int
 }
 
 const createWork = `-- name: CreateWork :exec
-INSERT INTO works (id, status, worktree_path, branch_name, base_branch)
-VALUES (?, 'pending', ?, ?, ?)
+INSERT INTO works (id, status, name, worktree_path, branch_name, base_branch)
+VALUES (?, 'pending', ?, ?, ?, ?)
 `
 
 type CreateWorkParams struct {
 	ID           string `json:"id"`
+	Name         string `json:"name"`
 	WorktreePath string `json:"worktree_path"`
 	BranchName   string `json:"branch_name"`
 	BaseBranch   string `json:"base_branch"`
@@ -63,6 +64,7 @@ type CreateWorkParams struct {
 func (q *Queries) CreateWork(ctx context.Context, arg CreateWorkParams) error {
 	_, err := q.db.ExecContext(ctx, createWork,
 		arg.ID,
+		arg.Name,
 		arg.WorktreePath,
 		arg.BranchName,
 		arg.BaseBranch,
@@ -147,6 +149,7 @@ func (q *Queries) GetLastWorkID(ctx context.Context) (string, error) {
 
 const getWork = `-- name: GetWork :one
 SELECT id, status,
+       name,
        zellij_session,
        zellij_tab,
        worktree_path,
@@ -167,6 +170,7 @@ func (q *Queries) GetWork(ctx context.Context, id string) (Work, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.Status,
+		&i.Name,
 		&i.ZellijSession,
 		&i.ZellijTab,
 		&i.WorktreePath,
@@ -183,6 +187,7 @@ func (q *Queries) GetWork(ctx context.Context, id string) (Work, error) {
 
 const getWorkByDirectory = `-- name: GetWorkByDirectory :one
 SELECT id, status,
+       name,
        zellij_session,
        zellij_tab,
        worktree_path,
@@ -204,6 +209,7 @@ func (q *Queries) GetWorkByDirectory(ctx context.Context, worktreePath string) (
 	err := row.Scan(
 		&i.ID,
 		&i.Status,
+		&i.Name,
 		&i.ZellijSession,
 		&i.ZellijTab,
 		&i.WorktreePath,
@@ -289,6 +295,7 @@ func (q *Queries) InitializeTaskCounter(ctx context.Context, workID string) erro
 
 const listWorks = `-- name: ListWorks :many
 SELECT id, status,
+       name,
        zellij_session,
        zellij_tab,
        worktree_path,
@@ -315,6 +322,7 @@ func (q *Queries) ListWorks(ctx context.Context) ([]Work, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Status,
+			&i.Name,
 			&i.ZellijSession,
 			&i.ZellijTab,
 			&i.WorktreePath,
@@ -341,6 +349,7 @@ func (q *Queries) ListWorks(ctx context.Context) ([]Work, error) {
 
 const listWorksByStatus = `-- name: ListWorksByStatus :many
 SELECT id, status,
+       name,
        zellij_session,
        zellij_tab,
        worktree_path,
@@ -368,6 +377,7 @@ func (q *Queries) ListWorksByStatus(ctx context.Context, status string) ([]Work,
 		if err := rows.Scan(
 			&i.ID,
 			&i.Status,
+			&i.Name,
 			&i.ZellijSession,
 			&i.ZellijTab,
 			&i.WorktreePath,
