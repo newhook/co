@@ -1871,9 +1871,14 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 		}
 	}
 
-	// Sort roots by priority then ID for consistent ordering
+	// Sort roots: closed parents first (so their open children appear under them),
+	// then by priority, then by ID
 	sort.Slice(roots, func(i, j int) bool {
 		a, b := itemMap[roots[i]], itemMap[roots[j]]
+		// Closed parents come first
+		if a.isClosedParent != b.isClosedParent {
+			return a.isClosedParent
+		}
 		if a.priority != b.priority {
 			return a.priority < b.priority
 		}
@@ -1971,7 +1976,39 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 		}
 	}
 
-	return result
+	// Filter out closed parents that have no visible children directly under them.
+	// They were only fetched to show tree structure, but if their children
+	// appear under other parents, these closed parents add no value.
+	// We check by looking at the next items in the result - if a closed parent
+	// at depth N has no items at depth N+1 immediately following, it has no visible children.
+	var filtered []beadItem
+	for i, item := range result {
+		// Keep the item if it's not a closed parent
+		if !item.isClosedParent {
+			filtered = append(filtered, item)
+			continue
+		}
+		// For closed parents, check if there are children directly following
+		hasVisibleChild := false
+		expectedChildDepth := item.treeDepth + 1
+		for j := i + 1; j < len(result); j++ {
+			nextItem := result[j]
+			if nextItem.treeDepth <= item.treeDepth {
+				// We've moved past this parent's subtree
+				break
+			}
+			if nextItem.treeDepth == expectedChildDepth {
+				// Found a direct child
+				hasVisibleChild = true
+				break
+			}
+		}
+		if hasVisibleChild {
+			filtered = append(filtered, item)
+		}
+	}
+
+	return filtered
 }
 
 // updateAddChildBead handles input for the add child bead dialog
