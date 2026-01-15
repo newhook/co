@@ -1210,6 +1210,16 @@ func (m *planModel) updateEditBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// indentLines adds a prefix to each line of a multi-line string.
+// This is used to properly align textarea components within dialogs.
+func indentLines(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = prefix + line
+	}
+	return strings.Join(lines, "\n")
+}
+
 // Dialog render helpers
 func (m *planModel) renderCreateBeadDialogContent() string {
 	typeFocused := m.createDialogFocus == 1
@@ -1261,10 +1271,10 @@ func (m *planModel) renderCreateBeadDialogContent() string {
   %s %s
 
   %s
-  %s
+%s
 
   [Tab] Next field  [Enter] Create  [Esc] Cancel
-`, titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay, descLabel, m.createDescTextarea.View())
+`, titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay, descLabel, indentLines(m.createDescTextarea.View(), "  "))
 
 	return tuiDialogStyle.Render(content)
 }
@@ -1321,7 +1331,7 @@ func (m *planModel) renderEditBeadDialogContent() string {
   %s  %s
 
   [Tab] Switch field  [Esc] Cancel
-`, issueIDStyle.Render(m.editBeadID), titleLabel, m.editTitleTextarea.View(), typeLabel, typeDisplay, descLabel, m.editDescTextarea.View(), okBtn, cancelBtn)
+`, issueIDStyle.Render(m.editBeadID), titleLabel, indentLines(m.editTitleTextarea.View(), "  "), typeLabel, typeDisplay, descLabel, indentLines(m.editDescTextarea.View(), "  "), okBtn, cancelBtn)
 
 	return tuiDialogStyle.Render(content)
 }
