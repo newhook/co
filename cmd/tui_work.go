@@ -1197,7 +1197,7 @@ func (m *workModel) planWork(autoGroup bool) tea.Cmd {
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		result, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup)
+		result, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Plan work", err: err}
 		}
