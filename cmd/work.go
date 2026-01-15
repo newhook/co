@@ -626,7 +626,7 @@ func runAutomatedWorkflowForWork(proj *project.Project, workID, worktreePath str
 	mainRepoPath := proj.MainRepoPath()
 
 	// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
-	err := createEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath)
+	err := createEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, w)
 	if err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}

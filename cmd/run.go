@@ -125,7 +125,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	// If --auto, create estimate task and run full automated workflow
 	if flagRunAuto {
 		// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
-		err := createEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath)
+		err := createEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, os.Stdout)
 		if err != nil {
 			return fmt.Errorf("failed to create estimate task: %w", err)
 		}
@@ -134,7 +134,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create tasks from unassigned work beads (non-auto mode)
-	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, flagRunPlan)
+	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, flagRunPlan, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("failed to create tasks: %w", err)
 	}
@@ -161,7 +161,8 @@ func runTasks(cmd *cobra.Command, args []string) error {
 // createEstimateTaskFromWorkBeads creates an estimate task from unassigned work beads.
 // This is used in --auto mode where the full automated workflow includes estimation.
 // After the estimate task completes, handlePostEstimation creates implement tasks.
-func createEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project, workID, _ string) error {
+// Progress messages are written to w. Pass io.Discard to suppress output.
+func createEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project, workID, _ string, w io.Writer) error {
 	// Get unassigned beads
 	unassigned, err := proj.DB.GetUnassignedWorkBeads(ctx, workID)
 	if err != nil {
@@ -172,7 +173,7 @@ func createEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project,
 		return fmt.Errorf("no unassigned beads found for work %s", workID)
 	}
 
-	fmt.Printf("\nFound %d unassigned bead(s)\n", len(unassigned))
+	fmt.Fprintf(w, "\nFound %d unassigned bead(s)\n", len(unassigned))
 
 	// Collect bead IDs
 	var beadIDs []string
@@ -192,8 +193,8 @@ func createEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project,
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
 
-	fmt.Printf("  Created estimate task %s with %d bead(s)\n", taskID, len(beadIDs))
-	fmt.Println("  Implement tasks will be created after estimation completes.")
+	fmt.Fprintf(w, "  Created estimate task %s with %d bead(s)\n", taskID, len(beadIDs))
+	fmt.Fprintln(w, "  Implement tasks will be created after estimation completes.")
 
 	return nil
 }
@@ -201,7 +202,8 @@ func createEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project,
 // createTasksFromWorkBeads creates tasks from unassigned beads in work_beads.
 // If usePlan is true, uses LLM complexity estimation to group beads.
 // Returns the number of tasks created.
-func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID, mainRepoPath string, usePlan bool) (int, error) {
+// Progress messages are written to w. Pass io.Discard to suppress output.
+func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID, mainRepoPath string, usePlan bool, w io.Writer) (int, error) {
 	// Get unassigned beads
 	unassigned, err := proj.DB.GetUnassignedWorkBeads(ctx, workID)
 	if err != nil {
@@ -212,7 +214,7 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 		return 0, nil
 	}
 
-	fmt.Printf("\nFound %d unassigned bead(s)\n", len(unassigned))
+	fmt.Fprintf(w, "\nFound %d unassigned bead(s)\n", len(unassigned))
 
 	// Get bead details for each unassigned bead
 	var beadsWithDeps []beads.BeadWithDeps
@@ -229,7 +231,7 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 
 	if usePlan {
 		// Use LLM complexity estimation to group beads
-		fmt.Println("Using LLM complexity estimation to group beads...")
+		fmt.Fprintln(w, "Using LLM complexity estimation to group beads...")
 		taskGroups, err = planBeadsWithComplexity(proj, beadsWithDeps, mainRepoPath, workID, flagForceEstimate)
 		if err != nil {
 			return 0, fmt.Errorf("failed to plan beads: %w", err)
@@ -257,7 +259,7 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 			return tasksCreated, fmt.Errorf("failed to create task: %w", err)
 		}
 
-		fmt.Printf("  Created task %s with %d bead(s)\n", taskID, len(beadIDs))
+		fmt.Fprintf(w, "  Created task %s with %d bead(s)\n", taskID, len(beadIDs))
 		tasksCreated++
 	}
 
@@ -391,7 +393,7 @@ func RunWork(ctx context.Context, proj *project.Project, workID string, usePlan 
 	mainRepoPath := proj.MainRepoPath()
 
 	// Create tasks from unassigned work beads
-	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, usePlan)
+	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, usePlan, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tasks: %w", err)
 	}
@@ -417,7 +419,8 @@ type PlanWorkTasksResult struct {
 // PlanWorkTasks creates tasks from unassigned beads in a work unit without spawning an orchestrator.
 // If autoGroup is true, uses LLM complexity estimation to group beads into tasks.
 // Otherwise, uses existing group assignments from work_beads (one task per bead or group).
-func PlanWorkTasks(ctx context.Context, proj *project.Project, workID string, autoGroup bool) (*PlanWorkTasksResult, error) {
+// Progress messages are written to w. Pass io.Discard to suppress output.
+func PlanWorkTasks(ctx context.Context, proj *project.Project, workID string, autoGroup bool, w io.Writer) (*PlanWorkTasksResult, error) {
 	// Get work details to verify it exists
 	work, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
@@ -430,7 +433,7 @@ func PlanWorkTasks(ctx context.Context, proj *project.Project, workID string, au
 	mainRepoPath := proj.MainRepoPath()
 
 	// Create tasks from unassigned work beads
-	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, autoGroup)
+	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, autoGroup, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tasks: %w", err)
 	}
