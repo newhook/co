@@ -285,6 +285,64 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 	return nil
 }
 
+// OpenConsole creates a zellij tab with a shell in the work's worktree.
+// The tab is named "console-<work-id>" for easy identification.
+// The hooksEnv parameter contains environment variables to export (format: "KEY=value").
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func OpenConsole(ctx context.Context, workID string, projectName string, workDir string, hooksEnv []string, w io.Writer) error {
+	sessionName := SessionNameForProject(projectName)
+	tabName := fmt.Sprintf("console-%s", workID)
+	zc := zellij.New()
+
+	// Ensure session exists
+	if err := zc.EnsureSession(ctx, sessionName); err != nil {
+		return err
+	}
+
+	// Check if tab already exists
+	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
+	if tabExists {
+		fmt.Fprintf(w, "Console tab %s already exists, switching to it...\n", tabName)
+		// Switch to the existing tab
+		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
+			return fmt.Errorf("failed to switch to existing tab: %w", err)
+		}
+	} else {
+		// Create a new tab
+		fmt.Fprintf(w, "Creating console tab: %s in session %s with cwd=%s\n", tabName, sessionName, workDir)
+		if err := zc.CreateTab(ctx, sessionName, tabName, workDir); err != nil {
+			return fmt.Errorf("failed to create tab: %w", err)
+		}
+
+		// Send cd command and set env vars to ensure proper work context
+		// (zellij --cwd may not always work as expected)
+		if workDir != "" {
+			// Build export commands for hooks env
+			var exports []string
+			for _, env := range hooksEnv {
+				exports = append(exports, fmt.Sprintf("export %s", env))
+			}
+			var cmd string
+			if len(exports) > 0 {
+				cmd = fmt.Sprintf("cd %q && %s", workDir, strings.Join(exports, " && "))
+			} else {
+				cmd = fmt.Sprintf("cd %q", workDir)
+			}
+			if err := zc.ExecuteCommand(ctx, sessionName, cmd); err != nil {
+				fmt.Fprintf(w, "Warning: failed to initialize console: %v\n", err)
+			}
+		}
+
+		// Switch to the new tab
+		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
+			fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
+		}
+	}
+
+	fmt.Fprintf(w, "Console opened in zellij session %s, tab %s\n", sessionName, tabName)
+	return nil
+}
+
 // EnsureWorkOrchestrator checks if a work orchestrator tab exists and spawns one if not.
 // This is used for resilience - if the orchestrator crashes or is killed, it can be restarted.
 // Returns true if the orchestrator was spawned, false if it was already running.

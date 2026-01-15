@@ -330,6 +330,12 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.createDescTextarea.Reset()
 		}
 
+	case "t":
+		// Open console tab for selected work
+		if m.activePanel == PanelLeft && len(m.works) > 0 {
+			return m, m.openConsole()
+		}
+
 	case "?":
 		m.viewMode = ViewHelp
 
@@ -908,7 +914,7 @@ func (m *workModel) renderStatusBar() string {
 	}
 
 	// Commands on the left (plain text for width calculation)
-	keysPlain := "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [R]eview [P]R [?]help"
+	keysPlain := "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [R]eview [P]R [?]help"
 	keys := styleHotkeys(keysPlain)
 
 	// Build bar with commands left, status right
@@ -1120,6 +1126,7 @@ func (m *workModel) renderHelp() string {
   p             Plan work (create tasks)
   r             Run work (execute tasks)
   a             Assign issues to work
+  t             Open console tab
   R             Create review task
   P             Create PR task
   U             Update PR description
@@ -1401,5 +1408,22 @@ func (m *workModel) createBeadAndAssign(title, beadType string, priority int, is
 		}
 
 		return workCommandMsg{action: fmt.Sprintf("Created and assigned %s", beadID)}
+	}
+}
+
+func (m *workModel) openConsole() tea.Cmd {
+	return func() tea.Msg {
+		if m.worksCursor >= len(m.works) {
+			return workCommandMsg{action: "Open console", err: fmt.Errorf("no work selected")}
+		}
+		wp := m.works[m.worksCursor]
+		workID := wp.work.ID
+
+		err := claude.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, m.proj.Config.Hooks.Env, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Open console", err: err}
+		}
+
+		return workCommandMsg{action: fmt.Sprintf("Opened console for %s", workID)}
 	}
 }
