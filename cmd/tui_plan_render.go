@@ -106,6 +106,11 @@ func (m *planModel) renderIssuesList(visibleLines int) string {
 func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 	var content strings.Builder
 
+	// If in inline create mode, render the create form instead of issue details
+	if m.viewMode == ViewCreateBeadInline {
+		return m.renderCreateBeadInlineContent(visibleLines, width)
+	}
+
 	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
 		content.WriteString(tuiDimStyle.Render("No issue selected"))
 	} else {
@@ -202,6 +207,70 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 	return content.String()
 }
 
+// renderCreateBeadInlineContent renders the create issue form inline in the details panel
+func (m *planModel) renderCreateBeadInlineContent(visibleLines int, width int) string {
+	var content strings.Builder
+
+	typeFocused := m.createDialogFocus == 1
+	priorityFocused := m.createDialogFocus == 2
+	descFocused := m.createDialogFocus == 3
+
+	// Type rotator display
+	currentType := beadTypes[m.createBeadType]
+	var typeDisplay string
+	if typeFocused {
+		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
+	} else {
+		typeDisplay = typeFeatureStyle.Render(currentType)
+	}
+
+	// Priority display
+	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
+	var priorityDisplay string
+	if priorityFocused {
+		priorityDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(priorityLabels[m.createBeadPriority]))
+	} else {
+		priorityDisplay = priorityLabels[m.createBeadPriority]
+	}
+
+	// Show focus labels
+	titleLabel := "Title:"
+	typeLabel := "Type:"
+	priorityLabel := "Priority:"
+	descLabel := "Description:"
+	if m.createDialogFocus == 0 {
+		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
+	}
+	if typeFocused {
+		typeLabel = tuiValueStyle.Render("Type:") + " (j/k)"
+	}
+	if priorityFocused {
+		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
+	}
+	if descFocused {
+		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
+	}
+
+	// Render the form
+	content.WriteString(tuiLabelStyle.Render("Create New Issue"))
+	content.WriteString("\n\n")
+	content.WriteString(titleLabel)
+	content.WriteString("\n")
+	content.WriteString(m.textInput.View())
+	content.WriteString("\n\n")
+	content.WriteString(typeLabel + " " + typeDisplay)
+	content.WriteString("\n")
+	content.WriteString(priorityLabel + " " + priorityDisplay)
+	content.WriteString("\n\n")
+	content.WriteString(descLabel)
+	content.WriteString("\n")
+	content.WriteString(m.createDescTextarea.View())
+	content.WriteString("\n\n")
+	content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Enter] Create  [Esc] Cancel"))
+
+	return content.String()
+}
+
 func (m *planModel) renderCommandsBar() string {
 	// If in search mode, show vim-style inline search bar
 	if m.viewMode == ViewBeadSearch {
@@ -220,9 +289,19 @@ func (m *planModel) renderCommandsBar() string {
 		}
 	}
 
-	// Commands on the left (plain text for width calculation)
+	// Commands on the left with hover effects
+	nButton := styleButtonWithHover("[n]New", m.hoveredButton == "n")
+	eButton := styleButtonWithHover("[e]Edit", m.hoveredButton == "e")
+	aButton := styleButtonWithHover("[a]Child", m.hoveredButton == "a")
+	xButton := styleButtonWithHover("[x]Close", m.hoveredButton == "x")
+	wButton := styleButtonWithHover("[w]Work", m.hoveredButton == "w")
+	pButton := styleButtonWithHover(pAction, m.hoveredButton == "p")
+	helpButton := styleButtonWithHover("[?]Help", m.hoveredButton == "?")
+
+	commands := nButton + " " + eButton + " " + aButton + " " + xButton + " " + wButton + " " + pButton + " " + helpButton
+
+	// Commands plain text for width calculation
 	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work %s [?]Help", pAction)
-	commands := styleHotkeys(commandsPlain)
 
 	// Status on the right
 	var status string
@@ -245,6 +324,64 @@ func (m *planModel) renderCommandsBar() string {
 	// Build bar with commands left, status right
 	padding := max(m.width-len(commandsPlain)-len(statusPlain)-4, 2)
 	return tuiStatusBarStyle.Width(m.width).Render(commands + strings.Repeat(" ", padding) + status)
+}
+
+
+// detectCommandsBarButton determines which button is at the given X position in the commands bar
+func (m *planModel) detectCommandsBarButton(x int) string {
+	// Commands bar format: "[n]New [e]Edit [a]Child [x]Close [w]Work [p]Plan [?]Help"
+	// We need to find the position of each command in the rendered bar
+
+	// Account for the status bar's left padding (tuiStatusBarStyle has Padding(0, 1))
+	// This adds 1 character of padding to the left, shifting all content by 1 column
+	if x < 1 {
+		return ""
+	}
+	x = x - 1
+
+	// Get the plain text version of the commands
+	pAction := "[p]Plan"
+	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		beadID := m.beadItems[m.beadsCursor].id
+		if m.activeBeadSessions[beadID] {
+			pAction = "[p]Resume"
+		}
+	}
+	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work %s [?]Help", pAction)
+
+	// Find positions of each button
+	nIdx := strings.Index(commandsPlain, "[n]New")
+	eIdx := strings.Index(commandsPlain, "[e]Edit")
+	aIdx := strings.Index(commandsPlain, "[a]Child")
+	xIdx := strings.Index(commandsPlain, "[x]Close")
+	wIdx := strings.Index(commandsPlain, "[w]Work")
+	pIdx := strings.Index(commandsPlain, pAction)
+	helpIdx := strings.Index(commandsPlain, "[?]Help")
+
+	// Check if mouse is over any button (give reasonable width for clickability)
+	if nIdx >= 0 && x >= nIdx && x < nIdx+len("[n]New") {
+		return "n"
+	}
+	if eIdx >= 0 && x >= eIdx && x < eIdx+len("[e]Edit") {
+		return "e"
+	}
+	if aIdx >= 0 && x >= aIdx && x < aIdx+len("[a]Child") {
+		return "a"
+	}
+	if xIdx >= 0 && x >= xIdx && x < xIdx+len("[x]Close") {
+		return "x"
+	}
+	if wIdx >= 0 && x >= wIdx && x < wIdx+len("[w]Work") {
+		return "w"
+	}
+	if pIdx >= 0 && x >= pIdx && x < pIdx+len(pAction) {
+		return "p"
+	}
+	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
+		return "?"
+	}
+
+	return ""
 }
 
 func (m *planModel) renderBeadLine(i int, bead beadItem) string {

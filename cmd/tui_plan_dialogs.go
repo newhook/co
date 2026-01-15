@@ -122,6 +122,119 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *planModel) updateCreateBeadInline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check escape/cancel keys
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+		m.viewMode = ViewNormal
+		m.textInput.Blur()
+		m.createDescTextarea.Blur()
+		return m, nil
+	}
+
+	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> title(0)
+	if msg.Type == tea.KeyTab || msg.String() == "tab" {
+		m.createDialogFocus = (m.createDialogFocus + 1) % 4
+		if m.createDialogFocus == 0 {
+			m.textInput.Focus()
+			m.createDescTextarea.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.textInput.Blur()
+			m.createDescTextarea.Focus()
+		} else {
+			m.textInput.Blur()
+			m.createDescTextarea.Blur()
+		}
+		return m, nil
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.createDialogFocus--
+		if m.createDialogFocus < 0 {
+			m.createDialogFocus = 3
+		}
+		if m.createDialogFocus == 0 {
+			m.textInput.Focus()
+			m.createDescTextarea.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.textInput.Blur()
+			m.createDescTextarea.Focus()
+		} else {
+			m.textInput.Blur()
+			m.createDescTextarea.Blur()
+		}
+		return m, nil
+	}
+
+	// Enter submits from any field (but not from description textarea - use Ctrl+Enter there)
+	if msg.String() == "enter" && m.createDialogFocus != 3 {
+		title := strings.TrimSpace(m.textInput.Value())
+		if title != "" {
+			beadType := beadTypes[m.createBeadType]
+			isEpic := beadType == "epic"
+			description := strings.TrimSpace(m.createDescTextarea.Value())
+			m.viewMode = ViewNormal
+			m.createDescTextarea.Reset()
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description)
+		}
+		return m, nil
+	}
+
+	// Ctrl+Enter submits from description textarea
+	if msg.String() == "ctrl+enter" && m.createDialogFocus == 3 {
+		title := strings.TrimSpace(m.textInput.Value())
+		if title != "" {
+			beadType := beadTypes[m.createBeadType]
+			isEpic := beadType == "epic"
+			description := strings.TrimSpace(m.createDescTextarea.Value())
+			m.viewMode = ViewNormal
+			m.createDescTextarea.Reset()
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description)
+		}
+		return m, nil
+	}
+
+	// Handle input based on focused element
+	switch m.createDialogFocus {
+	case 0: // Title input
+		var cmd tea.Cmd
+		m.textInput, cmd = m.textInput.Update(msg)
+		return m, cmd
+
+	case 1: // Type selector
+		switch msg.String() {
+		case "j", "down":
+			m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
+		case "k", "up":
+			m.createBeadType--
+			if m.createBeadType < 0 {
+				m.createBeadType = len(beadTypes) - 1
+			}
+		}
+		return m, nil
+
+	case 2: // Priority
+		switch msg.String() {
+		case "j", "down", "-":
+			if m.createBeadPriority < 4 {
+				m.createBeadPriority++
+			}
+		case "k", "up", "+", "=":
+			if m.createBeadPriority > 0 {
+				m.createBeadPriority--
+			}
+		}
+		return m, nil
+
+	case 3: // Description textarea
+		var cmd tea.Cmd
+		m.createDescTextarea, cmd = m.createDescTextarea.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
 func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Esc or Ctrl+G cancels search and clears filter
 	if msg.Type == tea.KeyEsc || msg.String() == "esc" || msg.String() == "escape" || msg.String() == "ctrl+g" {
