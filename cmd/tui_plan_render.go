@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/truncate"
 )
 
 // renderFixedPanel renders a panel with border and fixed height
@@ -190,9 +191,9 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 					// Child not in current view (maybe filtered out)
 					childLine = fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID))
 				}
-				// Truncate child line if it exceeds width
-				if len(childLine) > width {
-					childLine = childLine[:width-3] + "..."
+				// Truncate child line if it exceeds width (ANSI-aware)
+				if lipgloss.Width(childLine) > width {
+					childLine = truncate.StringWithTail(childLine, uint(width), "...")
 				}
 				content.WriteString(childLine)
 			}
