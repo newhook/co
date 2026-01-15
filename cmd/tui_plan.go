@@ -80,6 +80,9 @@ type planModel struct {
 	// Loading state
 	loading bool
 
+	// Search sequence tracking to handle async refresh race conditions
+	searchSeq uint64 // Incremented on each search change
+
 	// Per-bead session tracking
 	activeBeadSessions map[string]bool // beadID -> has active session
 	zj                 *zellij.Client
@@ -173,6 +176,10 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case planDataMsg:
+		// Ignore stale search results from older requests
+		if msg.searchSeq < m.searchSeq {
+			return m, nil
+		}
 		m.beadItems = msg.beads
 		if msg.activeSessions != nil {
 			m.activeBeadSessions = msg.activeSessions
@@ -286,6 +293,7 @@ type planDataMsg struct {
 	beads          []beadItem
 	activeSessions map[string]bool
 	err            error
+	searchSeq      uint64 // Sequence number to detect stale results
 }
 
 // planStatusMsg is sent to update status text
@@ -565,7 +573,8 @@ func (m *planModel) View() string {
 	case ViewAddToWork:
 		return m.renderWithDialog(m.renderAddToWorkDialogContent())
 	case ViewBeadSearch:
-		return m.renderWithDialog(m.renderBeadSearchDialogContent())
+		// Inline search mode - render normal view with search bar in status area
+		// Fall through to normal rendering
 	case ViewLabelFilter:
 		return m.renderWithDialog(m.renderLabelFilterDialogContent())
 	case ViewCloseBeadConfirm:
@@ -738,6 +747,14 @@ func (m *planModel) renderDetailsContent(visibleLines int) string {
 }
 
 func (m *planModel) renderCommandsBar() string {
+	// If in search mode, show vim-style inline search bar
+	if m.viewMode == ViewBeadSearch {
+		searchPrompt := "/"
+		searchInput := m.textInput.View()
+		hint := tuiDimStyle.Render("  [Enter]Search  [Esc]Cancel")
+		return tuiStatusBarStyle.Width(m.width).Render(searchPrompt + searchInput + hint)
+	}
+
 	// Show Enter action based on session state
 	enterAction := "[Enter]Plan"
 	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
@@ -988,20 +1005,33 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc || msg.String() == "esc" || msg.String() == "escape" {
+	// Esc or Ctrl+G cancels search and clears filter
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" || msg.String() == "escape" || msg.String() == "ctrl+g" {
 		m.viewMode = ViewNormal
 		m.textInput.Blur()
 		m.filters.searchText = ""
+		m.searchSeq++ // Increment to invalidate any in-flight searches
 		return m, m.refreshData()
 	}
 	switch msg.String() {
 	case "enter":
+		// Confirm search and exit search mode, keeping the filter
 		m.viewMode = ViewNormal
+		m.textInput.Blur()
 		m.filters.searchText = m.textInput.Value()
-		return m, m.refreshData()
+		return m, nil // No need to refresh, already filtered incrementally
 	default:
 		var cmd tea.Cmd
 		m.textInput, cmd = m.textInput.Update(msg)
+		// Apply incremental filtering as user types
+		prevSearch := m.filters.searchText
+		m.filters.searchText = m.textInput.Value()
+		if m.filters.searchText != prevSearch {
+			m.beadsCursor = 0 // Reset cursor when search changes
+			m.searchSeq++     // Increment to invalidate any in-flight searches
+			// Trigger data refresh to apply filter
+			return m, tea.Batch(cmd, m.refreshData())
+		}
 		return m, cmd
 	}
 }
@@ -1249,18 +1279,6 @@ func (m *planModel) renderEditBeadDialogContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
-func (m *planModel) renderBeadSearchDialogContent() string {
-	content := fmt.Sprintf(`
-  Search Issues
-
-  Enter search text (searches ID, title, description):
-  %s
-
-  [Enter] Search  [Esc] Cancel (clears search)
-`, m.textInput.View())
-
-	return tuiDialogStyle.Render(content)
-}
 
 func (m *planModel) renderLabelFilterDialogContent() string {
 	currentLabel := m.filters.label
@@ -1304,8 +1322,17 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 
 // Command generators
 func (m *planModel) refreshData() tea.Cmd {
+	// Capture current filter and sequence at creation time to avoid race conditions
+	filters := m.filters
+	seq := m.searchSeq
+	return m.refreshDataWithFilters(filters, seq)
+}
+
+// refreshDataWithFilters creates a refresh command with captured filter values.
+// This prevents race conditions when the user types quickly.
+func (m *planModel) refreshDataWithFilters(filters beadFilters, seq uint64) tea.Cmd {
 	return func() tea.Msg {
-		items, err := m.loadBeads()
+		items, err := m.loadBeadsWithFilters(filters)
 
 		// Also fetch active sessions
 		session := m.sessionName()
@@ -1315,15 +1342,22 @@ func (m *planModel) refreshData() tea.Cmd {
 			beads:          items,
 			activeSessions: activeSessions,
 			err:            err,
+			searchSeq:      seq,
 		}
 	}
 }
 
 func (m *planModel) loadBeads() ([]beadItem, error) {
+	return m.loadBeadsWithFilters(m.filters)
+}
+
+// loadBeadsWithFilters loads beads using the provided filters.
+// This allows capturing filters at command creation time to avoid race conditions.
+func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error) {
 	mainRepoPath := m.proj.MainRepoPath()
 
 	// Use the shared fetchBeadsWithFilters function
-	items, err := fetchBeadsWithFilters(mainRepoPath, m.filters)
+	items, err := fetchBeadsWithFilters(mainRepoPath, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -1339,7 +1373,8 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 	}
 
 	// Build tree structure from dependencies
-	items = buildBeadTree(items, mainRepoPath)
+	// When search is active, skip fetching parent beads to avoid adding unfiltered items
+	items = buildBeadTree(items, mainRepoPath, filters.searchText)
 
 	// If no tree structure, apply regular sorting
 	hasTree := false
@@ -1352,7 +1387,7 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 
 	if !hasTree {
 		// Fall back to regular sorting if no tree structure
-		switch m.filters.sortBy {
+		switch filters.sortBy {
 		case "priority":
 			sort.Slice(items, func(i, j int) bool {
 				return items[i].priority < items[j].priority
@@ -1780,7 +1815,9 @@ func fetchBeadByID(dir, id string) (*beadItem, error) {
 // buildBeadTree takes a flat list of beads and organizes them into a tree
 // based on dependency relationships. Returns the items in tree order with
 // treeDepth set for each item.
-func buildBeadTree(items []beadItem, dir string) []beadItem {
+// When searchText is non-empty, skip fetching parent beads to avoid adding
+// unfiltered items that don't match the search.
+func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 	if len(items) == 0 {
 		return items
 	}
@@ -1804,36 +1841,39 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 	// Identify and fetch missing parent beads (dependencies not in our item list)
 	// to preserve tree structure. Loop until no more missing parents are found
 	// to handle multiple levels of closed ancestors.
-	fetchedParents := make(map[string]bool)
-	for {
-		missingParentIDs := make(map[string]bool)
-		for i := range items {
-			for _, depID := range items[i].dependencies {
-				if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
-					missingParentIDs[depID] = true
+	// Skip this when search is active to avoid adding unfiltered items.
+	if searchText == "" {
+		fetchedParents := make(map[string]bool)
+		for {
+			missingParentIDs := make(map[string]bool)
+			for i := range items {
+				for _, depID := range items[i].dependencies {
+					if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
+						missingParentIDs[depID] = true
+					}
 				}
 			}
-		}
 
-		if len(missingParentIDs) == 0 {
-			break
-		}
+			if len(missingParentIDs) == 0 {
+				break
+			}
 
-		// Fetch missing parent beads and add them to the list
-		for parentID := range missingParentIDs {
-			fetchedParents[parentID] = true
-			parentBead, err := fetchBeadByID(dir, parentID)
-			if err == nil {
-				// Mark as closed parent (included for tree context only)
-				parentBead.isClosedParent = true
-				items = append(items, *parentBead)
-				itemMap[parentBead.id] = &items[len(items)-1]
+			// Fetch missing parent beads and add them to the list
+			for parentID := range missingParentIDs {
+				fetchedParents[parentID] = true
+				parentBead, err := fetchBeadByID(dir, parentID)
+				if err == nil {
+					// Mark as closed parent (included for tree context only)
+					parentBead.isClosedParent = true
+					items = append(items, *parentBead)
+					itemMap[parentBead.id] = &items[len(items)-1]
 
-				// Fetch dependencies for this parent bead too
-				if parentBead.dependencyCount > 0 {
-					deps, err := fetchDependencies(dir, parentBead.id)
-					if err == nil {
-						items[len(items)-1].dependencies = deps
+					// Fetch dependencies for this parent bead too
+					if parentBead.dependencyCount > 0 {
+						deps, err := fetchDependencies(dir, parentBead.id)
+						if err == nil {
+							items[len(items)-1].dependencies = deps
+						}
 					}
 				}
 			}
