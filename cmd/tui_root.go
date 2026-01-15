@@ -378,6 +378,35 @@ func (m *rootModel) getActiveModel() SubModel {
 	}
 }
 
+// detectHoveredMode determines which mode tab is hovered based on mouse X position
+func (m *rootModel) detectHoveredMode(x int) Mode {
+	// Tab bar format: "=== PLAN MODE === c-[P]lan c-[W]ork c-[M]onitor"
+	// The hotkeys portion shows which keys to press
+	// We need to detect hover over the hotkey portions
+
+	// Find the hotkeys in the rendered tab bar
+	// Format is "c-[P]lan c-[W]ork c-[M]onitor"
+	tabBar := m.renderTabBar()
+
+	// Find positions of c-[P], c-[W], c-[M] in the tab bar
+	planIdx := strings.Index(tabBar, "c-[P]lan")
+	workIdx := strings.Index(tabBar, "c-[W]ork")
+	monitorIdx := strings.Index(tabBar, "c-[M]onitor")
+
+	// Check if mouse is over any of these hotkeys
+	if planIdx >= 0 && x >= planIdx && x < planIdx+len("c-[P]lan") {
+		return ModePlan
+	}
+	if workIdx >= 0 && x >= workIdx && x < workIdx+len("c-[W]ork") {
+		return ModeWork
+	}
+	if monitorIdx >= 0 && x >= monitorIdx && x < monitorIdx+len("c-[M]onitor") {
+		return ModeMonitor
+	}
+
+	return -1 // No mode hovered
+}
+
 // routeToActiveModel routes a message to the currently active mode model
 func (m rootModel) routeToActiveModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -453,60 +482,15 @@ func (m rootModel) renderTabBar() string {
 	modeName := tuiTitleStyle.Render(m.activeMode.Label())
 
 	// Style the mode switching keys with hover effects
-	planKey := m.styleHotkeyWithHover("c-[P]lan", ModePlan)
-	workKey := m.styleHotkeyWithHover("c-[W]ork", ModeWork)
-	monitorKey := m.styleHotkeyWithHover("c-[M]onitor", ModeMonitor)
+	planKey := styleButtonWithHover("c-[P]lan", m.hoveredMode == ModePlan)
+	workKey := styleButtonWithHover("c-[W]ork", m.hoveredMode == ModeWork)
+	monitorKey := styleButtonWithHover("c-[M]onitor", m.hoveredMode == ModeMonitor)
 	modeKeys := planKey + " " + workKey + " " + monitorKey
 
 	if m.pendingModeSwitch {
 		return fmt.Sprintf("=== %s MODE === %s  (waiting for p/w/m...)", modeName, modeKeys)
 	}
 	return fmt.Sprintf("=== %s MODE === %s", modeName, modeKeys)
-}
-
-// detectHoveredMode determines which mode tab is hovered based on mouse X position
-func (m *rootModel) detectHoveredMode(x int) Mode {
-	// Tab bar format: "=== PLAN MODE === c-[P]lan c-[W]ork c-[M]onitor"
-	// The hotkeys portion shows which keys to press
-	// We need to detect hover over the hotkey portions
-
-	// Find the hotkeys in the rendered tab bar
-	// Format is "c-[P]lan c-[W]ork c-[M]onitor"
-	tabBar := m.renderTabBar()
-
-	// Find positions of c-[P], c-[W], c-[M] in the tab bar
-	planIdx := strings.Index(tabBar, "c-[P]lan")
-	workIdx := strings.Index(tabBar, "c-[W]ork")
-	monitorIdx := strings.Index(tabBar, "c-[M]onitor")
-
-	// Check if mouse is over any of these hotkeys
-	if planIdx >= 0 && x >= planIdx && x < planIdx+len("c-[P]lan") {
-		return ModePlan
-	}
-	if workIdx >= 0 && x >= workIdx && x < workIdx+len("c-[W]ork") {
-		return ModeWork
-	}
-	if monitorIdx >= 0 && x >= monitorIdx && x < monitorIdx+len("c-[M]onitor") {
-		return ModeMonitor
-	}
-
-	return -1 // No mode hovered
-}
-
-// styleHotkeyWithHover styles a hotkey with hover effect if mouse is over it
-func (m rootModel) styleHotkeyWithHover(text string, mode Mode) string {
-	// Create a hover style for clickable elements
-	hoverStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("0")).
-		Background(lipgloss.Color("214")).
-		Bold(true)
-
-	if m.hoveredMode == mode {
-		// Apply hover style to entire text
-		return hoverStyle.Render(text)
-	}
-	// Apply normal hotkey styling
-	return styleHotkeys(text)
 }
 
 // runRootTUI starts the TUI with the new root model

@@ -34,6 +34,11 @@ type monitorModel struct {
 	// UI state
 	spinner    spinner.Model
 	lastUpdate time.Time
+
+	// Mouse state
+	mouseX        int
+	mouseY        int
+	hoveredButton string // which button is hovered ("r" for refresh, etc.)
 }
 
 // monitorDataMsg is sent when data is refreshed
@@ -147,6 +152,38 @@ func (m *monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		m.mouseX = msg.X
+		m.mouseY = msg.Y
+
+		// Calculate status bar Y position (at bottom of view)
+		gridHeight := m.height - 2 // -2 for status bar
+		statusBarY := gridHeight
+
+		// Handle hover detection for motion events
+		if msg.Action == tea.MouseActionMotion {
+			if msg.Y == statusBarY {
+				m.hoveredButton = m.detectStatusBarButton(msg.X)
+			} else {
+				m.hoveredButton = ""
+			}
+			return m, nil
+		}
+
+		// Handle clicks on status bar buttons
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if msg.Y == statusBarY {
+				clickedButton := m.detectStatusBarButton(msg.X)
+				switch clickedButton {
+				case "r":
+					// Refresh command
+					m.loading = true
+					cmds = append(cmds, m.refreshData())
+				}
+				return m, tea.Batch(cmds...)
+			}
+		}
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "j", "down":
@@ -426,10 +463,64 @@ func (m *monitorModel) renderEmptyPanel(width, height int) string {
 	return panelStyle.Render("")
 }
 
-func (m *monitorModel) renderStatusBar() string {
-	// Commands on the left (plain text for width calculation)
+// detectStatusBarButton determines which button is at the given X position in the status bar
+func (m *monitorModel) detectStatusBarButton(x int) string {
+	// Status bar format: "[←↑↓→]navigate [r]efresh"
+	// We need to find the position of each command in the rendered bar
+
+	// Account for the status bar's left padding (tuiStatusBarStyle has Padding(0, 1))
+	// This adds 1 character of padding to the left, shifting all content by 1 column
+	if x < 1 {
+		return ""
+	}
+	x = x - 1
+
+	statusBar := m.renderStatusBarPlain()
+
+	// Find positions of each button
+	refreshIdx := strings.Index(statusBar, "[r]efresh")
+
+	// Check if mouse is over any button (give reasonable width for clickability)
+	if refreshIdx >= 0 && x >= refreshIdx && x < refreshIdx+len("[r]efresh") {
+		return "r"
+	}
+
+	return ""
+}
+
+// renderStatusBarPlain returns the plain text version of the status bar for position detection
+func (m *monitorModel) renderStatusBarPlain() string {
 	keysPlain := "[←↑↓→]navigate [r]efresh"
-	keys := styleHotkeys(keysPlain)
+
+	var statusParts []string
+	if len(m.works) > 0 {
+		pending := 0
+		processing := 0
+		completed := 0
+		for _, wp := range m.works {
+			switch wp.work.Status {
+			case db.StatusPending:
+				pending++
+			case db.StatusProcessing:
+				processing++
+			case db.StatusCompleted:
+				completed++
+			}
+		}
+		statusParts = append(statusParts, fmt.Sprintf("Workers: %d (●%d ✓%d ○%d)", len(m.works), processing, completed, pending))
+	}
+	statusParts = append(statusParts, fmt.Sprintf("Updated: %s", m.lastUpdate.Format("15:04:05")))
+	statusPlain := strings.Join(statusParts, " | ")
+
+	padding := max(m.width-len(keysPlain)-len(statusPlain)-4, 2)
+	return keysPlain + strings.Repeat(" ", padding) + statusPlain
+}
+
+func (m *monitorModel) renderStatusBar() string {
+	// Commands on the left with hover effects
+	refreshButton := styleButtonWithHover("[r]efresh", m.hoveredButton == "r")
+	keysPlain := "[←↑↓→]navigate " + "[r]efresh"
+	keys := styleHotkeys("[←↑↓→]navigate") + " " + refreshButton
 
 	// Status on the right - worker count and update time
 	var statusParts []string

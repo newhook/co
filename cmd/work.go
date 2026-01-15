@@ -316,7 +316,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	// Spawn the orchestrator for this work
 	fmt.Println("\nSpawning orchestrator...")
-	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, os.Stdout); err != nil {
+	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, workerName, os.Stdout); err != nil {
 		fmt.Printf("Warning: failed to spawn orchestrator: %v\n", err)
 		fmt.Println("You can start it manually with: co run")
 	} else {
@@ -1227,7 +1227,7 @@ func runWorkConsole(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open console in the work's worktree
-	return claude.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, proj.Config.Hooks.Env, os.Stdout)
+	return claude.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, os.Stdout)
 }
 
 func runWorkClaude(cmd *cobra.Command, args []string) error {
@@ -1260,5 +1260,5 @@ func runWorkClaude(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open Claude Code session in the work's worktree
-	return claude.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, proj.Config.Hooks.Env, os.Stdout)
+	return claude.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, os.Stdout)
 }
