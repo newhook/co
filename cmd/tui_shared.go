@@ -301,3 +301,17 @@ func styleHotkeys(text string) string {
 	}
 	return result.String()
 }
+
+// styleButtonWithHover styles a button with hover effect if hovered is true
+// This is used for clickable buttons and mode tabs in the TUI
+func styleButtonWithHover(text string, hovered bool) string {
+	hoverStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).   // Black text
+		Background(lipgloss.Color("214")). // Orange background
+		Bold(true)
+
+	if hovered {
+		return hoverStyle.Render(text)
+	}
+	return styleHotkeys(text)
+}

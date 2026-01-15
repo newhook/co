@@ -290,13 +290,13 @@ func (m *planModel) renderCommandsBar() string {
 	}
 
 	// Commands on the left with hover effects
-	nButton := m.styleButtonWithHover("[n]New", "n")
-	eButton := m.styleButtonWithHover("[e]Edit", "e")
-	aButton := m.styleButtonWithHover("[a]Child", "a")
-	xButton := m.styleButtonWithHover("[x]Close", "x")
-	wButton := m.styleButtonWithHover("[w]Work", "w")
-	pButton := m.styleButtonWithHover(pAction, "p")
-	helpButton := m.styleButtonWithHover("[?]Help", "?")
+	nButton := styleButtonWithHover("[n]New", m.hoveredButton == "n")
+	eButton := styleButtonWithHover("[e]Edit", m.hoveredButton == "e")
+	aButton := styleButtonWithHover("[a]Child", m.hoveredButton == "a")
+	xButton := styleButtonWithHover("[x]Close", m.hoveredButton == "x")
+	wButton := styleButtonWithHover("[w]Work", m.hoveredButton == "w")
+	pButton := styleButtonWithHover(pAction, m.hoveredButton == "p")
+	helpButton := styleButtonWithHover("[?]Help", m.hoveredButton == "?")
 
 	commands := nButton + " " + eButton + " " + aButton + " " + xButton + " " + wButton + " " + pButton + " " + helpButton
 
@@ -326,18 +326,6 @@ func (m *planModel) renderCommandsBar() string {
 	return tuiStatusBarStyle.Width(m.width).Render(commands + strings.Repeat(" ", padding) + status)
 }
 
-// styleButtonWithHover styles a button with hover effect if mouse is over it
-func (m *planModel) styleButtonWithHover(text, buttonKey string) string {
-	hoverStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("0")).   // Black text
-		Background(lipgloss.Color("214")). // Orange background
-		Bold(true)
-
-	if m.hoveredButton == buttonKey {
-		return hoverStyle.Render(text)
-	}
-	return styleHotkeys(text)
-}
 
 // detectCommandsBarButton determines which button is at the given X position in the commands bar
 func (m *planModel) detectCommandsBarButton(x int) string {

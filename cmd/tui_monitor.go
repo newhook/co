@@ -516,22 +516,9 @@ func (m *monitorModel) renderStatusBarPlain() string {
 	return keysPlain + strings.Repeat(" ", padding) + statusPlain
 }
 
-// styleButtonWithHover styles a button with hover effect if mouse is over it
-func (m *monitorModel) styleButtonWithHover(text, buttonKey string) string {
-	hoverStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("0")).   // Black text
-		Background(lipgloss.Color("214")). // Orange background
-		Bold(true)
-
-	if m.hoveredButton == buttonKey {
-		return hoverStyle.Render(text)
-	}
-	return styleHotkeys(text)
-}
-
 func (m *monitorModel) renderStatusBar() string {
 	// Commands on the left with hover effects
-	refreshButton := m.styleButtonWithHover("[r]efresh", "r")
+	refreshButton := styleButtonWithHover("[r]efresh", m.hoveredButton == "r")
 	keysPlain := "[←↑↓→]navigate " + "[r]efresh"
 	keys := styleHotkeys("[←↑↓→]navigate") + " " + refreshButton
 

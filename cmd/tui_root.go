@@ -482,31 +482,15 @@ func (m rootModel) renderTabBar() string {
 	modeName := tuiTitleStyle.Render(m.activeMode.Label())
 
 	// Style the mode switching keys with hover effects
-	planKey := m.styleHotkeyWithHover("c-[P]lan", ModePlan)
-	workKey := m.styleHotkeyWithHover("c-[W]ork", ModeWork)
-	monitorKey := m.styleHotkeyWithHover("c-[M]onitor", ModeMonitor)
+	planKey := styleButtonWithHover("c-[P]lan", m.hoveredMode == ModePlan)
+	workKey := styleButtonWithHover("c-[W]ork", m.hoveredMode == ModeWork)
+	monitorKey := styleButtonWithHover("c-[M]onitor", m.hoveredMode == ModeMonitor)
 	modeKeys := planKey + " " + workKey + " " + monitorKey
 
 	if m.pendingModeSwitch {
 		return fmt.Sprintf("=== %s MODE === %s  (waiting for p/w/m...)", modeName, modeKeys)
 	}
 	return fmt.Sprintf("=== %s MODE === %s", modeName, modeKeys)
-}
-
-// styleHotkeyWithHover styles a hotkey with hover effect if mouse is over it
-func (m rootModel) styleHotkeyWithHover(text string, mode Mode) string {
-	// Create a hover style for clickable elements
-	hoverStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("0")).
-		Background(lipgloss.Color("214")).
-		Bold(true)
-
-	if m.hoveredMode == mode {
-		// Apply hover style to entire text
-		return hoverStyle.Render(text)
-	}
-	// Apply normal hotkey styling
-	return styleHotkeys(text)
 }
 
 // runRootTUI starts the TUI with the new root model
