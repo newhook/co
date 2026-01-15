@@ -374,26 +374,19 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 
 		// Send cd command and set env vars to ensure proper work context
 		// (zellij --cwd may not always work as expected)
-		if workDir != "" {
-			// Build export commands for hooks env
-			var exports []string
-			for _, env := range hooksEnv {
-				exports = append(exports, fmt.Sprintf("export %s", env))
-			}
-			var cmd string
-			if len(exports) > 0 {
-				cmd = fmt.Sprintf("cd %q && %s && claude --dangerously", workDir, strings.Join(exports, " && "))
-			} else {
-				cmd = fmt.Sprintf("cd %q && claude --dangerously", workDir)
-			}
-			if err := zc.ExecuteCommand(ctx, sessionName, cmd); err != nil {
-				fmt.Fprintf(w, "Warning: failed to initialize Claude session: %v\n", err)
-			}
+		// Build export commands for hooks env
+		var exports []string
+		for _, env := range hooksEnv {
+			exports = append(exports, fmt.Sprintf("export %s", env))
+		}
+		var cmd string
+		if len(exports) > 0 {
+			cmd = fmt.Sprintf("cd %q && %s && claude --dangerously-skip-permissions", workDir, strings.Join(exports, " && "))
 		} else {
-			// No workDir specified, just launch claude
-			if err := zc.ExecuteCommand(ctx, sessionName, "claude --dangerously"); err != nil {
-				fmt.Fprintf(w, "Warning: failed to launch Claude: %v\n", err)
-			}
+			cmd = fmt.Sprintf("cd %q && claude --dangerously-skip-permissions", workDir)
+		}
+		if err := zc.ExecuteCommand(ctx, sessionName, cmd); err != nil {
+			fmt.Fprintf(w, "Warning: failed to initialize Claude session: %v\n", err)
 		}
 
 		// Switch to the new tab
