@@ -1,6 +1,7 @@
 package beads
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -28,6 +29,7 @@ type BeadWithDeps struct {
 	Description  string       `json:"description"`
 	Status       string       `json:"status"`
 	Dependencies []Dependency `json:"dependencies"`
+	Dependents   []Dependency `json:"dependents"`
 }
 
 // GetReadyBeadsInDir queries beads in a specific directory.
@@ -121,6 +123,19 @@ func InstallHooksInDir(dir string) error {
 	return nil
 }
 
+// CloseEligibleEpicsInDir closes any epics where all children are complete.
+// Runs: bd epic close-eligible
+func CloseEligibleEpicsInDir(ctx context.Context, dir string) error {
+	cmd := exec.CommandContext(ctx, "bd", "epic", "close-eligible")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("bd epic close-eligible failed: %w\n%s", err, output)
+	}
+	return nil
+}
+
 // GetTransitiveDependenciesInDir collects all transitive dependencies for a bead.
 // It traverses the "blocked_by" dependency type to find all beads that must
 // be completed before the given bead. Returns beads in dependency order
@@ -183,9 +198,9 @@ func GetBeadWithChildrenInDir(id, dir string) ([]BeadWithDeps, error) {
 
 		result = append(result, *bead)
 
-		// Recursively collect children (parent_of relationship)
-		for _, dep := range bead.Dependencies {
-			if dep.DependencyType == "parent_of" && !visited[dep.ID] {
+		// Recursively collect children (parent-child relationship in dependents)
+		for _, dep := range bead.Dependents {
+			if dep.DependencyType == "parent-child" && !visited[dep.ID] {
 				if err := collect(dep.ID); err != nil {
 					return err
 				}

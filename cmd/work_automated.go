@@ -194,9 +194,10 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 	}
 
 	// Check if this bead has children (is an epic)
+	// Children are in the Dependents field with parent-child relationship
 	var hasChildren bool
-	for _, dep := range mainBead.Dependencies {
-		if dep.DependencyType == "parent_of" {
+	for _, dep := range mainBead.Dependents {
+		if dep.DependencyType == "parent-child" {
 			hasChildren = true
 			break
 		}
@@ -211,10 +212,10 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 		// Filter to only include non-epic beads (skip the epic itself)
 		var result []beads.BeadWithDeps
 		for _, b := range allBeads {
-			// Check if this is an epic (has children)
+			// Check if this is an epic (has children in dependents)
 			isEpic := false
-			for _, dep := range b.Dependencies {
-				if dep.DependencyType == "parent_of" {
+			for _, dep := range b.Dependents {
+				if dep.DependencyType == "parent-child" {
 					isEpic = true
 					break
 				}

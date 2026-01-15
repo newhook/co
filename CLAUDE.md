@@ -38,6 +38,14 @@ go test ./...
 
 Uses CLI tools: `bd`, `claude`, `gh`, `git`, `mise` (optional), `zellij`
 
+## Context Usage
+
+Functions that execute external commands or perform I/O should accept `context.Context` as their first parameter:
+
+- Use `exec.CommandContext(ctx, ...)` instead of `exec.Command(...)` for shell commands
+- Pass context through the call chain from CLI commands down to helper functions
+- This enables proper cancellation and timeout handling
+
 ## Database Migrations
 
 The project uses a SQLite database (`tracking.db`) with schema migrations.
