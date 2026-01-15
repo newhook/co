@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -119,12 +120,12 @@ func generateBranchNameFromBeads(beadList []*beads.Bead) string {
 
 // collectBeadsForMultipleIDs collects all beads to include for multiple bead IDs.
 // It collects transitive dependencies for each bead and deduplicates the results.
-func collectBeadsForMultipleIDs(beadIDList []string, dir string) ([]beads.BeadWithDeps, error) {
+func collectBeadsForMultipleIDs(ctx context.Context, beadIDList []string, dir string) ([]beads.BeadWithDeps, error) {
 	// Use a map to deduplicate beads by ID
 	beadMap := make(map[string]beads.BeadWithDeps)
 
 	for _, beadID := range beadIDList {
-		beadsForID, err := collectBeadsForAutomatedWorkflow(beadID, dir)
+		beadsForID, err := collectBeadsForAutomatedWorkflow(ctx, beadID, dir)
 		if err != nil {
 			return nil, err
 		}
@@ -186,9 +187,9 @@ func branchExists(repoPath, branchName string) bool {
 // collectBeadsForAutomatedWorkflow collects all beads to include in the workflow.
 // For a bead with dependencies, it includes all transitive dependencies.
 // For an epic bead, it includes all child beads.
-func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps, error) {
+func collectBeadsForAutomatedWorkflow(ctx context.Context, beadID, dir string) ([]beads.BeadWithDeps, error) {
 	// First, get the main bead
-	mainBead, err := beads.GetBeadWithDepsInDir(beadID, dir)
+	mainBead, err := beads.GetBeadWithDeps(ctx, beadID, dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bead %s: %w", beadID, err)
 	}
@@ -205,7 +206,7 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 
 	if hasChildren {
 		// For epics, collect all children
-		allBeads, err := beads.GetBeadWithChildrenInDir(beadID, dir)
+		allBeads, err := beads.GetBeadWithChildren(ctx, beadID, dir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get children for epic %s: %w", beadID, err)
 		}
@@ -228,7 +229,7 @@ func collectBeadsForAutomatedWorkflow(beadID, dir string) ([]beads.BeadWithDeps,
 	}
 
 	// For regular beads, collect transitive dependencies
-	return beads.GetTransitiveDependenciesInDir(beadID, dir)
+	return beads.GetTransitiveDependencies(ctx, beadID, dir)
 }
 
 // runWorkCreateWithBeads creates a work unit with an auto-generated branch name from beads.
@@ -255,7 +256,7 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 	// Get the beads and generate branch name
 	var mainBeads []*beads.Bead
 	for _, beadID := range beadIDList {
-		bead, err := beads.GetBeadInDir(beadID, mainRepoPath)
+		bead, err := beads.GetBead(ctx,beadID, mainRepoPath)
 		if err != nil {
 			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
 		}
@@ -371,7 +372,7 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 	// Step 1: Get the main beads and generate branch name
 	var mainBeads []*beads.Bead
 	for _, beadID := range beadIDList {
-		bead, err := beads.GetBeadInDir(beadID, mainRepoPath)
+		bead, err := beads.GetBead(ctx,beadID, mainRepoPath)
 		if err != nil {
 			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
 		}
@@ -443,7 +444,7 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 
 	// Step 3: Collect beads
 	fmt.Println("Collecting beads...")
-	beadsToProcess, err := collectBeadsForMultipleIDs(beadIDList, mainRepoPath)
+	beadsToProcess, err := collectBeadsForMultipleIDs(ctx, beadIDList, mainRepoPath)
 	if err != nil {
 		return fmt.Errorf("failed to collect beads: %w", err)
 	}

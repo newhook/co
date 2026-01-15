@@ -1,13 +1,14 @@
 package beads
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetReadyBeads(t *testing.T) {
-	beads, err := GetReadyBeadsInDir("")
+	beads, err := GetReadyBeads(context.Background(), "")
 	if err != nil {
 		t.Skipf("bd not available or no beads: %v", err)
 	}
@@ -19,47 +20,47 @@ func TestGetReadyBeads(t *testing.T) {
 	}
 }
 
-func TestGetTransitiveDependenciesInDir_NonExistentBead(t *testing.T) {
+func TestGetTransitiveDependencies_NonExistentBead(t *testing.T) {
 	// Test with a non-existent bead ID
-	_, err := GetTransitiveDependenciesInDir("non-existent-bead-xyz123", "/tmp/non-existent-dir")
+	_, err := GetTransitiveDependencies(context.Background(),"non-existent-bead-xyz123", "/tmp/non-existent-dir")
 	assert.Error(t, err, "should return error for non-existent bead")
 }
 
-func TestGetTransitiveDependenciesInDir_EmptyID(t *testing.T) {
+func TestGetTransitiveDependencies_EmptyID(t *testing.T) {
 	// Test with empty bead ID
-	_, err := GetTransitiveDependenciesInDir("", "/tmp/non-existent-dir")
+	_, err := GetTransitiveDependencies(context.Background(),"", "/tmp/non-existent-dir")
 	assert.Error(t, err, "should return error for empty bead ID")
 }
 
-func TestGetTransitiveDependenciesInDir_InvalidDir(t *testing.T) {
+func TestGetTransitiveDependencies_InvalidDir(t *testing.T) {
 	// Test with invalid directory
-	_, err := GetTransitiveDependenciesInDir("some-bead", "/path/that/definitely/does/not/exist/xyz123")
+	_, err := GetTransitiveDependencies(context.Background(),"some-bead", "/path/that/definitely/does/not/exist/xyz123")
 	assert.Error(t, err, "should return error for invalid directory")
 }
 
-func TestGetBeadWithChildrenInDir_NonExistentBead(t *testing.T) {
+func TestGetBeadWithChildren_NonExistentBead(t *testing.T) {
 	// Test with a non-existent bead ID
-	_, err := GetBeadWithChildrenInDir("non-existent-bead-xyz123", "/tmp/non-existent-dir")
+	_, err := GetBeadWithChildren(context.Background(),"non-existent-bead-xyz123", "/tmp/non-existent-dir")
 	assert.Error(t, err, "should return error for non-existent bead")
 }
 
-func TestGetBeadWithChildrenInDir_EmptyID(t *testing.T) {
+func TestGetBeadWithChildren_EmptyID(t *testing.T) {
 	// Test with empty bead ID
-	_, err := GetBeadWithChildrenInDir("", "/tmp/non-existent-dir")
+	_, err := GetBeadWithChildren(context.Background(),"", "/tmp/non-existent-dir")
 	assert.Error(t, err, "should return error for empty bead ID")
 }
 
-func TestGetBeadWithChildrenInDir_InvalidDir(t *testing.T) {
+func TestGetBeadWithChildren_InvalidDir(t *testing.T) {
 	// Test with invalid directory
-	_, err := GetBeadWithChildrenInDir("some-bead", "/path/that/definitely/does/not/exist/xyz123")
+	_, err := GetBeadWithChildren(context.Background(),"some-bead", "/path/that/definitely/does/not/exist/xyz123")
 	assert.Error(t, err, "should return error for invalid directory")
 }
 
 // Integration tests - these require the bd CLI and a valid beads repository
 
-func TestGetTransitiveDependenciesInDir_Integration(t *testing.T) {
+func TestGetTransitiveDependencies_Integration(t *testing.T) {
 	// Get any ready beads first to check if bd is available
-	beads, err := GetReadyBeadsInDir("")
+	beads, err := GetReadyBeads(context.Background(), "")
 	if err != nil {
 		t.Skipf("bd not available or no beads: %v", err)
 	}
@@ -68,7 +69,7 @@ func TestGetTransitiveDependenciesInDir_Integration(t *testing.T) {
 	}
 
 	// Test with a real bead ID
-	result, err := GetTransitiveDependenciesInDir(beads[0].ID, "")
+	result, err := GetTransitiveDependencies(context.Background(),beads[0].ID, "")
 	if err != nil {
 		t.Skipf("failed to get transitive dependencies: %v", err)
 	}
@@ -92,9 +93,9 @@ func TestGetTransitiveDependenciesInDir_Integration(t *testing.T) {
 	}
 }
 
-func TestGetBeadWithChildrenInDir_Integration(t *testing.T) {
+func TestGetBeadWithChildren_Integration(t *testing.T) {
 	// Get any ready beads first to check if bd is available
-	beads, err := GetReadyBeadsInDir("")
+	beads, err := GetReadyBeads(context.Background(), "")
 	if err != nil {
 		t.Skipf("bd not available or no beads: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestGetBeadWithChildrenInDir_Integration(t *testing.T) {
 	}
 
 	// Test with a real bead ID
-	result, err := GetBeadWithChildrenInDir(beads[0].ID, "")
+	result, err := GetBeadWithChildren(context.Background(),beads[0].ID, "")
 	if err != nil {
 		t.Skipf("failed to get bead with children: %v", err)
 	}
@@ -127,12 +128,12 @@ func TestGetBeadWithChildrenInDir_Integration(t *testing.T) {
 	}
 }
 
-func TestGetTransitiveDependenciesInDir_ReturnsInDependencyOrder(t *testing.T) {
+func TestGetTransitiveDependencies_ReturnsInDependencyOrder(t *testing.T) {
 	// This test documents expected behavior:
 	// Dependencies should be returned before dependents (topological order)
 	// Testing this fully requires a bead graph with dependencies
 
-	beads, err := GetReadyBeadsInDir("")
+	beads, err := GetReadyBeads(context.Background(), "")
 	if err != nil {
 		t.Skipf("bd not available: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestGetTransitiveDependenciesInDir_ReturnsInDependencyOrder(t *testing.T) {
 
 	// Get a bead with dependencies if available
 	for _, bead := range beads {
-		result, err := GetTransitiveDependenciesInDir(bead.ID, "")
+		result, err := GetTransitiveDependencies(context.Background(),bead.ID, "")
 		if err != nil {
 			continue
 		}
@@ -173,11 +174,11 @@ func TestGetTransitiveDependenciesInDir_ReturnsInDependencyOrder(t *testing.T) {
 	t.Skip("no beads with dependencies available for order testing")
 }
 
-func TestGetBeadWithChildrenInDir_IncludesParent(t *testing.T) {
+func TestGetBeadWithChildren_IncludesParent(t *testing.T) {
 	// This test documents expected behavior:
 	// The parent bead should be included in the result
 
-	beads, err := GetReadyBeadsInDir("")
+	beads, err := GetReadyBeads(context.Background(), "")
 	if err != nil {
 		t.Skipf("bd not available: %v", err)
 	}
@@ -186,7 +187,7 @@ func TestGetBeadWithChildrenInDir_IncludesParent(t *testing.T) {
 	}
 
 	// Test with any bead - parent should always be in result
-	result, err := GetBeadWithChildrenInDir(beads[0].ID, "")
+	result, err := GetBeadWithChildren(context.Background(),beads[0].ID, "")
 	if err != nil {
 		t.Skipf("failed to get bead: %v", err)
 	}

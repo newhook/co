@@ -208,7 +208,7 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 	// Get beads with dependencies for planning
 	var beadsWithDeps []beads.BeadWithDeps
 	for _, beadID := range beadIDs {
-		bwd, err := beads.GetBeadWithDepsInDir(beadID, mainRepoPath)
+		bwd, err := beads.GetBeadWithDeps(ctx,beadID, mainRepoPath)
 		if err != nil {
 			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
 		}
@@ -311,7 +311,7 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 	var beadsToFix []beads.BeadWithDeps
 	if epicID != "" {
 		// Get all children of the review epic
-		epicChildren, err := beads.GetBeadWithChildrenInDir(epicID, mainRepoPath)
+		epicChildren, err := beads.GetBeadWithChildren(ctx,epicID, mainRepoPath)
 		if err != nil {
 			return fmt.Errorf("failed to get children of review epic %s: %w", epicID, err)
 		}

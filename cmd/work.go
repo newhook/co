@@ -175,7 +175,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	beadID := args[0]
 
 	// Expand the bead (handles epics and transitive deps)
-	expandedBeads, err := collectBeadsForAutomatedWorkflow(beadID, mainRepoPath)
+	expandedBeads, err := collectBeadsForAutomatedWorkflow(ctx, beadID, mainRepoPath)
 	if err != nil {
 		return fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 	}
@@ -326,7 +326,7 @@ type beadGroup struct {
 // Each arg is a comma-separated list of bead IDs (same group).
 // Epics are expanded to their child beads.
 // Returns an error if duplicate bead IDs are found across groups.
-func parseBeadGroups(args []string, mainRepoPath string) ([]beadGroup, error) {
+func parseBeadGroups(ctx context.Context, args []string, mainRepoPath string) ([]beadGroup, error) {
 	var groups []beadGroup
 	seenBeads := make(map[string]bool)
 
@@ -340,7 +340,7 @@ func parseBeadGroups(args []string, mainRepoPath string) ([]beadGroup, error) {
 		var groupBeads []*beads.Bead
 		for _, beadID := range beadIDs {
 			// Expand this bead (handles epics and transitive deps)
-			expanded, err := collectBeadsForAutomatedWorkflow(beadID, mainRepoPath)
+			expanded, err := collectBeadsForAutomatedWorkflow(ctx, beadID, mainRepoPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 			}
@@ -678,7 +678,7 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 	mainRepoPath := proj.MainRepoPath()
 
 	// Parse bead groups
-	beadGroups, err := parseBeadGroups(args, mainRepoPath)
+	beadGroups, err := parseBeadGroups(ctx, args, mainRepoPath)
 	if err != nil {
 		return err
 	}
@@ -1088,7 +1088,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 		var beadsToFix []beads.BeadWithDeps
 		if epicID != "" {
 			// Get all children of the review epic
-			epicChildren, err := beads.GetBeadWithChildrenInDir(epicID, mainRepoPath)
+			epicChildren, err := beads.GetBeadWithChildren(ctx,epicID, mainRepoPath)
 			if err != nil {
 				return fmt.Errorf("failed to get children of review epic %s: %w", epicID, err)
 			}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"testing"
 
 	"github.com/newhook/co/internal/beads"
@@ -360,7 +361,7 @@ func TestGenerateBranchNameFromBead_Percent(t *testing.T) {
 func TestCollectBeadsForAutomatedWorkflow_NoBeadsAvailable(t *testing.T) {
 	// This test verifies error handling when bd CLI is not available
 	// or returns an error for a non-existent bead
-	_, err := collectBeadsForAutomatedWorkflow("non-existent-bead-id", "/tmp/non-existent-dir")
+	_, err := collectBeadsForAutomatedWorkflow(context.Background(), "non-existent-bead-id", "/tmp/non-existent-dir")
 
 	// Should return an error since the bead doesn't exist
 	assert.Error(t, err)

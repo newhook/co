@@ -51,12 +51,6 @@ type ListFilters struct {
 	Label  string // Filter by label
 }
 
-// GetReadyBeadsInDir queries beads in a specific directory.
-// Deprecated: Use GetReadyBeads with context instead.
-func GetReadyBeadsInDir(dir string) ([]Bead, error) {
-	return GetReadyBeads(context.Background(), dir)
-}
-
 // GetReadyBeads queries ready beads in a specific directory.
 func GetReadyBeads(ctx context.Context, dir string) ([]Bead, error) {
 	cmd := exec.CommandContext(ctx, "bd", "ready", "--json")
@@ -122,12 +116,6 @@ func ListBeads(ctx context.Context, dir string, filters ListFilters) ([]BeadFull
 	return beads, nil
 }
 
-// GetBeadInDir retrieves a single bead by ID in a specific directory.
-// Deprecated: Use GetBead with context instead.
-func GetBeadInDir(id, dir string) (*Bead, error) {
-	return GetBead(context.Background(), id, dir)
-}
-
 // GetBead retrieves a single bead by ID in a specific directory.
 func GetBead(ctx context.Context, id, dir string) (*Bead, error) {
 	cmd := exec.CommandContext(ctx, "bd", "show", id, "--json")
@@ -172,12 +160,6 @@ func GetBeadFull(ctx context.Context, id, dir string) (*BeadFull, error) {
 	}
 
 	return &beads[0], nil
-}
-
-// GetBeadWithDepsInDir retrieves a single bead by ID including its dependencies in a specific directory.
-// Deprecated: Use GetBeadWithDeps with context instead.
-func GetBeadWithDepsInDir(id, dir string) (*BeadWithDeps, error) {
-	return GetBeadWithDeps(context.Background(), id, dir)
 }
 
 // GetBeadWithDeps retrieves a single bead by ID including its dependencies.
@@ -230,13 +212,6 @@ func GetDependencies(ctx context.Context, beadID, dir string) ([]Dependency, err
 	return result, nil
 }
 
-// InitInDir initializes beads in the specified directory.
-// Runs: bd init
-// Deprecated: Use Init with context instead.
-func InitInDir(dir string) error {
-	return Init(context.Background(), dir)
-}
-
 // Init initializes beads in the specified directory.
 func Init(ctx context.Context, dir string) error {
 	cmd := exec.CommandContext(ctx, "bd", "init")
@@ -247,13 +222,6 @@ func Init(ctx context.Context, dir string) error {
 		return fmt.Errorf("bd init failed: %w\n%s", err, output)
 	}
 	return nil
-}
-
-// InstallHooksInDir installs beads hooks in the specified directory.
-// Runs: bd hooks install
-// Deprecated: Use InstallHooks with context instead.
-func InstallHooksInDir(dir string) error {
-	return InstallHooks(context.Background(), dir)
 }
 
 // InstallHooks installs beads hooks in the specified directory.
@@ -403,12 +371,6 @@ func EditCommand(beadID, dir string) *exec.Cmd {
 	return cmd
 }
 
-// GetTransitiveDependenciesInDir collects all transitive dependencies for a bead.
-// Deprecated: Use GetTransitiveDependencies with context instead.
-func GetTransitiveDependenciesInDir(id, dir string) ([]BeadWithDeps, error) {
-	return GetTransitiveDependencies(context.Background(), id, dir)
-}
-
 // GetTransitiveDependencies collects all transitive dependencies for a bead.
 // It traverses the "blocked_by" dependency type to find all beads that must
 // be completed before the given bead. Returns beads in dependency order
@@ -449,12 +411,6 @@ func GetTransitiveDependencies(ctx context.Context, id, dir string) ([]BeadWithD
 	}
 
 	return result, nil
-}
-
-// GetBeadWithChildrenInDir retrieves a bead and all its child beads recursively.
-// Deprecated: Use GetBeadWithChildren with context instead.
-func GetBeadWithChildrenInDir(id, dir string) ([]BeadWithDeps, error) {
-	return GetBeadWithChildren(context.Background(), id, dir)
 }
 
 // GetBeadWithChildren retrieves a bead and all its child beads recursively.

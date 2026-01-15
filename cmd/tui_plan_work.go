@@ -202,7 +202,7 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 		// Expand all beads (handles epics and transitive deps)
 		var allBeads []beads.BeadWithDeps
 		for _, beadID := range beadIDs {
-			expandedBeads, err := collectBeadsForAutomatedWorkflow(beadID, mainRepoPath)
+			expandedBeads, err := collectBeadsForAutomatedWorkflow(m.ctx, beadID, mainRepoPath)
 			if err != nil {
 				return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
 			}

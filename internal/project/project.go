@@ -119,7 +119,7 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 	mainPath := filepath.Join(absDir, MainDir)
 
 	// Determine repo type and set up main/
-	repoType, err := setupRepo(repoSource, mainPath)
+	repoType, err := setupRepo(ctx, repoSource, mainPath)
 	if err != nil {
 		// Clean up on failure
 		os.RemoveAll(absDir)
@@ -163,7 +163,7 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 
 // setupRepo sets up the main/ directory based on the repo source.
 // Returns the repo type ("local" or "github").
-func setupRepo(source, mainPath string) (string, error) {
+func setupRepo(ctx context.Context, source, mainPath string) (string, error) {
 	var repoType string
 
 	if isGitHubURL(source) {
@@ -198,10 +198,10 @@ func setupRepo(source, mainPath string) (string, error) {
 
 	// Initialize beads (required - fail on error)
 	fmt.Printf("Initializing beads in %s...\n", mainPath)
-	if err := beads.InitInDir(mainPath); err != nil {
+	if err := beads.Init(ctx, mainPath); err != nil {
 		return "", fmt.Errorf("failed to initialize beads: %w", err)
 	}
-	if err := beads.InstallHooksInDir(mainPath); err != nil {
+	if err := beads.InstallHooks(ctx, mainPath); err != nil {
 		return "", fmt.Errorf("failed to install beads hooks: %w", err)
 	}
 

@@ -219,7 +219,7 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 	// Get bead details for each unassigned bead
 	var beadsWithDeps []beads.BeadWithDeps
 	for _, wb := range unassigned {
-		bead, err := beads.GetBeadWithDepsInDir(wb.BeadID, mainRepoPath)
+		bead, err := beads.GetBeadWithDeps(ctx,wb.BeadID, mainRepoPath)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get bead %s: %w", wb.BeadID, err)
 		}
