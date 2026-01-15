@@ -419,6 +419,101 @@ func countBeadsInGroups(groups []beadGroup) int {
 	return count
 }
 
+// WorkCreateResult contains the result of creating a work unit.
+type WorkCreateResult struct {
+	WorkID      string
+	WorkerName  string
+	WorkDir     string
+	WorktreePath string
+	BranchName  string
+	BaseBranch  string
+}
+
+// CreateWorkWithBranch creates a new work unit with the given branch name.
+// This is the core work creation logic that can be called from both the CLI and TUI.
+// Unlike runWorkCreate, this does not require beads - beads can be added later.
+func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName, baseBranch string) (*WorkCreateResult, error) {
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+
+	// Ensure unique branch name
+	var err error
+	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
+	}
+
+	// Generate work ID
+	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate work ID: %w", err)
+	}
+
+	// Block signals during critical worktree creation
+	cosignal.BlockSignals()
+	defer cosignal.UnblockSignals()
+
+	// Create work subdirectory
+	workDir := filepath.Join(proj.Root, workID)
+	if err := os.Mkdir(workDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create work directory: %w", err)
+	}
+
+	// Create git worktree inside work directory
+	worktreePath := filepath.Join(workDir, "tree")
+
+	// Create worktree with new branch
+	if err := worktree.Create(mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
+		os.RemoveAll(workDir)
+		return nil, err
+	}
+
+	// Push branch and set upstream
+	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
+		worktree.RemoveForce(mainRepoPath, worktreePath)
+		os.RemoveAll(workDir)
+		return nil, err
+	}
+
+	// Initialize mise in worktree if needed
+	if err := mise.Initialize(worktreePath); err != nil {
+		// Non-fatal warning
+		fmt.Printf("Warning: mise initialization failed: %v\n", err)
+	}
+
+	// Get a human-readable name for this worker
+	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
+	if err != nil {
+		// Non-fatal warning
+		fmt.Printf("Warning: failed to get worker name: %v\n", err)
+	}
+
+	// Create work record in database
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch); err != nil {
+		worktree.RemoveForce(mainRepoPath, worktreePath)
+		os.RemoveAll(workDir)
+		return nil, fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Initialize bead group counter
+	if err := proj.DB.InitializeBeadGroupCounter(ctx, workID); err != nil {
+		// Non-fatal warning
+		fmt.Printf("Warning: failed to initialize bead group counter: %v\n", err)
+	}
+
+	return &WorkCreateResult{
+		WorkID:       workID,
+		WorkerName:   workerName,
+		WorkDir:      workDir,
+		WorktreePath: worktreePath,
+		BranchName:   branchName,
+		BaseBranch:   baseBranch,
+	}, nil
+}
+
 // runAutomatedWorkflowForWork runs the full automated workflow for an existing work.
 // This includes: create estimate task -> execute -> review/fix loop -> PR
 // Delegates to runFullAutomatedWorkflow in run.go for the actual implementation.

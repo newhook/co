@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 )
@@ -944,12 +945,18 @@ func (m *workModel) loadBeadsForAssign() tea.Cmd {
 
 func (m *workModel) createWork(branchName string) tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command("co", "work", "create", "--branch", branchName)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main")
+		if err != nil {
 			return workCommandMsg{action: "Create work", err: err}
 		}
-		return workCommandMsg{action: "Create work"}
+
+		// Spawn the orchestrator for this work
+		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath); err != nil {
+			// Non-fatal: work was created but orchestrator failed to spawn
+			return workCommandMsg{action: fmt.Sprintf("Created work %s (orchestrator failed: %v)", result.WorkID, err)}
+		}
+
+		return workCommandMsg{action: fmt.Sprintf("Created work %s", result.WorkID)}
 	}
 }
 
