@@ -355,3 +355,34 @@ func runFullAutomatedWorkflow(proj *project.Project, workID, worktreePath string
 
 	return nil
 }
+
+// PlanWorkTasksResult contains the result of planning work tasks.
+type PlanWorkTasksResult struct {
+	TasksCreated int
+}
+
+// PlanWorkTasks creates tasks from unassigned beads in a work unit without spawning an orchestrator.
+// If autoGroup is true, uses LLM complexity estimation to group beads into tasks.
+// Otherwise, uses existing group assignments from work_beads (one task per bead or group).
+func PlanWorkTasks(ctx context.Context, proj *project.Project, workID string, autoGroup bool) (*PlanWorkTasksResult, error) {
+	// Get work details to verify it exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+
+	// Create tasks from unassigned work beads
+	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, autoGroup)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tasks: %w", err)
+	}
+
+	return &PlanWorkTasksResult{
+		TasksCreated: tasksCreated,
+	}, nil
+}

@@ -983,17 +983,15 @@ func (m *workModel) planWork(autoGroup bool) tea.Cmd {
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		args := []string{"run", "--work", workID, "--plan-only"}
-		if autoGroup {
-			args = append(args, "--plan")
-		}
-
-		cmd := exec.Command("co", args...)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		result, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup)
+		if err != nil {
 			return workCommandMsg{action: "Plan work", err: err}
 		}
-		return workCommandMsg{action: "Plan work"}
+
+		if result.TasksCreated == 0 {
+			return workCommandMsg{action: "Plan work (no unassigned beads)"}
+		}
+		return workCommandMsg{action: fmt.Sprintf("Planned %d task(s)", result.TasksCreated)}
 	}
 }
 
