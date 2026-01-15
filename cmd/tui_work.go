@@ -1139,15 +1139,14 @@ func (m *workModel) assignSelectedBeads() tea.Cmd {
 			return workCommandMsg{action: "Assign beads", err: fmt.Errorf("no beads selected")}
 		}
 
-		args := []string{"work", "add"}
-		args = append(args, beadIDs...)
-		args = append(args, "--work", workID)
-
-		cmd := exec.Command("co", args...)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		result, err := AddBeadsToWork(m.ctx, m.proj, workID, beadIDs)
+		if err != nil {
 			return workCommandMsg{action: "Assign beads", err: err}
 		}
-		return workCommandMsg{action: "Assign beads"}
+
+		// Clear selections after successful assignment
+		m.selectedBeads = make(map[string]bool)
+
+		return workCommandMsg{action: fmt.Sprintf("Assigned %d bead(s)", result.BeadsAdded)}
 	}
 }

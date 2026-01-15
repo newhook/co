@@ -419,6 +419,49 @@ func countBeadsInGroups(groups []beadGroup) int {
 	return count
 }
 
+// AddBeadsToWorkResult contains the result of adding beads to a work.
+type AddBeadsToWorkResult struct {
+	BeadsAdded int
+}
+
+// AddBeadsToWork adds beads to an existing work.
+// This is the core logic for adding beads that can be called from both the CLI and TUI.
+// Each bead is added as its own group (no grouping).
+func AddBeadsToWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) (*AddBeadsToWorkResult, error) {
+	if len(beadIDs) == 0 {
+		return nil, fmt.Errorf("no beads specified")
+	}
+
+	// Verify work exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	// Check if any bead is already in a task
+	for _, beadID := range beadIDs {
+		inTask, err := proj.DB.IsBeadInTask(ctx, workID, beadID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check bead %s: %w", beadID, err)
+		}
+		if inTask {
+			return nil, fmt.Errorf("bead %s is already assigned to a task", beadID)
+		}
+	}
+
+	// Add beads to work (each as its own group with groupID=0)
+	if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs, 0); err != nil {
+		return nil, fmt.Errorf("failed to add beads: %w", err)
+	}
+
+	return &AddBeadsToWorkResult{
+		BeadsAdded: len(beadIDs),
+	}, nil
+}
+
 // WorkCreateResult contains the result of creating a work unit.
 type WorkCreateResult struct {
 	WorkID      string
