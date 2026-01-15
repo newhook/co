@@ -1202,7 +1202,7 @@ func (m *workModel) createWork(branchName string) tea.Cmd {
 		}
 
 		// Spawn the orchestrator for this work
-		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, io.Discard); err != nil {
+		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
 			// Non-fatal: work was created but orchestrator failed to spawn
 			return workCommandMsg{action: fmt.Sprintf("Created work %s (orchestrator failed: %v)", result.WorkID, err)}
 		}
@@ -1438,7 +1438,7 @@ func (m *workModel) openConsole() tea.Cmd {
 		wp := m.works[m.worksCursor]
 		workID := wp.work.ID
 
-		err := claude.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, m.proj.Config.Hooks.Env, io.Discard)
+		err := claude.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, wp.work.Name, m.proj.Config.Hooks.Env, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open console", err: err}
 		}
@@ -1455,7 +1455,7 @@ func (m *workModel) openClaude() tea.Cmd {
 		wp := m.works[m.worksCursor]
 		workID := wp.work.ID
 
-		err := claude.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, m.proj.Config.Hooks.Env, io.Discard)
+		err := claude.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, wp.work.Name, m.proj.Config.Hooks.Env, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open Claude session", err: err}
 		}

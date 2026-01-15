@@ -245,7 +245,7 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 			}()
 		} else {
 			// Spawn the orchestrator
-			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, io.Discard); err != nil {
+			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
 				// Non-fatal: work was created but orchestrator failed to spawn
 				return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
 			}

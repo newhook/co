@@ -42,6 +42,16 @@ func SessionNameForProject(projectName string) string {
 	return fmt.Sprintf("co-%s", projectName)
 }
 
+// FormatTabName formats a tab name with an optional friendly name.
+// If friendlyName is not empty, formats as "prefix-workID (friendlyName)", otherwise just "prefix-workID".
+func FormatTabName(prefix, workID, friendlyName string) string {
+	baseName := fmt.Sprintf("%s-%s", prefix, workID)
+	if friendlyName != "" {
+		return fmt.Sprintf("%s (%s)", baseName, friendlyName)
+	}
+	return baseName
+}
+
 // BuildTaskPrompt builds a prompt for a task with multiple beads.
 func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBranch string) string {
 	data := struct {
@@ -228,12 +238,12 @@ func BuildUpdatePRDescriptionPrompt(taskID string, workID string, prURL string, 
 }
 
 // SpawnWorkOrchestrator creates a zellij tab and runs the orchestrate command for a work unit.
-// The tab is named "work-<work-id>" for easy identification.
+// The tab is named "work-<work-id>" or "work-<work-id> (friendlyName)" for easy identification.
 // The function returns immediately after spawning - the orchestrator runs in the tab.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, w io.Writer) error {
+func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
-	tabName := fmt.Sprintf("work-%s", workID)
+	tabName := FormatTabName("work", workID, friendlyName)
 	zc := zellij.New()
 
 	// Ensure session exists
@@ -286,12 +296,12 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 }
 
 // OpenConsole creates a zellij tab with a shell in the work's worktree.
-// The tab is named "console-<work-id>" for easy identification.
+// The tab is named "console-<work-id>" or "console-<work-id> (friendlyName)" for easy identification.
 // The hooksEnv parameter contains environment variables to export (format: "KEY=value").
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func OpenConsole(ctx context.Context, workID string, projectName string, workDir string, hooksEnv []string, w io.Writer) error {
+func OpenConsole(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
-	tabName := fmt.Sprintf("console-%s", workID)
+	tabName := FormatTabName("console", workID, friendlyName)
 	zc := zellij.New()
 
 	// Ensure session exists
@@ -344,12 +354,12 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 }
 
 // OpenClaudeSession creates a zellij tab with an interactive Claude Code session in the work's worktree.
-// The tab is named "claude-<work-id>" for easy identification.
+// The tab is named "claude-<work-id>" or "claude-<work-id> (friendlyName)" for easy identification.
 // The hooksEnv parameter contains environment variables to export (format: "KEY=value").
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, hooksEnv []string, w io.Writer) error {
+func OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
-	tabName := fmt.Sprintf("claude-%s", workID)
+	tabName := FormatTabName("claude", workID, friendlyName)
 	zc := zellij.New()
 
 	// Ensure session exists
@@ -403,9 +413,9 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 // This is used for resilience - if the orchestrator crashes or is killed, it can be restarted.
 // Returns true if the orchestrator was spawned, false if it was already running.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, w io.Writer) (bool, error) {
+func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) (bool, error) {
 	sessionName := SessionNameForProject(projectName)
-	tabName := fmt.Sprintf("work-%s", workID)
+	tabName := FormatTabName("work", workID, friendlyName)
 
 	// Check if the tab already exists
 	if TabExists(ctx, sessionName, tabName) {
@@ -414,7 +424,7 @@ func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName stri
 	}
 
 	// Spawn the orchestrator
-	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir, w); err != nil {
+	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w); err != nil {
 		return false, err
 	}
 
