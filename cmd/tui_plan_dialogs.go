@@ -307,10 +307,6 @@ func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m *planModel) updateEditBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if editDebugLog != nil {
-		editDebugLog.Printf("updateEditBead: key=%q type=%d field=%d", msg.String(), msg.Type, m.editField)
-	}
-
 	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
 		m.viewMode = ViewNormal
 		m.editTitleTextarea.Blur()

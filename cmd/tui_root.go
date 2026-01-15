@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -14,14 +12,6 @@ import (
 	"github.com/newhook/co/internal/project"
 )
 
-var rootDebugLog *log.Logger
-
-func init() {
-	f, _ := os.OpenFile("/tmp/root-key-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if f != nil {
-		rootDebugLog = log.New(f, "", log.LstdFlags)
-	}
-}
 
 // Mode represents the active TUI mode
 type Mode int
@@ -181,18 +171,13 @@ func (m rootModel) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Log ALL messages to debug Ctrl key issues
-	if rootDebugLog != nil {
-		rootDebugLog.Printf("Update msg type=%T value=%v", msg, msg)
-	}
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Calculate available height after tab bar (1 line + 1 border)
-		availableHeight := m.height - 2
+		// Calculate available height after tab bar (1 line)
+		availableHeight := m.height - 1
 
 		// Update legacy model dimensions
 		m.legacyModel.width = m.width
@@ -223,10 +208,11 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Tab bar format: "=== MODE MODE === hotkeys"
 				// We need to check the position against the rendered tab positions
 				m.hoveredMode = m.detectHoveredMode(msg.X)
+				return m, nil
 			} else {
 				m.hoveredMode = -1
 			}
-			return m, nil
+			// Fall through to route adjusted motion events to sub-model
 		}
 
 		// Handle clicks on mode tabs
@@ -243,16 +229,14 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Route mouse events to active model
-		return m.routeToActiveModel(msg)
+		// Adjust mouse Y coordinate for sub-model (tab bar is at row 0, sub-model starts at row 1)
+		adjustedMsg := msg
+		adjustedMsg.Y = msg.Y - 1
+
+		// Route adjusted mouse events to active model
+		return m.routeToActiveModel(adjustedMsg)
 
 	case tea.KeyMsg:
-		if rootDebugLog != nil {
-			activeModel := m.getActiveModel()
-			inModal := activeModel != nil && activeModel.InModal()
-			rootDebugLog.Printf("KeyMsg: key=%q type=%d inModal=%v", msg.String(), msg.Type, inModal)
-		}
-
 		// Check if active model is in modal state - if so, route directly to it
 		activeModel := m.getActiveModel()
 		if activeModel != nil && activeModel.InModal() {
@@ -384,14 +368,17 @@ func (m *rootModel) detectHoveredMode(x int) Mode {
 	// The hotkeys portion shows which keys to press
 	// We need to detect hover over the hotkey portions
 
-	// Find the hotkeys in the rendered tab bar
-	// Format is "c-[P]lan c-[W]ork c-[M]onitor"
-	tabBar := m.renderTabBar()
+	// Build PLAIN text version (no styling) for position detection
+	modeName := m.activeMode.Label()
+	tabBarPlain := fmt.Sprintf("=== %s MODE === c-[P]lan c-[W]ork c-[M]onitor", modeName)
+	if m.pendingModeSwitch {
+		tabBarPlain += "  (waiting for p/w/m...)"
+	}
 
-	// Find positions of c-[P], c-[W], c-[M] in the tab bar
-	planIdx := strings.Index(tabBar, "c-[P]lan")
-	workIdx := strings.Index(tabBar, "c-[W]ork")
-	monitorIdx := strings.Index(tabBar, "c-[M]onitor")
+	// Find positions of c-[P], c-[W], c-[M] in the plain tab bar
+	planIdx := strings.Index(tabBarPlain, "c-[P]lan")
+	workIdx := strings.Index(tabBarPlain, "c-[W]ork")
+	monitorIdx := strings.Index(tabBarPlain, "c-[M]onitor")
 
 	// Check if mouse is over any of these hotkeys
 	if planIdx >= 0 && x >= planIdx && x < planIdx+len("c-[P]lan") {

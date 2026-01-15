@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -16,6 +14,7 @@ import (
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
+
 
 // planModel is the Plan Mode model focused on issue/bead management
 type planModel struct {
@@ -88,6 +87,7 @@ type planModel struct {
 	mouseX        int
 	mouseY        int
 	hoveredButton string // which button is hovered ("n", "e", "w", "p", etc.)
+	hoveredIssue  int    // index of hovered issue, -1 if none
 }
 
 // newPlanModel creates a new Plan Mode model
@@ -141,6 +141,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		createBeadPriority: 2,
 		zj:                 zellij.New(),
 		columnRatio:        0.4, // Default 40/60 split (issues/details)
+		hoveredIssue:       -1,  // No issue hovered initially
 		filters: beadFilters{
 			status: "open",
 			sortBy: "default",
@@ -196,8 +197,11 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Action == tea.MouseActionMotion {
 			if msg.Y == statusBarY {
 				m.hoveredButton = m.detectCommandsBarButton(msg.X)
+				m.hoveredIssue = -1
 			} else {
 				m.hoveredButton = ""
+				// Detect hover over issue lines
+				m.hoveredIssue = m.detectHoveredIssue(msg.Y)
 			}
 			return m, nil
 		}
@@ -222,6 +226,12 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
 				case "?":
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+				}
+			} else {
+				// Check if clicking on an issue
+				clickedIssue := m.detectHoveredIssue(msg.Y)
+				if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
+					m.beadsCursor = clickedIssue
 				}
 			}
 		}
@@ -720,13 +730,4 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 	// Remove trailing dashes
 	branchName = strings.TrimRight(branchName, "-")
 	return "feat/" + branchName
-}
-
-var editDebugLog *log.Logger
-
-func init() {
-	f, _ := os.OpenFile("/tmp/edit-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if f != nil {
-		editDebugLog = log.New(f, "", log.LstdFlags)
-	}
 }

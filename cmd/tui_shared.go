@@ -93,7 +93,7 @@ var (
 
 	// Issue line styles
 	issueIDStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("117")) // Light blue
+			Foreground(lipgloss.Color("214")) // Orange
 
 	issueTreeStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")) // Dim gray for tree connectors

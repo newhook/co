@@ -157,7 +157,7 @@ func (m *monitorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mouseY = msg.Y
 
 		// Calculate status bar Y position (at bottom of view)
-		gridHeight := m.height - 2 // -2 for status bar
+		gridHeight := m.height - 1 // -1 for status bar
 		statusBarY := gridHeight
 
 		// Handle hover detection for motion events
@@ -296,7 +296,7 @@ func (m *monitorModel) renderGrid() string {
 
 	// Calculate cell dimensions
 	cellWidth := m.width / m.gridCols
-	cellHeight := (m.height - 2) / m.gridRows // -2 for status bar
+	cellHeight := (m.height - 1) / m.gridRows // -1 for status bar
 	if cellHeight < 5 {
 		cellHeight = 5
 	}

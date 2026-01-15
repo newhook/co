@@ -41,7 +41,7 @@ func (m *planModel) renderTwoColumnLayout() string {
 	detailsContentLines := contentHeight - 3
 
 	// Render issues panel
-	issuesContent := m.renderIssuesList(issuesContentLines)
+	issuesContent := m.renderIssuesList(issuesContentLines, issuesWidth)
 	issuesPanelStyle := tuiPanelStyle.Width(issuesWidth).Height(contentHeight - 2)
 	if m.activePanel == PanelLeft {
 		issuesPanelStyle = issuesPanelStyle.BorderForeground(lipgloss.Color("214")) // Highlight active panel
@@ -67,7 +67,7 @@ func (m *planModel) renderTwoColumnLayout() string {
 }
 
 // renderIssuesList renders just the list content for the given number of visible lines
-func (m *planModel) renderIssuesList(visibleLines int) string {
+func (m *planModel) renderIssuesList(visibleLines int, panelWidth int) string {
 	filterInfo := fmt.Sprintf("Filter: %s | Sort: %s", m.filters.status, m.filters.sortBy)
 	if m.filters.searchText != "" {
 		filterInfo += fmt.Sprintf(" | Search: %s", m.filters.searchText)
@@ -92,7 +92,7 @@ func (m *planModel) renderIssuesList(visibleLines int) string {
 		end := min(start+visibleItems, len(m.beadItems))
 
 		for i := start; i < end; i++ {
-			content.WriteString(m.renderBeadLine(i, m.beadItems[i]))
+			content.WriteString(m.renderBeadLine(i, m.beadItems[i], panelWidth))
 			if i < end-1 {
 				content.WriteString("\n")
 			}
@@ -384,7 +384,63 @@ func (m *planModel) detectCommandsBarButton(x int) string {
 	return ""
 }
 
-func (m *planModel) renderBeadLine(i int, bead beadItem) string {
+// detectHoveredIssue determines which issue is at the given Y position
+// Returns the absolute index in m.beadItems, or -1 if not over an issue
+func (m *planModel) detectHoveredIssue(y int) int {
+	// Check if mouse X is within the issues panel
+	// Calculate column widths (same as renderTwoColumnLayout)
+	totalContentWidth := m.width - 4 // -4 for outer margins
+	separatorWidth := 3
+	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+
+	// Check if mouse is in the issues panel (left side)
+	// Be generous with the boundary - include the entire panel width plus some margin
+	maxIssueX := issuesWidth + separatorWidth + 2 // Include panel width, separator, and padding
+	if m.mouseX > maxIssueX {
+		return -1
+	}
+
+	// Layout within panel content:
+	// Y=0: Top border
+	// Y=1: "Issues" title
+	// Y=2: filter info line
+	// Y=3: first visible issue
+	// Y=4: second visible issue, etc.
+
+	// First issue line starts at Y=3
+	const firstIssueY = 3
+
+	if y < firstIssueY {
+		return -1 // Not over an issue
+	}
+
+	if len(m.beadItems) == 0 {
+		return -1
+	}
+
+	// Calculate visible window (same logic as renderIssuesList)
+	contentHeight := m.height - 1 // -1 for status bar
+	issuesContentLines := contentHeight - 3 // -3 for border (2) + title (1)
+	visibleItems := max(issuesContentLines-1, 1) // -1 for filter line
+
+	start := 0
+	if m.beadsCursor >= visibleItems {
+		start = m.beadsCursor - visibleItems + 1
+	}
+	end := min(start+visibleItems, len(m.beadItems))
+
+	// Calculate which issue line was clicked
+	lineIndex := y - firstIssueY
+	absoluteIndex := start + lineIndex
+
+	if absoluteIndex >= 0 && absoluteIndex < end && absoluteIndex < len(m.beadItems) {
+		return absoluteIndex
+	}
+
+	return -1
+}
+
+func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string {
 	icon := statusIcon(bead.status)
 
 	// Selection indicator for multi-select
@@ -447,15 +503,108 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 		styledType = typeDefaultStyle.Render("?")
 	}
 
-	var line string
+	// Calculate available width and truncate title if needed to prevent wrapping
+	availableWidth := panelWidth - 4 // Account for panel padding/borders
+
+	// Calculate prefix length for normal display
+	var prefixLen int
 	if m.beadsExpanded {
-		line = fmt.Sprintf("%s%s%s%s%s %s [P%d %s] %s", selectionIndicator, treePrefix, workIndicator, sessionIndicator, icon, styledID, bead.priority, bead.beadType, bead.title)
+		prefixLen = 3 + len(bead.id) + 1 + 3 + len(bead.beadType) + 3 // icon + ID + space + [P# type] + spaces
 	} else {
-		line = fmt.Sprintf("%s%s%s%s%s %s %s %s", selectionIndicator, treePrefix, workIndicator, sessionIndicator, icon, styledID, styledType, bead.title)
+		prefixLen = 3 + len(bead.id) + 3 // icon + ID + type letter + spaces
+	}
+	if bead.assignedWorkID != "" {
+		prefixLen += len(bead.assignedWorkID) + 3 // [work-id] + space
+	}
+	if bead.treeDepth > 0 {
+		prefixLen += len(bead.treePrefixPattern)
 	}
 
-	if i == m.beadsCursor {
-		return tuiSelectedStyle.Render(line)
+	// Truncate title to fit on one line
+	title := bead.title
+	maxTitleLen := availableWidth - prefixLen
+	if maxTitleLen < 10 {
+		maxTitleLen = 10 // Minimum space for title
+	}
+	if len(title) > maxTitleLen {
+		title = title[:maxTitleLen-3] + "..."
+	}
+
+	// Build styled line for normal display
+	var line string
+	if m.beadsExpanded {
+		line = fmt.Sprintf("%s%s%s%s%s %s [P%d %s] %s", selectionIndicator, treePrefix, workIndicator, sessionIndicator, icon, styledID, bead.priority, bead.beadType, title)
+	} else {
+		line = fmt.Sprintf("%s%s%s%s%s %s %s %s", selectionIndicator, treePrefix, workIndicator, sessionIndicator, icon, styledID, styledType, title)
+	}
+
+	// For selected/hovered lines, build plain text version to avoid ANSI code conflicts
+	if i == m.beadsCursor || i == m.hoveredIssue {
+		// Get type letter for compact display
+		var typeLetter string
+		switch bead.beadType {
+		case "task":
+			typeLetter = "T"
+		case "bug":
+			typeLetter = "B"
+		case "feature":
+			typeLetter = "F"
+		case "epic":
+			typeLetter = "E"
+		case "chore":
+			typeLetter = "C"
+		default:
+			typeLetter = "?"
+		}
+
+		// Build selection indicator (plain text)
+		var plainSelectionIndicator string
+		if m.selectedBeads[bead.id] {
+			plainSelectionIndicator = "● "
+		}
+
+		// Build session indicator (plain text)
+		var plainSessionIndicator string
+		if m.activeBeadSessions[bead.id] {
+			plainSessionIndicator = "[C] "
+		}
+
+		// Build work indicator (plain text)
+		var plainWorkIndicator string
+		if bead.assignedWorkID != "" {
+			plainWorkIndicator = "[" + bead.assignedWorkID + "] "
+		}
+
+		// Build tree prefix (plain text, no styling)
+		var plainTreePrefix string
+		if bead.treeDepth > 0 && bead.treePrefixPattern != "" {
+			plainTreePrefix = bead.treePrefixPattern
+		}
+
+		// Build plain text line without any styling (using already truncated title)
+		var plainLine string
+		if m.beadsExpanded {
+			plainLine = fmt.Sprintf("%s%s%s%s%s %s [P%d %s] %s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, plainSessionIndicator, icon, bead.id, bead.priority, bead.beadType, title)
+		} else {
+			plainLine = fmt.Sprintf("%s%s%s%s%s %s %s %s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, plainSessionIndicator, icon, bead.id, typeLetter, title)
+		}
+
+		// Pad to fill width
+		visWidth := lipgloss.Width(plainLine)
+		if visWidth < availableWidth {
+			plainLine += strings.Repeat(" ", availableWidth-visWidth)
+		}
+
+		if i == m.beadsCursor {
+			return tuiSelectedStyle.Render(plainLine)
+		}
+
+		// Hover style
+		hoverStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("255")).
+			Background(lipgloss.Color("240")).
+			Bold(true)
+		return hoverStyle.Render(plainLine)
 	}
 
 	// Style closed parent beads with dim style (grayed out)
