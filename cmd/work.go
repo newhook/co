@@ -419,6 +419,184 @@ func countBeadsInGroups(groups []beadGroup) int {
 	return count
 }
 
+// AddBeadsToWorkResult contains the result of adding beads to a work.
+type AddBeadsToWorkResult struct {
+	BeadsAdded int
+}
+
+// AddBeadsToWork adds beads to an existing work.
+// This is the core logic for adding beads that can be called from both the CLI and TUI.
+// Each bead is added as its own group (no grouping).
+func AddBeadsToWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) (*AddBeadsToWorkResult, error) {
+	if len(beadIDs) == 0 {
+		return nil, fmt.Errorf("no beads specified")
+	}
+
+	// Verify work exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	// Check if any bead is already in a task
+	for _, beadID := range beadIDs {
+		inTask, err := proj.DB.IsBeadInTask(ctx, workID, beadID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check bead %s: %w", beadID, err)
+		}
+		if inTask {
+			return nil, fmt.Errorf("bead %s is already assigned to a task", beadID)
+		}
+	}
+
+	// Add beads to work (each as its own group with groupID=0)
+	if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs, 0); err != nil {
+		return nil, fmt.Errorf("failed to add beads: %w", err)
+	}
+
+	return &AddBeadsToWorkResult{
+		BeadsAdded: len(beadIDs),
+	}, nil
+}
+
+// WorkCreateResult contains the result of creating a work unit.
+type WorkCreateResult struct {
+	WorkID      string
+	WorkerName  string
+	WorkDir     string
+	WorktreePath string
+	BranchName  string
+	BaseBranch  string
+}
+
+// CreateWorkWithBranch creates a new work unit with the given branch name.
+// This is the core work creation logic that can be called from both the CLI and TUI.
+// Unlike runWorkCreate, this does not require beads - beads can be added later.
+func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName, baseBranch string) (*WorkCreateResult, error) {
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+
+	// Ensure unique branch name
+	var err error
+	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
+	}
+
+	// Generate work ID
+	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate work ID: %w", err)
+	}
+
+	// Block signals during critical worktree creation
+	cosignal.BlockSignals()
+	defer cosignal.UnblockSignals()
+
+	// Create work subdirectory
+	workDir := filepath.Join(proj.Root, workID)
+	if err := os.Mkdir(workDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create work directory: %w", err)
+	}
+
+	// Create git worktree inside work directory
+	worktreePath := filepath.Join(workDir, "tree")
+
+	// Create worktree with new branch
+	if err := worktree.Create(mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
+		os.RemoveAll(workDir)
+		return nil, err
+	}
+
+	// Push branch and set upstream
+	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
+		worktree.RemoveForce(mainRepoPath, worktreePath)
+		os.RemoveAll(workDir)
+		return nil, err
+	}
+
+	// Initialize mise in worktree if needed
+	if err := mise.Initialize(worktreePath); err != nil {
+		// Non-fatal warning
+		fmt.Printf("Warning: mise initialization failed: %v\n", err)
+	}
+
+	// Get a human-readable name for this worker
+	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
+	if err != nil {
+		// Non-fatal warning
+		fmt.Printf("Warning: failed to get worker name: %v\n", err)
+	}
+
+	// Create work record in database
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch); err != nil {
+		worktree.RemoveForce(mainRepoPath, worktreePath)
+		os.RemoveAll(workDir)
+		return nil, fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Initialize bead group counter
+	if err := proj.DB.InitializeBeadGroupCounter(ctx, workID); err != nil {
+		// Non-fatal warning
+		fmt.Printf("Warning: failed to initialize bead group counter: %v\n", err)
+	}
+
+	return &WorkCreateResult{
+		WorkID:       workID,
+		WorkerName:   workerName,
+		WorkDir:      workDir,
+		WorktreePath: worktreePath,
+		BranchName:   branchName,
+		BaseBranch:   baseBranch,
+	}, nil
+}
+
+// DestroyWork destroys a work unit and all its resources.
+// This is the core work destruction logic that can be called from both the CLI and TUI.
+// It does not perform interactive confirmation - that should be handled by the caller.
+func DestroyWork(ctx context.Context, proj *project.Project, workID string) error {
+	// Get work to verify it exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
+	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name); err != nil {
+		// Continue with destruction even if tab termination fails
+		// Caller can log this warning if needed
+	}
+
+	// Remove git worktree if it exists
+	if work.WorktreePath != "" {
+		if err := worktree.RemoveForce(proj.MainRepoPath(), work.WorktreePath); err != nil {
+			// Warn but continue - worktree might not exist
+		}
+	}
+
+	// Remove work directory
+	workDir := filepath.Join(proj.Root, workID)
+	if err := os.RemoveAll(workDir); err != nil {
+		// Warn but continue - directory might not exist
+	}
+
+	// Delete work from database (also deletes associated tasks and relationships)
+	if err := proj.DB.DeleteWork(ctx, workID); err != nil {
+		return fmt.Errorf("failed to delete work from database: %w", err)
+	}
+
+	return nil
+}
+
 // runAutomatedWorkflowForWork runs the full automated workflow for an existing work.
 // This includes: create estimate task -> execute -> review/fix loop -> PR
 // Delegates to runFullAutomatedWorkflow in run.go for the actual implementation.
@@ -700,16 +878,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Get work to verify it exists
-	work, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
-	}
-	if work == nil {
-		return fmt.Errorf("work %s not found", workID)
-	}
-
-	// Check if work has uncompleted tasks
+	// Check if work has uncompleted tasks (for interactive confirmation)
 	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
@@ -732,30 +901,9 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
-	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name); err != nil {
-		fmt.Printf("Warning: failed to terminate zellij tabs: %v\n", err)
-		// Continue with destruction even if tab termination fails
-	}
-
-	// Remove git worktree if it exists
-	if work.WorktreePath != "" {
-		if err := worktree.RemoveForce(proj.MainRepoPath(), work.WorktreePath); err != nil {
-			// Warn but continue - worktree might not exist
-			fmt.Printf("Warning: failed to remove worktree: %v\n", err)
-		}
-	}
-
-	// Remove work directory
-	workDir := filepath.Join(proj.Root, workID)
-	if err := os.RemoveAll(workDir); err != nil {
-		// Warn but continue - directory might not exist
-		fmt.Printf("Warning: failed to remove directory: %v\n", err)
-	}
-
-	// Delete work from database (also deletes associated tasks and relationships)
-	if err := proj.DB.DeleteWork(ctx, workID); err != nil {
-		return fmt.Errorf("failed to delete work from database: %w", err)
+	// Destroy the work
+	if err := DestroyWork(ctx, proj, workID); err != nil {
+		return err
 	}
 
 	fmt.Printf("Destroyed work: %s\n", workID)

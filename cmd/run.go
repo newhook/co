@@ -355,3 +355,83 @@ func runFullAutomatedWorkflow(proj *project.Project, workID, worktreePath string
 
 	return nil
 }
+
+// RunWorkResult contains the result of running work.
+type RunWorkResult struct {
+	WorkID           string
+	TasksCreated     int
+	OrchestratorSpawned bool
+}
+
+// RunWork creates tasks from unassigned beads and ensures an orchestrator is running.
+// This is the core logic used by both the CLI `co run` command and the TUI.
+func RunWork(ctx context.Context, proj *project.Project, workID string, usePlan bool) (*RunWorkResult, error) {
+	// Get work details to verify it exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	// Check if worktree exists
+	if work.WorktreePath == "" {
+		return nil, fmt.Errorf("work %s has no worktree path configured", work.ID)
+	}
+
+	if !worktree.ExistsPath(work.WorktreePath) {
+		return nil, fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+
+	// Create tasks from unassigned work beads
+	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, usePlan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tasks: %w", err)
+	}
+
+	// Ensure orchestrator is running
+	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure orchestrator: %w", err)
+	}
+
+	return &RunWorkResult{
+		WorkID:           workID,
+		TasksCreated:     tasksCreated,
+		OrchestratorSpawned: spawned,
+	}, nil
+}
+
+// PlanWorkTasksResult contains the result of planning work tasks.
+type PlanWorkTasksResult struct {
+	TasksCreated int
+}
+
+// PlanWorkTasks creates tasks from unassigned beads in a work unit without spawning an orchestrator.
+// If autoGroup is true, uses LLM complexity estimation to group beads into tasks.
+// Otherwise, uses existing group assignments from work_beads (one task per bead or group).
+func PlanWorkTasks(ctx context.Context, proj *project.Project, workID string, autoGroup bool) (*PlanWorkTasksResult, error) {
+	// Get work details to verify it exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+
+	// Create tasks from unassigned work beads
+	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, autoGroup)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tasks: %w", err)
+	}
+
+	return &PlanWorkTasksResult{
+		TasksCreated: tasksCreated,
+	}, nil
+}

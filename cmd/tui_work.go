@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 )
@@ -179,6 +180,10 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMessage = fmt.Sprintf("%s completed", msg.action)
 			m.statusIsError = false
+			// Clear bead selections after successful assignment
+			if strings.HasPrefix(msg.action, "Assigned") {
+				m.selectedBeads = make(map[string]bool)
+			}
 		}
 		cmds = append(cmds, m.refreshData())
 
@@ -944,12 +949,18 @@ func (m *workModel) loadBeadsForAssign() tea.Cmd {
 
 func (m *workModel) createWork(branchName string) tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command("co", "work", "create", "--branch", branchName)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main")
+		if err != nil {
 			return workCommandMsg{action: "Create work", err: err}
 		}
-		return workCommandMsg{action: "Create work"}
+
+		// Spawn the orchestrator for this work
+		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath); err != nil {
+			// Non-fatal: work was created but orchestrator failed to spawn
+			return workCommandMsg{action: fmt.Sprintf("Created work %s (orchestrator failed: %v)", result.WorkID, err)}
+		}
+
+		return workCommandMsg{action: fmt.Sprintf("Created work %s", result.WorkID)}
 	}
 }
 
@@ -960,9 +971,7 @@ func (m *workModel) destroyWork() tea.Cmd {
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		cmd := exec.Command("co", "work", "destroy", workID)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		if err := DestroyWork(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Destroy work", err: err}
 		}
 		return workCommandMsg{action: "Destroy work"}
@@ -976,17 +985,15 @@ func (m *workModel) planWork(autoGroup bool) tea.Cmd {
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		args := []string{"run", "--work", workID, "--plan-only"}
-		if autoGroup {
-			args = append(args, "--plan")
-		}
-
-		cmd := exec.Command("co", args...)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		result, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup)
+		if err != nil {
 			return workCommandMsg{action: "Plan work", err: err}
 		}
-		return workCommandMsg{action: "Plan work"}
+
+		if result.TasksCreated == 0 {
+			return workCommandMsg{action: "Plan work (no unassigned beads)"}
+		}
+		return workCommandMsg{action: fmt.Sprintf("Planned %d task(s)", result.TasksCreated)}
 	}
 }
 
@@ -997,12 +1004,23 @@ func (m *workModel) runWork() tea.Cmd {
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		cmd := exec.Command("co", "run", "--work", workID)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		result, err := RunWork(m.ctx, m.proj, workID, false)
+		if err != nil {
 			return workCommandMsg{action: "Run work", err: err}
 		}
-		return workCommandMsg{action: "Run work"}
+
+		orchestratorStatus := "running"
+		if result.OrchestratorSpawned {
+			orchestratorStatus = "spawned"
+		}
+
+		var msg string
+		if result.TasksCreated > 0 {
+			msg = fmt.Sprintf("Created %d task(s), orchestrator %s", result.TasksCreated, orchestratorStatus)
+		} else {
+			msg = fmt.Sprintf("Orchestrator %s", orchestratorStatus)
+		}
+		return workCommandMsg{action: msg}
 	}
 }
 
@@ -1125,15 +1143,11 @@ func (m *workModel) assignSelectedBeads() tea.Cmd {
 			return workCommandMsg{action: "Assign beads", err: fmt.Errorf("no beads selected")}
 		}
 
-		args := []string{"work", "add"}
-		args = append(args, beadIDs...)
-		args = append(args, "--work", workID)
-
-		cmd := exec.Command("co", args...)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		result, err := AddBeadsToWork(m.ctx, m.proj, workID, beadIDs)
+		if err != nil {
 			return workCommandMsg{action: "Assign beads", err: err}
 		}
-		return workCommandMsg{action: "Assign beads"}
+
+		return workCommandMsg{action: fmt.Sprintf("Assigned %d bead(s)", result.BeadsAdded)}
 	}
 }
