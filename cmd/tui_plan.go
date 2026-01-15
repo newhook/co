@@ -49,9 +49,10 @@ type planModel struct {
 	lastUpdate    time.Time
 
 	// Create bead state
-	createBeadType     int // 0=task, 1=bug, 2=feature
-	createBeadPriority int // 0-4, default 2
-	createDialogFocus  int // 0=title, 1=type, 2=priority
+	createBeadType     int            // 0=task, 1=bug, 2=feature
+	createBeadPriority int            // 0-4, default 2
+	createDialogFocus  int            // 0=title, 1=type, 2=priority, 3=description
+	createDescTextarea textarea.Model // Textarea for description
 
 	// Add child bead state
 	parentBeadID string // ID of parent when adding child
@@ -111,6 +112,12 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	descTa.SetWidth(60)
 	descTa.SetHeight(6)
 
+	createDescTa := textarea.New()
+	createDescTa.Placeholder = "Enter description (optional)..."
+	createDescTa.CharLimit = 2000
+	createDescTa.SetWidth(60)
+	createDescTa.SetHeight(4)
+
 	branchInput := textinput.New()
 	branchInput.Placeholder = "Branch name..."
 	branchInput.CharLimit = 100
@@ -119,6 +126,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	return &planModel{
 		editTitleTextarea:  titleTa,
 		editDescTextarea:   descTa,
+		createDescTextarea: createDescTa,
 		createWorkBranch:   branchInput,
 		ctx:                ctx,
 		proj:               proj,
@@ -927,16 +935,22 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
 		m.viewMode = ViewNormal
 		m.textInput.Blur()
+		m.createDescTextarea.Blur()
 		return m, nil
 	}
 
-	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> title(0)
+	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> title(0)
 	if msg.Type == tea.KeyTab || msg.String() == "tab" {
-		m.createDialogFocus = (m.createDialogFocus + 1) % 3
+		m.createDialogFocus = (m.createDialogFocus + 1) % 4
 		if m.createDialogFocus == 0 {
 			m.textInput.Focus()
+			m.createDescTextarea.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.textInput.Blur()
+			m.createDescTextarea.Focus()
 		} else {
 			m.textInput.Blur()
+			m.createDescTextarea.Blur()
 		}
 		return m, nil
 	}
@@ -945,24 +959,45 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyShiftTab {
 		m.createDialogFocus--
 		if m.createDialogFocus < 0 {
-			m.createDialogFocus = 2
+			m.createDialogFocus = 3
 		}
 		if m.createDialogFocus == 0 {
 			m.textInput.Focus()
+			m.createDescTextarea.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.textInput.Blur()
+			m.createDescTextarea.Focus()
 		} else {
 			m.textInput.Blur()
+			m.createDescTextarea.Blur()
 		}
 		return m, nil
 	}
 
-	// Enter submits from any field
-	if msg.String() == "enter" {
+	// Enter submits from any field (but not from description textarea - use Ctrl+Enter there)
+	if msg.String() == "enter" && m.createDialogFocus != 3 {
 		title := strings.TrimSpace(m.textInput.Value())
 		if title != "" {
 			beadType := beadTypes[m.createBeadType]
 			isEpic := beadType == "epic"
+			description := strings.TrimSpace(m.createDescTextarea.Value())
 			m.viewMode = ViewNormal
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic)
+			m.createDescTextarea.Reset()
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description)
+		}
+		return m, nil
+	}
+
+	// Ctrl+Enter submits from description textarea
+	if msg.String() == "ctrl+enter" && m.createDialogFocus == 3 {
+		title := strings.TrimSpace(m.textInput.Value())
+		if title != "" {
+			beadType := beadTypes[m.createBeadType]
+			isEpic := beadType == "epic"
+			description := strings.TrimSpace(m.createDescTextarea.Value())
+			m.viewMode = ViewNormal
+			m.createDescTextarea.Reset()
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description)
 		}
 		return m, nil
 	}
@@ -998,6 +1033,11 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+
+	case 3: // Description textarea
+		var cmd tea.Cmd
+		m.createDescTextarea, cmd = m.createDescTextarea.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -1174,6 +1214,7 @@ func (m *planModel) updateEditBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *planModel) renderCreateBeadDialogContent() string {
 	typeFocused := m.createDialogFocus == 1
 	priorityFocused := m.createDialogFocus == 2
+	descFocused := m.createDialogFocus == 3
 
 	// Type rotator display
 	currentType := beadTypes[m.createBeadType]
@@ -1197,6 +1238,7 @@ func (m *planModel) renderCreateBeadDialogContent() string {
 	titleLabel := "Title:"
 	typeLabel := "Type:"
 	priorityLabel := "Priority:"
+	descLabel := "Description:"
 	if m.createDialogFocus == 0 {
 		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
 	}
@@ -1205,6 +1247,9 @@ func (m *planModel) renderCreateBeadDialogContent() string {
 	}
 	if priorityFocused {
 		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
+	}
+	if descFocused {
+		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
 	}
 
 	content := fmt.Sprintf(`  Create New Issue
@@ -1215,8 +1260,11 @@ func (m *planModel) renderCreateBeadDialogContent() string {
   %s %s
   %s %s
 
+  %s
+  %s
+
   [Tab] Next field  [Enter] Create  [Esc] Cancel
-`, titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay)
+`, titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay, descLabel, m.createDescTextarea.View())
 
 	return tuiDialogStyle.Render(content)
 }
@@ -1401,13 +1449,16 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	return items, nil
 }
 
-func (m *planModel) createBead(title, beadType string, priority int, isEpic bool) tea.Cmd {
+func (m *planModel) createBead(title, beadType string, priority int, isEpic bool, description string) tea.Cmd {
 	return func() tea.Msg {
 		mainRepoPath := m.proj.MainRepoPath()
 
 		args := []string{"create", "--title=" + title, "--type=" + beadType, fmt.Sprintf("--priority=%d", priority)}
 		if isEpic {
 			args = append(args, "--epic")
+		}
+		if description != "" {
+			args = append(args, "--description="+description)
 		}
 
 		cmd := exec.Command("bd", args...)
