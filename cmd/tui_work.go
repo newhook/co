@@ -1000,12 +1000,23 @@ func (m *workModel) runWork() tea.Cmd {
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		cmd := exec.Command("co", "run", "--work", workID)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		result, err := RunWork(m.ctx, m.proj, workID, false)
+		if err != nil {
 			return workCommandMsg{action: "Run work", err: err}
 		}
-		return workCommandMsg{action: "Run work"}
+
+		orchestratorStatus := "running"
+		if result.OrchestratorSpawned {
+			orchestratorStatus = "spawned"
+		}
+
+		var msg string
+		if result.TasksCreated > 0 {
+			msg = fmt.Sprintf("Created %d task(s), orchestrator %s", result.TasksCreated, orchestratorStatus)
+		} else {
+			msg = fmt.Sprintf("Orchestrator %s", orchestratorStatus)
+		}
+		return workCommandMsg{action: msg}
 	}
 }
 
