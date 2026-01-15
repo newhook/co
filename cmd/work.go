@@ -131,6 +131,18 @@ while the orchestrator runs in a separate tab.`,
 	RunE: runWorkConsole,
 }
 
+var workClaudeCmd = &cobra.Command{
+	Use:   "claude [<id>]",
+	Short: "Open a Claude Code session in the work's worktree",
+	Long: `Open a zellij tab with an interactive Claude Code session in the work's worktree.
+If no ID is provided, uses the work for the current directory context.
+
+This is useful for manual exploration, debugging, or ad-hoc changes
+while the orchestrator runs in a separate tab.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runWorkClaude,
+}
+
 var (
 	flagBaseBranch  string
 	flagAutoRun     bool
@@ -158,6 +170,7 @@ func init() {
 	workCmd.AddCommand(workAddCmd)
 	workCmd.AddCommand(workRemoveCmd)
 	workCmd.AddCommand(workConsoleCmd)
+	workCmd.AddCommand(workClaudeCmd)
 }
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
@@ -1215,4 +1228,37 @@ func runWorkConsole(cmd *cobra.Command, args []string) error {
 
 	// Open console in the work's worktree
 	return claude.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, proj.Config.Hooks.Env, os.Stdout)
+}
+
+func runWorkClaude(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
+
+	proj, err := project.Find(ctx, "")
+	if err != nil {
+		return err
+	}
+	defer proj.Close()
+
+	var workID string
+	if len(args) > 0 {
+		workID = args[0]
+	} else {
+		// Try to detect work from current directory
+		workID, err = getCurrentWork(proj)
+		if err != nil {
+			return fmt.Errorf("not in a work directory and no work ID specified")
+		}
+	}
+
+	// Get work details
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Open Claude Code session in the work's worktree
+	return claude.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, proj.Config.Hooks.Env, os.Stdout)
 }
