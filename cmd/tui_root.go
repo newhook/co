@@ -95,6 +95,11 @@ type rootModel struct {
 	lastUpdate        time.Time
 	quitting          bool
 	pendingModeSwitch bool // true when 'c' was pressed, waiting for p/m/w
+
+	// Mouse hover state
+	hoveredMode Mode // which mode tab is being hovered over (0-2), -1 if none
+	mouseX      int
+	mouseY      int
 }
 
 // Tab bar styles
@@ -149,6 +154,7 @@ func newRootModel(ctx context.Context, proj *project.Project) rootModel {
 		legacyModel:  legacy,
 		spinner:      s,
 		lastUpdate:   time.Now(),
+		hoveredMode:  -1, // No mode hovered initially
 	}
 }
 
@@ -204,6 +210,41 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, nil
+
+	case tea.MouseMsg:
+		m.mouseX = msg.X
+		m.mouseY = msg.Y
+
+		// Only handle hover detection for motion events
+		if msg.Action == tea.MouseActionMotion {
+			// Detect hover over mode tabs in tab bar (row 0)
+			if msg.Y == 0 {
+				// Parse tab bar to find which mode is hovered
+				// Tab bar format: "=== MODE MODE === hotkeys"
+				// We need to check the position against the rendered tab positions
+				m.hoveredMode = m.detectHoveredMode(msg.X)
+			} else {
+				m.hoveredMode = -1
+			}
+			return m, nil
+		}
+
+		// Handle clicks on mode tabs
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if msg.Y == 0 {
+				clickedMode := m.detectHoveredMode(msg.X)
+				if clickedMode >= 0 && clickedMode != m.activeMode {
+					oldMode := m.activeMode
+					m.activeMode = clickedMode
+					cmd := m.notifyFocusChange(oldMode, m.activeMode)
+					return m, cmd
+				}
+				return m, nil
+			}
+		}
+
+		// Route mouse events to active model
+		return m.routeToActiveModel(msg)
 
 	case tea.KeyMsg:
 		if rootDebugLog != nil {
@@ -411,8 +452,11 @@ func (m rootModel) renderTabBar() string {
 	// Style the current mode name
 	modeName := tuiTitleStyle.Render(m.activeMode.Label())
 
-	// Style the mode switching keys
-	modeKeys := styleHotkeys("c-[P]lan c-[W]ork c-[M]onitor")
+	// Style the mode switching keys with hover effects
+	planKey := m.styleHotkeyWithHover("c-[P]lan", ModePlan)
+	workKey := m.styleHotkeyWithHover("c-[W]ork", ModeWork)
+	monitorKey := m.styleHotkeyWithHover("c-[M]onitor", ModeMonitor)
+	modeKeys := planKey + " " + workKey + " " + monitorKey
 
 	if m.pendingModeSwitch {
 		return fmt.Sprintf("=== %s MODE === %s  (waiting for p/w/m...)", modeName, modeKeys)
@@ -420,10 +464,55 @@ func (m rootModel) renderTabBar() string {
 	return fmt.Sprintf("=== %s MODE === %s", modeName, modeKeys)
 }
 
+// detectHoveredMode determines which mode tab is hovered based on mouse X position
+func (m *rootModel) detectHoveredMode(x int) Mode {
+	// Tab bar format: "=== PLAN MODE === c-[P]lan c-[W]ork c-[M]onitor"
+	// The hotkeys portion shows which keys to press
+	// We need to detect hover over the hotkey portions
+
+	// Find the hotkeys in the rendered tab bar
+	// Format is "c-[P]lan c-[W]ork c-[M]onitor"
+	tabBar := m.renderTabBar()
+
+	// Find positions of c-[P], c-[W], c-[M] in the tab bar
+	planIdx := strings.Index(tabBar, "c-[P]lan")
+	workIdx := strings.Index(tabBar, "c-[W]ork")
+	monitorIdx := strings.Index(tabBar, "c-[M]onitor")
+
+	// Check if mouse is over any of these hotkeys
+	if planIdx >= 0 && x >= planIdx && x < planIdx+len("c-[P]lan") {
+		return ModePlan
+	}
+	if workIdx >= 0 && x >= workIdx && x < workIdx+len("c-[W]ork") {
+		return ModeWork
+	}
+	if monitorIdx >= 0 && x >= monitorIdx && x < monitorIdx+len("c-[M]onitor") {
+		return ModeMonitor
+	}
+
+	return -1 // No mode hovered
+}
+
+// styleHotkeyWithHover styles a hotkey with hover effect if mouse is over it
+func (m rootModel) styleHotkeyWithHover(text string, mode Mode) string {
+	// Create a hover style for clickable elements
+	hoverStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).
+		Background(lipgloss.Color("214")).
+		Bold(true)
+
+	if m.hoveredMode == mode {
+		// Apply hover style to entire text
+		return hoverStyle.Render(text)
+	}
+	// Apply normal hotkey styling
+	return styleHotkeys(text)
+}
+
 // runRootTUI starts the TUI with the new root model
 func runRootTUI(ctx context.Context, proj *project.Project) error {
 	model := newRootModel(ctx, proj)
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseAllMotion())
 
 	if _, err := p.Run(); err != nil {
 		return err
