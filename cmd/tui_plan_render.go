@@ -102,12 +102,6 @@ func (m *planModel) renderIssuesList(visibleLines int) string {
 	return content.String()
 }
 
-// renderDetailsContent renders the detail panel content
-// Deprecated: use renderDetailsPanel with width parameter for two-column layout
-func (m *planModel) renderDetailsContent(visibleLines int) string {
-	return m.renderDetailsPanel(visibleLines, m.width-4)
-}
-
 // renderDetailsPanel renders the detail panel content with width-aware text wrapping
 func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 	var content strings.Builder
