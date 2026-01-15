@@ -8,6 +8,8 @@ import (
 	"github.com/muesli/reflow/truncate"
 )
 
+const detailsPanelPadding = 4
+
 // renderFixedPanel renders a panel with border and fixed height
 func (m *planModel) renderFixedPanel(title, content string, width, height int) string {
 	titleLine := tuiTitleStyle.Render(title)
@@ -136,7 +138,7 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 		}
 		content.WriteString("\n")
 		// Use width-aware wrapping for title
-		titleStyle := tuiValueStyle.Width(width - 4) // -4 for padding
+		titleStyle := tuiValueStyle.Width(width - detailsPanelPadding)
 		content.WriteString(titleStyle.Render(bead.title))
 
 		// Calculate remaining lines for description and children
@@ -147,7 +149,7 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 		if bead.description != "" && remainingLines > 2 {
 			content.WriteString("\n")
 			// Use lipgloss word-wrapping for description
-			descStyle := tuiDimStyle.Width(width - 4) // -4 for padding
+			descStyle := tuiDimStyle.Width(width - detailsPanelPadding)
 			desc := bead.description
 			// Reserve lines for children section
 			descLines := remainingLines - 2 // Reserve 2 lines for children header + some items
@@ -155,7 +157,7 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 				descLines = min(descLines, 3) // Limit description to 3 lines if we have children
 			}
 			// Estimate max characters based on width and lines
-			maxLen := descLines * (width - 4)
+			maxLen := descLines * (width - detailsPanelPadding)
 			if len(desc) > maxLen && maxLen > 0 {
 				desc = desc[:maxLen] + "..."
 			}
