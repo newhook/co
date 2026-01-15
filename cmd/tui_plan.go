@@ -17,6 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
@@ -1536,39 +1537,59 @@ func (m *planModel) renderCreateWorkDialogContent() string {
 }
 
 // executeCreateWork creates a work unit with the given branch name
+// This calls internal logic directly instead of shelling out to the CLI.
 func (m *planModel) executeCreateWork(beadID, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
-		session := m.sessionName()
-		tabName := fmt.Sprintf("work-%s", beadID)
 		mainRepoPath := m.proj.MainRepoPath()
 
-		// Ensure zellij session exists
-		if err := m.zj.EnsureSession(m.ctx, session); err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: err}
+		// Expand the bead (handles epics and transitive deps)
+		expandedBeads, err := collectBeadsForAutomatedWorkflow(beadID, mainRepoPath)
+		if err != nil {
+			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
 		}
 
-		// Create new tab for work creation
-		if err := m.zj.CreateTab(m.ctx, session, tabName, mainRepoPath); err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: err}
+		if len(expandedBeads) == 0 {
+			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("no beads found for %s", beadID)}
 		}
 
-		// Switch to the tab
-		time.Sleep(200 * time.Millisecond)
-		if err := m.zj.SwitchToTab(m.ctx, session, tabName); err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: err}
+		// Convert to beadGroup for compatibility with existing code
+		var groupBeads []*beads.Bead
+		for _, b := range expandedBeads {
+			groupBeads = append(groupBeads, &beads.Bead{
+				ID:          b.ID,
+				Title:       b.Title,
+				Description: b.Description,
+			})
+		}
+		beadGroups := []beadGroup{{beads: groupBeads}}
+
+		// Create work with branch name
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main")
+		if err != nil {
+			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
 
-		// Run co work create with the bead ID and branch name (use -y to skip prompt)
-		workCmd := fmt.Sprintf("co work create %s --branch %q -y", beadID, branchName)
+		// Add beads to the work
+		if err := addBeadGroupsToWork(m.ctx, m.proj, result.WorkID, beadGroups); err != nil {
+			// Work was created but beads couldn't be added - don't fail completely
+			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
+		}
+
+		// Spawn the orchestrator for this work (or run automated workflow if auto)
 		if auto {
-			workCmd += " --auto"
-		}
-		time.Sleep(200 * time.Millisecond)
-		if err := m.zj.ExecuteCommand(m.ctx, session, workCmd); err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: err}
+			// Run automated workflow in a separate goroutine since it's long-running
+			go func() {
+				_ = runAutomatedWorkflowForWork(m.proj, result.WorkID, result.WorktreePath)
+			}()
+		} else {
+			// Spawn the orchestrator
+			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath); err != nil {
+				// Non-fatal: work was created but orchestrator failed to spawn
+				return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
+			}
 		}
 
-		return planWorkCreatedMsg{beadID: beadID, workID: tabName}
+		return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}
 	}
 }
 
