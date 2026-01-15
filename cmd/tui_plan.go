@@ -439,6 +439,26 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.beadsExpanded = !m.beadsExpanded
 		return m, nil
 
+	case "[":
+		// Decrease column ratio (make issues column narrower)
+		if m.columnRatio > 0.3 {
+			m.columnRatio -= 0.1
+			if m.columnRatio < 0.3 {
+				m.columnRatio = 0.3
+			}
+		}
+		return m, nil
+
+	case "]":
+		// Increase column ratio (make issues column wider)
+		if m.columnRatio < 0.5 {
+			m.columnRatio += 0.1
+			if m.columnRatio > 0.5 {
+				m.columnRatio = 0.5
+			}
+		}
+		return m, nil
+
 	case " ":
 		// Toggle bead selection for multi-select
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
