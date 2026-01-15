@@ -359,25 +359,25 @@ func (m *planModel) detectCommandsBarButton(x int) string {
 	helpIdx := strings.Index(commandsPlain, "[?]Help")
 
 	// Check if mouse is over any button (give reasonable width for clickability)
-	if nIdx >= 0 && x >= nIdx && x < nIdx+6 { // "[n]New" is 6 chars
+	if nIdx >= 0 && x >= nIdx && x < nIdx+len("[n]New") {
 		return "n"
 	}
-	if eIdx >= 0 && x >= eIdx && x < eIdx+7 { // "[e]Edit" is 7 chars
+	if eIdx >= 0 && x >= eIdx && x < eIdx+len("[e]Edit") {
 		return "e"
 	}
-	if aIdx >= 0 && x >= aIdx && x < aIdx+8 { // "[a]Child" is 8 chars
+	if aIdx >= 0 && x >= aIdx && x < aIdx+len("[a]Child") {
 		return "a"
 	}
-	if xIdx >= 0 && x >= xIdx && x < xIdx+8 { // "[x]Close" is 8 chars
+	if xIdx >= 0 && x >= xIdx && x < xIdx+len("[x]Close") {
 		return "x"
 	}
-	if wIdx >= 0 && x >= wIdx && x < wIdx+7 { // "[w]Work" is 7 chars
+	if wIdx >= 0 && x >= wIdx && x < wIdx+len("[w]Work") {
 		return "w"
 	}
 	if pIdx >= 0 && x >= pIdx && x < pIdx+len(pAction) {
 		return "p"
 	}
-	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+7 { // "[?]Help" is 7 chars
+	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
 		return "?"
 	}
 

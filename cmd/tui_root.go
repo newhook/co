@@ -393,14 +393,14 @@ func (m *rootModel) detectHoveredMode(x int) Mode {
 	workIdx := strings.Index(tabBar, "c-[W]ork")
 	monitorIdx := strings.Index(tabBar, "c-[M]onitor")
 
-	// Check if mouse is over any of these hotkeys (give 8 char width for each)
-	if planIdx >= 0 && x >= planIdx && x < planIdx+8 {
+	// Check if mouse is over any of these hotkeys
+	if planIdx >= 0 && x >= planIdx && x < planIdx+len("c-[P]lan") {
 		return ModePlan
 	}
-	if workIdx >= 0 && x >= workIdx && x < workIdx+8 {
+	if workIdx >= 0 && x >= workIdx && x < workIdx+len("c-[W]ork") {
 		return ModeWork
 	}
-	if monitorIdx >= 0 && x >= monitorIdx && x < monitorIdx+11 {
+	if monitorIdx >= 0 && x >= monitorIdx && x < monitorIdx+len("c-[M]onitor") {
 		return ModeMonitor
 	}
 

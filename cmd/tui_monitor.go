@@ -481,7 +481,7 @@ func (m *monitorModel) detectStatusBarButton(x int) string {
 	refreshIdx := strings.Index(statusBar, "[r]efresh")
 
 	// Check if mouse is over any button (give reasonable width for clickability)
-	if refreshIdx >= 0 && x >= refreshIdx && x < refreshIdx+9 {
+	if refreshIdx >= 0 && x >= refreshIdx && x < refreshIdx+len("[r]efresh") {
 		return "r"
 	}
 
