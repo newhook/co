@@ -797,9 +797,8 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 
 	// Tree indentation with connector lines (styled dim)
 	var treePrefix string
-	if bead.treeDepth > 0 {
-		indent := strings.Repeat("  ", bead.treeDepth-1)
-		treePrefix = issueTreeStyle.Render(indent + "└─")
+	if bead.treeDepth > 0 && bead.treePrefixPattern != "" {
+		treePrefix = issueTreeStyle.Render(bead.treePrefixPattern)
 	}
 
 	// Styled issue ID
@@ -1885,8 +1884,12 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 	var result []beadItem
 	visited := make(map[string]bool)
 
-	var visit func(id string, depth int)
-	visit = func(id string, depth int) {
+	// ancestorPattern tracks the prefix pattern for ancestor continuation lines.
+	// Each character represents one depth level:
+	// - "│" means the ancestor at that level has more siblings (needs continuation line)
+	// - " " means the ancestor at that level is the last child (no continuation needed)
+	var visit func(id string, depth int, ancestorPattern string, isLast bool)
+	visit = func(id string, depth int, ancestorPattern string, isLast bool) {
 		if visited[id] {
 			return
 		}
@@ -1898,6 +1901,28 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 		}
 
 		item.treeDepth = depth
+		item.isLastChild = isLast
+
+		// Build the tree prefix pattern for this item
+		if depth > 0 {
+			// Start with ancestor continuation pattern (each character becomes "│ " or "  ")
+			var prefix string
+			for _, c := range ancestorPattern {
+				if c == '│' {
+					prefix += "│ "
+				} else {
+					prefix += "  "
+				}
+			}
+			// Add the connector for this item
+			if isLast {
+				prefix += "└─"
+			} else {
+				prefix += "├─"
+			}
+			item.treePrefixPattern = prefix
+		}
+
 		result = append(result, *item)
 
 		// Sort children by priority
@@ -1913,14 +1938,29 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 			return a.id < b.id
 		})
 
-		for _, childID := range childIDs {
-			visit(childID, depth+1)
+		// Compute the ancestor pattern for children
+		// If this item is the last child, its continuation is " " (no vertical line)
+		// Otherwise, it's "│" (vertical line for siblings below)
+		var childAncestorPattern string
+		if depth == 0 {
+			// Root nodes don't add to ancestor pattern
+			childAncestorPattern = ancestorPattern
+		} else if isLast {
+			childAncestorPattern = ancestorPattern + " "
+		} else {
+			childAncestorPattern = ancestorPattern + "│"
+		}
+
+		for idx, childID := range childIDs {
+			isLastChild := idx == len(childIDs)-1
+			visit(childID, depth+1, childAncestorPattern, isLastChild)
 		}
 	}
 
 	// Visit all roots
-	for _, rootID := range roots {
-		visit(rootID, 0)
+	for idx, rootID := range roots {
+		isLastRoot := idx == len(roots)-1
+		visit(rootID, 0, "", isLastRoot)
 	}
 
 	// Add any orphaned items (not reachable from roots)
