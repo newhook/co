@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
@@ -1373,32 +1374,23 @@ func (m *workModel) assignSelectedBeads() tea.Cmd {
 
 func (m *workModel) createBeadAndAssign(title, beadType string, priority int, isEpic bool, description string) tea.Cmd {
 	return func() tea.Msg {
+		ctx := context.Background()
 		if m.worksCursor >= len(m.works) {
 			return workCommandMsg{action: "Create issue", err: fmt.Errorf("no work selected")}
 		}
 		workID := m.works[m.worksCursor].work.ID
 		mainRepoPath := m.proj.MainRepoPath()
 
-		// Create the bead using bd create
-		args := []string{"create", "--title=" + title, "--type=" + beadType, fmt.Sprintf("--priority=%d", priority)}
-		if isEpic {
-			args = append(args, "--epic")
-		}
-		if description != "" {
-			args = append(args, "--description="+description)
-		}
-
-		cmd := exec.Command("bd", args...)
-		cmd.Dir = mainRepoPath
-		output, err := cmd.Output()
+		// Create the bead using beads package
+		beadID, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
+			Title:       title,
+			Type:        beadType,
+			Priority:    priority,
+			IsEpic:      isEpic,
+			Description: description,
+		})
 		if err != nil {
 			return workCommandMsg{action: "Create issue", err: fmt.Errorf("failed to create issue: %w", err)}
-		}
-
-		// Parse the bead ID from output (bd create outputs the created bead ID)
-		beadID := strings.TrimSpace(string(output))
-		if beadID == "" {
-			return workCommandMsg{action: "Create issue", err: fmt.Errorf("failed to get created issue ID")}
 		}
 
 		// Assign the bead to the current work

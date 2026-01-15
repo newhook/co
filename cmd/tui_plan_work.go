@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os/exec"
@@ -297,36 +298,23 @@ func (m *planModel) addBeadToWork(beadID, workID string) tea.Cmd {
 // createChildBead creates a new bead that depends on the parent bead
 func (m *planModel) createChildBead(title, beadType string, priority int) tea.Cmd {
 	return func() tea.Msg {
+		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
 		parentID := m.parentBeadID
 
 		// Create the new bead
-		args := []string{"create", "--title=" + title, "--type=" + beadType, fmt.Sprintf("--priority=%d", priority)}
-		createCmd := exec.Command("bd", args...)
-		createCmd.Dir = mainRepoPath
-		output, err := createCmd.Output()
+		newBeadID, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
+			Title:    title,
+			Type:     beadType,
+			Priority: priority,
+		})
 		if err != nil {
 			return planDataMsg{err: fmt.Errorf("failed to create issue: %w", err)}
 		}
 
-		// Parse the new bead ID from output (bd create outputs the new ID)
-		newBeadID := strings.TrimSpace(string(output))
-		// Handle case where output might have extra text
-		if strings.Contains(newBeadID, " ") {
-			parts := strings.Fields(newBeadID)
-			for _, p := range parts {
-				if strings.HasPrefix(p, "ac-") || strings.HasPrefix(p, "bd-") {
-					newBeadID = p
-					break
-				}
-			}
-		}
-
 		// Add dependency: new bead depends on parent (parent blocks new bead)
 		if newBeadID != "" && parentID != "" {
-			depCmd := exec.Command("bd", "dep", "add", newBeadID, parentID)
-			depCmd.Dir = mainRepoPath
-			_ = depCmd.Run() // Best effort, don't fail if dependency add fails
+			_ = beads.AddDependency(ctx, newBeadID, parentID, mainRepoPath) // Best effort
 		}
 
 		// Refresh after creation

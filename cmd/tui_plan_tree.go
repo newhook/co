@@ -1,68 +1,33 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
-	"os/exec"
+	"context"
 	"sort"
+
+	"github.com/newhook/co/internal/beads"
 )
 
-// fetchDependencies gets the list of issue IDs that block the given issue
-func fetchDependencies(dir, beadID string) ([]string, error) {
-	cmd := exec.Command("bd", "dep", "list", beadID, "--json")
-	cmd.Dir = dir
-	output, err := cmd.Output()
+// fetchDependencyIDs gets the list of issue IDs that block the given issue
+func fetchDependencyIDs(dir, beadID string) ([]string, error) {
+	deps, err := beads.GetDependencies(context.Background(), beadID, dir)
 	if err != nil {
-		return nil, err
-	}
-
-	type depJSON struct {
-		ID   string `json:"id"`
-		Type string `json:"dependency_type"`
-	}
-	var deps []depJSON
-	if err := json.Unmarshal(output, &deps); err != nil {
 		return nil, err
 	}
 
 	var ids []string
 	for _, d := range deps {
-		if d.Type == "blocks" {
-			ids = append(ids, d.ID)
-		}
+		ids = append(ids, d.ID)
 	}
 	return ids, nil
 }
 
 // fetchBeadByID fetches a single bead by ID and returns a beadItem
 func fetchBeadByID(dir, id string) (*beadItem, error) {
-	cmd := exec.Command("bd", "show", id, "--json")
-	cmd.Dir = dir
-	output, err := cmd.Output()
+	b, err := beads.GetBeadFull(context.Background(), id, dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch bead %s: %w", id, err)
+		return nil, err
 	}
 
-	type beadJSON struct {
-		ID              string `json:"id"`
-		Title           string `json:"title"`
-		Status          string `json:"status"`
-		Priority        int    `json:"priority"`
-		Type            string `json:"issue_type"`
-		Description     string `json:"description"`
-		DependencyCount int    `json:"dependency_count"`
-		DependentCount  int    `json:"dependent_count"`
-	}
-	var beadsJSON []beadJSON
-	if err := json.Unmarshal(output, &beadsJSON); err != nil {
-		return nil, fmt.Errorf("failed to parse bead %s: %w", id, err)
-	}
-
-	if len(beadsJSON) == 0 {
-		return nil, fmt.Errorf("bead %s not found", id)
-	}
-
-	b := beadsJSON[0]
 	return &beadItem{
 		id:              b.ID,
 		title:           b.Title,
@@ -94,7 +59,7 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 	// Fetch dependencies for items that have them
 	for i := range items {
 		if items[i].dependencyCount > 0 {
-			deps, err := fetchDependencies(dir, items[i].id)
+			deps, err := fetchDependencyIDs(dir, items[i].id)
 			if err == nil {
 				items[i].dependencies = deps
 			}
@@ -133,7 +98,7 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 
 					// Fetch dependencies for this parent bead too
 					if parentBead.dependencyCount > 0 {
-						deps, err := fetchDependencies(dir, parentBead.id)
+						deps, err := fetchDependencyIDs(dir, parentBead.id)
 						if err == nil {
 							items[len(items)-1].dependencies = deps
 						}
