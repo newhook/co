@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -47,9 +48,11 @@ type workModel struct {
 	beadsCursor   int
 	selectedBeads map[string]bool
 
-	// Create bead state (for work creation with beads)
+	// Create bead state (for work creation with beads and new bead dialog)
 	createBeadType     int
 	createBeadPriority int
+	createDialogFocus  int            // 0=title, 1=type, 2=priority, 3=description
+	createDescTextarea textarea.Model // Textarea for description
 }
 
 // workDataMsg is sent when data is refreshed
@@ -79,6 +82,12 @@ func newWorkModel(ctx context.Context, proj *project.Project) *workModel {
 	ti.CharLimit = 100
 	ti.Width = 40
 
+	createDescTa := textarea.New()
+	createDescTa.Placeholder = "Enter description (optional)..."
+	createDescTa.CharLimit = 2000
+	createDescTa.SetWidth(60)
+	createDescTa.SetHeight(4)
+
 	return &workModel{
 		ctx:                ctx,
 		proj:               proj,
@@ -89,6 +98,7 @@ func newWorkModel(ctx context.Context, proj *project.Project) *workModel {
 		textInput:          ti,
 		selectedBeads:      make(map[string]bool),
 		createBeadPriority: 2,
+		createDescTextarea: createDescTa,
 		loading:            true,
 	}
 }
@@ -140,6 +150,8 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.viewMode {
 		case ViewCreateWork:
 			return m.updateCreateWork(msg)
+		case ViewCreateBead:
+			return m.updateCreateBead(msg)
 		case ViewDestroyConfirm:
 			return m.updateDestroyConfirm(msg)
 		case ViewPlanDialog:
@@ -305,6 +317,19 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.updatePRDescriptionTask()
 		}
 
+	case "n":
+		// Create new bead and assign to current work
+		if m.activePanel == PanelLeft && len(m.works) > 0 {
+			m.viewMode = ViewCreateBead
+			m.textInput.Reset()
+			m.textInput.Placeholder = "Enter issue title..."
+			m.textInput.Focus()
+			m.createBeadType = 0
+			m.createBeadPriority = 2
+			m.createDialogFocus = 0 // Start with title focused
+			m.createDescTextarea.Reset()
+		}
+
 	case "?":
 		m.viewMode = ViewHelp
 
@@ -408,6 +433,119 @@ func (m *workModel) updateAssignBeads(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *workModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check escape/cancel keys
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+		m.viewMode = ViewNormal
+		m.textInput.Blur()
+		m.createDescTextarea.Blur()
+		return m, nil
+	}
+
+	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> title(0)
+	if msg.Type == tea.KeyTab || msg.String() == "tab" {
+		m.createDialogFocus = (m.createDialogFocus + 1) % 4
+		if m.createDialogFocus == 0 {
+			m.textInput.Focus()
+			m.createDescTextarea.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.textInput.Blur()
+			m.createDescTextarea.Focus()
+		} else {
+			m.textInput.Blur()
+			m.createDescTextarea.Blur()
+		}
+		return m, nil
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.createDialogFocus--
+		if m.createDialogFocus < 0 {
+			m.createDialogFocus = 3
+		}
+		if m.createDialogFocus == 0 {
+			m.textInput.Focus()
+			m.createDescTextarea.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.textInput.Blur()
+			m.createDescTextarea.Focus()
+		} else {
+			m.textInput.Blur()
+			m.createDescTextarea.Blur()
+		}
+		return m, nil
+	}
+
+	// Enter submits from any field (but not from description textarea - use Ctrl+Enter there)
+	if msg.String() == "enter" && m.createDialogFocus != 3 {
+		title := strings.TrimSpace(m.textInput.Value())
+		if title != "" {
+			beadType := beadTypes[m.createBeadType]
+			isEpic := beadType == "epic"
+			description := strings.TrimSpace(m.createDescTextarea.Value())
+			m.viewMode = ViewNormal
+			m.createDescTextarea.Reset()
+			return m, m.createBeadAndAssign(title, beadType, m.createBeadPriority, isEpic, description)
+		}
+		return m, nil
+	}
+
+	// Ctrl+Enter submits from description textarea
+	if msg.String() == "ctrl+enter" && m.createDialogFocus == 3 {
+		title := strings.TrimSpace(m.textInput.Value())
+		if title != "" {
+			beadType := beadTypes[m.createBeadType]
+			isEpic := beadType == "epic"
+			description := strings.TrimSpace(m.createDescTextarea.Value())
+			m.viewMode = ViewNormal
+			m.createDescTextarea.Reset()
+			return m, m.createBeadAndAssign(title, beadType, m.createBeadPriority, isEpic, description)
+		}
+		return m, nil
+	}
+
+	// Handle input based on focused element
+	switch m.createDialogFocus {
+	case 0: // Title input
+		var cmd tea.Cmd
+		m.textInput, cmd = m.textInput.Update(msg)
+		return m, cmd
+
+	case 1: // Type selector
+		switch msg.String() {
+		case "j", "down":
+			m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
+		case "k", "up":
+			m.createBeadType--
+			if m.createBeadType < 0 {
+				m.createBeadType = len(beadTypes) - 1
+			}
+		}
+		return m, nil
+
+	case 2: // Priority
+		switch msg.String() {
+		case "j", "down", "-":
+			if m.createBeadPriority < 4 {
+				m.createBeadPriority++
+			}
+		case "k", "up", "+", "=":
+			if m.createBeadPriority > 0 {
+				m.createBeadPriority--
+			}
+		}
+		return m, nil
+
+	case 3: // Description textarea
+		var cmd tea.Cmd
+		m.createDescTextarea, cmd = m.createDescTextarea.Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
 // View implements tea.Model
 func (m *workModel) View() string {
 	if m.viewMode == ViewHelp {
@@ -434,6 +572,9 @@ func (m *workModel) View() string {
 	switch m.viewMode {
 	case ViewCreateWork:
 		dialog := m.renderCreateWorkDialog()
+		return m.renderWithDialog(dialog)
+	case ViewCreateBead:
+		dialog := m.renderCreateBeadDialogContent()
 		return m.renderWithDialog(dialog)
 	case ViewDestroyConfirm:
 		dialog := m.renderDestroyConfirmDialog()
@@ -767,7 +908,7 @@ func (m *workModel) renderStatusBar() string {
 	}
 
 	// Commands on the left (plain text for width calculation)
-	keysPlain := "[c]reate [d]estroy [p]lan [r]un [a]ssign [R]eview [P]R [U]pdate PR [?]help"
+	keysPlain := "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [R]eview [P]R [?]help"
 	keys := styleHotkeys(keysPlain)
 
 	// Build bar with commands left, status right
@@ -840,6 +981,75 @@ func (m *workModel) renderPlanDialogContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
+func (m *workModel) renderCreateBeadDialogContent() string {
+	typeFocused := m.createDialogFocus == 1
+	priorityFocused := m.createDialogFocus == 2
+	descFocused := m.createDialogFocus == 3
+
+	// Type rotator display
+	currentType := beadTypes[m.createBeadType]
+	var typeDisplay string
+	if typeFocused {
+		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
+	} else {
+		typeDisplay = typeFeatureStyle.Render(currentType)
+	}
+
+	// Priority display
+	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
+	var priorityDisplay string
+	if priorityFocused {
+		priorityDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(priorityLabels[m.createBeadPriority]))
+	} else {
+		priorityDisplay = priorityLabels[m.createBeadPriority]
+	}
+
+	// Show focus labels
+	titleLabel := "Title:"
+	typeLabel := "Type:"
+	priorityLabel := "Priority:"
+	descLabel := "Description:"
+	if m.createDialogFocus == 0 {
+		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
+	}
+	if typeFocused {
+		typeLabel = tuiValueStyle.Render("Type:") + " (j/k)"
+	}
+	if priorityFocused {
+		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
+	}
+	if descFocused {
+		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
+	}
+
+	// Show which work the bead will be assigned to
+	workInfo := ""
+	if len(m.works) > 0 && m.worksCursor < len(m.works) {
+		wp := m.works[m.worksCursor]
+		displayName := wp.work.ID
+		if wp.work.Name != "" {
+			displayName = fmt.Sprintf("%s (%s)", wp.work.Name, wp.work.ID)
+		}
+		workInfo = fmt.Sprintf("\n  Assign to: %s", tuiValueStyle.Render(displayName))
+	}
+
+	content := fmt.Sprintf(`  Create New Issue%s
+
+  %s
+  %s
+
+  %s %s
+  %s %s
+
+  %s
+%s
+
+  [Tab] Next field  [Enter] Create  [Esc] Cancel
+`, workInfo, titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay, descLabel, indentLines(m.createDescTextarea.View(), "  "))
+
+	return tuiDialogStyle.Render(content)
+}
+
 func (m *workModel) renderAssignBeadsView() string {
 	var b strings.Builder
 
@@ -905,6 +1115,7 @@ func (m *workModel) renderHelp() string {
   Work Management
   ────────────────────────────
   c             Create new work
+  n             Create new issue (assign to work)
   d             Destroy selected work
   p             Plan work (create tasks)
   r             Run work (execute tasks)
@@ -1150,5 +1361,45 @@ func (m *workModel) assignSelectedBeads() tea.Cmd {
 		}
 
 		return workCommandMsg{action: fmt.Sprintf("Assigned %d bead(s)", result.BeadsAdded)}
+	}
+}
+
+func (m *workModel) createBeadAndAssign(title, beadType string, priority int, isEpic bool, description string) tea.Cmd {
+	return func() tea.Msg {
+		if m.worksCursor >= len(m.works) {
+			return workCommandMsg{action: "Create issue", err: fmt.Errorf("no work selected")}
+		}
+		workID := m.works[m.worksCursor].work.ID
+		mainRepoPath := m.proj.MainRepoPath()
+
+		// Create the bead using bd create
+		args := []string{"create", "--title=" + title, "--type=" + beadType, fmt.Sprintf("--priority=%d", priority)}
+		if isEpic {
+			args = append(args, "--epic")
+		}
+		if description != "" {
+			args = append(args, "--description="+description)
+		}
+
+		cmd := exec.Command("bd", args...)
+		cmd.Dir = mainRepoPath
+		output, err := cmd.Output()
+		if err != nil {
+			return workCommandMsg{action: "Create issue", err: fmt.Errorf("failed to create issue: %w", err)}
+		}
+
+		// Parse the bead ID from output (bd create outputs the created bead ID)
+		beadID := strings.TrimSpace(string(output))
+		if beadID == "" {
+			return workCommandMsg{action: "Create issue", err: fmt.Errorf("failed to get created issue ID")}
+		}
+
+		// Assign the bead to the current work
+		_, err = AddBeadsToWork(m.ctx, m.proj, workID, []string{beadID})
+		if err != nil {
+			return workCommandMsg{action: "Create issue", err: fmt.Errorf("created issue %s but failed to assign to work: %w", beadID, err)}
+		}
+
+		return workCommandMsg{action: fmt.Sprintf("Created and assigned %s", beadID)}
 	}
 }
