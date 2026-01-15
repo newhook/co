@@ -423,7 +423,7 @@ func (m rootModel) renderTabBar() string {
 // runRootTUI starts the TUI with the new root model
 func runRootTUI(ctx context.Context, proj *project.Project) error {
 	model := newRootModel(ctx, proj)
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	if _, err := p.Run(); err != nil {
 		return err
