@@ -847,6 +847,12 @@ func (m *planModel) renderBeadLine(i int, bead beadItem) string {
 	if i == m.beadsCursor {
 		return tuiSelectedStyle.Render(line)
 	}
+
+	// Style closed parent beads with dim style (grayed out)
+	if bead.isClosedParent {
+		return tuiDimStyle.Render(line)
+	}
+
 	return line
 }
 
@@ -1729,6 +1735,47 @@ func fetchDependencies(dir, beadID string) ([]string, error) {
 	return ids, nil
 }
 
+// fetchBeadByID fetches a single bead by ID and returns a beadItem
+func fetchBeadByID(dir, id string) (*beadItem, error) {
+	cmd := exec.Command("bd", "show", id, "--json")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch bead %s: %w", id, err)
+	}
+
+	type beadJSON struct {
+		ID              string `json:"id"`
+		Title           string `json:"title"`
+		Status          string `json:"status"`
+		Priority        int    `json:"priority"`
+		Type            string `json:"issue_type"`
+		Description     string `json:"description"`
+		DependencyCount int    `json:"dependency_count"`
+		DependentCount  int    `json:"dependent_count"`
+	}
+	var beadsJSON []beadJSON
+	if err := json.Unmarshal(output, &beadsJSON); err != nil {
+		return nil, fmt.Errorf("failed to parse bead %s: %w", id, err)
+	}
+
+	if len(beadsJSON) == 0 {
+		return nil, fmt.Errorf("bead %s not found", id)
+	}
+
+	b := beadsJSON[0]
+	return &beadItem{
+		id:              b.ID,
+		title:           b.Title,
+		status:          b.Status,
+		priority:        b.Priority,
+		beadType:        b.Type,
+		description:     b.Description,
+		dependencyCount: b.DependencyCount,
+		dependentCount:  b.DependentCount,
+	}, nil
+}
+
 // buildBeadTree takes a flat list of beads and organizes them into a tree
 // based on dependency relationships. Returns the items in tree order with
 // treeDepth set for each item.
@@ -1753,6 +1800,45 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 		}
 	}
 
+	// Identify and fetch missing parent beads (dependencies not in our item list)
+	// to preserve tree structure. Loop until no more missing parents are found
+	// to handle multiple levels of closed ancestors.
+	fetchedParents := make(map[string]bool)
+	for {
+		missingParentIDs := make(map[string]bool)
+		for i := range items {
+			for _, depID := range items[i].dependencies {
+				if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
+					missingParentIDs[depID] = true
+				}
+			}
+		}
+
+		if len(missingParentIDs) == 0 {
+			break
+		}
+
+		// Fetch missing parent beads and add them to the list
+		for parentID := range missingParentIDs {
+			fetchedParents[parentID] = true
+			parentBead, err := fetchBeadByID(dir, parentID)
+			if err == nil {
+				// Mark as closed parent (included for tree context only)
+				parentBead.isClosedParent = true
+				items = append(items, *parentBead)
+				itemMap[parentBead.id] = &items[len(items)-1]
+
+				// Fetch dependencies for this parent bead too
+				if parentBead.dependencyCount > 0 {
+					deps, err := fetchDependencies(dir, parentBead.id)
+					if err == nil {
+						items[len(items)-1].dependencies = deps
+					}
+				}
+			}
+		}
+	}
+
 	// Build parent -> children map (issues that block -> issues they block)
 	// If A blocks B, then B depends on A, so A is parent, B is child
 	childrenMap := make(map[string][]string)
@@ -1768,10 +1854,19 @@ func buildBeadTree(items []beadItem, dir string) []beadItem {
 		items[i].children = childrenMap[items[i].id]
 	}
 
-	// Find root nodes (items with no dependencies within our set)
+	// Find root nodes (items with no visible dependencies within our set)
+	// A bead is a root if it has no dependencies, OR if none of its dependencies
+	// are in our visible set (e.g., all dependencies were deleted or unavailable)
 	roots := []string{}
 	for i := range items {
-		if items[i].dependencyCount == 0 {
+		hasVisibleDep := false
+		for _, depID := range items[i].dependencies {
+			if _, exists := itemMap[depID]; exists {
+				hasVisibleDep = true
+				break
+			}
+		}
+		if !hasVisibleDep {
 			roots = append(roots, items[i].id)
 		}
 	}
