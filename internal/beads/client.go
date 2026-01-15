@@ -122,6 +122,19 @@ func InstallHooksInDir(dir string) error {
 	return nil
 }
 
+// CloseEligibleEpicsInDir closes any epics where all children are complete.
+// Runs: bd epic close-eligible
+func CloseEligibleEpicsInDir(dir string) error {
+	cmd := exec.Command("bd", "epic", "close-eligible")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("bd epic close-eligible failed: %w\n%s", err, output)
+	}
+	return nil
+}
+
 // GetTransitiveDependenciesInDir collects all transitive dependencies for a bead.
 // It traverses the "blocked_by" dependency type to find all beads that must
 // be completed before the given bead. Returns beads in dependency order
