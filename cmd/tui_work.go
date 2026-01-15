@@ -967,9 +967,7 @@ func (m *workModel) destroyWork() tea.Cmd {
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		cmd := exec.Command("co", "work", "destroy", workID)
-		cmd.Dir = m.proj.Root
-		if err := cmd.Run(); err != nil {
+		if err := DestroyWork(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Destroy work", err: err}
 		}
 		return workCommandMsg{action: "Destroy work"}

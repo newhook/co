@@ -514,6 +514,46 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	}, nil
 }
 
+// DestroyWork destroys a work unit and all its resources.
+// This is the core work destruction logic that can be called from both the CLI and TUI.
+// It does not perform interactive confirmation - that should be handled by the caller.
+func DestroyWork(ctx context.Context, proj *project.Project, workID string) error {
+	// Get work to verify it exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
+	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name); err != nil {
+		// Continue with destruction even if tab termination fails
+		// Caller can log this warning if needed
+	}
+
+	// Remove git worktree if it exists
+	if work.WorktreePath != "" {
+		if err := worktree.RemoveForce(proj.MainRepoPath(), work.WorktreePath); err != nil {
+			// Warn but continue - worktree might not exist
+		}
+	}
+
+	// Remove work directory
+	workDir := filepath.Join(proj.Root, workID)
+	if err := os.RemoveAll(workDir); err != nil {
+		// Warn but continue - directory might not exist
+	}
+
+	// Delete work from database (also deletes associated tasks and relationships)
+	if err := proj.DB.DeleteWork(ctx, workID); err != nil {
+		return fmt.Errorf("failed to delete work from database: %w", err)
+	}
+
+	return nil
+}
+
 // runAutomatedWorkflowForWork runs the full automated workflow for an existing work.
 // This includes: create estimate task -> execute -> review/fix loop -> PR
 // Delegates to runFullAutomatedWorkflow in run.go for the actual implementation.
@@ -795,16 +835,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Get work to verify it exists
-	work, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
-	}
-	if work == nil {
-		return fmt.Errorf("work %s not found", workID)
-	}
-
-	// Check if work has uncompleted tasks
+	// Check if work has uncompleted tasks (for interactive confirmation)
 	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work tasks: %w", err)
@@ -827,30 +858,9 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
-	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name); err != nil {
-		fmt.Printf("Warning: failed to terminate zellij tabs: %v\n", err)
-		// Continue with destruction even if tab termination fails
-	}
-
-	// Remove git worktree if it exists
-	if work.WorktreePath != "" {
-		if err := worktree.RemoveForce(proj.MainRepoPath(), work.WorktreePath); err != nil {
-			// Warn but continue - worktree might not exist
-			fmt.Printf("Warning: failed to remove worktree: %v\n", err)
-		}
-	}
-
-	// Remove work directory
-	workDir := filepath.Join(proj.Root, workID)
-	if err := os.RemoveAll(workDir); err != nil {
-		// Warn but continue - directory might not exist
-		fmt.Printf("Warning: failed to remove directory: %v\n", err)
-	}
-
-	// Delete work from database (also deletes associated tasks and relationships)
-	if err := proj.DB.DeleteWork(ctx, workID); err != nil {
-		return fmt.Errorf("failed to delete work from database: %w", err)
+	// Destroy the work
+	if err := DestroyWork(ctx, proj, workID); err != nil {
+		return err
 	}
 
 	fmt.Printf("Destroyed work: %s\n", workID)
