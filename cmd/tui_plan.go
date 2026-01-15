@@ -17,6 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
@@ -1584,43 +1585,66 @@ func (m *planModel) renderCreateWorkDialogContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
-// executeCreateWork creates a work unit with the given branch name
+// executeCreateWork creates a work unit with the given branch name.
+// This calls internal logic directly instead of shelling out to the CLI.
 func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
-		session := m.sessionName()
-		// Use first bead ID for tab name
-		firstBeadID := beadIDs[0]
-		tabName := fmt.Sprintf("work-%s", firstBeadID)
 		mainRepoPath := m.proj.MainRepoPath()
+		firstBeadID := beadIDs[0]
 
-		// Ensure zellij session exists
-		if err := m.zj.EnsureSession(m.ctx, session); err != nil {
-			return planWorkCreatedMsg{beadID: firstBeadID, err: err}
+		// Expand all beads (handles epics and transitive deps)
+		var allBeads []beads.BeadWithDeps
+		for _, beadID := range beadIDs {
+			expandedBeads, err := collectBeadsForAutomatedWorkflow(beadID, mainRepoPath)
+			if err != nil {
+				return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
+			}
+			allBeads = append(allBeads, expandedBeads...)
 		}
 
-		// Create new tab for work creation
-		if err := m.zj.CreateTab(m.ctx, session, tabName, mainRepoPath); err != nil {
-			return planWorkCreatedMsg{beadID: firstBeadID, err: err}
+		if len(allBeads) == 0 {
+			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("no beads found for %v", beadIDs)}
 		}
 
-		// Switch to the tab
-		time.Sleep(200 * time.Millisecond)
-		if err := m.zj.SwitchToTab(m.ctx, session, tabName); err != nil {
-			return planWorkCreatedMsg{beadID: firstBeadID, err: err}
+		// Convert to beadGroup for compatibility with existing code
+		// All selected beads go into one group (like comma-separated on CLI)
+		var groupBeads []*beads.Bead
+		for _, b := range allBeads {
+			groupBeads = append(groupBeads, &beads.Bead{
+				ID:          b.ID,
+				Title:       b.Title,
+				Description: b.Description,
+			})
+		}
+		beadGroups := []beadGroup{{beads: groupBeads}}
+
+		// Create work with branch name
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main")
+		if err != nil {
+			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
 
-		// Run co work create with all bead IDs (comma-separated for same group) and branch name (use -y to skip prompt)
-		beadArgs := strings.Join(beadIDs, ",")
-		workCmd := fmt.Sprintf("co work create %s --branch %q -y", beadArgs, branchName)
+		// Add beads to the work
+		if err := addBeadGroupsToWork(m.ctx, m.proj, result.WorkID, beadGroups); err != nil {
+			// Work was created but beads couldn't be added - don't fail completely
+			return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
+		}
+
+		// Spawn the orchestrator for this work (or run automated workflow if auto)
 		if auto {
-			workCmd += " --auto"
-		}
-		time.Sleep(200 * time.Millisecond)
-		if err := m.zj.ExecuteCommand(m.ctx, session, workCmd); err != nil {
-			return planWorkCreatedMsg{beadID: firstBeadID, err: err}
+			// Run automated workflow in a separate goroutine since it's long-running
+			go func() {
+				_ = runAutomatedWorkflowForWork(m.proj, result.WorkID, result.WorktreePath)
+			}()
+		} else {
+			// Spawn the orchestrator
+			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath); err != nil {
+				// Non-fatal: work was created but orchestrator failed to spawn
+				return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
+			}
 		}
 
-		return planWorkCreatedMsg{beadID: firstBeadID, workID: tabName}
+		return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID}
 	}
 }
 
