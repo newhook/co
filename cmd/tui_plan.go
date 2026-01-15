@@ -345,6 +345,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.viewMode {
 	case ViewCreateBead:
 		return m.updateCreateBead(msg)
+	case ViewCreateBeadInline:
+		return m.updateCreateBeadInline(msg)
 	case ViewAddChildBead:
 		return m.updateAddChildBead(msg)
 	case ViewEditBead:
@@ -379,13 +381,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "n":
-		// Create new bead
-		m.viewMode = ViewCreateBead
+		// Create new bead inline
+		m.viewMode = ViewCreateBeadInline
 		m.textInput.Reset()
 		m.textInput.Focus()
 		m.createBeadType = 0
 		m.createBeadPriority = 2
 		m.createDialogFocus = 0 // Start with title focused
+		m.createDescTextarea.Reset()
 		return m, nil
 
 	case "x":
@@ -605,6 +608,9 @@ func (m *planModel) View() string {
 	switch m.viewMode {
 	case ViewCreateBead:
 		return m.renderWithDialog(m.renderCreateBeadDialogContent())
+	case ViewCreateBeadInline:
+		// Inline create mode - render normal view with create form in details area
+		// Fall through to normal rendering
 	case ViewAddChildBead:
 		return m.renderWithDialog(m.renderAddChildBeadDialogContent())
 	case ViewEditBead:

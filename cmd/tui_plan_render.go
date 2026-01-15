@@ -106,6 +106,11 @@ func (m *planModel) renderIssuesList(visibleLines int) string {
 func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 	var content strings.Builder
 
+	// If in inline create mode, render the create form instead of issue details
+	if m.viewMode == ViewCreateBeadInline {
+		return m.renderCreateBeadInlineContent(visibleLines, width)
+	}
+
 	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
 		content.WriteString(tuiDimStyle.Render("No issue selected"))
 	} else {
@@ -198,6 +203,70 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 			}
 		}
 	}
+
+	return content.String()
+}
+
+// renderCreateBeadInlineContent renders the create issue form inline in the details panel
+func (m *planModel) renderCreateBeadInlineContent(visibleLines int, width int) string {
+	var content strings.Builder
+
+	typeFocused := m.createDialogFocus == 1
+	priorityFocused := m.createDialogFocus == 2
+	descFocused := m.createDialogFocus == 3
+
+	// Type rotator display
+	currentType := beadTypes[m.createBeadType]
+	var typeDisplay string
+	if typeFocused {
+		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
+	} else {
+		typeDisplay = typeFeatureStyle.Render(currentType)
+	}
+
+	// Priority display
+	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
+	var priorityDisplay string
+	if priorityFocused {
+		priorityDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(priorityLabels[m.createBeadPriority]))
+	} else {
+		priorityDisplay = priorityLabels[m.createBeadPriority]
+	}
+
+	// Show focus labels
+	titleLabel := "Title:"
+	typeLabel := "Type:"
+	priorityLabel := "Priority:"
+	descLabel := "Description:"
+	if m.createDialogFocus == 0 {
+		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
+	}
+	if typeFocused {
+		typeLabel = tuiValueStyle.Render("Type:") + " (j/k)"
+	}
+	if priorityFocused {
+		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
+	}
+	if descFocused {
+		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
+	}
+
+	// Render the form
+	content.WriteString(tuiLabelStyle.Render("Create New Issue"))
+	content.WriteString("\n\n")
+	content.WriteString(titleLabel)
+	content.WriteString("\n")
+	content.WriteString(m.textInput.View())
+	content.WriteString("\n\n")
+	content.WriteString(typeLabel + " " + typeDisplay)
+	content.WriteString("\n")
+	content.WriteString(priorityLabel + " " + priorityDisplay)
+	content.WriteString("\n\n")
+	content.WriteString(descLabel)
+	content.WriteString("\n")
+	content.WriteString(m.createDescTextarea.View())
+	content.WriteString("\n\n")
+	content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Enter] Create  [Esc] Cancel"))
 
 	return content.String()
 }

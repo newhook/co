@@ -135,6 +135,7 @@ const (
 	ViewNormal ViewMode = iota
 	ViewCreateWork
 	ViewCreateBead
+	ViewCreateBeadInline // Create issue inline in description area
 	ViewCreateEpic
 	ViewAddChildBead // Add child issue to selected issue
 	ViewAddToWork    // Add issue to existing work
