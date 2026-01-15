@@ -42,6 +42,16 @@ func SessionNameForProject(projectName string) string {
 	return fmt.Sprintf("co-%s", projectName)
 }
 
+// FormatTabName formats a tab name with an optional friendly name.
+// If friendlyName is not empty, formats as "prefix-workID (friendlyName)", otherwise just "prefix-workID".
+func FormatTabName(prefix, workID, friendlyName string) string {
+	baseName := fmt.Sprintf("%s-%s", prefix, workID)
+	if friendlyName != "" {
+		return fmt.Sprintf("%s (%s)", baseName, friendlyName)
+	}
+	return baseName
+}
+
 // BuildTaskPrompt builds a prompt for a task with multiple beads.
 func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBranch string) string {
 	data := struct {
