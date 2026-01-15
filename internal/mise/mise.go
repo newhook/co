@@ -2,6 +2,7 @@ package mise
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,32 +81,40 @@ func RunTask(dir, taskName string) error {
 // Returns nil if mise is not enabled in the directory.
 // Errors are returned but callers may choose to treat them as warnings.
 func Initialize(dir string) error {
+	return InitializeWithOutput(dir, os.Stdout)
+}
+
+// InitializeWithOutput runs mise trust, install, and setup task if available.
+// Progress messages are written to the provided writer.
+// Pass io.Discard to suppress output (useful for TUI contexts).
+// Returns nil if mise is not enabled in the directory.
+func InitializeWithOutput(dir string, w io.Writer) error {
 	configFile := findConfigFile(dir)
 	if configFile == "" {
-		fmt.Printf("  Mise: not enabled (no config file found)\n")
+		fmt.Fprintf(w, "  Mise: not enabled (no config file found)\n")
 		return nil
 	}
 
-	fmt.Printf("  Mise: found %s\n", configFile)
+	fmt.Fprintf(w, "  Mise: found %s\n", configFile)
 
-	fmt.Printf("  Mise: running trust...\n")
+	fmt.Fprintf(w, "  Mise: running trust...\n")
 	if err := Trust(dir); err != nil {
 		return err
 	}
 
-	fmt.Printf("  Mise: running install...\n")
+	fmt.Fprintf(w, "  Mise: running install...\n")
 	if err := Install(dir); err != nil {
 		return err
 	}
 
 	// Run setup task if it exists
 	if HasTask(dir, "setup") {
-		fmt.Printf("  Mise: running setup task...\n")
+		fmt.Fprintf(w, "  Mise: running setup task...\n")
 		if err := RunTask(dir, "setup"); err != nil {
 			return err
 		}
 	}
 
-	fmt.Printf("  Mise: initialization complete\n")
+	fmt.Fprintf(w, "  Mise: initialization complete\n")
 	return nil
 }

@@ -949,7 +949,7 @@ func (m *workModel) loadBeadsForAssign() tea.Cmd {
 
 func (m *workModel) createWork(branchName string) tea.Cmd {
 	return func() tea.Msg {
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main")
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", WorkCreateOptions{Silent: true})
 		if err != nil {
 			return workCommandMsg{action: "Create work", err: err}
 		}

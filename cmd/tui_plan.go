@@ -1618,8 +1618,8 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 		}
 		beadGroups := []beadGroup{{beads: groupBeads}}
 
-		// Create work with branch name
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main")
+		// Create work with branch name (silent to avoid console output in TUI)
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", WorkCreateOptions{Silent: true})
 		if err != nil {
 			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
