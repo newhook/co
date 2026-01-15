@@ -382,16 +382,16 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 			}
 			var cmd string
 			if len(exports) > 0 {
-				cmd = fmt.Sprintf("cd %q && %s && claude", workDir, strings.Join(exports, " && "))
+				cmd = fmt.Sprintf("cd %q && %s && claude --dangerously", workDir, strings.Join(exports, " && "))
 			} else {
-				cmd = fmt.Sprintf("cd %q && claude", workDir)
+				cmd = fmt.Sprintf("cd %q && claude --dangerously", workDir)
 			}
 			if err := zc.ExecuteCommand(ctx, sessionName, cmd); err != nil {
 				fmt.Fprintf(w, "Warning: failed to initialize Claude session: %v\n", err)
 			}
 		} else {
 			// No workDir specified, just launch claude
-			if err := zc.ExecuteCommand(ctx, sessionName, "claude"); err != nil {
+			if err := zc.ExecuteCommand(ctx, sessionName, "claude --dangerously"); err != nil {
 				fmt.Fprintf(w, "Warning: failed to launch Claude: %v\n", err)
 			}
 		}
