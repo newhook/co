@@ -20,6 +20,49 @@ func (m *planModel) renderFixedPanel(title, content string, width, height int) s
 	return tuiPanelStyle.Width(width).Height(height - 2).Render(b.String())
 }
 
+// renderTwoColumnLayout renders the issues and details panels side-by-side
+func (m *planModel) renderTwoColumnLayout() string {
+	// Calculate column widths based on ratio
+	// Account for separator (3 chars: " │ ") and panel borders
+	totalContentWidth := m.width - 4 // -4 for outer margins
+	separatorWidth := 3
+
+	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+	detailsWidth := totalContentWidth - separatorWidth - issuesWidth
+
+	// Calculate content height (total height - status bar)
+	contentHeight := m.height - 1 // -1 for status bar
+
+	// Calculate visible lines for each panel (subtract border and title)
+	issuesContentLines := contentHeight - 3 // -3 for border (2) + title (1)
+	detailsContentLines := contentHeight - 3
+
+	// Render issues panel
+	issuesContent := m.renderIssuesList(issuesContentLines)
+	issuesPanelStyle := tuiPanelStyle.Width(issuesWidth).Height(contentHeight - 2)
+	if m.activePanel == PanelLeft {
+		issuesPanelStyle = issuesPanelStyle.BorderForeground(lipgloss.Color("214")) // Highlight active panel
+	}
+	issuesPanel := issuesPanelStyle.Render(tuiTitleStyle.Render("Issues") + "\n" + issuesContent)
+
+	// Render details panel
+	detailsContent := m.renderDetailsPanel(detailsContentLines, detailsWidth)
+	detailsPanelStyle := tuiPanelStyle.Width(detailsWidth).Height(contentHeight - 2)
+	if m.activePanel == PanelRight {
+		detailsPanelStyle = detailsPanelStyle.BorderForeground(lipgloss.Color("214")) // Highlight active panel
+	}
+	detailsPanel := detailsPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
+
+	// Add vertical separator between columns
+	separator := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Height(contentHeight).
+		Render("│")
+
+	// Combine columns horizontally
+	return lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, separator, detailsPanel)
+}
+
 // renderIssuesList renders just the list content for the given number of visible lines
 func (m *planModel) renderIssuesList(visibleLines int) string {
 	filterInfo := fmt.Sprintf("Filter: %s | Sort: %s", m.filters.status, m.filters.sortBy)
