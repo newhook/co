@@ -467,6 +467,14 @@ func (m *monitorModel) renderEmptyPanel(width, height int) string {
 func (m *monitorModel) detectStatusBarButton(x int) string {
 	// Status bar format: "[←↑↓→]navigate [r]efresh"
 	// We need to find the position of each command in the rendered bar
+
+	// Account for the status bar's left padding (tuiStatusBarStyle has Padding(0, 1))
+	// This adds 1 character of padding to the left, shifting all content by 1 column
+	if x < 1 {
+		return ""
+	}
+	x = x - 1
+
 	statusBar := m.renderStatusBarPlain()
 
 	// Find positions of each button

@@ -344,6 +344,13 @@ func (m *planModel) detectCommandsBarButton(x int) string {
 	// Commands bar format: "[n]New [e]Edit [a]Child [x]Close [w]Work [p]Plan [?]Help"
 	// We need to find the position of each command in the rendered bar
 
+	// Account for the status bar's left padding (tuiStatusBarStyle has Padding(0, 1))
+	// This adds 1 character of padding to the left, shifting all content by 1 column
+	if x < 1 {
+		return ""
+	}
+	x = x - 1
+
 	// Get the plain text version of the commands
 	pAction := "[p]Plan"
 	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
