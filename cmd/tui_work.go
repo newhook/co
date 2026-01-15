@@ -337,6 +337,12 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openConsole()
 		}
 
+	case "C":
+		// Open Claude Code session tab for selected work
+		if m.activePanel == PanelLeft && len(m.works) > 0 {
+			return m, m.openClaude()
+		}
+
 	case "?":
 		m.viewMode = ViewHelp
 
@@ -915,7 +921,7 @@ func (m *workModel) renderStatusBar() string {
 	}
 
 	// Commands on the left (plain text for width calculation)
-	keysPlain := "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [R]eview [P]R [?]help"
+	keysPlain := "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [C]laude [R]eview [P]R [?]help"
 	keys := styleHotkeys(keysPlain)
 
 	// Build bar with commands left, status right
@@ -1128,6 +1134,7 @@ func (m *workModel) renderHelp() string {
   r             Run work (execute tasks)
   a             Assign issues to work
   t             Open console tab
+  C             Open Claude Code session
   R             Create review task
   P             Create PR task
   U             Update PR description
@@ -1417,5 +1424,22 @@ func (m *workModel) openConsole() tea.Cmd {
 		}
 
 		return workCommandMsg{action: fmt.Sprintf("Opened console for %s", workID)}
+	}
+}
+
+func (m *workModel) openClaude() tea.Cmd {
+	return func() tea.Msg {
+		if m.worksCursor >= len(m.works) {
+			return workCommandMsg{action: "Open Claude session", err: fmt.Errorf("no work selected")}
+		}
+		wp := m.works[m.worksCursor]
+		workID := wp.work.ID
+
+		err := claude.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, m.proj.Config.Hooks.Env, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Open Claude session", err: err}
+		}
+
+		return workCommandMsg{action: fmt.Sprintf("Opened Claude session for %s", workID)}
 	}
 }
