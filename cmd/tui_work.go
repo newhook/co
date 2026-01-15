@@ -117,9 +117,9 @@ func (m *workModel) SetSize(width, height int) {
 func (m *workModel) FocusChanged(focused bool) tea.Cmd {
 	m.focused = focused
 	if focused {
-		// Refresh data when gaining focus
+		// Refresh data when gaining focus and restart periodic tick
 		m.loading = true
-		return m.refreshData()
+		return tea.Batch(m.refreshData(), m.tick())
 	}
 	return nil
 }

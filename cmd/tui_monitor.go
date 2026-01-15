@@ -81,8 +81,9 @@ func (m *monitorModel) SetSize(width, height int) {
 func (m *monitorModel) FocusChanged(focused bool) tea.Cmd {
 	m.focused = focused
 	if focused {
+		// Refresh data when gaining focus and restart periodic tick
 		m.loading = true
-		return m.refreshData()
+		return tea.Batch(m.refreshData(), m.tick())
 	}
 	return nil
 }
