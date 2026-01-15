@@ -69,6 +69,42 @@ func (q *Queries) DeleteWorkBeads(ctx context.Context, workID string) (int64, er
 	return result.RowsAffected()
 }
 
+const getAllAssignedBeads = `-- name: GetAllAssignedBeads :many
+SELECT bead_id, work_id
+FROM work_beads
+ORDER BY bead_id
+`
+
+type GetAllAssignedBeadsRow struct {
+	BeadID string `json:"bead_id"`
+	WorkID string `json:"work_id"`
+}
+
+// Returns all beads assigned to any work, with their work ID.
+// This is used by plan mode to show which beads are already assigned.
+func (q *Queries) GetAllAssignedBeads(ctx context.Context) ([]GetAllAssignedBeadsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getAllAssignedBeads)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetAllAssignedBeadsRow{}
+	for rows.Next() {
+		var i GetAllAssignedBeadsRow
+		if err := rows.Scan(&i.BeadID, &i.WorkID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAndIncrementBeadGroupCounter = `-- name: GetAndIncrementBeadGroupCounter :one
 UPDATE work_bead_group_counters
 SET next_group_id = next_group_id + 1

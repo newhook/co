@@ -41,6 +41,9 @@ type Querier interface {
 	FailTask(ctx context.Context, arg FailTaskParams) (int64, error)
 	FailTaskBead(ctx context.Context, arg FailTaskBeadParams) (int64, error)
 	FailWork(ctx context.Context, arg FailWorkParams) (int64, error)
+	// Returns all beads assigned to any work, with their work ID.
+	// This is used by plan mode to show which beads are already assigned.
+	GetAllAssignedBeads(ctx context.Context) ([]GetAllAssignedBeadsRow, error)
 	GetAllCachedComplexity(ctx context.Context) ([]GetAllCachedComplexityRow, error)
 	GetAllTaskMetadata(ctx context.Context, taskID string) ([]GetAllTaskMetadataRow, error)
 	GetAndIncrementBeadGroupCounter(ctx context.Context, workID string) (int64, error)

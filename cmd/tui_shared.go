@@ -170,6 +170,7 @@ type beadItem struct {
 	dependencies    []string // IDs of issues that block this one
 	children        []string // IDs of issues blocked by this one (computed from tree)
 	treeDepth       int      // depth in tree view (0 = root)
+	assignedWorkID  string   // work ID if already assigned to a work (empty = not assigned)
 }
 
 // beadFilters holds the current filter state for beads

@@ -32,6 +32,14 @@ type ComplexityCache struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+type PlanSession struct {
+	BeadID        string    `json:"bead_id"`
+	ZellijSession string    `json:"zellij_session"`
+	TabName       string    `json:"tab_name"`
+	Pid           int64     `json:"pid"`
+	StartedAt     time.Time `json:"started_at"`
+}
+
 type SchemaMigration struct {
 	Version   string       `json:"version"`
 	AppliedAt sql.NullTime `json:"applied_at"`

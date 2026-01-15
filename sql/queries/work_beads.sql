@@ -72,3 +72,10 @@ RETURNING next_group_id - 1 as group_id;
 SELECT CAST(COALESCE(MAX(position), -1) AS INTEGER) as max_position
 FROM work_beads
 WHERE work_id = ?;
+
+-- name: GetAllAssignedBeads :many
+-- Returns all beads assigned to any work, with their work ID.
+-- This is used by plan mode to show which beads are already assigned.
+SELECT bead_id, work_id
+FROM work_beads
+ORDER BY bead_id;
