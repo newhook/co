@@ -289,9 +289,19 @@ func (m *planModel) renderCommandsBar() string {
 		}
 	}
 
-	// Commands on the left (plain text for width calculation)
+	// Commands on the left with hover effects
+	nButton := m.styleButtonWithHover("[n]New", "n")
+	eButton := m.styleButtonWithHover("[e]Edit", "e")
+	aButton := m.styleButtonWithHover("[a]Child", "a")
+	xButton := m.styleButtonWithHover("[x]Close", "x")
+	wButton := m.styleButtonWithHover("[w]Work", "w")
+	pButton := m.styleButtonWithHover(pAction, "p")
+	helpButton := m.styleButtonWithHover("[?]Help", "?")
+
+	commands := nButton + " " + eButton + " " + aButton + " " + xButton + " " + wButton + " " + pButton + " " + helpButton
+
+	// Commands plain text for width calculation
 	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work %s [?]Help", pAction)
-	commands := styleHotkeys(commandsPlain)
 
 	// Status on the right
 	var status string
@@ -314,6 +324,69 @@ func (m *planModel) renderCommandsBar() string {
 	// Build bar with commands left, status right
 	padding := max(m.width-len(commandsPlain)-len(statusPlain)-4, 2)
 	return tuiStatusBarStyle.Width(m.width).Render(commands + strings.Repeat(" ", padding) + status)
+}
+
+// styleButtonWithHover styles a button with hover effect if mouse is over it
+func (m *planModel) styleButtonWithHover(text, buttonKey string) string {
+	hoverStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).   // Black text
+		Background(lipgloss.Color("214")). // Orange background
+		Bold(true)
+
+	if m.hoveredButton == buttonKey {
+		return hoverStyle.Render(text)
+	}
+	return styleHotkeys(text)
+}
+
+// detectCommandsBarButton determines which button is at the given X position in the commands bar
+func (m *planModel) detectCommandsBarButton(x int) string {
+	// Commands bar format: "[n]New [e]Edit [a]Child [x]Close [w]Work [p]Plan [?]Help"
+	// We need to find the position of each command in the rendered bar
+
+	// Get the plain text version of the commands
+	pAction := "[p]Plan"
+	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		beadID := m.beadItems[m.beadsCursor].id
+		if m.activeBeadSessions[beadID] {
+			pAction = "[p]Resume"
+		}
+	}
+	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work %s [?]Help", pAction)
+
+	// Find positions of each button
+	nIdx := strings.Index(commandsPlain, "[n]New")
+	eIdx := strings.Index(commandsPlain, "[e]Edit")
+	aIdx := strings.Index(commandsPlain, "[a]Child")
+	xIdx := strings.Index(commandsPlain, "[x]Close")
+	wIdx := strings.Index(commandsPlain, "[w]Work")
+	pIdx := strings.Index(commandsPlain, pAction)
+	helpIdx := strings.Index(commandsPlain, "[?]Help")
+
+	// Check if mouse is over any button (give reasonable width for clickability)
+	if nIdx >= 0 && x >= nIdx && x < nIdx+6 { // "[n]New" is 6 chars
+		return "n"
+	}
+	if eIdx >= 0 && x >= eIdx && x < eIdx+7 { // "[e]Edit" is 7 chars
+		return "e"
+	}
+	if aIdx >= 0 && x >= aIdx && x < aIdx+8 { // "[a]Child" is 8 chars
+		return "a"
+	}
+	if xIdx >= 0 && x >= xIdx && x < xIdx+8 { // "[x]Close" is 8 chars
+		return "x"
+	}
+	if wIdx >= 0 && x >= wIdx && x < wIdx+7 { // "[w]Work" is 7 chars
+		return "w"
+	}
+	if pIdx >= 0 && x >= pIdx && x < pIdx+len(pAction) {
+		return "p"
+	}
+	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+7 { // "[?]Help" is 7 chars
+		return "?"
+	}
+
+	return ""
 }
 
 func (m *planModel) renderBeadLine(i int, bead beadItem) string {

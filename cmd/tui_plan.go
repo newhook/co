@@ -83,6 +83,11 @@ type planModel struct {
 
 	// Two-column layout settings
 	columnRatio float64 // Ratio of issues column width (0.0-1.0), default 0.4 for 40/60 split
+
+	// Mouse state
+	mouseX        int
+	mouseY        int
+	hoveredButton string // which button is hovered ("n", "e", "w", "p", etc.)
 }
 
 // newPlanModel creates a new Plan Mode model
@@ -178,6 +183,48 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+
+	case tea.MouseMsg:
+		m.mouseX = msg.X
+		m.mouseY = msg.Y
+
+		// Calculate status bar Y position (at bottom of view)
+		statusBarY := m.height - 1
+
+		// Handle hover detection for motion events
+		if msg.Action == tea.MouseActionMotion {
+			if msg.Y == statusBarY {
+				m.hoveredButton = m.detectCommandsBarButton(msg.X)
+			} else {
+				m.hoveredButton = ""
+			}
+			return m, nil
+		}
+
+		// Handle clicks on status bar buttons
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if msg.Y == statusBarY {
+				clickedButton := m.detectCommandsBarButton(msg.X)
+				// Trigger the corresponding action by simulating a key press
+				switch clickedButton {
+				case "n":
+					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+				case "e":
+					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+				case "a":
+					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+				case "x":
+					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+				case "w":
+					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+				case "p":
+					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+				case "?":
+					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+				}
+			}
+		}
 		return m, nil
 
 	case planDataMsg:
