@@ -749,3 +749,361 @@ func (m *planModel) renderAddToWorkDialogContent() string {
 
 	return tuiDialogStyle.Render(content)
 }
+
+// updateLinearImport handles input for the Linear import dialog
+func (m *planModel) updateLinearImport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+		m.viewMode = ViewNormal
+		m.linearImportInput.Blur()
+		return m, nil
+	}
+
+	// Tab cycles between elements
+	if msg.Type == tea.KeyTab {
+		m.linearImportFocus = (m.linearImportFocus + 1) % 6
+		if m.linearImportFocus == 0 {
+			m.linearImportInput.Focus()
+		} else {
+			m.linearImportInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.linearImportFocus--
+		if m.linearImportFocus < 0 {
+			m.linearImportFocus = 5
+		}
+		if m.linearImportFocus == 0 {
+			m.linearImportInput.Focus()
+		} else {
+			m.linearImportInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Enter submits from input field or buttons
+	if msg.String() == "enter" {
+		if m.linearImportFocus == 5 {
+			// On buttons
+			if m.linearImportButtonIdx == 0 {
+				// Import button
+				issueID := strings.TrimSpace(m.linearImportInput.Value())
+				if issueID != "" {
+					m.viewMode = ViewNormal
+					m.linearImporting = true
+					return m, m.importLinearIssue(issueID)
+				}
+			} else {
+				// Cancel button
+				m.viewMode = ViewNormal
+				m.linearImportInput.Blur()
+			}
+			return m, nil
+		} else if m.linearImportFocus == 0 {
+			// Submit from input field
+			issueID := strings.TrimSpace(m.linearImportInput.Value())
+			if issueID != "" {
+				m.viewMode = ViewNormal
+				m.linearImporting = true
+				return m, m.importLinearIssue(issueID)
+			}
+			return m, nil
+		}
+	}
+
+	// Handle input based on focused element
+	var cmd tea.Cmd
+	switch m.linearImportFocus {
+	case 0: // Input field
+		m.linearImportInput, cmd = m.linearImportInput.Update(msg)
+		return m, cmd
+
+	case 1: // Create dependencies checkbox
+		if msg.String() == " " || msg.String() == "x" {
+			m.linearImportCreateDeps = !m.linearImportCreateDeps
+		}
+		return m, nil
+
+	case 2: // Update existing checkbox
+		if msg.String() == " " || msg.String() == "x" {
+			m.linearImportUpdate = !m.linearImportUpdate
+		}
+		return m, nil
+
+	case 3: // Dry run checkbox
+		if msg.String() == " " || msg.String() == "x" {
+			m.linearImportDryRun = !m.linearImportDryRun
+		}
+		return m, nil
+
+	case 4: // Max depth
+		switch msg.String() {
+		case "j", "down", "-":
+			if m.linearImportMaxDepth > 1 {
+				m.linearImportMaxDepth--
+			}
+		case "k", "up", "+", "=":
+			if m.linearImportMaxDepth < 5 {
+				m.linearImportMaxDepth++
+			}
+		}
+		return m, nil
+
+	case 5: // Buttons
+		switch msg.String() {
+		case "h", "left", "j", "down":
+			m.linearImportButtonIdx = 1 // Cancel
+		case "l", "right", "k", "up":
+			m.linearImportButtonIdx = 0 // Import
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// updateLinearBatchImport handles input for the Linear batch import dialog
+func (m *planModel) updateLinearBatchImport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+		m.viewMode = ViewNormal
+		m.linearBatchInput.Blur()
+		return m, nil
+	}
+
+	// Tab cycles between elements: input(0) -> options(1) -> buttons(2)
+	if msg.Type == tea.KeyTab {
+		m.linearBatchFocus = (m.linearBatchFocus + 1) % 3
+		if m.linearBatchFocus == 0 {
+			m.linearBatchInput.Focus()
+		} else {
+			m.linearBatchInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.linearBatchFocus--
+		if m.linearBatchFocus < 0 {
+			m.linearBatchFocus = 2
+		}
+		if m.linearBatchFocus == 0 {
+			m.linearBatchInput.Focus()
+		} else {
+			m.linearBatchInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Ctrl+Enter submits from textarea
+	if msg.String() == "ctrl+enter" && m.linearBatchFocus == 0 {
+		issueIDs := strings.Split(strings.TrimSpace(m.linearBatchInput.Value()), "\n")
+		var validIDs []string
+		for _, id := range issueIDs {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				validIDs = append(validIDs, id)
+			}
+		}
+		if len(validIDs) > 0 {
+			m.viewMode = ViewNormal
+			m.linearImporting = true
+			return m, m.importLinearBatch(validIDs)
+		}
+		return m, nil
+	}
+
+	// Enter on buttons
+	if msg.String() == "enter" && m.linearBatchFocus == 2 {
+		if m.linearImportButtonIdx == 0 {
+			// Import button
+			issueIDs := strings.Split(strings.TrimSpace(m.linearBatchInput.Value()), "\n")
+			var validIDs []string
+			for _, id := range issueIDs {
+				id = strings.TrimSpace(id)
+				if id != "" {
+					validIDs = append(validIDs, id)
+				}
+			}
+			if len(validIDs) > 0 {
+				m.viewMode = ViewNormal
+				m.linearImporting = true
+				return m, m.importLinearBatch(validIDs)
+			}
+		} else {
+			// Cancel button
+			m.viewMode = ViewNormal
+			m.linearBatchInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Handle input based on focused element
+	var cmd tea.Cmd
+	switch m.linearBatchFocus {
+	case 0: // Textarea
+		m.linearBatchInput, cmd = m.linearBatchInput.Update(msg)
+		return m, cmd
+
+	case 1: // Options (checkboxes)
+		switch msg.String() {
+		case "1":
+			m.linearImportCreateDeps = !m.linearImportCreateDeps
+		case "2":
+			m.linearImportUpdate = !m.linearImportUpdate
+		case "3":
+			m.linearImportDryRun = !m.linearImportDryRun
+		}
+		return m, nil
+
+	case 2: // Buttons
+		switch msg.String() {
+		case "h", "left":
+			m.linearImportButtonIdx = 1 // Cancel
+		case "l", "right":
+			m.linearImportButtonIdx = 0 // Import
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// renderLinearImportDialogContent renders the Linear import dialog
+func (m *planModel) renderLinearImportDialogContent() string {
+	inputLabel := "Issue ID/URL:"
+	if m.linearImportFocus == 0 {
+		inputLabel = tuiValueStyle.Render("Issue ID/URL:") + " (editing)"
+	}
+
+	// Checkboxes
+	createDepsCheck := " "
+	updateCheck := " "
+	dryRunCheck := " "
+	if m.linearImportCreateDeps {
+		createDepsCheck = "x"
+	}
+	if m.linearImportUpdate {
+		updateCheck = "x"
+	}
+	if m.linearImportDryRun {
+		dryRunCheck = "x"
+	}
+
+	// Focus indicators
+	createDepsLabel := fmt.Sprintf("[%s] Create dependencies", createDepsCheck)
+	updateLabel := fmt.Sprintf("[%s] Update existing", updateCheck)
+	dryRunLabel := fmt.Sprintf("[%s] Dry run", dryRunCheck)
+	maxDepthLabel := fmt.Sprintf("Max depth: %d", m.linearImportMaxDepth)
+
+	if m.linearImportFocus == 1 {
+		createDepsLabel = tuiValueStyle.Render(createDepsLabel) + " (space to toggle)"
+	}
+	if m.linearImportFocus == 2 {
+		updateLabel = tuiValueStyle.Render(updateLabel) + " (space to toggle)"
+	}
+	if m.linearImportFocus == 3 {
+		dryRunLabel = tuiValueStyle.Render(dryRunLabel) + " (space to toggle)"
+	}
+	if m.linearImportFocus == 4 {
+		maxDepthLabel = tuiValueStyle.Render(maxDepthLabel) + " (+/- adjust)"
+	}
+
+	// Buttons
+	var importBtn, cancelBtn string
+	if m.linearImportFocus == 5 {
+		if m.linearImportButtonIdx == 0 {
+			importBtn = tuiSelectedStyle.Render(" Import ")
+			cancelBtn = tuiDimStyle.Render(" Cancel ")
+		} else {
+			importBtn = tuiDimStyle.Render(" Import ")
+			cancelBtn = tuiSelectedStyle.Render(" Cancel ")
+		}
+	} else {
+		importBtn = tuiDimStyle.Render(" Import ")
+		cancelBtn = tuiDimStyle.Render(" Cancel ")
+	}
+
+	content := fmt.Sprintf(`  Import from Linear
+
+  %s
+  %s
+
+  Options:
+  %s
+  %s
+  %s
+  %s
+
+  %s  %s
+
+  [Tab] Next field  [Enter] Import  [Esc] Cancel
+`, inputLabel, m.linearImportInput.View(),
+		createDepsLabel, updateLabel, dryRunLabel, maxDepthLabel,
+		importBtn, cancelBtn)
+
+	return tuiDialogStyle.Render(content)
+}
+
+// renderLinearBatchImportDialogContent renders the Linear batch import dialog
+func (m *planModel) renderLinearBatchImportDialogContent() string {
+	inputLabel := "Issue IDs/URLs (one per line):"
+	if m.linearBatchFocus == 0 {
+		inputLabel = tuiValueStyle.Render("Issue IDs/URLs (one per line):") + " (editing, Ctrl+Enter to submit)"
+	}
+
+	// Checkboxes
+	createDepsCheck := " "
+	updateCheck := " "
+	dryRunCheck := " "
+	if m.linearImportCreateDeps {
+		createDepsCheck = "x"
+	}
+	if m.linearImportUpdate {
+		updateCheck = "x"
+	}
+	if m.linearImportDryRun {
+		dryRunCheck = "x"
+	}
+
+	optionsLabel := "Options:"
+	if m.linearBatchFocus == 1 {
+		optionsLabel = tuiValueStyle.Render("Options:") + " (press 1/2/3 to toggle)"
+	}
+
+	// Buttons
+	var importBtn, cancelBtn string
+	if m.linearBatchFocus == 2 {
+		if m.linearImportButtonIdx == 0 {
+			importBtn = tuiSelectedStyle.Render(" Import ")
+			cancelBtn = tuiDimStyle.Render(" Cancel ")
+		} else {
+			importBtn = tuiDimStyle.Render(" Import ")
+			cancelBtn = tuiSelectedStyle.Render(" Cancel ")
+		}
+	} else {
+		importBtn = tuiDimStyle.Render(" Import ")
+		cancelBtn = tuiDimStyle.Render(" Cancel ")
+	}
+
+	content := fmt.Sprintf(`  Batch Import from Linear
+
+  %s
+%s
+
+  %s
+  [1] [%s] Create dependencies
+  [2] [%s] Update existing
+  [3] [%s] Dry run
+
+  %s  %s
+
+  [Tab] Next section  [Ctrl+Enter/Enter] Import  [Esc] Cancel
+`, inputLabel, indentLines(m.linearBatchInput.View(), "  "),
+		optionsLabel, createDepsCheck, updateCheck, dryRunCheck,
+		importBtn, cancelBtn)
+
+	return tuiDialogStyle.Render(content)
+}

@@ -88,6 +88,18 @@ type planModel struct {
 	mouseY        int
 	hoveredButton string // which button is hovered ("n", "e", "w", "p", etc.)
 	hoveredIssue  int    // index of hovered issue, -1 if none
+
+	// Linear import state
+	linearImportInput     textinput.Model // Input for Linear issue ID/URL
+	linearImportCreateDeps bool           // Whether to create dependencies
+	linearImportUpdate    bool           // Whether to update existing beads
+	linearImportDryRun    bool           // Dry run mode
+	linearImportMaxDepth  int            // Max dependency depth
+	linearImportFocus     int            // 0=input, 1=createDeps, 2=update, 3=dryRun, 4=maxDepth, 5=buttons
+	linearImportButtonIdx int            // 0=Import, 1=Cancel
+	linearImporting       bool           // Whether import is in progress
+	linearBatchInput      textarea.Model // Textarea for batch import (multiple IDs)
+	linearBatchFocus      int            // 0=input, 1=options, 2=buttons
 }
 
 // newPlanModel creates a new Plan Mode model
@@ -124,24 +136,38 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	branchInput.CharLimit = 100
 	branchInput.Width = 60
 
+	linearInput := textinput.New()
+	linearInput.Placeholder = "Enter Linear issue ID or URL (e.g., ENG-123 or https://linear.app/...)"
+	linearInput.CharLimit = 200
+	linearInput.Width = 60
+
+	linearBatchTa := textarea.New()
+	linearBatchTa.Placeholder = "Enter Linear issue IDs or URLs, one per line..."
+	linearBatchTa.CharLimit = 2000
+	linearBatchTa.SetWidth(60)
+	linearBatchTa.SetHeight(8)
+
 	return &planModel{
-		editTitleTextarea:  titleTa,
-		editDescTextarea:   descTa,
-		createDescTextarea: createDescTa,
-		createWorkBranch:   branchInput,
-		ctx:                ctx,
-		proj:               proj,
-		width:              80,
-		height:             24,
-		activePanel:        PanelLeft,
-		spinner:            s,
-		textInput:          ti,
-		activeBeadSessions: make(map[string]bool),
-		selectedBeads:      make(map[string]bool),
-		createBeadPriority: 2,
-		zj:                 zellij.New(),
-		columnRatio:        0.4, // Default 40/60 split (issues/details)
-		hoveredIssue:       -1,  // No issue hovered initially
+		editTitleTextarea:     titleTa,
+		editDescTextarea:      descTa,
+		createDescTextarea:    createDescTa,
+		createWorkBranch:      branchInput,
+		linearImportInput:     linearInput,
+		linearBatchInput:      linearBatchTa,
+		linearImportMaxDepth:  2, // Default max depth
+		ctx:                   ctx,
+		proj:                  proj,
+		width:                 80,
+		height:                24,
+		activePanel:           PanelLeft,
+		spinner:               s,
+		textInput:             ti,
+		activeBeadSessions:    make(map[string]bool),
+		selectedBeads:         make(map[string]bool),
+		createBeadPriority:    2,
+		zj:                    zellij.New(),
+		columnRatio:           0.4, // Default 40/60 split (issues/details)
+		hoveredIssue:          -1,  // No issue hovered initially
 		filters: beadFilters{
 			status: "open",
 			sortBy: "default",
@@ -318,6 +344,30 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusIsError = false
 		return m, m.refreshData()
 
+	case linearImportCompleteMsg:
+		m.linearImporting = false
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Import failed: %v", msg.err)
+			m.statusIsError = true
+		} else {
+			if len(msg.beadIDs) == 1 {
+				m.statusMessage = fmt.Sprintf("Successfully imported %s", msg.beadIDs[0])
+			} else {
+				m.statusMessage = fmt.Sprintf("Successfully imported %d issues", len(msg.beadIDs))
+			}
+			m.statusIsError = false
+		}
+		return m, m.refreshData()
+
+	case linearImportProgressMsg:
+		if msg.total > 0 {
+			m.statusMessage = fmt.Sprintf("Importing... [%d/%d] %s", msg.current, msg.total, msg.message)
+		} else {
+			m.statusMessage = msg.message
+		}
+		m.statusIsError = false
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 
@@ -397,6 +447,19 @@ type beadAddedToWorkMsg struct {
 // editorFinishedMsg is sent when the external editor closes
 type editorFinishedMsg struct{}
 
+// linearImportCompleteMsg is sent when a Linear import completes
+type linearImportCompleteMsg struct {
+	beadIDs []string // IDs of imported beads
+	err     error
+}
+
+// linearImportProgressMsg is sent to update Linear import progress
+type linearImportProgressMsg struct {
+	current int
+	total   int
+	message string
+}
+
 func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle dialog-specific input
 	switch m.viewMode {
@@ -418,6 +481,10 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateLabelFilter(msg)
 	case ViewCloseBeadConfirm:
 		return m.updateCloseBeadConfirm(msg)
+	case ViewLinearImport:
+		return m.updateLinearImport(msg)
+	case ViewLinearBatchImport:
+		return m.updateLinearBatchImport(msg)
 	case ViewHelp:
 		m.viewMode = ViewNormal
 		return m, nil
@@ -641,6 +708,31 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "i":
+		// Import single Linear issue
+		m.viewMode = ViewLinearImport
+		m.linearImportInput.Reset()
+		m.linearImportInput.Focus()
+		m.linearImportFocus = 0
+		m.linearImportButtonIdx = 0
+		m.linearImportCreateDeps = false
+		m.linearImportUpdate = false
+		m.linearImportDryRun = false
+		m.linearImportMaxDepth = 2
+		return m, nil
+
+	case "I":
+		// Batch import Linear issues
+		m.viewMode = ViewLinearBatchImport
+		m.linearBatchInput.Reset()
+		m.linearBatchInput.Focus()
+		m.linearBatchFocus = 0
+		m.linearImportCreateDeps = false
+		m.linearImportUpdate = false
+		m.linearImportDryRun = false
+		m.linearImportMaxDepth = 2
+		return m, nil
+
 	case "W":
 		// Add selected issue to existing work
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
@@ -683,6 +775,10 @@ func (m *planModel) View() string {
 		return m.renderWithDialog(m.renderLabelFilterDialogContent())
 	case ViewCloseBeadConfirm:
 		return m.renderWithDialog(m.renderCloseBeadConfirmContent())
+	case ViewLinearImport:
+		return m.renderWithDialog(m.renderLinearImportDialogContent())
+	case ViewLinearBatchImport:
+		return m.renderWithDialog(m.renderLinearBatchImportDialogContent())
 	case ViewHelp:
 		return m.renderHelp()
 	}

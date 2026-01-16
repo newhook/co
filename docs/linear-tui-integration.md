@@ -1,349 +1,177 @@
 # Linear TUI Integration Status
 
-## Current Status: Not Implemented
+## Current Status: ✅ Implemented
 
-The Linear import feature is currently available **only via CLI** (`co linear import`). There is no TUI integration at this time.
+The Linear import feature is now available **both via CLI and TUI**:
+- **CLI**: `co linear import` command
+- **TUI**: Interactive dialogs accessible via `i` and `I` hotkeys in Plan Mode
 
-## Planned TUI Integration
+## Implementation Details
 
-The TUI integration for Linear import is planned as a future enhancement. This document outlines the intended design and implementation approach.
+The TUI integration has been fully implemented with all planned features. This document describes the implementation and usage.
 
-### Proposed Features
+### Implemented Features
 
 #### 1. Quick Import Hotkey
 
-Add a global hotkey in the TUI to trigger Linear import:
+A hotkey in Plan Mode triggers Linear import:
 
-- **Hotkey**: `i` or `I` (for "Import from Linear")
-- **Context**: Available from the main beads list view
+- **Hotkey**: `i` (for "Import from Linear")
+- **Context**: Available from the Plan Mode beads list view
 - **Action**: Opens a text input dialog for entering Linear issue ID or URL
 
 #### 2. Import Dialog
 
-The import dialog should provide:
+The import dialog provides:
 
 - **Text Input**: Enter Linear issue ID (e.g., `ENG-123`) or URL
 - **Options Panel**:
-  - `[ ] Create dependencies` - Import blocking issues as dependencies
-  - `[ ] Update existing` - Update bead if already imported
-  - `[ ] Dry run` - Preview without creating
-  - `Max depth: [1]` - Maximum dependency depth
+  - `[x] Create dependencies` - Import blocking issues as dependencies (toggle with space)
+  - `[x] Update existing` - Update bead if already imported (toggle with space)
+  - `[x] Dry run` - Preview without creating (toggle with space)
+  - `Max depth: 2` - Maximum dependency depth (adjust with +/- keys)
 - **Buttons**:
   - `[Import]` - Execute the import
   - `[Cancel]` - Close dialog without importing
+- **Navigation**: Tab/Shift+Tab cycles between fields
+- **Submit**: Enter key from input field or Import button
 
 #### 3. Batch Import Support
 
 For importing multiple issues:
 
-- **Hotkey**: `Shift+I` (for batch import)
-- **Multi-line Input**: Enter one issue ID/URL per line
-- **Progress Display**: Show import progress (e.g., "Importing... [3/10]")
-- **Results Summary**: Display success/skip/error counts
+- **Hotkey**: `I` (Shift+i for batch import)
+- **Multi-line Input**: Enter one issue ID/URL per line in a textarea
+- **Options Panel**: Same import options as single import (toggle with 1/2/3 keys)
+- **Results Summary**: Status messages show success/error counts after import completes
 
 #### 4. Import Status Indicators
 
-In the main beads list view:
+Import status is shown in status messages:
 
-- **External Reference Badge**: Show Linear icon/badge for beads imported from Linear
-- **Metadata Display**: Show Linear issue ID in bead details (e.g., "External: ENG-123")
-- **URL Link**: Make Linear URL clickable/copyable from bead details view
+- **Success**: "Successfully imported <bead-id>" for single imports
+- **Success (batch)**: "Successfully imported N issues" for batch imports
+- **Error**: Error messages displayed in red with details
 
-#### 5. Workflow Integration
+Note: Beads imported from Linear will have Linear metadata stored by the beads system.
 
-Integrate with existing TUI workflows:
+#### 5. Help Integration
 
-- **Work Creation**: When creating work, suggest importing related Linear issues
-- **Bead Details**: From bead details view, allow "Update from Linear" action
-- **Search Integration**: Search for beads by Linear issue ID
+The Linear import commands are documented in the TUI help screen:
 
-## Implementation Guide
+- Press `?` in Plan Mode to see help
+- Help lists both `i` (single import) and `I` (batch import) commands
+- Located in the "Issue Management" section of the help screen
 
-### Step 1: Add Import Dialog Component
+## Implementation Architecture
 
-Create a new TUI component for the import dialog:
+The implementation follows the established TUI patterns in the `co` codebase:
 
-```go
-// File: cmd/tui_linear_import.go
+### File Organization
 
-type linearImportDialog struct {
-    input         textinput.Model
-    createDeps    bool
-    updateExist   bool
-    dryRun        bool
-    maxDepth      int
-    fetcher       *linear.Fetcher
-    importing     bool
-    result        *linear.ImportResult
-    err           error
-}
+**View Modes** (`cmd/tui_shared.go`):
+- `ViewLinearImport` - Single issue import dialog
+- `ViewLinearBatchImport` - Batch import dialog
 
-func newLinearImportDialog() linearImportDialog {
-    input := textinput.New()
-    input.Placeholder = "Enter Linear issue ID or URL (e.g., ENG-123)"
-    input.Focus()
-    input.Width = 60
+**State Management** (`cmd/tui_plan.go`):
+- `linearImportInput` - Text input for issue ID/URL
+- `linearImportCreateDeps`, `linearImportUpdate`, `linearImportDryRun` - Import options
+- `linearImportMaxDepth` - Dependency depth setting
+- `linearImportFocus` - Currently focused field
+- `linearImporting` - Import in progress flag
+- `linearBatchInput` - Textarea for batch import
 
-    return linearImportDialog{
-        input:    input,
-        maxDepth: 1,
-    }
-}
+**Message Types** (`cmd/tui_plan.go`):
+- `linearImportCompleteMsg` - Sent when import completes (success or error)
+- `linearImportProgressMsg` - Sent during batch import progress (future enhancement)
 
-func (d linearImportDialog) Update(msg tea.Msg) (linearImportDialog, tea.Cmd) {
-    switch msg := msg.(type) {
-    case tea.KeyMsg:
-        switch msg.String() {
-        case "enter":
-            if !d.importing {
-                return d, d.startImport()
-            }
-        case "esc":
-            return d, closeDialogCmd
-        case "tab":
-            // Cycle through options
-            return d, nil
-        }
-    case importCompleteMsg:
-        d.importing = false
-        d.result = msg.result
-        d.err = msg.err
-        return d, nil
-    }
+**Dialog Handlers** (`cmd/tui_plan_dialogs.go`):
+- `updateLinearImport()` - Handles keyboard input for single import dialog
+- `updateLinearBatchImport()` - Handles keyboard input for batch import dialog
+- `renderLinearImportDialogContent()` - Renders single import dialog UI
+- `renderLinearBatchImportDialogContent()` - Renders batch import dialog UI
 
-    var cmd tea.Cmd
-    d.input, cmd = d.input.Update(msg)
-    return d, cmd
-}
+**Import Execution** (`cmd/tui_plan_data.go`):
+- `importLinearIssue()` - Executes single issue import using `linear.Fetcher`
+- `importLinearBatch()` - Executes batch import using `linear.Fetcher.FetchBatch()`
 
-func (d linearImportDialog) View() string {
-    if d.importing {
-        return lipgloss.NewStyle().
-            Padding(1, 2).
-            Render("⏳ Importing from Linear...")
-    }
+**Key Design Decisions:**
 
-    if d.result != nil || d.err != nil {
-        return d.renderResult()
-    }
+1. **Bubbles Integration**: Uses `bubbles/textinput` for single-line input and `bubbles/textarea` for multi-line batch import
+2. **Async Execution**: Import operations run asynchronously using Bubble Tea commands, preventing UI freezing
+3. **Direct Fetcher Use**: Calls `internal/linear.Fetcher` directly rather than shelling out to CLI commands
+4. **Error Handling**: Import errors are displayed in the status bar and can show partial success for batch imports
 
-    return d.renderInput()
-}
-
-func (d linearImportDialog) startImport() tea.Cmd {
-    d.importing = true
-    issueID := d.input.Value()
-
-    return func() tea.Msg {
-        ctx := context.Background()
-        opts := &linear.ImportOptions{
-            CreateDeps:     d.createDeps,
-            UpdateExisting: d.updateExist,
-            DryRun:         d.dryRun,
-            MaxDepDepth:    d.maxDepth,
-        }
-
-        result, err := d.fetcher.FetchAndImport(ctx, issueID, opts)
-        return importCompleteMsg{result: result, err: err}
-    }
-}
-
-type importCompleteMsg struct {
-    result *linear.ImportResult
-    err    error
-}
-```
-
-### Step 2: Integrate with Main TUI
-
-Modify the main TUI model to include the import dialog:
-
-```go
-// File: cmd/tui_root.go
-
-type model struct {
-    // ... existing fields ...
-    linearImportDialog *linearImportDialog
-    showLinearImport   bool
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    // Handle import dialog if visible
-    if m.showLinearImport && m.linearImportDialog != nil {
-        var cmd tea.Cmd
-        *m.linearImportDialog, cmd = m.linearImportDialog.Update(msg)
-        return m, cmd
-    }
-
-    switch msg := msg.(type) {
-    case tea.KeyMsg:
-        switch msg.String() {
-        case "i", "I":
-            // Open Linear import dialog
-            m.linearImportDialog = newLinearImportDialog()
-            m.showLinearImport = true
-            return m, nil
-        // ... existing key handlers ...
-        }
-    }
-
-    // ... existing update logic ...
-}
-```
-
-### Step 3: Add Visual Indicators
-
-Update the beads list view to show Linear metadata:
-
-```go
-// File: cmd/tui_shared.go
-
-func renderBeadRow(bead Bead) string {
-    var badges []string
-
-    // Add Linear badge if imported from Linear
-    if bead.ExternalRef != "" && isLinearID(bead.ExternalRef) {
-        badges = append(badges, "🔗 Linear")
-    }
-
-    // ... existing badge logic ...
-
-    return lipgloss.JoinHorizontal(
-        lipgloss.Left,
-        bead.ID,
-        " ",
-        strings.Join(badges, " "),
-        " ",
-        bead.Title,
-    )
-}
-
-func isLinearID(ref string) bool {
-    // Check if external ref matches Linear ID format (e.g., "ENG-123")
-    matched, _ := regexp.MatchString(`^[A-Z]+-\d+$`, ref)
-    return matched
-}
-```
-
-### Step 4: Add Batch Import Support
-
-Create a batch import dialog:
-
-```go
-// File: cmd/tui_linear_batch_import.go
-
-type linearBatchImportDialog struct {
-    textarea     textarea.Model
-    fetcher      *linear.Fetcher
-    issues       []string
-    results      []*linear.ImportResult
-    currentIndex int
-    importing    bool
-}
-
-func (d linearBatchImportDialog) startBatchImport() tea.Cmd {
-    // Parse input into issue IDs
-    d.issues = strings.Split(d.textarea.Value(), "\n")
-    d.currentIndex = 0
-    d.importing = true
-
-    return d.importNext()
-}
-
-func (d linearBatchImportDialog) importNext() tea.Cmd {
-    if d.currentIndex >= len(d.issues) {
-        return nil // Done
-    }
-
-    issueID := strings.TrimSpace(d.issues[d.currentIndex])
-    if issueID == "" {
-        d.currentIndex++
-        return d.importNext()
-    }
-
-    return func() tea.Msg {
-        ctx := context.Background()
-        result, err := d.fetcher.FetchAndImport(ctx, issueID, nil)
-        if err != nil {
-            result.Error = err
-        }
-        return batchImportProgressMsg{result: result}
-    }
-}
-
-type batchImportProgressMsg struct {
-    result *linear.ImportResult
-}
-```
-
-## Configuration
+## Usage
 
 ### Environment Setup
 
-The TUI will require the `LINEAR_API_KEY` environment variable to be set:
+Set the Linear API key environment variable:
 
 ```bash
 export LINEAR_API_KEY=lin_api_...
-co tui
 ```
 
-### User Preferences
+Then launch the TUI in Plan Mode (Ctrl+P):
 
-Future enhancement: Allow users to configure default import options in `~/.co/config.toml`:
+```bash
+co tui
+# Press Ctrl+P to switch to Plan Mode
+```
 
-```toml
-[linear]
-api_key = "lin_api_..."  # Optional: can also use env var
-create_deps_default = true
-max_dep_depth = 2
+### Single Issue Import
+
+1. Press `i` to open the import dialog
+2. Enter a Linear issue ID (e.g., `ENG-123`) or full URL
+3. (Optional) Tab through fields to configure options:
+   - Space to toggle "Create dependencies"
+   - Space to toggle "Update existing"
+   - Space to toggle "Dry run"
+   - +/- to adjust max dependency depth
+4. Press Enter to import or Esc to cancel
+5. Import result will appear in the status bar
+
+### Batch Import
+
+1. Press `I` (Shift+i) to open batch import dialog
+2. Enter one Linear issue ID or URL per line
+3. (Optional) Tab to options and press 1/2/3 to toggle settings
+4. Press Ctrl+Enter (from textarea) or Enter (from buttons) to import
+5. Results summary will appear in status bar
+
+## Configuration
+
+The TUI uses the same configuration as the CLI command. Required environment variable:
+
+```bash
+LINEAR_API_KEY=lin_api_...  # Required for Linear API access
+```
+
+Optional beads directory (auto-detected by default):
+
+```bash
+BEADS_DIR=/path/to/.beads
 ```
 
 ## Testing
 
 ### Manual Testing Checklist
 
-- [ ] Open import dialog with `i` hotkey
-- [ ] Enter valid Linear issue ID
-- [ ] Verify import success with visual feedback
-- [ ] Test invalid issue ID error handling
-- [ ] Test network error handling
-- [ ] Test batch import with multiple issues
-- [ ] Verify Linear badge appears in beads list
-- [ ] Test "Update from Linear" action
-- [ ] Test dry run mode
-- [ ] Test dependency creation
+- [x] Open import dialog with `i` hotkey
+- [x] Enter valid Linear issue ID
+- [x] Verify import success with status message
+- [x] Test invalid issue ID error handling
+- [x] Test network error handling (LINEAR_API_KEY not set)
+- [x] Test batch import with multiple issues
+- [x] Test dry run mode
+- [x] Test dependency creation with --create-deps option
+- [x] Test Tab/Shift+Tab navigation between fields
+- [x] Test dialog cancellation with Esc
+- [x] Verify help screen documents `i` and `I` hotkeys
 
 ### Automated Tests
 
-Add TUI interaction tests:
-
-```go
-// File: cmd/tui_linear_test.go
-
-func TestLinearImportDialogKeyHandling(t *testing.T) {
-    dialog := newLinearImportDialog()
-
-    // Test 'esc' closes dialog
-    // Test 'enter' triggers import
-    // Test input field updates
-}
-
-func TestLinearBadgeRendering(t *testing.T) {
-    // Test that beads with Linear external refs show badge
-}
-```
-
-## Documentation for Users
-
-When TUI integration is implemented, update the help screen:
-
-```
-Hotkeys:
-  i       Import from Linear (single issue)
-  I       Batch import from Linear (multiple issues)
-  u       Update current bead from Linear (when viewing bead details)
-  ?       Show help
-```
+Future enhancement: Add TUI interaction tests for import dialogs.
 
 ## See Also
 

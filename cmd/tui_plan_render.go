@@ -648,6 +648,8 @@ func (m *planModel) renderHelp() string {
   Space         Toggle issue selection (for multi-select)
   w             Create work from issue(s)
   W             Add issue to existing work
+  i             Import issue from Linear
+  I             Batch import issues from Linear
 
   Filtering & Sorting
   ────────────────────────────
