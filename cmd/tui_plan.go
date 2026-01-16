@@ -725,10 +725,24 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "q":
+		// Clean up resources before quitting
+		m.cleanup()
 		return m, tea.Quit
 	}
 
 	return m, nil
+}
+
+// cleanup releases resources when the TUI exits
+func (m *planModel) cleanup() {
+	// Stop the beads watcher if it's running
+	if m.beadsWatcher != nil {
+		_ = m.beadsWatcher.Stop()
+	}
+	// Close the beads client to release database connections
+	if m.beadsClient != nil {
+		_ = m.beadsClient.Close()
+	}
 }
 
 // View implements tea.Model
