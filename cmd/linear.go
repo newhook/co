@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/newhook/co/internal/linear"
+	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -38,6 +39,12 @@ Examples:
 
   # Dry run (preview without creating)
   co linear import ENG-123 --dry-run
+
+Authentication:
+  The Linear API key can be provided via (in order of precedence):
+  1. --api-key flag
+  2. LINEAR_API_KEY environment variable
+  3. [linear] api_key in .co/config.toml
 
 Environment Variables:
   LINEAR_API_KEY     Linear API key for authentication
@@ -78,13 +85,19 @@ func init() {
 func runLinearImport(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Get API key from flag or environment
+	// Get API key from flag, environment, or config
 	apiKey := linearAPIKey
 	if apiKey == "" {
 		apiKey = os.Getenv("LINEAR_API_KEY")
 	}
 	if apiKey == "" {
-		return fmt.Errorf("LINEAR_API_KEY is required (set via --api-key flag or environment variable)")
+		// Try to get from project config
+		if proj, err := project.Find(ctx, ""); err == nil && proj.Config != nil {
+			apiKey = proj.Config.Linear.APIKey
+		}
+	}
+	if apiKey == "" {
+		return fmt.Errorf("LINEAR_API_KEY is required (set via --api-key flag, environment variable, or config.toml)")
 	}
 
 	// Get beads directory

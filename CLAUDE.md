@@ -247,7 +247,7 @@ Imports Linear issues into the beads issue tracker:
 - Use `--update` to update existing beads from Linear
 - Use `--dry-run` to preview without creating beads
 - Use filters to selectively import: `--status-filter`, `--priority-filter`, `--assignee-filter`
-- Requires `LINEAR_API_KEY` environment variable
+- Requires Linear API key (via `--api-key` flag, `LINEAR_API_KEY` env var, or `[linear] api_key` in config.toml)
 
 Examples:
 ```bash

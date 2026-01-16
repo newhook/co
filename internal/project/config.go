@@ -13,6 +13,7 @@ type Config struct {
 	Project ProjectConfig `toml:"project"`
 	Repo    RepoConfig    `toml:"repo"`
 	Hooks   HooksConfig   `toml:"hooks"`
+	Linear  LinearConfig  `toml:"linear"`
 }
 
 // ProjectConfig contains project metadata.
@@ -34,6 +35,13 @@ type HooksConfig struct {
 	// Format: ["KEY=value", "ANOTHER_KEY=value"]
 	// These are applied when spawning Claude in zellij tabs.
 	Env []string `toml:"env"`
+}
+
+// LinearConfig contains Linear integration configuration.
+type LinearConfig struct {
+	// APIKey is the Linear API key for authentication.
+	// Can also be set via LINEAR_API_KEY environment variable.
+	APIKey string `toml:"api_key"`
 }
 
 // LoadConfig reads and parses a config.toml file.

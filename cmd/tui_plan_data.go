@@ -198,10 +198,13 @@ func (m *planModel) importLinearIssue(issueID string) tea.Cmd {
 		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
 
-		// Get API key from environment
+		// Get API key from environment or config
 		apiKey := os.Getenv("LINEAR_API_KEY")
+		if apiKey == "" && m.proj.Config != nil {
+			apiKey = m.proj.Config.Linear.APIKey
+		}
 		if apiKey == "" {
-			return linearImportCompleteMsg{err: fmt.Errorf("LINEAR_API_KEY environment variable not set")}
+			return linearImportCompleteMsg{err: fmt.Errorf("LINEAR_API_KEY not set (use env var or config.toml)")}
 		}
 
 		// Create fetcher
