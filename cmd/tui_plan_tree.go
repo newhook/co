@@ -340,33 +340,33 @@ func buildBeadTree(items []beadItem, client *beads.Client, dir string, searchTex
 		}
 	}
 
-	// Filter out closed parents that have no visible children directly under them.
-	// They were only fetched to show tree structure, but if their children
-	// appear under other parents, these closed parents add no value.
-	// We check by looking at the next items in the result - if a closed parent
-	// at depth N has no items at depth N+1 immediately following, it has no visible children.
+	// Filter out closed parents that have no visible children.
+	// Build set of visible IDs from the result
+	visibleIDs := make(map[string]bool)
+	for _, item := range result {
+		visibleIDs[item.id] = true
+	}
+
+	// Filter closed parents: only keep them if they have at least one visible child
 	var filtered []beadItem
-	for i, item := range result {
+	for _, item := range result {
 		// Keep the item if it's not a closed parent
 		if !item.isClosedParent {
 			filtered = append(filtered, item)
 			continue
 		}
-		// For closed parents, check if there are children directly following
+
+		// For closed parents, check if any of their children are visible
 		hasVisibleChild := false
-		expectedChildDepth := item.treeDepth + 1
-		for j := i + 1; j < len(result); j++ {
-			nextItem := result[j]
-			if nextItem.treeDepth <= item.treeDepth {
-				// We've moved past this parent's subtree
-				break
-			}
-			if nextItem.treeDepth == expectedChildDepth {
-				// Found a direct child
-				hasVisibleChild = true
-				break
+		if children, ok := childrenMap[item.id]; ok {
+			for _, childID := range children {
+				if visibleIDs[childID] {
+					hasVisibleChild = true
+					break
+				}
 			}
 		}
+
 		if hasVisibleChild {
 			filtered = append(filtered, item)
 		}
