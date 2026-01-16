@@ -233,7 +233,10 @@ func (m *planModel) importLinearIssue(issueID string) tea.Cmd {
 		}
 
 		if result.BeadID != "" {
-			return linearImportCompleteMsg{beadIDs: []string{result.BeadID}}
+			return linearImportCompleteMsg{
+				beadIDs:    []string{result.BeadID},
+				skipReason: result.SkipReason,
+			}
 		}
 
 		return linearImportCompleteMsg{err: fmt.Errorf("import completed but no bead ID returned")}

@@ -59,29 +59,6 @@ type Comment struct {
 	User      User      `json:"user"`
 }
 
-// MCPRequest represents a request to the Linear MCP server
-type MCPRequest struct {
-	Method  string         `json:"method"`
-	Params  map[string]any `json:"params,omitempty"`
-	JSONRPC string         `json:"jsonrpc"`
-	ID      int            `json:"id"`
-}
-
-// MCPResponse represents a response from the Linear MCP server
-type MCPResponse struct {
-	JSONRPC string    `json:"jsonrpc"`
-	ID      int       `json:"id"`
-	Result  any       `json:"result,omitempty"`
-	Error   *MCPError `json:"error,omitempty"`
-}
-
-// MCPError represents an error from the Linear MCP server
-type MCPError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    string `json:"data,omitempty"`
-}
-
 // ImportResult represents the result of importing a Linear issue
 type ImportResult struct {
 	LinearID   string

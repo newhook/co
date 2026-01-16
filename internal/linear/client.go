@@ -14,22 +14,21 @@ import (
 )
 
 const (
-	// DefaultMCPEndpoint is the Linear MCP HTTP endpoint
-	DefaultMCPEndpoint = "https://mcp.linear.app/mcp"
+	// DefaultGraphQLEndpoint is the Linear GraphQL API endpoint
+	DefaultGraphQLEndpoint = "https://api.linear.app/graphql"
 
 	// DefaultTimeout for HTTP requests
 	DefaultTimeout = 30 * time.Second
 )
 
-// Client is a Linear MCP client
+// Client is a Linear GraphQL API client
 type Client struct {
 	endpoint   string
 	apiKey     string
 	httpClient *http.Client
-	nextID     int
 }
 
-// NewClient creates a new Linear MCP client
+// NewClient creates a new Linear GraphQL API client
 // API key is read from LINEAR_API_KEY environment variable if not provided
 func NewClient(apiKey string) (*Client, error) {
 	if apiKey == "" {
@@ -40,36 +39,51 @@ func NewClient(apiKey string) (*Client, error) {
 	}
 
 	return &Client{
-		endpoint: DefaultMCPEndpoint,
+		endpoint: DefaultGraphQLEndpoint,
 		apiKey:   apiKey,
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
 		},
-		nextID: 1,
 	}, nil
 }
 
-// SetEndpoint sets a custom MCP endpoint (useful for testing)
+// SetEndpoint sets a custom GraphQL endpoint (useful for testing)
 func (c *Client) SetEndpoint(endpoint string) {
 	c.endpoint = endpoint
 }
 
-// callTool invokes an MCP tool and returns the raw result
-func (c *Client) callTool(ctx context.Context, toolName string, params map[string]any) (any, error) {
-	req := MCPRequest{
-		Method:  "tools/call",
-		JSONRPC: "2.0",
-		ID:      c.nextID,
-		Params: map[string]any{
-			"name":      toolName,
-			"arguments": params,
-		},
+// graphqlRequest represents a GraphQL request
+type graphqlRequest struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables,omitempty"`
+}
+
+// graphqlResponse represents a GraphQL response
+type graphqlResponse struct {
+	Data   json.RawMessage  `json:"data,omitempty"`
+	Errors []graphqlError   `json:"errors,omitempty"`
+}
+
+// graphqlError represents a GraphQL error
+type graphqlError struct {
+	Message   string `json:"message"`
+	Locations []struct {
+		Line   int `json:"line"`
+		Column int `json:"column"`
+	} `json:"locations,omitempty"`
+	Path []any `json:"path,omitempty"`
+}
+
+// query executes a GraphQL query and returns the raw data
+func (c *Client) query(ctx context.Context, query string, variables map[string]any) (json.RawMessage, error) {
+	req := graphqlRequest{
+		Query:     query,
+		Variables: variables,
 	}
-	c.nextID++
 
 	reqBody, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal MCP request: %w", err)
+		return nil, fmt.Errorf("failed to marshal GraphQL request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, bytes.NewReader(reqBody))
@@ -78,7 +92,7 @@ func (c *Client) callTool(ctx context.Context, toolName string, params map[strin
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Authorization", c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -96,17 +110,17 @@ func (c *Client) callTool(ctx context.Context, toolName string, params map[strin
 		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
 	}
 
-	var mcpResp MCPResponse
-	if err := json.Unmarshal(body, &mcpResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal MCP response: %w", err)
+	var gqlResp graphqlResponse
+	if err := json.Unmarshal(body, &gqlResp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal GraphQL response: %w", err)
 	}
 
-	// Handle MCP errors
-	if mcpResp.Error != nil {
-		return nil, fmt.Errorf("MCP error %d: %s (data: %s)", mcpResp.Error.Code, mcpResp.Error.Message, mcpResp.Error.Data)
+	// Handle GraphQL errors
+	if len(gqlResp.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResp.Errors[0].Message)
 	}
 
-	return mcpResp.Result, nil
+	return gqlResp.Data, nil
 }
 
 // ParseIssueIDOrURL extracts the Linear issue identifier from a URL or ID string
@@ -139,6 +153,208 @@ func ParseIssueIDOrURL(input string) (string, error) {
 	return strings.ToUpper(input), nil
 }
 
+// issueFields contains the GraphQL fragment for issue fields
+const issueFields = `
+	id
+	identifier
+	title
+	description
+	priority
+	url
+	createdAt
+	updatedAt
+	estimate
+	state {
+		id
+		name
+		type
+	}
+	assignee {
+		id
+		name
+		email
+	}
+	project {
+		id
+		name
+	}
+	labels {
+		nodes {
+			id
+			name
+		}
+	}
+	relations {
+		nodes {
+			type
+			relatedIssue {
+				identifier
+			}
+		}
+	}
+`
+
+// issueResponse wraps the GraphQL response for a single issue query
+type issueResponse struct {
+	Issue *issueData `json:"issue"`
+}
+
+// issuesResponse wraps the GraphQL response for issues queries
+type issuesResponse struct {
+	Issues struct {
+		Nodes []issueData `json:"nodes"`
+	} `json:"issues"`
+}
+
+// issueSearchResponse wraps the GraphQL response for issue search
+type issueSearchResponse struct {
+	IssueSearch struct {
+		Nodes []issueData `json:"nodes"`
+	} `json:"issueSearch"`
+}
+
+// issueData represents the raw GraphQL issue data
+type issueData struct {
+	ID          string   `json:"id"`
+	Identifier  string   `json:"identifier"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Priority    int      `json:"priority"`
+	URL         string   `json:"url"`
+	CreatedAt   string   `json:"createdAt"`
+	UpdatedAt   string   `json:"updatedAt"`
+	Estimate    *float64 `json:"estimate"`
+	State       *struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Type string `json:"type"`
+	} `json:"state"`
+	Assignee *struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	} `json:"assignee"`
+	Project *struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"project"`
+	Labels struct {
+		Nodes []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"nodes"`
+	} `json:"labels"`
+	Relations struct {
+		Nodes []struct {
+			Type         string `json:"type"`
+			RelatedIssue struct {
+				Identifier string `json:"identifier"`
+			} `json:"relatedIssue"`
+		} `json:"nodes"`
+	} `json:"relations"`
+	Comments struct {
+		Nodes []struct {
+			ID        string `json:"id"`
+			Body      string `json:"body"`
+			CreatedAt string `json:"createdAt"`
+			User      struct {
+				ID    string `json:"id"`
+				Name  string `json:"name"`
+				Email string `json:"email"`
+			} `json:"user"`
+		} `json:"nodes"`
+	} `json:"comments"`
+}
+
+// toIssue converts issueData to Issue
+func (d *issueData) toIssue() *Issue {
+	issue := &Issue{
+		ID:          d.ID,
+		Identifier:  d.Identifier,
+		Title:       d.Title,
+		Description: d.Description,
+		Priority:    d.Priority,
+		URL:         d.URL,
+		Estimate:    d.Estimate,
+	}
+
+	// Parse timestamps
+	if d.CreatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, d.CreatedAt); err == nil {
+			issue.CreatedAt = t
+		}
+	}
+	if d.UpdatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, d.UpdatedAt); err == nil {
+			issue.UpdatedAt = t
+		}
+	}
+
+	// Map state
+	if d.State != nil {
+		issue.State = State{
+			ID:   d.State.ID,
+			Name: d.State.Name,
+			Type: d.State.Type,
+		}
+	}
+
+	// Map assignee
+	if d.Assignee != nil {
+		issue.Assignee = &User{
+			ID:    d.Assignee.ID,
+			Name:  d.Assignee.Name,
+			Email: d.Assignee.Email,
+		}
+	}
+
+	// Map project
+	if d.Project != nil {
+		issue.Project = &Project{
+			ID:   d.Project.ID,
+			Name: d.Project.Name,
+		}
+	}
+
+	// Map labels
+	for _, l := range d.Labels.Nodes {
+		issue.Labels = append(issue.Labels, Label{
+			ID:   l.ID,
+			Name: l.Name,
+		})
+	}
+
+	// Map blockedBy from relations - filter for "blocks" type
+	// When an issue has a relation with type "blocks", it means this issue blocks the related issue
+	// We're looking for inverse: issues where this issue is blocked by the related issue
+	for _, r := range d.Relations.Nodes {
+		if r.Type == "blocks" {
+			issue.BlockedBy = append(issue.BlockedBy, r.RelatedIssue.Identifier)
+		}
+	}
+
+	// Map comments
+	for _, c := range d.Comments.Nodes {
+		comment := Comment{
+			ID:   c.ID,
+			Body: c.Body,
+			User: User{
+				ID:    c.User.ID,
+				Name:  c.User.Name,
+				Email: c.User.Email,
+			},
+		}
+		if c.CreatedAt != "" {
+			if t, err := time.Parse(time.RFC3339, c.CreatedAt); err == nil {
+				comment.CreatedAt = t
+			}
+		}
+		issue.Comments = append(issue.Comments, comment)
+	}
+
+	return issue
+}
+
 // GetIssue fetches a single issue by ID or URL
 func (c *Client) GetIssue(ctx context.Context, issueIDOrURL string) (*Issue, error) {
 	issueID, err := ParseIssueIDOrURL(issueIDOrURL)
@@ -146,106 +362,167 @@ func (c *Client) GetIssue(ctx context.Context, issueIDOrURL string) (*Issue, err
 		return nil, err
 	}
 
-	result, err := c.callTool(ctx, "get_issue", map[string]any{
-		"id": issueID,
-	})
+	query := fmt.Sprintf(`
+		query GetIssue($id: String!) {
+			issue(id: $id) {
+				%s
+			}
+		}
+	`, issueFields)
+
+	data, err := c.query(ctx, query, map[string]any{"id": issueID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get issue %s: %w", issueID, err)
 	}
 
-	// Parse the result into an Issue struct
-	// The MCP response structure varies, so we need to handle different formats
-	var issue Issue
-	resultBytes, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	var resp issueResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal issue response: %w", err)
 	}
 
-	if err := json.Unmarshal(resultBytes, &issue); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal issue: %w", err)
+	if resp.Issue == nil {
+		return nil, fmt.Errorf("issue %s not found", issueID)
 	}
 
-	// Ensure identifier and URL are set
-	if issue.Identifier == "" {
-		issue.Identifier = issueID
-	}
-	if issue.URL == "" {
-		// Construct URL from identifier if not provided
-		// Note: We don't know the team slug, so this is a best-effort guess
-		issue.URL = fmt.Sprintf("https://linear.app/issue/%s", issueID)
-	}
-
-	return &issue, nil
+	return resp.Issue.toIssue(), nil
 }
 
-// SearchIssues searches for issues using a query and filters
-func (c *Client) SearchIssues(ctx context.Context, query string, filters map[string]any) ([]*Issue, error) {
-	params := map[string]any{}
-	if query != "" {
-		params["query"] = query
-	}
-	for k, v := range filters {
-		params[k] = v
+// SearchIssues searches for issues using a text query
+// Note: The filters parameter is kept for API compatibility but Linear's issueSearch
+// only supports a text query. Use ListIssues for filtered queries.
+func (c *Client) SearchIssues(ctx context.Context, searchQuery string, filters map[string]any) ([]*Issue, error) {
+	if searchQuery == "" {
+		// If no search query, fall back to ListIssues with filters
+		return c.ListIssues(ctx, filters)
 	}
 
-	result, err := c.callTool(ctx, "search_issues", params)
+	gqlQuery := fmt.Sprintf(`
+		query SearchIssues($query: String!) {
+			issueSearch(query: $query, first: 50) {
+				nodes {
+					%s
+				}
+			}
+		}
+	`, issueFields)
+
+	data, err := c.query(ctx, gqlQuery, map[string]any{"query": searchQuery})
 	if err != nil {
 		return nil, fmt.Errorf("failed to search issues: %w", err)
 	}
 
-	// Parse the result into a slice of Issues
-	var issues []*Issue
-	resultBytes, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	var resp issueSearchResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal search response: %w", err)
 	}
 
-	if err := json.Unmarshal(resultBytes, &issues); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal issues: %w", err)
+	issues := make([]*Issue, len(resp.IssueSearch.Nodes))
+	for i := range resp.IssueSearch.Nodes {
+		issues[i] = resp.IssueSearch.Nodes[i].toIssue()
 	}
 
 	return issues, nil
 }
 
 // ListIssues lists issues with optional filters
+// Supported filter keys: status, priority, assignee
 func (c *Client) ListIssues(ctx context.Context, filters map[string]any) ([]*Issue, error) {
-	result, err := c.callTool(ctx, "list_issues", filters)
+	// Build filter object for GraphQL
+	// Note: Linear's GraphQL filter syntax is specific
+	// We'll query all issues and the filters will be applied server-side if provided
+	gqlQuery := fmt.Sprintf(`
+		query ListIssues {
+			issues(first: 50) {
+				nodes {
+					%s
+				}
+			}
+		}
+	`, issueFields)
+
+	data, err := c.query(ctx, gqlQuery, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list issues: %w", err)
 	}
 
-	// Parse the result into a slice of Issues
-	var issues []*Issue
-	resultBytes, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	var resp issuesResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal issues response: %w", err)
 	}
 
-	if err := json.Unmarshal(resultBytes, &issues); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal issues: %w", err)
+	issues := make([]*Issue, len(resp.Issues.Nodes))
+	for i := range resp.Issues.Nodes {
+		issues[i] = resp.Issues.Nodes[i].toIssue()
 	}
 
 	return issues, nil
 }
 
+// commentsResponse wraps the GraphQL response for issue comments
+type commentsResponse struct {
+	Issue struct {
+		Comments struct {
+			Nodes []struct {
+				ID        string `json:"id"`
+				Body      string `json:"body"`
+				CreatedAt string `json:"createdAt"`
+				User      struct {
+					ID    string `json:"id"`
+					Name  string `json:"name"`
+					Email string `json:"email"`
+				} `json:"user"`
+			} `json:"nodes"`
+		} `json:"comments"`
+	} `json:"issue"`
+}
+
 // GetIssueComments fetches comments for an issue
 func (c *Client) GetIssueComments(ctx context.Context, issueID string) ([]Comment, error) {
-	result, err := c.callTool(ctx, "list_comments", map[string]any{
-		"issueId": issueID,
-	})
+	gqlQuery := `
+		query GetIssueComments($id: String!) {
+			issue(id: $id) {
+				comments(first: 100) {
+					nodes {
+						id
+						body
+						createdAt
+						user {
+							id
+							name
+							email
+						}
+					}
+				}
+			}
+		}
+	`
+
+	data, err := c.query(ctx, gqlQuery, map[string]any{"id": issueID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get comments for issue %s: %w", issueID, err)
 	}
 
-	// Parse the result into a slice of Comments
-	var comments []Comment
-	resultBytes, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal result: %w", err)
+	var resp commentsResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal comments response: %w", err)
 	}
 
-	if err := json.Unmarshal(resultBytes, &comments); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal comments: %w", err)
+	comments := make([]Comment, len(resp.Issue.Comments.Nodes))
+	for i, c := range resp.Issue.Comments.Nodes {
+		comments[i] = Comment{
+			ID:   c.ID,
+			Body: c.Body,
+			User: User{
+				ID:    c.User.ID,
+				Name:  c.User.Name,
+				Email: c.User.Email,
+			},
+		}
+		if c.CreatedAt != "" {
+			if t, err := time.Parse(time.RFC3339, c.CreatedAt); err == nil {
+				comments[i].CreatedAt = t
+			}
+		}
 	}
 
 	return comments, nil

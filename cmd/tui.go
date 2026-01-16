@@ -211,13 +211,32 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 	defer client.Close()
 
 	// List issues with optional status filter
+	// "open" means all non-closed statuses (open, in_progress, blocked, deferred)
+	// "all" means no filter
+	// Other values are passed directly as status filter
 	statusFilter := ""
-	if filters.status != "" && filters.status != "all" {
+	filterOutClosed := false
+	if filters.status == "open" {
+		// Fetch all and filter out closed
+		statusFilter = ""
+		filterOutClosed = true
+	} else if filters.status != "" && filters.status != "all" {
 		statusFilter = filters.status
 	}
 	issuesList, err := client.ListBeads(ctx, statusFilter)
 	if err != nil {
 		return nil, err
+	}
+
+	// Filter out closed issues if "open" filter was requested
+	if filterOutClosed {
+		filtered := make([]beads.Bead, 0, len(issuesList))
+		for _, issue := range issuesList {
+			if issue.Status != "closed" {
+				filtered = append(filtered, issue)
+			}
+		}
+		issuesList = filtered
 	}
 
 	// TODO: Apply label filter if needed (requires additional query support)

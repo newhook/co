@@ -348,10 +348,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMessage = msg.err.Error()
 			m.statusIsError = true
-		} else {
-			m.statusMessage = ""
-			m.statusIsError = false
 		}
+		// Don't clear status message on success - let it persist until next action
 		return m, nil
 
 	case planTickMsg:
@@ -420,6 +418,14 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("Import failed: %v", msg.err)
 			m.statusIsError = true
+		} else if msg.skipReason != "" {
+			// Issue was already imported or skipped
+			if len(msg.beadIDs) == 1 {
+				m.statusMessage = fmt.Sprintf("%s: %s", msg.skipReason, msg.beadIDs[0])
+			} else {
+				m.statusMessage = msg.skipReason
+			}
+			m.statusIsError = false
 		} else {
 			if len(msg.beadIDs) == 1 {
 				m.statusMessage = fmt.Sprintf("Successfully imported %s", msg.beadIDs[0])
@@ -428,7 +434,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.statusIsError = false
 		}
-		return m, m.refreshData()
+		return m, tea.Batch(m.refreshData(), clearStatusAfter(5*time.Second))
 
 	case linearImportProgressMsg:
 		if msg.total > 0 {
@@ -436,6 +442,11 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMessage = msg.message
 		}
+		m.statusIsError = false
+		return m, nil
+
+	case statusClearMsg:
+		m.statusMessage = ""
 		m.statusIsError = false
 		return m, nil
 
@@ -520,8 +531,9 @@ type editorFinishedMsg struct{}
 
 // linearImportCompleteMsg is sent when a Linear import completes
 type linearImportCompleteMsg struct {
-	beadIDs []string // IDs of imported beads
-	err     error
+	beadIDs    []string // IDs of imported beads
+	err        error
+	skipReason string // e.g., "already imported"
 }
 
 // linearImportProgressMsg is sent to update Linear import progress
@@ -529,6 +541,16 @@ type linearImportProgressMsg struct {
 	current int
 	total   int
 	message string
+}
+
+// statusClearMsg is sent to clear the status message after a delay
+type statusClearMsg struct{}
+
+// clearStatusAfter returns a command that clears the status after the given duration
+func clearStatusAfter(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(t time.Time) tea.Msg {
+		return statusClearMsg{}
+	})
 }
 
 func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -778,7 +800,16 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "i":
-		// Import Linear issue inline
+		// Import Linear issue inline - check for API key first
+		apiKey := os.Getenv("LINEAR_API_KEY")
+		if apiKey == "" && m.proj.Config != nil {
+			apiKey = m.proj.Config.Linear.APIKey
+		}
+		if apiKey == "" {
+			m.statusMessage = "Linear API key not configured (set LINEAR_API_KEY env var or [linear] api_key in config.toml)"
+			m.statusIsError = true
+			return m, nil
+		}
 		m.viewMode = ViewLinearImportInline
 		m.linearImportInput.Reset()
 		m.linearImportInput.Focus()
