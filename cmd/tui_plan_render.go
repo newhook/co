@@ -307,12 +307,14 @@ func (m *planModel) renderBeadFormContent(width int) string {
 	content.WriteString(m.createDescTextarea.View())
 	content.WriteString("\n\n")
 
-	// Render Ok and Cancel buttons with hover styling
-	okButton := styleButtonWithHover("  Ok  ", m.hoveredDialogButton == "ok")
-	cancelButton := styleButtonWithHover("Cancel", m.hoveredDialogButton == "cancel")
+	// Render Ok and Cancel buttons with hover/focus styling
+	okFocused := m.createDialogFocus == 4
+	cancelFocused := m.createDialogFocus == 5
+	okButton := styleButtonWithHover("  Ok  ", m.hoveredDialogButton == "ok" || okFocused)
+	cancelButton := styleButtonWithHover("Cancel", m.hoveredDialogButton == "cancel" || cancelFocused)
 	content.WriteString(okButton + "  " + cancelButton)
 	content.WriteString("\n")
-	content.WriteString(tuiDimStyle.Render("[Tab] Next field"))
+	content.WriteString(tuiDimStyle.Render("[Tab] Next  [Enter/Space] Select"))
 
 	return content.String()
 }
