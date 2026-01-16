@@ -1214,9 +1214,11 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 
 	// Check if any task is actively processing
 	hasActiveTask := false
+	var activeTaskID string
 	for _, tp := range wp.tasks {
 		if tp.task.Status == db.StatusProcessing {
 			hasActiveTask = true
+			activeTaskID = tp.task.ID
 			break
 		}
 	}
@@ -1246,6 +1248,13 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 	// Work ID (if different from name)
 	if wp.work.Name != "" {
 		content.WriteString(tuiDimStyle.Render(wp.work.ID))
+		content.WriteString("\n")
+	}
+
+	// Show current task if one is processing
+	if activeTaskID != "" {
+		taskLine := fmt.Sprintf("▶ Task: %s", activeTaskID)
+		content.WriteString(statusProcessing.Render(taskLine))
 		content.WriteString("\n")
 	}
 
@@ -1319,6 +1328,9 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 
 	// Assigned beads/issues (show as many as fit)
 	linesUsed := 5 // header + id + branch + progress + counts
+	if activeTaskID != "" {
+		linesUsed++ // account for task line
+	}
 	availableLines := height - linesUsed - 3 // account for border
 	if availableLines < 0 {
 		availableLines = 0
