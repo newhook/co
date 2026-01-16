@@ -57,7 +57,7 @@ func TestDetectCommandsBarButton(t *testing.T) {
 			}
 
 			// Build the expected command bar (same logic as detectCommandsBarButton)
-			commandsPlain := "[n]New [e]Edit [a]Child [x]Close [w]Work [i]Import " + tc.pActionText + " [?]Help"
+			commandsPlain := "[n]New [e]Edit [a]Child [x]Close [A]ssign [i]Import " + tc.pActionText + " [?]Help"
 
 			// Define buttons to test
 			buttons := []struct {
@@ -68,7 +68,7 @@ func TestDetectCommandsBarButton(t *testing.T) {
 				{"[e]Edit", "e"},
 				{"[a]Child", "a"},
 				{"[x]Close", "x"},
-				{"[w]Work", "w"},
+				{"[A]ssign", "A"},
 				{"[i]Import", "i"},
 				{tc.pActionText, "p"},
 				{"[?]Help", "?"},
@@ -145,8 +145,8 @@ func TestDetectHoveredMode(t *testing.T) {
 		text string
 		mode Mode
 	}{
-		{"c-[P]lan", ModePlan},
-		{"c-[W]ork", ModeWork},
+		{"[P]lan", ModePlan},
+		{"[W]ork", ModeWork},
 	}
 
 	for _, modeInfo := range modes {

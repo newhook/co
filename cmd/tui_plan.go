@@ -306,8 +306,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 				case "x":
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-				case "w":
-					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+				case "A":
+					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
 				case "p":
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
 				case "?":
@@ -698,7 +698,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "w":
+	case "A":
 		// Create work from selected bead(s) - show dialog
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			// Collect selected beads, or use cursor bead if none selected
