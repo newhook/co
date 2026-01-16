@@ -338,7 +338,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.linearImportInput.Blur()
 					} else if m.viewMode == ViewCreateWork {
 						m.createWorkBranch.Blur()
-						m.viewMode = ViewNormal
 					} else {
 						m.textInput.Blur()
 						m.createDescTextarea.Blur()
