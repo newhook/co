@@ -270,8 +270,6 @@ co linear import ENG-123 --update
 co linear import ENG-123 --dry-run
 ```
 
-For detailed API documentation and TUI integration examples, see `docs/linear-import-api.md`.
-
 ## Additional Commands
 
 ### `co complete <bead-id|task-id>`
