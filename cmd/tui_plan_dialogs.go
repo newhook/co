@@ -331,3 +331,90 @@ func (m *planModel) renderAddToWorkDialogContent() string {
 
 	return tuiDialogStyle.Render(content)
 }
+
+// updateLinearImportInline handles input for the Linear import inline form
+func (m *planModel) updateLinearImportInline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check escape/cancel keys
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+		m.viewMode = ViewNormal
+		m.linearImportInput.Blur()
+		return m, nil
+	}
+
+	// Tab cycles between elements: input(0) -> createDeps(1) -> update(2) -> dryRun(3) -> maxDepth(4)
+	if msg.Type == tea.KeyTab || msg.String() == "tab" {
+		m.linearImportFocus = (m.linearImportFocus + 1) % 5
+		if m.linearImportFocus == 0 {
+			m.linearImportInput.Focus()
+		} else {
+			m.linearImportInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.linearImportFocus--
+		if m.linearImportFocus < 0 {
+			m.linearImportFocus = 4
+		}
+		if m.linearImportFocus == 0 {
+			m.linearImportInput.Focus()
+		} else {
+			m.linearImportInput.Blur()
+		}
+		return m, nil
+	}
+
+	// Enter submits from input field
+	if msg.String() == "enter" && m.linearImportFocus == 0 {
+		issueID := strings.TrimSpace(m.linearImportInput.Value())
+		if issueID != "" {
+			m.viewMode = ViewNormal
+			m.linearImporting = true
+			return m, m.importLinearIssue(issueID)
+		}
+		return m, nil
+	}
+
+	// Handle input based on focused element
+	var cmd tea.Cmd
+	switch m.linearImportFocus {
+	case 0: // Input field
+		m.linearImportInput, cmd = m.linearImportInput.Update(msg)
+		return m, cmd
+
+	case 1: // Create dependencies checkbox
+		if msg.String() == " " || msg.String() == "x" {
+			m.linearImportCreateDeps = !m.linearImportCreateDeps
+		}
+		return m, nil
+
+	case 2: // Update existing checkbox
+		if msg.String() == " " || msg.String() == "x" {
+			m.linearImportUpdate = !m.linearImportUpdate
+		}
+		return m, nil
+
+	case 3: // Dry run checkbox
+		if msg.String() == " " || msg.String() == "x" {
+			m.linearImportDryRun = !m.linearImportDryRun
+		}
+		return m, nil
+
+	case 4: // Max depth
+		switch msg.String() {
+		case "j", "down", "-":
+			if m.linearImportMaxDepth > 1 {
+				m.linearImportMaxDepth--
+			}
+		case "k", "up", "+", "=":
+			if m.linearImportMaxDepth < 5 {
+				m.linearImportMaxDepth++
+			}
+		}
+		return m, nil
+	}
+
+	return m, nil
+}

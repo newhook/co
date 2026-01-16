@@ -302,7 +302,7 @@ CO uses a hierarchical ID system:
 The TUI (`co tui`) provides a full management interface with:
 - Three-panel drill-down: Beads → Works → Tasks
 - Create/destroy works, run tasks
-- Bead filtering (ready/open/closed), search, multi-select
+- Bead filtering (ready/open/closed), search, multi-select. "Open" includes all non-closed statuses.
 - Keyboard shortcuts for all operations (press `?` for help)
 
 The poll command (`co poll`) provides simple text-based monitoring:
@@ -318,6 +318,41 @@ The poll command (`co poll`) provides simple text-based monitoring:
 | `co sync` | Pull from upstream in all repositories |
 | `co complete <bead-id> [--pr URL] [--error "message"]` | Mark a bead/task as completed or failed (called by Claude) |
 | `co estimate <bead-id> --score N --tokens N` | Report complexity estimate for a bead (called by Claude during estimation) |
+
+### Linear Integration
+
+Import issues from Linear into the beads issue tracker:
+
+```bash
+# Import single issue by ID or URL
+co linear import ENG-123
+co linear import https://linear.app/company/issue/ENG-123/title
+
+# Import multiple issues
+co linear import ENG-123 ENG-124 ENG-125
+
+# Import with dependencies (blocking issues)
+co linear import ENG-123 --create-deps --max-dep-depth=2
+
+# Update existing bead from Linear
+co linear import ENG-123 --update
+
+# Preview without creating
+co linear import ENG-123 --dry-run
+```
+
+| Flag | Description |
+|------|-------------|
+| `--api-key` | Linear API key (or use `LINEAR_API_KEY` env var or config.toml) |
+| `--create-deps` | Import blocking issues as dependencies |
+| `--max-dep-depth` | Maximum depth for dependency import (default: 1) |
+| `--update` | Update existing beads if already imported |
+| `--dry-run` | Preview import without creating beads |
+| `--status-filter` | Only import issues matching status |
+| `--priority-filter` | Only import issues matching priority |
+| `--assignee-filter` | Only import issues matching assignee |
+
+Linear metadata (ID, URL, assignee, labels) is preserved in the imported bead.
 
 ## How It Works
 

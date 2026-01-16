@@ -136,13 +136,31 @@ type UpdateOptions struct {
 	Title       string
 	Type        string
 	Description string
+	Assignee    string
+	Priority    *int // nil means don't update
+	Status      string
 }
 
 // Update updates a bead's fields.
 func Update(ctx context.Context, beadID, dir string, opts UpdateOptions) error {
-	args := []string{"update", beadID, "--title=" + opts.Title, "--type=" + opts.Type}
+	args := []string{"update", beadID}
+	if opts.Title != "" {
+		args = append(args, "--title="+opts.Title)
+	}
+	if opts.Type != "" {
+		args = append(args, "--type="+opts.Type)
+	}
 	if opts.Description != "" {
 		args = append(args, "--description="+opts.Description)
+	}
+	if opts.Assignee != "" {
+		args = append(args, "--assignee="+opts.Assignee)
+	}
+	if opts.Priority != nil {
+		args = append(args, fmt.Sprintf("--priority=%d", *opts.Priority))
+	}
+	if opts.Status != "" {
+		args = append(args, "--status="+opts.Status)
 	}
 
 	cmd := exec.CommandContext(ctx, "bd", args...)
@@ -151,6 +169,45 @@ func Update(ctx context.Context, beadID, dir string, opts UpdateOptions) error {
 	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to update bead %s: %w\n%s", beadID, err, output)
+	}
+	return nil
+}
+
+// AddLabels adds labels to a bead.
+func AddLabels(ctx context.Context, beadID, dir string, labels []string) error {
+	if len(labels) == 0 {
+		return nil
+	}
+
+	args := []string{"update", beadID}
+	for _, label := range labels {
+		args = append(args, "--add-label="+label)
+	}
+
+	cmd := exec.CommandContext(ctx, "bd", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to add labels to bead %s: %w\n%s", beadID, err, output)
+	}
+	return nil
+}
+
+// SetExternalRef sets the external reference for a bead.
+func SetExternalRef(ctx context.Context, beadID, externalRef, dir string) error {
+	if externalRef == "" {
+		return nil
+	}
+
+	args := []string{"update", beadID, "--external-ref=" + externalRef}
+
+	cmd := exec.CommandContext(ctx, "bd", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set external ref for bead %s: %w\n%s", beadID, err, output)
 	}
 	return nil
 }

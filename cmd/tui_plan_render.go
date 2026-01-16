@@ -112,6 +112,11 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 		return m.renderBeadFormContent(width)
 	}
 
+	// If in inline Linear import mode, render the import form instead of issue details
+	if m.viewMode == ViewLinearImportInline {
+		return m.renderLinearImportInlineContent(visibleLines, width)
+	}
+
 	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
 		content.WriteString(tuiDimStyle.Render("No issue selected"))
 	} else {
@@ -312,6 +317,72 @@ func (m *planModel) renderBeadFormContent(width int) string {
 	return content.String()
 }
 
+// renderLinearImportInlineContent renders the Linear import form inline in the details panel
+func (m *planModel) renderLinearImportInlineContent(visibleLines int, width int) string {
+	var content strings.Builder
+
+	// Show focus labels
+	issueIDLabel := "Issue ID/URL:"
+	createDepsLabel := "Create Dependencies:"
+	updateLabel := "Update Existing:"
+	dryRunLabel := "Dry Run:"
+	maxDepthLabel := "Max Dependency Depth:"
+
+	if m.linearImportFocus == 0 {
+		issueIDLabel = tuiValueStyle.Render("Issue ID/URL:") + " (editing)"
+	}
+	if m.linearImportFocus == 1 {
+		createDepsLabel = tuiValueStyle.Render("Create Dependencies:") + " (space to toggle)"
+	}
+	if m.linearImportFocus == 2 {
+		updateLabel = tuiValueStyle.Render("Update Existing:") + " (space to toggle)"
+	}
+	if m.linearImportFocus == 3 {
+		dryRunLabel = tuiValueStyle.Render("Dry Run:") + " (space to toggle)"
+	}
+	if m.linearImportFocus == 4 {
+		maxDepthLabel = tuiValueStyle.Render("Max Dependency Depth:") + " (+/- adjust)"
+	}
+
+	// Checkbox display
+	createDepsCheck := " "
+	updateCheck := " "
+	dryRunCheck := " "
+	if m.linearImportCreateDeps {
+		createDepsCheck = "x"
+	}
+	if m.linearImportUpdate {
+		updateCheck = "x"
+	}
+	if m.linearImportDryRun {
+		dryRunCheck = "x"
+	}
+
+	// Render the form
+	content.WriteString(tuiLabelStyle.Render("Import from Linear"))
+	content.WriteString("\n\n")
+	content.WriteString(issueIDLabel)
+	content.WriteString("\n")
+	content.WriteString(m.linearImportInput.View())
+	content.WriteString("\n\n")
+	content.WriteString(createDepsLabel + " [" + createDepsCheck + "]")
+	content.WriteString("\n")
+	content.WriteString(updateLabel + " [" + updateCheck + "]")
+	content.WriteString("\n")
+	content.WriteString(dryRunLabel + " [" + dryRunCheck + "]")
+	content.WriteString("\n\n")
+	content.WriteString(maxDepthLabel + " " + tuiValueStyle.Render(fmt.Sprintf("%d", m.linearImportMaxDepth)))
+	content.WriteString("\n\n")
+
+	if m.linearImporting {
+		content.WriteString(tuiDimStyle.Render("Importing..."))
+	} else {
+		content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Enter] Import  [Esc] Cancel"))
+	}
+
+	return content.String()
+}
+
 func (m *planModel) renderCommandsBar() string {
 	// If in search mode, show vim-style inline search bar
 	if m.viewMode == ViewBeadSearch {
@@ -336,13 +407,14 @@ func (m *planModel) renderCommandsBar() string {
 	aButton := styleButtonWithHover("[a]Child", m.hoveredButton == "a")
 	xButton := styleButtonWithHover("[x]Close", m.hoveredButton == "x")
 	wButton := styleButtonWithHover("[w]Work", m.hoveredButton == "w")
+	iButton := styleButtonWithHover("[i]Import", m.hoveredButton == "i")
 	pButton := styleButtonWithHover(pAction, m.hoveredButton == "p")
 	helpButton := styleButtonWithHover("[?]Help", m.hoveredButton == "?")
 
-	commands := nButton + " " + eButton + " " + aButton + " " + xButton + " " + wButton + " " + pButton + " " + helpButton
+	commands := nButton + " " + eButton + " " + aButton + " " + xButton + " " + wButton + " " + iButton + " " + pButton + " " + helpButton
 
 	// Commands plain text for width calculation
-	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work %s [?]Help", pAction)
+	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work [i]Import %s [?]Help", pAction)
 
 	// Status on the right
 	var status string
@@ -388,7 +460,7 @@ func (m *planModel) detectCommandsBarButton(x int) string {
 			pAction = "[p]Resume"
 		}
 	}
-	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work %s [?]Help", pAction)
+	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work [i]Import %s [?]Help", pAction)
 
 	// Find positions of each button
 	nIdx := strings.Index(commandsPlain, "[n]New")
@@ -396,6 +468,7 @@ func (m *planModel) detectCommandsBarButton(x int) string {
 	aIdx := strings.Index(commandsPlain, "[a]Child")
 	xIdx := strings.Index(commandsPlain, "[x]Close")
 	wIdx := strings.Index(commandsPlain, "[w]Work")
+	iIdx := strings.Index(commandsPlain, "[i]Import")
 	pIdx := strings.Index(commandsPlain, pAction)
 	helpIdx := strings.Index(commandsPlain, "[?]Help")
 
@@ -414,6 +487,9 @@ func (m *planModel) detectCommandsBarButton(x int) string {
 	}
 	if wIdx >= 0 && x >= wIdx && x < wIdx+len("[w]Work") {
 		return "w"
+	}
+	if iIdx >= 0 && x >= iIdx && x < iIdx+len("[i]Import") {
+		return "i"
 	}
 	if pIdx >= 0 && x >= pIdx && x < pIdx+len(pAction) {
 		return "p"
@@ -766,6 +842,7 @@ func (m *planModel) renderHelp() string {
   Space         Toggle issue selection (for multi-select)
   w             Create work from issue(s)
   W             Add issue to existing work
+  i             Import issue from Linear
 
   Filtering & Sorting
   ────────────────────────────

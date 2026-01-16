@@ -146,6 +146,7 @@ const (
 	ViewAssignBeads
 	ViewBeadSearch
 	ViewLabelFilter
+	ViewLinearImportInline // Import from Linear (inline in details panel)
 	ViewHelp
 )
 

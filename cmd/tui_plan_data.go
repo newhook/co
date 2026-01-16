@@ -3,12 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/linear"
 )
 
 // refreshData creates a tea.Cmd that refreshes bead data
@@ -189,4 +191,55 @@ func (m *planModel) startPeriodicRefresh() tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
 		return planTickMsg(t)
 	})
+}
+
+// importLinearIssue imports a single Linear issue
+func (m *planModel) importLinearIssue(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		mainRepoPath := m.proj.MainRepoPath()
+
+		// Get API key from environment or config
+		apiKey := os.Getenv("LINEAR_API_KEY")
+		if apiKey == "" && m.proj.Config != nil {
+			apiKey = m.proj.Config.Linear.APIKey
+		}
+		if apiKey == "" {
+			return linearImportCompleteMsg{err: fmt.Errorf("LINEAR_API_KEY not set (use env var or config.toml)")}
+		}
+
+		// Create fetcher
+		fetcher, err := linear.NewFetcher(apiKey, mainRepoPath)
+		if err != nil {
+			return linearImportCompleteMsg{err: fmt.Errorf("failed to create Linear fetcher: %w", err)}
+		}
+
+		// Prepare import options
+		opts := &linear.ImportOptions{
+			DryRun:         m.linearImportDryRun,
+			UpdateExisting: m.linearImportUpdate,
+			CreateDeps:     m.linearImportCreateDeps,
+			MaxDepDepth:    m.linearImportMaxDepth,
+		}
+
+		// Execute import
+		result, err := fetcher.FetchAndImport(ctx, issueID, opts)
+		if err != nil {
+			return linearImportCompleteMsg{err: fmt.Errorf("import failed: %w", err)}
+		}
+
+		// Check result
+		if result.Error != nil {
+			return linearImportCompleteMsg{err: result.Error}
+		}
+
+		if result.BeadID != "" {
+			return linearImportCompleteMsg{
+				beadIDs:    []string{result.BeadID},
+				skipReason: result.SkipReason,
+			}
+		}
+
+		return linearImportCompleteMsg{err: fmt.Errorf("import completed but no bead ID returned")}
+	}
 }

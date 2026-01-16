@@ -24,7 +24,9 @@ go test ./...
 - `cmd/task.go` - Task management (list/show/delete/reset/set-review-epic)
 - `cmd/work.go` - Work management (create/list/show/destroy/pr/review)
 - `cmd/work_automated.go` - Automated bead-to-PR workflow
+- `cmd/linear.go` - Linear integration commands (import issues from Linear)
 - `internal/beads/` - Beads database client (bd CLI wrapper)
+- `internal/linear/` - Linear MCP client and import logic
 - `internal/claude/` - Claude Code invocation
 - `internal/db/` - SQLite tracking database
 - `internal/task/` - Task planning and complexity estimation
