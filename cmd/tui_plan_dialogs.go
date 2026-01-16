@@ -25,7 +25,7 @@ func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> title(0)
+	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> ok(4) -> cancel(5) -> title(0)
 	if msg.Type == tea.KeyTab || msg.String() == "tab" {
 		// Leave current focus
 		if m.createDialogFocus == 0 {
@@ -34,7 +34,7 @@ func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.createDescTextarea.Blur()
 		}
 
-		m.createDialogFocus = (m.createDialogFocus + 1) % 4
+		m.createDialogFocus = (m.createDialogFocus + 1) % 6
 
 		// Enter new focus
 		if m.createDialogFocus == 0 {
@@ -56,7 +56,7 @@ func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		m.createDialogFocus--
 		if m.createDialogFocus < 0 {
-			m.createDialogFocus = 3
+			m.createDialogFocus = 5
 		}
 
 		// Enter new focus
@@ -68,9 +68,22 @@ func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Enter submits from any field (but not from description textarea - use Ctrl+Enter there)
-	if msg.String() == "enter" && m.createDialogFocus != 3 {
-		return m.submitBeadForm()
+	// Enter key handling depends on focused element
+	if msg.String() == "enter" {
+		switch m.createDialogFocus {
+		case 0, 1, 2: // Title, type, or priority - submit form
+			return m.submitBeadForm()
+		case 4: // Ok button - submit form
+			return m.submitBeadForm()
+		case 5: // Cancel button - cancel form
+			m.viewMode = ViewNormal
+			m.textInput.Blur()
+			m.createDescTextarea.Blur()
+			m.editBeadID = ""
+			m.parentBeadID = ""
+			return m, nil
+		}
+		// For description textarea (3), Enter adds a newline (handled below)
 	}
 
 	// Ctrl+Enter submits from description textarea
@@ -114,6 +127,23 @@ func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.createDescTextarea, cmd = m.createDescTextarea.Update(msg)
 		return m, cmd
+
+	case 4: // Ok button - Space can also activate it
+		if msg.String() == " " {
+			return m.submitBeadForm()
+		}
+		return m, nil
+
+	case 5: // Cancel button - Space can also activate it
+		if msg.String() == " " {
+			m.viewMode = ViewNormal
+			m.textInput.Blur()
+			m.createDescTextarea.Blur()
+			m.editBeadID = ""
+			m.parentBeadID = ""
+			return m, nil
+		}
+		return m, nil
 	}
 
 	return m, nil
