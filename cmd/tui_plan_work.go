@@ -139,56 +139,6 @@ func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	return m, cmd
 }
 
-// renderCreateWorkDialogContent renders the create work dialog
-func (m *planModel) renderCreateWorkDialogContent() string {
-	branchLabel := "Branch:"
-	if m.createWorkField == 0 {
-		branchLabel = tuiValueStyle.Render("Branch:") + " (editing)"
-	}
-
-	// Render buttons
-	var execBtn, autoBtn, cancelBtn string
-	if m.createWorkField == 1 {
-		switch m.createWorkButtonIdx {
-		case 0:
-			execBtn = tuiSelectedStyle.Render(" Execute ")
-			autoBtn = tuiDimStyle.Render(" Auto ")
-			cancelBtn = tuiDimStyle.Render(" Cancel ")
-		case 1:
-			execBtn = tuiDimStyle.Render(" Execute ")
-			autoBtn = tuiSelectedStyle.Render(" Auto ")
-			cancelBtn = tuiDimStyle.Render(" Cancel ")
-		case 2:
-			execBtn = tuiDimStyle.Render(" Execute ")
-			autoBtn = tuiDimStyle.Render(" Auto ")
-			cancelBtn = tuiSelectedStyle.Render(" Cancel ")
-		}
-	} else {
-		execBtn = tuiDimStyle.Render(" Execute ")
-		autoBtn = tuiDimStyle.Render(" Auto ")
-		cancelBtn = tuiDimStyle.Render(" Cancel ")
-	}
-
-	// Show bead IDs or count
-	var beadInfo string
-	if len(m.createWorkBeadIDs) == 1 {
-		beadInfo = issueIDStyle.Render(m.createWorkBeadIDs[0])
-	} else {
-		beadInfo = fmt.Sprintf("%d issues", len(m.createWorkBeadIDs))
-	}
-
-	content := fmt.Sprintf(`  Create Work from %s
-
-  %s
-  %s
-
-  %s  %s  %s
-
-  [Tab] Switch field  [Esc] Cancel
-`, beadInfo, branchLabel, m.createWorkBranch.View(), execBtn, autoBtn, cancelBtn)
-
-	return tuiDialogStyle.Render(content)
-}
 
 // renderCreateWorkInlineContent renders the work creation panel inline in the details area
 func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) string {
