@@ -11,6 +11,7 @@ import (
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/mise"
 )
 
@@ -93,6 +94,12 @@ func load(ctx context.Context, root string) (*Project, error) {
 		return nil, fmt.Errorf("failed to open tracking database: %w", err)
 	}
 	proj.DB = database
+
+	// Initialize logging to .co/debug.log
+	if err := logging.Init(root); err != nil {
+		// Log initialization failure is non-fatal, but log it if we can
+		logging.Warn("failed to initialize logging", "error", err)
+	}
 
 	return proj, nil
 }

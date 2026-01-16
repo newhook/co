@@ -87,9 +87,9 @@ func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case 1: // Type selector
 		switch msg.String() {
-		case "j", "down":
+		case "j", "down", "right":
 			m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
-		case "k", "up":
+		case "k", "up", "left":
 			m.createBeadType--
 			if m.createBeadType < 0 {
 				m.createBeadType = len(beadTypes) - 1
@@ -99,11 +99,11 @@ func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case 2: // Priority
 		switch msg.String() {
-		case "j", "down", "-":
+		case "j", "down", "right", "-":
 			if m.createBeadPriority < 4 {
 				m.createBeadPriority++
 			}
-		case "k", "up", "+", "=":
+		case "k", "up", "left", "+", "=":
 			if m.createBeadPriority > 0 {
 				m.createBeadPriority--
 			}

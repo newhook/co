@@ -35,6 +35,7 @@ go test ./...
 - `internal/mise/` - Mise tool management
 - `internal/project/` - Project discovery and configuration
 - `internal/worktree/` - Git worktree operations
+- `internal/logging/` - Structured logging using slog
 
 ## External Dependencies
 
@@ -47,6 +48,40 @@ Functions that execute external commands or perform I/O should accept `context.C
 - Use `exec.CommandContext(ctx, ...)` instead of `exec.Command(...)` for shell commands
 - Pass context through the call chain from CLI commands down to helper functions
 - This enables proper cancellation and timeout handling
+
+## Debug Logging
+
+The project uses Go's `slog` for structured debug logging via `internal/logging`.
+
+- Logs are written to `.co/debug.log` in JSON format (append mode)
+- Logging is automatically initialized when a project is loaded
+- Log file location: `<project-root>/.co/debug.log`
+
+### Usage
+
+```go
+import "github.com/newhook/co/internal/logging"
+
+// Simple logging
+logging.Debug("operation started", "key", value)
+logging.Info("status update", "count", 42)
+logging.Warn("potential issue", "error", err)
+logging.Error("operation failed", "error", err, "context", ctx)
+
+// Get logger for custom use
+logger := logging.Logger()
+logger.With("component", "beads").Debug("message")
+```
+
+### Viewing Logs
+
+```bash
+# View recent logs
+tail -f .co/debug.log
+
+# Pretty-print JSON logs
+cat .co/debug.log | jq .
+```
 
 ## Database Migrations
 
