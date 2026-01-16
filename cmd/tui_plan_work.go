@@ -106,12 +106,12 @@ func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.createWorkBranch, cmd = m.createWorkBranch.Update(msg)
 	case 1: // Buttons
 		switch msg.String() {
-		case "h", "left":
+		case "h", "left", "k", "up":
 			m.createWorkButtonIdx--
 			if m.createWorkButtonIdx < 0 {
 				m.createWorkButtonIdx = 2
 			}
-		case "l", "right":
+		case "l", "right", "j", "down":
 			m.createWorkButtonIdx = (m.createWorkButtonIdx + 1) % 3
 		case "enter":
 			branchName := strings.TrimSpace(m.createWorkBranch.Value())
