@@ -19,6 +19,16 @@ import (
 	"github.com/newhook/co/internal/project"
 )
 
+// ZoomLevel represents the zoom state of the work mode view
+type ZoomLevel int
+
+const (
+	// ZoomOverview shows the grid of all works
+	ZoomOverview ZoomLevel = iota
+	// ZoomZoomedIn shows the 3-panel task view for a selected work
+	ZoomZoomedIn
+)
+
 
 // workModel is the Work Mode model focused on work/task management
 type workModel struct {
@@ -44,6 +54,10 @@ type workModel struct {
 	statusMessage string
 	statusIsError bool
 	lastUpdate    time.Time
+
+	// Zoom state
+	zoomLevel      ZoomLevel
+	selectedWorkID string
 
 	// Mouse state
 	mouseX        int
@@ -455,6 +469,20 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "?":
 		m.viewMode = ViewHelp
+
+	case "enter":
+		// Zoom in on selected work
+		if m.zoomLevel == ZoomOverview && m.activePanel == PanelLeft && len(m.works) > 0 {
+			m.zoomLevel = ZoomZoomedIn
+			m.selectedWorkID = m.works[m.worksCursor].work.ID
+		}
+
+	case "esc":
+		// Zoom out to overview
+		if m.zoomLevel == ZoomZoomedIn {
+			m.zoomLevel = ZoomOverview
+			m.selectedWorkID = ""
+		}
 
 	case "g":
 		// Go to top
