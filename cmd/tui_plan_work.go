@@ -142,11 +142,18 @@ func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 }
 
 
-// renderCreateWorkInlineContent renders the work creation panel inline in the details area
+// renderCreateWorkInlineContent renders the work creation panel inline in the details area.
+// This function implements the button position tracking mechanism by:
+// 1. Clearing previous button positions at the start (m.dialogButtons = nil)
+// 2. Tracking the current line number as content is rendered
+// 3. Recording each button's position when it's drawn to the screen
+// 4. Storing positions relative to the content area for accurate mouse detection
 func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) string {
 	var content strings.Builder
 
-	// Clear previous button positions
+	// Clear previous button positions to ensure we're tracking the current render state.
+	// This is critical for accuracy as button positions may change between renders
+	// due to content changes, terminal resizing, or scrolling.
 	m.dialogButtons = nil
 
 	// Track current line number (starting at 2 for the form content area)
@@ -218,14 +225,16 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 	} else if m.hoveredDialogButton == "execute" {
 		executeStyle = tuiSuccessStyle
 	}
-	// Track Execute button position (starts at column 2, ends after "Execute" text)
-	// The button text "  Execute" or "► Execute" starts at column 2
+	// Track Execute button position for mouse click detection.
+	// The position is calculated dynamically based on the actual button text,
+	// which changes when selected (adds "► " prefix). This ensures accurate
+	// click detection regardless of the button's visual state.
 	executeButtonText := executePrefix + "Execute"
 	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
 		ID:     "execute",
-		Y:      currentLine,
-		StartX: 2,
-		EndX:   2 + len(executeButtonText), // Calculate based on actual text length
+		Y:      currentLine,                // Y position relative to content area
+		StartX: 2,                           // Button always starts at column 2
+		EndX:   2 + len(executeButtonText), // End position based on actual text length
 	})
 	content.WriteString("  " + executeStyle.Render(executeButtonText))
 	content.WriteString(" - Create work and spawn orchestrator\n")

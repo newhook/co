@@ -598,8 +598,17 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	return -1
 }
 
-// detectDialogButton determines which dialog button is at the given position
-// Returns "ok", "cancel", "execute", "auto", or "" if not over a button
+// detectDialogButton determines which dialog button is at the given position.
+// This is the mouse click detection component of the button tracking system.
+//
+// For ViewCreateWork mode, it uses the button positions tracked during rendering:
+// 1. Calculates the mouse position relative to the details panel content area
+// 2. Iterates through m.dialogButtons to find a matching region
+// 3. Checks if the click coordinates fall within any button's boundaries
+// 4. Returns the button ID if found, or "" if no button matches
+//
+// For other dialog modes, it calculates button positions based on the form structure.
+// Returns "ok", "cancel", "execute", "auto", or "" if not over a button.
 func (m *planModel) detectDialogButton(x, y int) string {
 	// Dialog buttons only visible in form modes, Linear import mode, and work creation mode
 	if m.viewMode != ViewCreateBead && m.viewMode != ViewCreateBeadInline &&
@@ -623,16 +632,20 @@ func (m *planModel) detectDialogButton(x, y int) string {
 
 	// Handle ViewCreateWork using tracked button positions
 	if m.viewMode == ViewCreateWork {
-		// Use the button positions tracked during rendering
-		// These positions are relative to the details panel content area
+		// Use the button positions tracked during rendering.
+		// This is the core of the mouse click detection system for dialog buttons.
+		// The positions stored in m.dialogButtons are relative to the details panel
+		// content area, so we need to translate the absolute mouse coordinates.
 		buttonAreaX := x - detailsPanelStart
 
-		// Check each tracked button region
+		// Check each tracked button region to see if the click falls within it
 		for _, button := range m.dialogButtons {
 			// The Y position stored is relative to the form start (y=2)
-			// So we need to add the form start position
+			// So we need to add the form start position to get the absolute Y
 			absoluteY := 2 + button.Y
 
+			// Check if the mouse click coordinates match this button's region.
+			// StartX and EndX are inclusive boundaries.
 			if y == absoluteY && buttonAreaX >= button.StartX && buttonAreaX <= button.EndX {
 				return button.ID
 			}
