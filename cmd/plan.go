@@ -74,7 +74,15 @@ After reviewing the issue details, help plan the implementation by:
 - Suggesting implementation approaches
 - Creating related issues with /beads create if needed
 
-Use /beads commands throughout to manage the issue tracker.`, beadID, beadID)
+When breaking down into subtasks, create them as children of this issue:
+
+  bd create "<subtask title>" --parent %s --type task \
+    --description "<description of the subtask>"
+
+This establishes %s as the parent, making the new issues its children.
+The orchestrator will then process these subtasks as part of this work.
+
+Use /beads commands throughout to manage the issue tracker.`, beadID, beadID, beadID, beadID)
 
 	// Launch Claude in the main repo with the initial prompt
 	claudeCmd := exec.Command("claude", "--dangerously-skip-permissions", initialPrompt)
