@@ -193,7 +193,7 @@ When querying issues (e.g., via `get_issue` or `list_issues`), the following fie
 - **identifier** - Human-readable issue key (e.g., "TEAM-123")
 - **url** - Direct link to issue in Linear
 - **description** - Issue description (markdown)
-- **status** / **state** - Current workflow state
+- **status** / **state** - Current workflow state (Note: Linear uses both "status" and "state" interchangeably to refer to workflow states throughout its API and documentation)
 - **priority** - Priority level (0-4, mapped to: No priority, Urgent, High, Medium, Low)
 - **project** - Associated project name (if any)
 - **assignee** - Person assigned to the issue
