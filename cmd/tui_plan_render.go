@@ -643,10 +643,10 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 		selectionIndicator = tuiSelectedCheckStyle.Render("●") + " "
 	}
 
-	// Session indicator
+	// Session indicator - compact "P" (processing) shown after status icon
 	var sessionIndicator string
 	if m.activeBeadSessions[bead.id] {
-		sessionIndicator = tuiSuccessStyle.Render("[C]") + " "
+		sessionIndicator = tuiSuccessStyle.Render("P")
 	}
 
 	// Work assignment indicator
@@ -727,9 +727,9 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	// Build styled line for normal display
 	var line string
 	if m.beadsExpanded {
-		line = fmt.Sprintf("%s%s%s%s%s %s [P%d %s] %s", selectionIndicator, treePrefix, workIndicator, sessionIndicator, icon, styledID, bead.priority, bead.beadType, title)
+		line = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.priority, bead.beadType, sessionIndicator, title)
 	} else {
-		line = fmt.Sprintf("%s%s%s%s%s %s %s %s", selectionIndicator, treePrefix, workIndicator, sessionIndicator, icon, styledID, styledType, title)
+		line = fmt.Sprintf("%s%s%s%s %s %s%s %s", selectionIndicator, treePrefix, workIndicator, icon, styledID, styledType, sessionIndicator, title)
 	}
 
 	// For selected/hovered lines, build plain text version to avoid ANSI code conflicts
@@ -757,10 +757,10 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 			plainSelectionIndicator = "● "
 		}
 
-		// Build session indicator (plain text)
+		// Build session indicator (plain text) - compact "P" after status icon
 		var plainSessionIndicator string
 		if m.activeBeadSessions[bead.id] {
-			plainSessionIndicator = "[C] "
+			plainSessionIndicator = "P"
 		}
 
 		// Build work indicator (plain text)
@@ -778,9 +778,9 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 		// Build plain text line without any styling (using already truncated title)
 		var plainLine string
 		if m.beadsExpanded {
-			plainLine = fmt.Sprintf("%s%s%s%s%s %s [P%d %s] %s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, plainSessionIndicator, icon, bead.id, bead.priority, bead.beadType, title)
+			plainLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.id, bead.priority, bead.beadType, plainSessionIndicator, title)
 		} else {
-			plainLine = fmt.Sprintf("%s%s%s%s%s %s %s %s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, plainSessionIndicator, icon, bead.id, typeLetter, title)
+			plainLine = fmt.Sprintf("%s%s%s%s %s %s%s %s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.id, typeLetter, plainSessionIndicator, title)
 		}
 
 		// Pad to fill width
@@ -857,7 +857,7 @@ func (m *planModel) renderHelp() string {
   Indicators
   ────────────────────────────
   ●             Issue is selected for multi-select
-  [C]           Issue has an active Claude session
+  P             Issue is processing (active Claude session)
   [w-xxx]       Issue is assigned to work w-xxx
 
   Press any key to close...
