@@ -74,10 +74,9 @@ type rootModel struct {
 	legacyModel tuiModel
 
 	// Global state
-	spinner           spinner.Model
-	lastUpdate        time.Time
-	quitting          bool
-	pendingModeSwitch bool // true when 'c' was pressed, waiting for p/m/w
+	spinner    spinner.Model
+	lastUpdate time.Time
+	quitting   bool
 
 	// Mouse hover state
 	hoveredMode Mode // which mode tab is being hovered over (0-2), -1 if none
@@ -228,39 +227,25 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.routeToActiveModel(msg)
 		}
 
-		// Handle pending mode switch (after 'c' was pressed)
-		if m.pendingModeSwitch {
-			m.pendingModeSwitch = false
-			switch msg.String() {
-			case "p", "P":
-				if m.activeMode != ModePlan {
-					oldMode := m.activeMode
-					m.activeMode = ModePlan
-					cmd := m.notifyFocusChange(oldMode, ModePlan)
-					return m, cmd
-				}
-				return m, nil
-			case "w", "W":
-				if m.activeMode != ModeWork {
-					oldMode := m.activeMode
-					m.activeMode = ModeWork
-					cmd := m.notifyFocusChange(oldMode, ModeWork)
-					return m, cmd
-				}
-				return m, nil
-			default:
-				// Any other key cancels mode switch, route to submodel
-				return m.routeToActiveModel(msg)
-			}
-		}
-
 		// Global keys (only when not in modal)
 		switch msg.String() {
-		case "c":
-			// Start mode switch sequence
-			m.pendingModeSwitch = true
+		case "P":
+			if m.activeMode != ModePlan {
+				oldMode := m.activeMode
+				m.activeMode = ModePlan
+				cmd := m.notifyFocusChange(oldMode, ModePlan)
+				return m, cmd
+			}
 			return m, nil
-		case "q", "ctrl+c":
+		case "W":
+			if m.activeMode != ModeWork {
+				oldMode := m.activeMode
+				m.activeMode = ModeWork
+				cmd := m.notifyFocusChange(oldMode, ModeWork)
+				return m, cmd
+			}
+			return m, nil
+		case "q":
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -327,26 +312,23 @@ func (m *rootModel) getActiveModel() SubModel {
 
 // detectHoveredMode determines which mode tab is hovered based on mouse X position
 func (m *rootModel) detectHoveredMode(x int) Mode {
-	// Tab bar format: "=== PLAN MODE === c-[P]lan c-[W]ork"
+	// Tab bar format: "=== PLAN MODE === [P]lan [W]ork"
 	// The hotkeys portion shows which keys to press
 	// We need to detect hover over the hotkey portions
 
 	// Build PLAIN text version (no styling) for position detection
 	modeName := m.activeMode.Label()
-	tabBarPlain := fmt.Sprintf("=== %s MODE === c-[P]lan c-[W]ork", modeName)
-	if m.pendingModeSwitch {
-		tabBarPlain += "  (waiting for p/w...)"
-	}
+	tabBarPlain := fmt.Sprintf("=== %s MODE === [P]lan [W]ork", modeName)
 
-	// Find positions of c-[P], c-[W] in the plain tab bar
-	planIdx := strings.Index(tabBarPlain, "c-[P]lan")
-	workIdx := strings.Index(tabBarPlain, "c-[W]ork")
+	// Find positions of [P], [W] in the plain tab bar
+	planIdx := strings.Index(tabBarPlain, "[P]lan")
+	workIdx := strings.Index(tabBarPlain, "[W]ork")
 
 	// Check if mouse is over any of these hotkeys
-	if planIdx >= 0 && x >= planIdx && x < planIdx+len("c-[P]lan") {
+	if planIdx >= 0 && x >= planIdx && x < planIdx+len("[P]lan") {
 		return ModePlan
 	}
-	if workIdx >= 0 && x >= workIdx && x < workIdx+len("c-[W]ork") {
+	if workIdx >= 0 && x >= workIdx && x < workIdx+len("[W]ork") {
 		return ModeWork
 	}
 
@@ -419,13 +401,10 @@ func (m rootModel) renderTabBar() string {
 	modeName := tuiTitleStyle.Render(m.activeMode.Label())
 
 	// Style the mode switching keys with hover effects
-	planKey := styleButtonWithHover("c-[P]lan", m.hoveredMode == ModePlan)
-	workKey := styleButtonWithHover("c-[W]ork", m.hoveredMode == ModeWork)
+	planKey := styleButtonWithHover("[P]lan", m.hoveredMode == ModePlan)
+	workKey := styleButtonWithHover("[W]ork", m.hoveredMode == ModeWork)
 	modeKeys := planKey + " " + workKey
 
-	if m.pendingModeSwitch {
-		return fmt.Sprintf("=== %s MODE === %s  (waiting for p/w...)", modeName, modeKeys)
-	}
 	return fmt.Sprintf("=== %s MODE === %s", modeName, modeKeys)
 }
 
