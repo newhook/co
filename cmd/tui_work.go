@@ -227,9 +227,21 @@ func (m *workModel) recalculateGrid() {
 func (m *workModel) FocusChanged(focused bool) tea.Cmd {
 	m.focused = focused
 	if focused {
-		// Refresh data when gaining focus and restart periodic tick and spinner
+		// Refresh data when gaining focus and restart spinner
 		m.loading = true
-		return tea.Batch(m.spinner.Tick, m.refreshData(), m.tick())
+		cmds := []tea.Cmd{
+			m.spinner.Tick,
+			m.refreshData(),
+		}
+
+		// Use watcher if available, otherwise fall back to polling
+		if m.trackingWatcher != nil {
+			cmds = append(cmds, m.waitForWatcherEvent())
+		} else {
+			cmds = append(cmds, m.tick())
+		}
+
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
