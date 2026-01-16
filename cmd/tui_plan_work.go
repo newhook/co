@@ -220,13 +220,14 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 	}
 	// Track Execute button position (starts at column 2, ends after "Execute" text)
 	// The button text "  Execute" or "► Execute" starts at column 2
+	executeButtonText := executePrefix + "Execute"
 	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
 		ID:     "execute",
 		Y:      currentLine,
 		StartX: 2,
-		EndX:   12, // "  Execute" is ~10 chars, plus some margin
+		EndX:   2 + len(executeButtonText), // Calculate based on actual text length
 	})
-	content.WriteString("  " + executeStyle.Render(executePrefix+"Execute"))
+	content.WriteString("  " + executeStyle.Render(executeButtonText))
 	content.WriteString(" - Create work and spawn orchestrator\n")
 	currentLine++
 
@@ -240,13 +241,14 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 		autoStyle = tuiSuccessStyle
 	}
 	// Track Auto button position
+	autoButtonText := autoPrefix + "Auto"
 	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
 		ID:     "auto",
 		Y:      currentLine,
 		StartX: 2,
-		EndX:   8, // "  Auto" is ~6 chars, plus some margin
+		EndX:   2 + len(autoButtonText), // Calculate based on actual text length
 	})
-	content.WriteString("  " + autoStyle.Render(autoPrefix+"Auto"))
+	content.WriteString("  " + autoStyle.Render(autoButtonText))
 	content.WriteString(" - Create work with automated workflow\n")
 	currentLine++
 
@@ -260,13 +262,14 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 		cancelStyle = tuiSuccessStyle
 	}
 	// Track Cancel button position
+	cancelButtonText := cancelPrefix + "Cancel"
 	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
 		ID:     "cancel",
 		Y:      currentLine,
 		StartX: 2,
-		EndX:   10, // "  Cancel" is ~8 chars, plus some margin
+		EndX:   2 + len(cancelButtonText), // Calculate based on actual text length
 	})
-	content.WriteString("  " + cancelStyle.Render(cancelPrefix+"Cancel"))
+	content.WriteString("  " + cancelStyle.Render(cancelButtonText))
 	content.WriteString(" - Cancel work creation\n")
 	currentLine++
 
