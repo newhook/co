@@ -2,10 +2,18 @@ package beads
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
+	"time"
+
+	"github.com/newhook/co/internal/beads/cachemanager"
+	"github.com/newhook/co/internal/beads/queries"
+	_ "github.com/ncruces/go-sqlite3/driver"
+	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
 // Bead represents a work item from the beads system.
@@ -447,6 +455,159 @@ func GetBeadWithChildren(ctx context.Context, id, dir string) ([]BeadWithDeps, e
 
 	if err := collect(id); err != nil {
 		return nil, err
+	}
+
+	return result, nil
+}
+
+// Client provides database access to beads with caching.
+type Client struct {
+	db           *sql.DB
+	queries      *queries.Queries
+	cache        cachemanager.CacheManager[string, *IssuesWithDepsResult]
+	dbPath       string
+	cacheEnabled bool
+}
+
+// IssuesWithDepsResult holds the result of GetIssuesWithDeps.
+type IssuesWithDepsResult struct {
+	Issues       map[string]queries.Issue
+	Dependencies map[string][]queries.GetDependenciesForIssuesRow
+	Dependents   map[string][]queries.GetDependentsForIssuesRow
+}
+
+// ClientConfig holds configuration for the Client.
+type ClientConfig struct {
+	DBPath           string
+	CacheEnabled     bool
+	CacheExpiration  time.Duration
+	CacheCleanupTime time.Duration
+}
+
+// DefaultClientConfig returns default configuration for the Client.
+func DefaultClientConfig(dbPath string) ClientConfig {
+	return ClientConfig{
+		DBPath:           dbPath,
+		CacheEnabled:     true,
+		CacheExpiration:  10 * time.Minute,
+		CacheCleanupTime: 30 * time.Minute,
+	}
+}
+
+// NewClient creates a new beads database client.
+func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
+	// Open database in read-only mode
+	db, err := sql.Open("sqlite3", "file:"+cfg.DBPath+"?mode=ro")
+	if err != nil {
+		return nil, fmt.Errorf("opening beads database: %w", err)
+	}
+
+	// Test connection
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("pinging beads database: %w", err)
+	}
+
+	var cache cachemanager.CacheManager[string, *IssuesWithDepsResult]
+	if cfg.CacheEnabled {
+		cache = cachemanager.NewInMemoryCacheManager[string, *IssuesWithDepsResult](
+			"beads-issues",
+			cfg.CacheExpiration,
+			cfg.CacheCleanupTime,
+		)
+	}
+
+	return &Client{
+		db:           db,
+		queries:      queries.New(db),
+		cache:        cache,
+		dbPath:       cfg.DBPath,
+		cacheEnabled: cfg.CacheEnabled,
+	}, nil
+}
+
+// Close closes the database connection.
+func (c *Client) Close() error {
+	return c.db.Close()
+}
+
+// FlushCache flushes the cache.
+func (c *Client) FlushCache(ctx context.Context) error {
+	if c.cache == nil {
+		return nil
+	}
+	return c.cache.Flush(ctx)
+}
+
+// GetIssuesWithDeps retrieves issues and their dependencies/dependents.
+// Results are cached based on sorted issue IDs.
+func (c *Client) GetIssuesWithDeps(ctx context.Context, issueIDs []string) (*IssuesWithDepsResult, error) {
+	if len(issueIDs) == 0 {
+		return &IssuesWithDepsResult{
+			Issues:       make(map[string]queries.Issue),
+			Dependencies: make(map[string][]queries.GetDependenciesForIssuesRow),
+			Dependents:   make(map[string][]queries.GetDependentsForIssuesRow),
+		}, nil
+	}
+
+	// Create cache key from sorted issue IDs
+	sortedIDs := make([]string, len(issueIDs))
+	copy(sortedIDs, issueIDs)
+	sort.Strings(sortedIDs)
+	cacheKey := strings.Join(sortedIDs, ",")
+
+	// Check cache
+	if c.cacheEnabled && c.cache != nil {
+		if cached, found := c.cache.Get(ctx, cacheKey); found {
+			return cached, nil
+		}
+	}
+
+	// Fetch issues
+	issues, err := c.queries.GetIssuesByIDs(ctx, issueIDs)
+	if err != nil {
+		return nil, fmt.Errorf("fetching issues: %w", err)
+	}
+
+	// Build issues map
+	issuesMap := make(map[string]queries.Issue, len(issues))
+	for _, issue := range issues {
+		issuesMap[issue.ID] = issue
+	}
+
+	// Fetch dependencies
+	deps, err := c.queries.GetDependenciesForIssues(ctx, issueIDs)
+	if err != nil {
+		return nil, fmt.Errorf("fetching dependencies: %w", err)
+	}
+
+	// Build dependencies map
+	depsMap := make(map[string][]queries.GetDependenciesForIssuesRow)
+	for _, dep := range deps {
+		depsMap[dep.IssueID] = append(depsMap[dep.IssueID], dep)
+	}
+
+	// Fetch dependents
+	dependents, err := c.queries.GetDependentsForIssues(ctx, issueIDs)
+	if err != nil {
+		return nil, fmt.Errorf("fetching dependents: %w", err)
+	}
+
+	// Build dependents map
+	dependentsMap := make(map[string][]queries.GetDependentsForIssuesRow)
+	for _, dependent := range dependents {
+		dependentsMap[dependent.DependsOnID] = append(dependentsMap[dependent.DependsOnID], dependent)
+	}
+
+	result := &IssuesWithDepsResult{
+		Issues:       issuesMap,
+		Dependencies: depsMap,
+		Dependents:   dependentsMap,
+	}
+
+	// Cache result
+	if c.cacheEnabled && c.cache != nil {
+		c.cache.Set(ctx, cacheKey, result, cachemanager.DefaultExpiration)
 	}
 
 	return result, nil
