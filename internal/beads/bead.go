@@ -70,21 +70,3 @@ func BeadFromIssue(issue queries.Issue) Bead {
 
 	return b
 }
-
-// BeadsFromIssues converts a slice of queries.Issue to a slice of Bead.
-func BeadsFromIssues(issues []queries.Issue) []Bead {
-	beads := make([]Bead, len(issues))
-	for i, issue := range issues {
-		beads[i] = BeadFromIssue(issue)
-	}
-	return beads
-}
-
-// BeadMap converts a map of issue ID to queries.Issue to a map of ID to Bead.
-func BeadMap(issues map[string]queries.Issue) map[string]Bead {
-	beads := make(map[string]Bead, len(issues))
-	for id, issue := range issues {
-		beads[id] = BeadFromIssue(issue)
-	}
-	return beads
-}
