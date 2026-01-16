@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,10 +12,15 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/beads/watcher"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
 
+
+// watcherEventMsg wraps watcher events for tea.Msg
+type watcherEventMsg watcher.WatcherEvent
 
 // planModel is the Plan Mode model focused on issue/bead management
 type planModel struct {
@@ -88,6 +94,10 @@ type planModel struct {
 	mouseY        int
 	hoveredButton string // which button is hovered ("n", "e", "w", "p", etc.)
 	hoveredIssue  int    // index of hovered issue, -1 if none
+
+	// Database watcher for cache invalidation
+	beadsWatcher *watcher.Watcher
+	beadsClient  *beads.Client
 }
 
 // newPlanModel creates a new Plan Mode model
@@ -124,6 +134,25 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	branchInput.CharLimit = 100
 	branchInput.Width = 60
 
+	// Initialize beads database client and watcher
+	beadsDBPath := filepath.Join(proj.Root, "main", ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		// Log error but continue without cache - fallback to CLI-based approach
+		beadsClient = nil
+	}
+
+	beadsWatcher, err := watcher.New(watcher.DefaultConfig(beadsDBPath))
+	if err != nil {
+		// Log error but continue without watcher
+		beadsWatcher = nil
+	} else {
+		if err := beadsWatcher.Start(); err != nil {
+			// Log error and disable watcher
+			beadsWatcher = nil
+		}
+	}
+
 	return &planModel{
 		editTitleTextarea:  titleTa,
 		editDescTextarea:   descTa,
@@ -142,6 +171,8 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		zj:                 zellij.New(),
 		columnRatio:        0.4, // Default 40/60 split (issues/details)
 		hoveredIssue:       -1,  // No issue hovered initially
+		beadsWatcher:       beadsWatcher,
+		beadsClient:        beadsClient,
 		filters: beadFilters{
 			status: "open",
 			sortBy: "default",
@@ -172,15 +203,56 @@ func (m *planModel) InModal() bool {
 
 // Init implements tea.Model
 func (m *planModel) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		m.spinner.Tick,
 		m.refreshData(),
-	)
+	}
+
+	// Subscribe to watcher events if watcher is available
+	if m.beadsWatcher != nil {
+		cmds = append(cmds, m.waitForWatcherEvent())
+	}
+
+	return tea.Batch(cmds...)
+}
+
+// waitForWatcherEvent waits for a watcher event and returns it as a tea.Msg
+func (m *planModel) waitForWatcherEvent() tea.Cmd {
+	if m.beadsWatcher == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		sub := m.beadsWatcher.Broker().Subscribe(m.ctx)
+
+		evt, ok := <-sub
+		if !ok {
+			return nil
+		}
+
+		return watcherEventMsg(evt.Payload)
+	}
 }
 
 // Update implements tea.Model
 func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case watcherEventMsg:
+		// Handle watcher events
+		if msg.Type == watcher.DBChanged {
+			// Flush cache and trigger data reload
+			if m.beadsClient != nil {
+				m.beadsClient.FlushCache(m.ctx)
+			}
+			// Trigger data reload and wait for next watcher event
+			return m, tea.Batch(m.refreshData(), m.waitForWatcherEvent())
+		} else if msg.Type == watcher.WatcherError {
+			// Log error and continue waiting for events
+			return m, m.waitForWatcherEvent()
+		}
+		// Continue waiting for next event
+		return m, m.waitForWatcherEvent()
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
