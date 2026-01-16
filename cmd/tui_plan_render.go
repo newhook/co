@@ -840,7 +840,7 @@ func (m *planModel) renderHelp() string {
   a             Add child issue (blocked by selected)
   x             Close selected issue
   Space         Toggle issue selection (for multi-select)
-  w             Create work from issue(s)
+  A             Create work from issue(s)
   W             Add issue to existing work
   i             Import issue from Linear
 
