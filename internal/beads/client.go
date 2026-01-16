@@ -13,6 +13,7 @@ import (
 	_ "github.com/ncruces/go-sqlite3/embed"
 	"github.com/newhook/co/internal/beads/cachemanager"
 	"github.com/newhook/co/internal/beads/queries"
+	"github.com/newhook/co/internal/logging"
 )
 
 // Init initializes beads in the specified directory.
@@ -64,16 +65,20 @@ type CreateOptions struct {
 
 // Create creates a new bead and returns its ID.
 func Create(ctx context.Context, dir string, opts CreateOptions) (string, error) {
-	args := []string{"create", "--title=" + opts.Title, "--type=" + opts.Type, fmt.Sprintf("--priority=%d", opts.Priority)}
+	// Determine the type - if IsEpic is set, override type to "epic"
+	beadType := opts.Type
 	if opts.IsEpic {
-		args = append(args, "--epic")
+		beadType = "epic"
 	}
+	args := []string{"create", "--title=" + opts.Title, "--type=" + beadType, fmt.Sprintf("--priority=%d", opts.Priority)}
 	if opts.Description != "" {
 		args = append(args, "--description="+opts.Description)
 	}
 	if opts.Parent != "" {
 		args = append(args, "--parent="+opts.Parent)
 	}
+
+	logging.Debug("creating bead", "args", args, "dir", dir, "opts", opts)
 
 	cmd := exec.CommandContext(ctx, "bd", args...)
 	if dir != "" {
@@ -82,10 +87,14 @@ func Create(ctx context.Context, dir string, opts CreateOptions) (string, error)
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
+			logging.Error("bd create failed", "error", err, "stderr", string(exitErr.Stderr), "args", args)
 			return "", fmt.Errorf("failed to create bead: %w\n%s", err, exitErr.Stderr)
 		}
+		logging.Error("bd create failed", "error", err, "args", args)
 		return "", fmt.Errorf("failed to create bead: %w", err)
 	}
+
+	logging.Debug("bd create output", "output", string(output))
 
 	// Parse the bead ID from output
 	beadID := strings.TrimSpace(string(output))
@@ -101,9 +110,11 @@ func Create(ctx context.Context, dir string, opts CreateOptions) (string, error)
 	}
 
 	if beadID == "" {
+		logging.Error("failed to parse bead ID from output", "output", string(output), "args", args)
 		return "", fmt.Errorf("failed to get created bead ID from output: %s", output)
 	}
 
+	logging.Debug("created bead", "beadID", beadID)
 	return beadID, nil
 }
 

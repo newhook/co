@@ -973,11 +973,11 @@ func (m tuiModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.createBead(title, beadTypes[m.createBeadType], m.createBeadPriority)
 		}
 		return m, nil
-	case "tab":
+	case "tab", "down", "right":
 		// Cycle through bead types
 		m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
 		return m, nil
-	case "shift+tab":
+	case "shift+tab", "up", "left":
 		// Cycle backward through bead types
 		m.createBeadType = (m.createBeadType + len(beadTypes) - 1) % len(beadTypes)
 		return m, nil
