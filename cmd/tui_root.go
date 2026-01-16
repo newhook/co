@@ -17,9 +17,8 @@ import (
 type Mode int
 
 const (
-	ModePlan    Mode = iota // Planning beads and work
-	ModeWork                // Managing works and tasks
-	ModeMonitor             // Monitoring active works (grid view)
+	ModePlan Mode = iota // Planning beads and work
+	ModeWork             // Managing works and tasks
 )
 
 // modeLabel returns the display label for a mode
@@ -29,8 +28,6 @@ func (m Mode) Label() string {
 		return "Plan"
 	case ModeWork:
 		return "Work"
-	case ModeMonitor:
-		return "Monitor"
 	default:
 		return "Unknown"
 	}
@@ -43,8 +40,6 @@ func (m Mode) Key() string {
 		return "P"
 	case ModeWork:
 		return "W"
-	case ModeMonitor:
-		return "M"
 	default:
 		return "?"
 	}
@@ -71,11 +66,9 @@ type rootModel struct {
 	// Current mode
 	activeMode Mode
 
-	// Sub-models for each mode (will be populated as we implement them)
-	// For now, we use the existing tuiModel as a placeholder
-	planModel    SubModel
-	workModel    SubModel
-	monitorModel SubModel
+	// Sub-models for each mode
+	planModel SubModel
+	workModel SubModel
 
 	// For backwards compatibility, keep the existing model
 	legacyModel tuiModel
@@ -130,21 +123,19 @@ func newRootModel(ctx context.Context, proj *project.Project) rootModel {
 	// Create dedicated mode models
 	planModel := newPlanModel(ctx, proj)
 	workModel := newWorkModel(ctx, proj)
-	monitorModel := newMonitorModel(ctx, proj)
 
 	return rootModel{
-		ctx:          ctx,
-		proj:         proj,
-		width:        80,
-		height:       24,
-		activeMode:   ModePlan, // Start in Plan mode
-		planModel:    planModel,
-		workModel:    workModel,
-		monitorModel: monitorModel,
-		legacyModel:  legacy,
-		spinner:      s,
-		lastUpdate:   time.Now(),
-		hoveredMode:  -1, // No mode hovered initially
+		ctx:         ctx,
+		proj:        proj,
+		width:       80,
+		height:      24,
+		activeMode:  ModePlan, // Start in Plan mode
+		planModel:   planModel,
+		workModel:   workModel,
+		legacyModel: legacy,
+		spinner:     s,
+		lastUpdate:  time.Now(),
+		hoveredMode: -1, // No mode hovered initially
 	}
 }
 
@@ -161,9 +152,6 @@ func (m rootModel) Init() tea.Cmd {
 	}
 	if m.workModel != nil {
 		cmds = append(cmds, m.workModel.Init())
-	}
-	if m.monitorModel != nil {
-		cmds = append(cmds, m.monitorModel.Init())
 	}
 
 	return tea.Batch(cmds...)
@@ -189,9 +177,6 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.workModel != nil {
 			m.workModel.SetSize(m.width, availableHeight)
-		}
-		if m.monitorModel != nil {
-			m.monitorModel.SetSize(m.width, availableHeight)
 		}
 
 		return m, nil
@@ -263,14 +248,6 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 				return m, nil
-			case "m", "M":
-				if m.activeMode != ModeMonitor {
-					oldMode := m.activeMode
-					m.activeMode = ModeMonitor
-					cmd := m.notifyFocusChange(oldMode, ModeMonitor)
-					return m, cmd
-				}
-				return m, nil
 			default:
 				// Any other key cancels mode switch, route to submodel
 				return m.routeToActiveModel(msg)
@@ -315,12 +292,6 @@ func (m *rootModel) notifyFocusChange(oldMode, newMode Mode) tea.Cmd {
 				cmds = append(cmds, cmd)
 			}
 		}
-	case ModeMonitor:
-		if m.monitorModel != nil {
-			if cmd := m.monitorModel.FocusChanged(false); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
 	}
 
 	// Notify new model it gained focus
@@ -337,12 +308,6 @@ func (m *rootModel) notifyFocusChange(oldMode, newMode Mode) tea.Cmd {
 				cmds = append(cmds, cmd)
 			}
 		}
-	case ModeMonitor:
-		if m.monitorModel != nil {
-			if cmd := m.monitorModel.FocusChanged(true); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
 	}
 
 	return tea.Batch(cmds...)
@@ -355,8 +320,6 @@ func (m *rootModel) getActiveModel() SubModel {
 		return m.planModel
 	case ModeWork:
 		return m.workModel
-	case ModeMonitor:
-		return m.monitorModel
 	default:
 		return nil
 	}
@@ -364,21 +327,20 @@ func (m *rootModel) getActiveModel() SubModel {
 
 // detectHoveredMode determines which mode tab is hovered based on mouse X position
 func (m *rootModel) detectHoveredMode(x int) Mode {
-	// Tab bar format: "=== PLAN MODE === c-[P]lan c-[W]ork c-[M]onitor"
+	// Tab bar format: "=== PLAN MODE === c-[P]lan c-[W]ork"
 	// The hotkeys portion shows which keys to press
 	// We need to detect hover over the hotkey portions
 
 	// Build PLAIN text version (no styling) for position detection
 	modeName := m.activeMode.Label()
-	tabBarPlain := fmt.Sprintf("=== %s MODE === c-[P]lan c-[W]ork c-[M]onitor", modeName)
+	tabBarPlain := fmt.Sprintf("=== %s MODE === c-[P]lan c-[W]ork", modeName)
 	if m.pendingModeSwitch {
-		tabBarPlain += "  (waiting for p/w/m...)"
+		tabBarPlain += "  (waiting for p/w...)"
 	}
 
-	// Find positions of c-[P], c-[W], c-[M] in the plain tab bar
+	// Find positions of c-[P], c-[W] in the plain tab bar
 	planIdx := strings.Index(tabBarPlain, "c-[P]lan")
 	workIdx := strings.Index(tabBarPlain, "c-[W]ork")
-	monitorIdx := strings.Index(tabBarPlain, "c-[M]onitor")
 
 	// Check if mouse is over any of these hotkeys
 	if planIdx >= 0 && x >= planIdx && x < planIdx+len("c-[P]lan") {
@@ -386,9 +348,6 @@ func (m *rootModel) detectHoveredMode(x int) Mode {
 	}
 	if workIdx >= 0 && x >= workIdx && x < workIdx+len("c-[W]ork") {
 		return ModeWork
-	}
-	if monitorIdx >= 0 && x >= monitorIdx && x < monitorIdx+len("c-[M]onitor") {
-		return ModeMonitor
 	}
 
 	return -1 // No mode hovered
@@ -409,11 +368,6 @@ func (m rootModel) routeToActiveModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.workModel != nil {
 			newModel, cmd = m.workModel.Update(msg)
 			m.workModel = newModel.(SubModel)
-		}
-	case ModeMonitor:
-		if m.monitorModel != nil {
-			newModel, cmd = m.monitorModel.Update(msg)
-			m.monitorModel = newModel.(SubModel)
 		}
 	}
 
@@ -441,10 +395,6 @@ func (m rootModel) View() string {
 		if m.workModel != nil {
 			content = m.workModel.View()
 		}
-	case ModeMonitor:
-		if m.monitorModel != nil {
-			content = m.monitorModel.View()
-		}
 	}
 
 	contentHeight := lipgloss.Height(content)
@@ -471,11 +421,10 @@ func (m rootModel) renderTabBar() string {
 	// Style the mode switching keys with hover effects
 	planKey := styleButtonWithHover("c-[P]lan", m.hoveredMode == ModePlan)
 	workKey := styleButtonWithHover("c-[W]ork", m.hoveredMode == ModeWork)
-	monitorKey := styleButtonWithHover("c-[M]onitor", m.hoveredMode == ModeMonitor)
-	modeKeys := planKey + " " + workKey + " " + monitorKey
+	modeKeys := planKey + " " + workKey
 
 	if m.pendingModeSwitch {
-		return fmt.Sprintf("=== %s MODE === %s  (waiting for p/w/m...)", modeName, modeKeys)
+		return fmt.Sprintf("=== %s MODE === %s  (waiting for p/w...)", modeName, modeKeys)
 	}
 	return fmt.Sprintf("=== %s MODE === %s", modeName, modeKeys)
 }

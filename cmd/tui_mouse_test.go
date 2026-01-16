@@ -129,78 +129,6 @@ func TestDetectCommandsBarButton(t *testing.T) {
 	}
 }
 
-// TestDetectStatusBarButton tests the Monitor mode status bar button detection
-func TestDetectStatusBarButton(t *testing.T) {
-	// Create model
-	m := &monitorModel{
-		width:  80,
-		height: 24,
-	}
-
-	// Get the plain status bar text (same as the function uses)
-	statusBar := m.renderStatusBarPlain()
-
-	// Find the refresh button
-	refreshText := "[r]efresh"
-	refreshIdx := strings.Index(statusBar, refreshText)
-
-	if refreshIdx < 0 {
-		t.Fatal("Could not find [r]efresh in status bar")
-	}
-
-	refreshWidth := len(refreshText)
-
-	// Account for padding adjustment (x = x - 1)
-	// Valid mouse X range is [refreshIdx+1, refreshIdx+refreshWidth+1)
-	actualStart := refreshIdx + 1
-	actualEnd := refreshIdx + refreshWidth + 1 // first invalid position
-
-	t.Run("r button start", func(t *testing.T) {
-		result := m.detectStatusBarButton(actualStart)
-		assert.Equal(t, "r", result, "Start of [r]efresh at position %d", actualStart)
-	})
-
-	t.Run("r button middle", func(t *testing.T) {
-		middlePos := actualStart + refreshWidth/2
-		result := m.detectStatusBarButton(middlePos)
-		assert.Equal(t, "r", result, "Middle of [r]efresh at position %d", middlePos)
-	})
-
-	t.Run("r button end", func(t *testing.T) {
-		result := m.detectStatusBarButton(actualEnd - 1)
-		assert.Equal(t, "r", result, "End of [r]efresh at position %d", actualEnd-1)
-	})
-
-	t.Run("after r button", func(t *testing.T) {
-		result := m.detectStatusBarButton(actualEnd)
-		assert.NotEqual(t, "r", result, "After [r]efresh at position %d", actualEnd)
-	})
-
-	// Test edge cases
-	t.Run("before padding", func(t *testing.T) {
-		result := m.detectStatusBarButton(0)
-		assert.Equal(t, "", result, "Position 0 should return empty")
-	})
-
-	t.Run("negative position", func(t *testing.T) {
-		result := m.detectStatusBarButton(-5)
-		assert.Equal(t, "", result, "Negative position should return empty")
-	})
-
-	t.Run("far beyond bar", func(t *testing.T) {
-		result := m.detectStatusBarButton(200)
-		assert.Equal(t, "", result, "Far position should return empty")
-	})
-
-	t.Run("navigation arrows not clickable", func(t *testing.T) {
-		// Try clicking in the navigation area (before refresh button)
-		if refreshIdx > 0 {
-			result := m.detectStatusBarButton(refreshIdx / 2)
-			assert.Equal(t, "", result, "Navigation area should not be clickable")
-		}
-	})
-}
-
 // TestDetectHoveredMode tests the Root mode tab detection
 func TestDetectHoveredMode(t *testing.T) {
 	// Create model
@@ -219,7 +147,6 @@ func TestDetectHoveredMode(t *testing.T) {
 	}{
 		{"c-[P]lan", ModePlan},
 		{"c-[W]ork", ModeWork},
-		{"c-[M]onitor", ModeMonitor},
 	}
 
 	for _, modeInfo := range modes {
