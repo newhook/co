@@ -869,7 +869,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.linearImportMaxDepth = 2
 		return m, nil
 
-	case "W":
+	case "A":
 		// Add selected issue to existing work
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			return m, m.loadAvailableWorks()
