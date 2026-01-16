@@ -406,15 +406,16 @@ func (m *planModel) renderCommandsBar() string {
 	eButton := styleButtonWithHover("[e]Edit", m.hoveredButton == "e")
 	aButton := styleButtonWithHover("[a]Child", m.hoveredButton == "a")
 	xButton := styleButtonWithHover("[x]Close", m.hoveredButton == "x")
-	AButton := styleButtonWithHover("[A]ssign", m.hoveredButton == "A")
+	wButton := styleButtonWithHover("[w]Work", m.hoveredButton == "w")
+	AButton := styleButtonWithHover("[A]dd", m.hoveredButton == "A")
 	iButton := styleButtonWithHover("[i]Import", m.hoveredButton == "i")
 	pButton := styleButtonWithHover(pAction, m.hoveredButton == "p")
 	helpButton := styleButtonWithHover("[?]Help", m.hoveredButton == "?")
 
-	commands := nButton + " " + eButton + " " + aButton + " " + xButton + " " + AButton + " " + iButton + " " + pButton + " " + helpButton
+	commands := nButton + " " + eButton + " " + aButton + " " + xButton + " " + wButton + " " + AButton + " " + iButton + " " + pButton + " " + helpButton
 
 	// Commands plain text for width calculation
-	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [A]ssign [i]Import %s [?]Help", pAction)
+	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work [A]dd [i]Import %s [?]Help", pAction)
 
 	// Status on the right
 	var status string
@@ -460,14 +461,15 @@ func (m *planModel) detectCommandsBarButton(x int) string {
 			pAction = "[p]Resume"
 		}
 	}
-	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [A]ssign [i]Import %s [?]Help", pAction)
+	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work [A]dd [i]Import %s [?]Help", pAction)
 
 	// Find positions of each button
 	nIdx := strings.Index(commandsPlain, "[n]New")
 	eIdx := strings.Index(commandsPlain, "[e]Edit")
 	aIdx := strings.Index(commandsPlain, "[a]Child")
 	xIdx := strings.Index(commandsPlain, "[x]Close")
-	AIdx := strings.Index(commandsPlain, "[A]ssign")
+	wIdx := strings.Index(commandsPlain, "[w]Work")
+	AIdx := strings.Index(commandsPlain, "[A]dd")
 	iIdx := strings.Index(commandsPlain, "[i]Import")
 	pIdx := strings.Index(commandsPlain, pAction)
 	helpIdx := strings.Index(commandsPlain, "[?]Help")
@@ -485,7 +487,10 @@ func (m *planModel) detectCommandsBarButton(x int) string {
 	if xIdx >= 0 && x >= xIdx && x < xIdx+len("[x]Close") {
 		return "x"
 	}
-	if AIdx >= 0 && x >= AIdx && x < AIdx+len("[A]ssign") {
+	if wIdx >= 0 && x >= wIdx && x < wIdx+len("[w]Work") {
+		return "w"
+	}
+	if AIdx >= 0 && x >= AIdx && x < AIdx+len("[A]dd") {
 		return "A"
 	}
 	if iIdx >= 0 && x >= iIdx && x < iIdx+len("[i]Import") {
@@ -840,8 +845,8 @@ func (m *planModel) renderHelp() string {
   a             Add child issue (blocked by selected)
   x             Close selected issue
   Space         Toggle issue selection (for multi-select)
-  A             Create work from issue(s)
-  W             Add issue to existing work
+  w             Create work from issue(s)
+  A             Add issue to existing work
   i             Import issue from Linear
 
   Filtering & Sorting

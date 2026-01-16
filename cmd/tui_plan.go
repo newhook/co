@@ -306,8 +306,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 				case "x":
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-				case "A":
-					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+				case "w":
+					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
 				case "p":
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
 				case "?":
@@ -698,7 +698,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "A":
+	case "w":
 		// Create work from selected bead(s) - show dialog
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			// Collect selected beads, or use cursor bead if none selected
@@ -819,7 +819,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.linearImportMaxDepth = 2
 		return m, nil
 
-	case "W":
+	case "A":
 		// Add selected issue to existing work
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			return m, m.loadAvailableWorks()
