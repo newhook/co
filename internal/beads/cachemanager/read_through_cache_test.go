@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-
-	"github.com/zjrosen/perles/internal/mocks"
 )
 
 type wrappedInput struct {
@@ -17,7 +15,7 @@ type wrappedInput struct {
 }
 
 func TestReadThroughCache_Get_WithCacheDisabled(t *testing.T) {
-	managerMock := mocks.NewMockCacheManager[string, []*ExampleStruct](t)
+	managerMock := &MockCacheManager[string, []*ExampleStruct]{}
 
 	readThroughCache := NewReadThroughCache[string, []*ExampleStruct, wrappedInput](
 		managerMock,
@@ -47,7 +45,7 @@ func TestReadThroughCache_Get_WithCacheDisabled(t *testing.T) {
 }
 
 func TestReadThroughCache_GetWithRefresh_WithCacheDisabled(t *testing.T) {
-	managerMock := mocks.NewMockCacheManager[string, []*ExampleStruct](t)
+	managerMock := &MockCacheManager[string, []*ExampleStruct]{}
 
 	readThroughCache := NewReadThroughCache[string, []*ExampleStruct, wrappedInput](
 		managerMock,
@@ -77,8 +75,8 @@ func TestReadThroughCache_GetWithRefresh_WithCacheDisabled(t *testing.T) {
 }
 
 func TestReadThroughCache_Get_WithValueInCache(t *testing.T) {
-	managerMock := mocks.NewMockCacheManager[string, []*ExampleStruct](t)
-	managerMock.EXPECT().Get(mock.Anything, "key").Return([]*ExampleStruct{
+	managerMock := &MockCacheManager[string, []*ExampleStruct]{}
+	managerMock.On("Get",mock.Anything, "key").Return([]*ExampleStruct{
 		{
 			ID:   1,
 			Name: "Example",
@@ -114,9 +112,9 @@ func TestReadThroughCache_Get_WithValueInCache(t *testing.T) {
 }
 
 func TestReadThroughCache_Get_EmptyCache(t *testing.T) {
-	managerMock := mocks.NewMockCacheManager[string, []*ExampleStruct](t)
-	managerMock.EXPECT().Get(mock.Anything, "key").Return([]*ExampleStruct{}, false)
-	managerMock.EXPECT().Set(mock.Anything, "key", []*ExampleStruct{
+	managerMock := &MockCacheManager[string, []*ExampleStruct]{}
+	managerMock.On("Get",mock.Anything, "key").Return([]*ExampleStruct{}, false)
+	managerMock.On("Set",mock.Anything, "key", []*ExampleStruct{
 		{
 			ID: 1,
 		},
@@ -150,8 +148,8 @@ func TestReadThroughCache_Get_EmptyCache(t *testing.T) {
 }
 
 func TestReadThroughCache_Get_DatabaseError(t *testing.T) {
-	managerMock := mocks.NewMockCacheManager[string, []*ExampleStruct](t)
-	managerMock.EXPECT().Get(mock.Anything, "key").Return([]*ExampleStruct{}, false)
+	managerMock := &MockCacheManager[string, []*ExampleStruct]{}
+	managerMock.On("Get",mock.Anything, "key").Return([]*ExampleStruct{}, false)
 
 	readThroughCache := NewReadThroughCache[string, []*ExampleStruct, wrappedInput](
 		managerMock,
@@ -172,8 +170,8 @@ func TestReadThroughCache_Get_DatabaseError(t *testing.T) {
 }
 
 func TestReadThroughCache_GetWithRefresh_WithValueInCache(t *testing.T) {
-	managerMock := mocks.NewMockCacheManager[string, []*ExampleStruct](t)
-	managerMock.EXPECT().GetWithRefresh(mock.Anything, "key", mock.Anything).Return([]*ExampleStruct{
+	managerMock := &MockCacheManager[string, []*ExampleStruct]{}
+	managerMock.On("GetWithRefresh",mock.Anything, "key", mock.Anything).Return([]*ExampleStruct{
 		{
 			ID:   1,
 			Name: "Example",
@@ -209,9 +207,9 @@ func TestReadThroughCache_GetWithRefresh_WithValueInCache(t *testing.T) {
 }
 
 func TestReadThroughCache_GetWithRefresh_EmptyCache(t *testing.T) {
-	managerMock := mocks.NewMockCacheManager[string, []*ExampleStruct](t)
-	managerMock.EXPECT().GetWithRefresh(mock.Anything, "key", mock.Anything).Return([]*ExampleStruct{}, false)
-	managerMock.EXPECT().Set(mock.Anything, "key", []*ExampleStruct{
+	managerMock := &MockCacheManager[string, []*ExampleStruct]{}
+	managerMock.On("GetWithRefresh",mock.Anything, "key", mock.Anything).Return([]*ExampleStruct{}, false)
+	managerMock.On("Set",mock.Anything, "key", []*ExampleStruct{
 		{
 			ID: 1,
 		},
@@ -245,8 +243,8 @@ func TestReadThroughCache_GetWithRefresh_EmptyCache(t *testing.T) {
 }
 
 func TestReadThroughCache_GetWithRefresh_DatabaseError(t *testing.T) {
-	managerMock := mocks.NewMockCacheManager[string, []*ExampleStruct](t)
-	managerMock.EXPECT().GetWithRefresh(mock.Anything, "key", mock.Anything).Return([]*ExampleStruct{}, false)
+	managerMock := &MockCacheManager[string, []*ExampleStruct]{}
+	managerMock.On("GetWithRefresh",mock.Anything, "key", mock.Anything).Return([]*ExampleStruct{}, false)
 
 	readThroughCache := NewReadThroughCache[string, []*ExampleStruct, wrappedInput](
 		managerMock,
