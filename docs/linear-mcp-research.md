@@ -118,7 +118,7 @@ When querying issues (e.g., via `get_issue` or `list_issues`), the following fie
 - **estimate** - Estimated effort
 - **attachments** - Attached files/images
 - **gitBranches** - Associated git branches (if any)
-- **comments** - Issue comments (when using `get_issue_with_comments`)
+- **comments** - Issue comments (included in `get_issue` responses)
 
 ## Querying Issues by ID or URL
 
