@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/newhook/co/internal/beads/cachemanager"
-	"github.com/newhook/co/internal/beads/queries"
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
+	"github.com/newhook/co/internal/beads/cachemanager"
+	"github.com/newhook/co/internal/beads/queries"
 )
 
 // Init initializes beads in the specified directory.
@@ -166,8 +166,8 @@ func AddDependency(ctx context.Context, beadID, dependsOnID, dir string) error {
 
 // EditCommand returns an exec.Cmd for opening a bead in an editor.
 // This is meant to be used with tea.ExecProcess for interactive editing.
-func EditCommand(beadID, dir string) *exec.Cmd {
-	cmd := exec.Command("bd", "edit", beadID)
+func EditCommand(ctx context.Context, beadID, dir string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "bd", "edit", beadID)
 	if dir != "" {
 		cmd.Dir = dir
 	}

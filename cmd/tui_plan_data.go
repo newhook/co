@@ -169,10 +169,11 @@ func (m *planModel) saveBeadEdit(beadID, title, description, beadType string) te
 
 // openInEditor opens the issue in $EDITOR using bd edit
 func (m *planModel) openInEditor(beadID string) tea.Cmd {
+	ctx := context.Background()
 	mainRepoPath := m.proj.MainRepoPath()
 
 	// Use bd edit which handles $EDITOR and the issue format
-	c := beads.EditCommand(beadID, mainRepoPath)
+	c := beads.EditCommand(ctx, beadID, mainRepoPath)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		if err != nil {
 			return planStatusMsg{message: fmt.Sprintf("Editor error: %v", err), isError: true}
