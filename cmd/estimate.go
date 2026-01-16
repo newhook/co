@@ -65,17 +65,17 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	defer beadsClient.Close()
 
 	// Get bead from beads DB to compute description hash
-	issue, _, _, err := beadsClient.GetIssue(ctx, beadID)
+	bead, _, _, err := beadsClient.GetBead(ctx, beadID)
 	if err != nil {
 		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
 	}
-	if issue == nil {
+	if bead == nil {
 		return fmt.Errorf("bead %s not found", beadID)
 	}
 
 	// Compute description hash
 	// Combine title and description as that's what affects complexity
-	fullDescription := issue.Title + "\n" + issue.Description
+	fullDescription := bead.Title + "\n" + bead.Description
 	descHash := db.HashDescription(fullDescription)
 
 	// Store estimate in complexity cache
@@ -135,17 +135,17 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 			fmt.Println("\nEstimation Summary:")
 			for _, id := range taskBeadIDs {
 				// Get bead info for display
-				issue, _, _, err := beadsClient.GetIssue(ctx, id)
-				if err != nil || issue == nil {
+				bead, _, _, err := beadsClient.GetBead(ctx, id)
+				if err != nil || bead == nil {
 					continue
 				}
 				// Get cached complexity
-				fullDesc := issue.Title + "\n" + issue.Description
+				fullDesc := bead.Title + "\n" + bead.Description
 				hash := db.HashDescription(fullDesc)
 				score, tokens, found, _ := proj.DB.GetCachedComplexity(ctx, id, hash)
 				if found {
 					// Truncate title if too long
-					title := issue.Title
+					title := bead.Title
 					if len(title) > 50 {
 						title = title[:47] + "..."
 					}
@@ -156,9 +156,9 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 			// Count remaining
 			var remaining []string
 			for _, id := range taskBeadIDs {
-				issue, _, _, err := beadsClient.GetIssue(ctx, id)
-				if err == nil && issue != nil {
-					fullDesc := issue.Title + "\n" + issue.Description
+				bead, _, _, err := beadsClient.GetBead(ctx, id)
+				if err == nil && bead != nil {
+					fullDesc := bead.Title + "\n" + bead.Description
 					hash := db.HashDescription(fullDesc)
 					_, _, found, _ := proj.DB.GetCachedComplexity(ctx, id, hash)
 					if !found {

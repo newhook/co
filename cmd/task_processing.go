@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/beads/queries"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
@@ -24,14 +23,14 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 
 	switch task.TaskType {
 	case "estimate":
-		issues, err := getIssuesForTask(ctx, proj, task.ID, mainRepoPath)
+		issues, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
 		if err != nil {
 			return "", err
 		}
 		return claude.BuildEstimatePrompt(task.ID, issues), nil
 
 	case "implement":
-		issues, err := getIssuesForTask(ctx, proj, task.ID, mainRepoPath)
+		issues, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
 		if err != nil {
 			return "", err
 		}
@@ -54,8 +53,8 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 	}
 }
 
-// getIssuesForTask retrieves the issues associated with a task.
-func getIssuesForTask(ctx context.Context, proj *project.Project, taskID, mainRepoPath string) ([]queries.Issue, error) {
+// getBeadsForTask retrieves the beads associated with a task.
+func getBeadsForTask(ctx context.Context, proj *project.Project, taskID, mainRepoPath string) ([]beads.Bead, error) {
 	beadIDs, err := proj.DB.GetTaskBeads(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task beads: %w", err)
@@ -69,23 +68,23 @@ func getIssuesForTask(ctx context.Context, proj *project.Project, taskID, mainRe
 	}
 	defer beadsClient.Close()
 
-	// Get issues with dependencies
-	result, err := beadsClient.GetIssuesWithDeps(ctx, beadIDs)
+	// Get beads with dependencies
+	result, err := beadsClient.GetBeadsWithDeps(ctx, beadIDs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get issues: %w", err)
+		return nil, fmt.Errorf("failed to get beads: %w", err)
 	}
 
 	// Convert map to slice in order of beadIDs
-	var issues []queries.Issue
+	var beadList []beads.Bead
 	for _, beadID := range beadIDs {
-		if issue, ok := result.Issues[beadID]; ok {
-			issues = append(issues, issue)
+		if b, ok := result.Beads[beadID]; ok {
+			beadList = append(beadList, b)
 		} else {
 			fmt.Printf("Warning: bead %s not found\n", beadID)
 		}
 	}
 
-	return issues, nil
+	return beadList, nil
 }
 
 // processTask processes a single task by ID using inline execution.

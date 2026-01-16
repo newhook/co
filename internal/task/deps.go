@@ -3,7 +3,7 @@ package task
 import (
 	"fmt"
 
-	"github.com/newhook/co/internal/beads/queries"
+	"github.com/newhook/co/internal/beads"
 )
 
 // DependencyGraph represents bead dependencies.
@@ -14,33 +14,33 @@ type DependencyGraph struct {
 	Dependents map[string][]string
 }
 
-// BuildDependencyGraph creates a dependency graph from issues and their dependencies.
+// BuildDependencyGraph creates a dependency graph from beads and their dependencies.
 func BuildDependencyGraph(
-	issues []queries.Issue,
-	dependencies map[string][]queries.GetDependenciesForIssuesRow,
+	beadList []beads.Bead,
+	dependencies map[string][]beads.Dependency,
 ) *DependencyGraph {
 	graph := &DependencyGraph{
 		DependsOn:  make(map[string][]string),
 		Dependents: make(map[string][]string),
 	}
 
-	// Create set of valid issue IDs
+	// Create set of valid bead IDs
 	validIDs := make(map[string]bool)
-	for _, issue := range issues {
-		validIDs[issue.ID] = true
-		// Initialize empty slices for this issue
-		graph.DependsOn[issue.ID] = []string{}
-		graph.Dependents[issue.ID] = []string{}
+	for _, bead := range beadList {
+		validIDs[bead.ID] = true
+		// Initialize empty slices for this bead
+		graph.DependsOn[bead.ID] = []string{}
+		graph.Dependents[bead.ID] = []string{}
 	}
 
 	// Build dependency relationships from the dependencies map
-	for issueID, deps := range dependencies {
+	for beadID, deps := range dependencies {
 		for _, dep := range deps {
-			// Only add dependencies that are in our issue set
+			// Only add dependencies that are in our bead set
 			if validIDs[dep.DependsOnID] {
 				if dep.Type == "blocks" || dep.Type == "blocked_by" {
-					graph.DependsOn[issueID] = append(graph.DependsOn[issueID], dep.DependsOnID)
-					graph.Dependents[dep.DependsOnID] = append(graph.Dependents[dep.DependsOnID], issueID)
+					graph.DependsOn[beadID] = append(graph.DependsOn[beadID], dep.DependsOnID)
+					graph.Dependents[dep.DependsOnID] = append(graph.Dependents[dep.DependsOnID], beadID)
 				}
 			}
 		}
@@ -49,20 +49,20 @@ func BuildDependencyGraph(
 	return graph
 }
 
-// TopologicalSort returns issues in dependency order (dependencies before dependents).
-func TopologicalSort(graph *DependencyGraph, issues []queries.Issue) ([]queries.Issue, error) {
-	issueMap := make(map[string]queries.Issue)
-	for _, issue := range issues {
-		issueMap[issue.ID] = issue
+// TopologicalSort returns beads in dependency order (dependencies before dependents).
+func TopologicalSort(graph *DependencyGraph, beadList []beads.Bead) ([]beads.Bead, error) {
+	beadMap := make(map[string]beads.Bead)
+	for _, bead := range beadList {
+		beadMap[bead.ID] = bead
 	}
 
 	// Kahn's algorithm
 	inDegree := make(map[string]int)
-	for _, issue := range issues {
-		inDegree[issue.ID] = len(graph.DependsOn[issue.ID])
+	for _, bead := range beadList {
+		inDegree[bead.ID] = len(graph.DependsOn[bead.ID])
 	}
 
-	// Start with issues that have no dependencies
+	// Start with beads that have no dependencies
 	var queue []string
 	for id, degree := range inDegree {
 		if degree == 0 {
@@ -70,13 +70,13 @@ func TopologicalSort(graph *DependencyGraph, issues []queries.Issue) ([]queries.
 		}
 	}
 
-	var result []queries.Issue
+	var result []beads.Bead
 	for len(queue) > 0 {
 		// Pop from queue
 		id := queue[0]
 		queue = queue[1:]
 
-		result = append(result, issueMap[id])
+		result = append(result, beadMap[id])
 
 		// Reduce in-degree of dependents
 		for _, dependent := range graph.Dependents[id] {
@@ -88,7 +88,7 @@ func TopologicalSort(graph *DependencyGraph, issues []queries.Issue) ([]queries.
 	}
 
 	// Check for cycles
-	if len(result) != len(issues) {
+	if len(result) != len(beadList) {
 		return nil, fmt.Errorf("dependency cycle detected")
 	}
 

@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/beads/queries"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/mise"
@@ -22,7 +21,7 @@ import (
 // generateBranchNameFromIssue creates a git-friendly branch name from an issue's title.
 // It converts the title to lowercase, replaces spaces with hyphens,
 // removes special characters, and prefixes with "feat/".
-func generateBranchNameFromIssue(issue *queries.Issue) string {
+func generateBranchNameFromIssue(issue *beads.Bead) string {
 	title := issue.Title
 
 	// Convert to lowercase
@@ -75,7 +74,7 @@ func parseBeadIDs(beadIDStr string) []string {
 // generateBranchNameFromIssues creates a git-friendly branch name from multiple issues' titles.
 // For a single issue, it uses that issue's title.
 // For multiple issues, it combines titles (truncated) or uses a generic name if too long.
-func generateBranchNameFromIssues(issues []*queries.Issue) string {
+func generateBranchNameFromIssues(issues []*beads.Bead) string {
 	if len(issues) == 0 {
 		return "feat/automated-work"
 	}
@@ -121,7 +120,7 @@ func generateBranchNameFromIssues(issues []*queries.Issue) string {
 
 // collectIssuesForMultipleIDs collects all issues to include for multiple bead IDs.
 // It collects transitive dependencies for each bead and deduplicates the results.
-func collectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, dir string) (*beads.IssuesWithDepsResult, error) {
+func collectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, dir string) (*beads.BeadsWithDepsResult, error) {
 	// Use a map to deduplicate issue IDs
 	issueIDSet := make(map[string]bool)
 
@@ -149,7 +148,7 @@ func collectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, dir s
 	}
 	defer beadsClient.Close()
 
-	return beadsClient.GetIssuesWithDeps(ctx, issueIDs)
+	return beadsClient.GetBeadsWithDeps(ctx, issueIDs)
 }
 
 // ensureUniqueBranchName checks if a branch already exists and appends a suffix if needed.
@@ -203,7 +202,7 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string
 	defer beadsClient.Close()
 
 	// First, get the main issue
-	mainIssue, _, dependents, err := beadsClient.GetIssue(ctx, beadID)
+	mainIssue, _, dependents, err := beadsClient.GetBead(ctx, beadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bead %s: %w", beadID, err)
 	}
@@ -223,7 +222,7 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string
 
 	if hasChildren {
 		// For epics, collect all children
-		allIssues, err := beadsClient.GetIssueWithChildren(ctx, beadID)
+		allIssues, err := beadsClient.GetBeadWithChildren(ctx, beadID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get children for epic %s: %w", beadID, err)
 		}
@@ -235,7 +234,7 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string
 		}
 
 		// Get dependencies/dependents for all issues in one call to determine which are epics
-		depsResult, err := beadsClient.GetIssuesWithDeps(ctx, issueIDs)
+		depsResult, err := beadsClient.GetBeadsWithDeps(ctx, issueIDs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get dependencies for epic children: %w", err)
 		}
@@ -303,9 +302,9 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 	defer beadsClient.Close()
 
 	// Get the issues and generate branch name
-	var mainIssues []*queries.Issue
+	var mainIssues []*beads.Bead
 	for _, beadID := range beadIDList {
-		issue, _, _, err2 := beadsClient.GetIssue(ctx, beadID)
+		issue, _, _, err2 := beadsClient.GetBead(ctx, beadID)
 		if err2 != nil {
 			return fmt.Errorf("failed to get bead %s: %w", beadID, err2)
 		}
@@ -429,9 +428,9 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 	}
 	defer beadsClient.Close()
 
-	var mainIssues []*queries.Issue
+	var mainIssues []*beads.Bead
 	for _, beadID := range beadIDList {
-		issue, _, _, err2 := beadsClient.GetIssue(ctx, beadID)
+		issue, _, _, err2 := beadsClient.GetBead(ctx, beadID)
 		if err2 != nil {
 			return fmt.Errorf("failed to get bead %s: %w", beadID, err2)
 		}
@@ -511,13 +510,13 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 		return fmt.Errorf("failed to collect beads: %w", err)
 	}
 
-	if len(issuesResult.Issues) == 0 {
+	if len(issuesResult.Beads) == 0 {
 		return fmt.Errorf("no beads to process for %s", strings.Join(beadIDList, ", "))
 	}
 
-	fmt.Printf("Collected %d bead(s):\n", len(issuesResult.Issues))
+	fmt.Printf("Collected %d bead(s):\n", len(issuesResult.Beads))
 	var collectedBeadIDs []string
-	for id, issue := range issuesResult.Issues {
+	for id, issue := range issuesResult.Beads {
 		fmt.Printf("  - %s: %s\n", id, issue.Title)
 		collectedBeadIDs = append(collectedBeadIDs, id)
 	}

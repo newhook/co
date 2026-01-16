@@ -215,7 +215,7 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 	if filters.status != "" && filters.status != "all" {
 		statusFilter = filters.status
 	}
-	issuesList, err := client.ListIssues(ctx, statusFilter)
+	issuesList, err := client.ListBeads(ctx, statusFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +223,7 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 	// TODO: Apply label filter if needed (requires additional query support)
 
 	// Get ready issues to mark which ones are ready
-	readyIssues, _ := client.GetReadyIssues(ctx)
+	readyIssues, _ := client.GetReadyBeads(ctx)
 	readySet := make(map[string]bool)
 	for _, issue := range readyIssues {
 		readySet[issue.ID] = true
@@ -234,7 +234,7 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 	for _, issue := range issuesList {
 		issueIDs = append(issueIDs, issue.ID)
 	}
-	depsResult, err := client.GetIssuesWithDeps(ctx, issueIDs)
+	depsResult, err := client.GetBeadsWithDeps(ctx, issueIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 			title:           issue.Title,
 			status:          issue.Status,
 			priority:        int(issue.Priority),
-			beadType:        issue.IssueType,
+			beadType:        issue.Type,
 			description:     issue.Description,
 			isReady:         readySet[issue.ID],
 			dependencyCount: len(depsResult.Dependencies[issue.ID]),
@@ -282,7 +282,7 @@ func fetchReadyBeads(dir string, filters beadFilters) ([]beadItem, error) {
 	defer client.Close()
 
 	// Get ready issues
-	readyIssues, err := client.GetReadyIssues(ctx)
+	readyIssues, err := client.GetReadyBeads(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +292,7 @@ func fetchReadyBeads(dir string, filters beadFilters) ([]beadItem, error) {
 	for _, issue := range readyIssues {
 		issueIDs = append(issueIDs, issue.ID)
 	}
-	depsResult, err := client.GetIssuesWithDeps(ctx, issueIDs)
+	depsResult, err := client.GetBeadsWithDeps(ctx, issueIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +315,7 @@ func fetchReadyBeads(dir string, filters beadFilters) ([]beadItem, error) {
 			description:     issue.Description,
 			status:          issue.Status,
 			priority:        int(issue.Priority),
-			beadType:        issue.IssueType,
+			beadType:        issue.Type,
 			isReady:         true,
 			dependencyCount: len(depsResult.Dependencies[issue.ID]),
 			dependentCount:  len(depsResult.Dependents[issue.ID]),

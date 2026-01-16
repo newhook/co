@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/newhook/co/internal/beads/queries"
+	"github.com/newhook/co/internal/beads"
 )
 
 // DefaultPlanner implements the Planner interface using bin-packing.
@@ -22,35 +22,35 @@ func NewDefaultPlanner(estimator ComplexityEstimator) *DefaultPlanner {
 // The budget represents the target complexity per task.
 func (p *DefaultPlanner) Plan(
 	ctx context.Context,
-	issues []queries.Issue,
-	dependencies map[string][]queries.GetDependenciesForIssuesRow,
+	beadList []beads.Bead,
+	dependencies map[string][]beads.Dependency,
 	budget int,
 ) ([]Task, error) {
-	if len(issues) == 0 {
+	if len(beadList) == 0 {
 		return nil, nil
 	}
 
 	// Build dependency graph
-	graph := BuildDependencyGraph(issues, dependencies)
+	graph := BuildDependencyGraph(beadList, dependencies)
 
-	// Get topologically sorted issues (respecting dependencies)
-	sorted, err := TopologicalSort(graph, issues)
+	// Get topologically sorted beads (respecting dependencies)
+	sorted, err := TopologicalSort(graph, beadList)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sort issues: %w", err)
+		return nil, fmt.Errorf("failed to sort beads: %w", err)
 	}
 
-	// Estimate complexity for each issue - no conversion needed!
+	// Estimate complexity for each bead
 	complexities := make(map[string]int)
-	for _, issue := range sorted {
-		score, _, err := p.estimator.Estimate(ctx, issue)
+	for _, bead := range sorted {
+		score, _, err := p.estimator.Estimate(ctx, bead)
 		if err != nil {
-			return nil, fmt.Errorf("failed to estimate complexity for %s: %w", issue.ID, err)
+			return nil, fmt.Errorf("failed to estimate complexity for %s: %w", bead.ID, err)
 		}
-		complexities[issue.ID] = score
+		complexities[bead.ID] = score
 	}
 
-	// Sort issues by complexity (descending) for first-fit decreasing
-	sortedByComplexity := make([]queries.Issue, len(sorted))
+	// Sort beads by complexity (descending) for first-fit decreasing
+	sortedByComplexity := make([]beads.Bead, len(sorted))
 	copy(sortedByComplexity, sorted)
 	sort.Slice(sortedByComplexity, func(i, j int) bool {
 		return complexities[sortedByComplexity[i].ID] > complexities[sortedByComplexity[j].ID]
@@ -63,13 +63,13 @@ func (p *DefaultPlanner) Plan(
 }
 
 // binPackBeads assigns beads to tasks using first-fit decreasing algorithm.
-func binPackBeads(issuesByComplexity []queries.Issue, complexities map[string]int, graph *DependencyGraph, budget int) []Task {
+func binPackBeads(beadsByComplexity []beads.Bead, complexities map[string]int, graph *DependencyGraph, budget int) []Task {
 	var tasks []Task
 	assigned := make(map[string]int) // bead ID -> task index
 
-	for _, issue := range issuesByComplexity {
-		complexity := complexities[issue.ID]
-		taskIdx := findBestTask(issue.ID, complexity, tasks, assigned, graph, budget)
+	for _, bead := range beadsByComplexity {
+		complexity := complexities[bead.ID]
+		taskIdx := findBestTask(bead.ID, complexity, tasks, assigned, graph, budget)
 
 		if taskIdx == -1 {
 			// Create new task
@@ -77,17 +77,17 @@ func binPackBeads(issuesByComplexity []queries.Issue, complexities map[string]in
 			tasks = append(tasks, Task{
 				ID:         fmt.Sprintf("task-%d", taskIdx+1),
 				BeadIDs:    []string{},
-				Beads:      []queries.Issue{},
+				Beads:      []beads.Bead{},
 				Complexity: 0,
 				Status:     StatusPending,
 			})
 		}
 
-		// Add issue to task - no conversion needed!
-		tasks[taskIdx].BeadIDs = append(tasks[taskIdx].BeadIDs, issue.ID)
-		tasks[taskIdx].Beads = append(tasks[taskIdx].Beads, issue)
+		// Add bead to task
+		tasks[taskIdx].BeadIDs = append(tasks[taskIdx].BeadIDs, bead.ID)
+		tasks[taskIdx].Beads = append(tasks[taskIdx].Beads, bead)
 		tasks[taskIdx].Complexity += complexity
-		assigned[issue.ID] = taskIdx
+		assigned[bead.ID] = taskIdx
 	}
 
 	return tasks

@@ -33,7 +33,7 @@ func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, 
 	// Use database client if available, otherwise fall back to CLI
 	if client != nil {
 		// Fetch all issues with their dependencies in a single query
-		result, err := client.GetIssuesWithDeps(ctx, issueIDs)
+		result, err := client.GetBeadsWithDeps(ctx, issueIDs)
 		if err == nil {
 			// Populate dependencies from result
 			for i := range items {
@@ -70,17 +70,17 @@ func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, 
 				}
 
 				// Fetch missing parents in a single query
-				parentResult, err := client.GetIssuesWithDeps(ctx, missingParentIDs)
+				parentResult, err := client.GetBeadsWithDeps(ctx, missingParentIDs)
 				if err == nil {
 					// Add missing parents to items
 					for _, parentID := range missingParentIDs {
-						if issue, ok := parentResult.Issues[parentID]; ok {
+						if issue, ok := parentResult.Beads[parentID]; ok {
 							parentBead := &beadItem{
 								id:              issue.ID,
 								title:           issue.Title,
 								status:          issue.Status,
-								priority:        int(issue.Priority),
-								beadType:        issue.IssueType,
+								priority:        issue.Priority,
+								beadType:        issue.Type,
 								description:     issue.Description,
 								isClosedParent:  true,
 							}
@@ -119,7 +119,7 @@ func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, 
 			defer tempClient.Close()
 
 			// Use the temp client to fetch dependencies
-			result, err := tempClient.GetIssuesWithDeps(ctx, issueIDs)
+			result, err := tempClient.GetBeadsWithDeps(ctx, issueIDs)
 			if err == nil {
 				// Populate dependencies from result
 				for i := range items {
@@ -152,20 +152,20 @@ func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, 
 					}
 
 					// Fetch missing parents in a single query
-					parentResult, err := tempClient.GetIssuesWithDeps(ctx, missingParentIDs)
+					parentResult, err := tempClient.GetBeadsWithDeps(ctx, missingParentIDs)
 					if err != nil {
 						break
 					}
 
 					// Add missing parents to items
 					for _, parentID := range missingParentIDs {
-						if issue, ok := parentResult.Issues[parentID]; ok {
+						if issue, ok := parentResult.Beads[parentID]; ok {
 							parentBead := &beadItem{
 								id:              issue.ID,
 								title:           issue.Title,
 								status:          issue.Status,
-								priority:        int(issue.Priority),
-								beadType:        issue.IssueType,
+								priority:        issue.Priority,
+								beadType:        issue.Type,
 								description:     issue.Description,
 								isClosedParent:  true,
 							}

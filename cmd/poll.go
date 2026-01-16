@@ -114,10 +114,10 @@ func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID st
 			}
 			bp := beadProgress{id: beadID, status: status}
 			// Fetch additional bead details from beads system
-			if issue, _, _, err := beadsClient.GetIssue(ctx, beadID); err == nil && issue != nil {
-				bp.title = issue.Title
-				bp.description = issue.Description
-				bp.beadStatus = issue.Status
+			if bead, _, _, err := beadsClient.GetBead(ctx, beadID); err == nil && bead != nil {
+				bp.title = bead.Title
+				bp.description = bead.Description
+				bp.beadStatus = bead.Status
 			}
 			tp.beads = append(tp.beads, bp)
 		}
@@ -183,10 +183,10 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 			}
 			bp := beadProgress{id: beadID, status: status}
 			// Fetch additional bead details from beads system
-			if issue, _, _, err := beadsClient.GetIssue(ctx, beadID); err == nil && issue != nil {
-				bp.title = issue.Title
-				bp.description = issue.Description
-				bp.beadStatus = issue.Status
+			if bead, _, _, err := beadsClient.GetBead(ctx, beadID); err == nil && bead != nil {
+				bp.title = bead.Title
+				bp.description = bead.Description
+				bp.beadStatus = bead.Status
 			}
 			tp.beads = append(tp.beads, bp)
 		}

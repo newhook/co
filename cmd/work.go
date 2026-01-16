@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/beads/queries"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
@@ -206,15 +205,15 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 	defer beadsClient.Close()
 
-	issuesResult, err := beadsClient.GetIssuesWithDeps(ctx, expandedIssueIDs)
+	issuesResult, err := beadsClient.GetBeadsWithDeps(ctx, expandedIssueIDs)
 	if err != nil {
 		return fmt.Errorf("failed to get issue details: %w", err)
 	}
 
 	// Convert to slice of issue pointers for branch name generation
-	var groupIssues []*queries.Issue
+	var groupIssues []*beads.Bead
 	for _, issueID := range expandedIssueIDs {
-		if issue, ok := issuesResult.Issues[issueID]; ok {
+		if issue, ok := issuesResult.Beads[issueID]; ok {
 			issueCopy := issue
 			groupIssues = append(groupIssues, &issueCopy)
 		}
@@ -1101,7 +1100,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to get review epic ID: %w", err)
 		}
 
-		var beadsToFix []queries.Issue
+		var beadsToFix []beads.Bead
 		if epicID != "" {
 			// Create beads client
 			beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
@@ -1112,7 +1111,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 			defer beadsClient.Close()
 
 			// Get all children of the review epic
-			epicChildrenIssues, err := beadsClient.GetIssueWithChildren(ctx, epicID)
+			epicChildrenIssues, err := beadsClient.GetBeadWithChildren(ctx, epicID)
 			if err != nil {
 				return fmt.Errorf("failed to get children of review epic %s: %w", epicID, err)
 			}

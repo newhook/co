@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/newhook/co/internal/beads/queries"
+	"github.com/newhook/co/internal/beads"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,8 +14,8 @@ type mockEstimator struct {
 	scores map[string]int
 }
 
-func (m *mockEstimator) Estimate(ctx context.Context, issue queries.Issue) (int, int, error) {
-	score := m.scores[issue.ID]
+func (m *mockEstimator) Estimate(ctx context.Context, bead beads.Bead) (int, int, error) {
+	score := m.scores[bead.ID]
 	if score == 0 {
 		score = 5 // default
 	}
@@ -23,18 +23,18 @@ func (m *mockEstimator) Estimate(ctx context.Context, issue queries.Issue) (int,
 }
 
 func TestBuildDependencyGraph(t *testing.T) {
-	issues := []queries.Issue{
+	beadList := []beads.Bead{
 		{ID: "a", Title: "A"},
 		{ID: "b", Title: "B"},
 		{ID: "c", Title: "C"},
 	}
 
-	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+	dependencies := map[string][]beads.Dependency{
 		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
 		"c": {{IssueID: "c", DependsOnID: "b", Type: "blocks"}},
 	}
 
-	graph := BuildDependencyGraph(issues, dependencies)
+	graph := BuildDependencyGraph(beadList, dependencies)
 
 	// b depends on a
 	require.Len(t, graph.DependsOn["b"], 1, "expected b to have 1 dependency")
@@ -50,42 +50,42 @@ func TestBuildDependencyGraph(t *testing.T) {
 }
 
 func TestBuildDependencyGraphIgnoresExternalDeps(t *testing.T) {
-	issues := []queries.Issue{
+	beadList := []beads.Bead{
 		{ID: "a", Title: "A"},
 	}
 
-	// Dependencies on external issues (not in issues list) should be ignored
-	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+	// Dependencies on external beads (not in beads list) should be ignored
+	dependencies := map[string][]beads.Dependency{
 		"a": {{IssueID: "a", DependsOnID: "external", Type: "blocks"}},
 	}
 
-	graph := BuildDependencyGraph(issues, dependencies)
+	graph := BuildDependencyGraph(beadList, dependencies)
 
-	// External dependency should be filtered out since "external" is not in the issues list
+	// External dependency should be filtered out since "external" is not in the beads list
 	assert.Empty(t, graph.DependsOn["a"], "external dependency should be ignored")
-	assert.Empty(t, graph.Dependents["external"], "external should not have dependents since it's not in issues")
+	assert.Empty(t, graph.Dependents["external"], "external should not have dependents since it's not in beads")
 }
 
 func TestTopologicalSort(t *testing.T) {
-	issues := []queries.Issue{
+	beadList := []beads.Bead{
 		{ID: "c", Title: "C"},
 		{ID: "a", Title: "A"},
 		{ID: "b", Title: "B"},
 	}
 
-	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+	dependencies := map[string][]beads.Dependency{
 		"c": {{IssueID: "c", DependsOnID: "b", Type: "blocks"}},
 		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
 	}
 
-	graph := BuildDependencyGraph(issues, dependencies)
-	sorted, err := TopologicalSort(graph, issues)
+	graph := BuildDependencyGraph(beadList, dependencies)
+	sorted, err := TopologicalSort(graph, beadList)
 	require.NoError(t, err, "TopologicalSort failed")
 
 	// a should come before b, b should come before c
 	positions := make(map[string]int)
-	for i, issue := range sorted {
-		positions[issue.ID] = i
+	for i, bead := range sorted {
+		positions[bead.ID] = i
 	}
 
 	assert.Less(t, positions["a"], positions["b"], "a should come before b")
@@ -93,18 +93,18 @@ func TestTopologicalSort(t *testing.T) {
 }
 
 func TestTopologicalSortDetectsCycle(t *testing.T) {
-	issues := []queries.Issue{
+	beadList := []beads.Bead{
 		{ID: "a", Title: "A"},
 		{ID: "b", Title: "B"},
 	}
 
-	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+	dependencies := map[string][]beads.Dependency{
 		"a": {{IssueID: "a", DependsOnID: "b", Type: "blocks"}},
 		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
 	}
 
-	graph := BuildDependencyGraph(issues, dependencies)
-	_, err := TopologicalSort(graph, issues)
+	graph := BuildDependencyGraph(beadList, dependencies)
+	_, err := TopologicalSort(graph, beadList)
 	assert.Error(t, err, "expected error for cycle detection")
 }
 
@@ -115,16 +115,16 @@ func TestPlanSimple(t *testing.T) {
 	}
 	planner := NewDefaultPlanner(estimator)
 
-	issues := []queries.Issue{
+	beadList := []beads.Bead{
 		{ID: "a", Title: "A"},
 		{ID: "b", Title: "B"},
 		{ID: "c", Title: "C"},
 	}
 
-	dependencies := map[string][]queries.GetDependenciesForIssuesRow{}
+	dependencies := map[string][]beads.Dependency{}
 
 	// Budget of 10 should fit all beads in one task (3+3+3=9)
-	tasks, err := planner.Plan(ctx, issues, dependencies, 10)
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 10)
 	require.NoError(t, err, "Plan failed")
 
 	assert.Len(t, tasks, 1, "expected 1 task")
@@ -138,16 +138,16 @@ func TestPlanSplitByBudget(t *testing.T) {
 	}
 	planner := NewDefaultPlanner(estimator)
 
-	issues := []queries.Issue{
+	beadList := []beads.Bead{
 		{ID: "a", Title: "A"},
 		{ID: "b", Title: "B"},
 		{ID: "c", Title: "C"},
 	}
 
-	dependencies := map[string][]queries.GetDependenciesForIssuesRow{}
+	dependencies := map[string][]beads.Dependency{}
 
 	// Budget of 7 should split into multiple tasks
-	tasks, err := planner.Plan(ctx, issues, dependencies, 7)
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 7)
 	require.NoError(t, err, "Plan failed")
 
 	assert.GreaterOrEqual(t, len(tasks), 2, "expected at least 2 tasks")
@@ -167,17 +167,17 @@ func TestPlanRespectsDependencies(t *testing.T) {
 	}
 	planner := NewDefaultPlanner(estimator)
 
-	issues := []queries.Issue{
+	beadList := []beads.Bead{
 		{ID: "a", Title: "A"},
 		{ID: "b", Title: "B"},
 	}
 
-	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+	dependencies := map[string][]beads.Dependency{
 		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
 	}
 
 	// Small budget to force multiple tasks
-	tasks, err := planner.Plan(ctx, issues, dependencies, 4)
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 4)
 	require.NoError(t, err, "Plan failed")
 
 	// Find which tasks contain a and b
@@ -197,7 +197,7 @@ func TestPlanEmpty(t *testing.T) {
 	estimator := &mockEstimator{}
 	planner := NewDefaultPlanner(estimator)
 
-	dependencies := map[string][]queries.GetDependenciesForIssuesRow{}
+	dependencies := map[string][]beads.Dependency{}
 
 	tasks, err := planner.Plan(ctx, nil, dependencies, 10)
 	require.NoError(t, err, "Plan failed")
@@ -213,15 +213,15 @@ func TestPlanFirstFitDecreasing(t *testing.T) {
 	}
 	planner := NewDefaultPlanner(estimator)
 
-	issues := []queries.Issue{
+	beadList := []beads.Bead{
 		{ID: "small", Title: "Small"},
 		{ID: "medium", Title: "Medium"},
 		{ID: "large", Title: "Large"},
 	}
 
-	dependencies := map[string][]queries.GetDependenciesForIssuesRow{}
+	dependencies := map[string][]beads.Dependency{}
 
-	tasks, err := planner.Plan(ctx, issues, dependencies, 10)
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 10)
 	require.NoError(t, err, "Plan failed")
 
 	// With budget 10, large (6) goes first, then small (2) fits, medium (4) won't fit

@@ -71,18 +71,18 @@ func runComplete(cmd *cobra.Command, args []string) error {
 
 		for _, beadID := range beadIDs {
 			// Check actual bead status in the beads system
-			issue, _, _, err := beadsClient.GetIssue(ctx, beadID)
+			bead, _, _, err := beadsClient.GetBead(ctx, beadID)
 			if err != nil {
 				fmt.Printf("Warning: failed to get bead %s status: %v\n", beadID, err)
 				continue
 			}
-			if issue == nil {
+			if bead == nil {
 				fmt.Printf("Warning: bead %s not found\n", beadID)
 				continue
 			}
 
 			// Only mark as completed if bead is actually closed
-			if issue.Status == "closed" {
+			if bead.Status == "closed" {
 				if err := proj.DB.CompleteTaskBead(ctx, id, beadID); err != nil {
 					fmt.Printf("Warning: failed to mark bead %s as completed: %v\n", beadID, err)
 				}
