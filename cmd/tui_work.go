@@ -59,6 +59,9 @@ type workModel struct {
 	zoomLevel      ZoomLevel
 	selectedWorkID string
 
+	// Grid state (for overview mode)
+	gridConfig GridConfig
+
 	// Mouse state
 	mouseX        int
 	mouseY        int
@@ -143,6 +146,14 @@ func (m *workModel) tick() tea.Cmd {
 func (m *workModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.recalculateGrid()
+}
+
+// recalculateGrid updates the grid configuration based on current works and dimensions
+func (m *workModel) recalculateGrid() {
+	// Reserve 1 line for status bar
+	gridHeight := m.height - 1
+	m.gridConfig = CalculateGridDimensions(len(m.works), m.width, gridHeight)
 }
 
 // FocusChanged implements SubModel
@@ -301,6 +312,7 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.beadItems = msg.beads
 			m.statusMessage = ""
 			m.statusIsError = false
+			m.recalculateGrid()
 		}
 
 		// Ensure cursor is valid
@@ -340,6 +352,115 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle grid navigation when in overview mode
+	if m.zoomLevel == ZoomOverview {
+		switch msg.String() {
+		case "j", "down":
+			// Move down in grid
+			newIdx := m.worksCursor + m.gridConfig.Cols
+			if newIdx < len(m.works) {
+				m.worksCursor = newIdx
+			}
+			return m, nil
+		case "k", "up":
+			// Move up in grid
+			newIdx := m.worksCursor - m.gridConfig.Cols
+			if newIdx >= 0 {
+				m.worksCursor = newIdx
+			}
+			return m, nil
+		case "h", "left":
+			if m.worksCursor > 0 {
+				m.worksCursor--
+			}
+			return m, nil
+		case "l", "right":
+			if m.worksCursor < len(m.works)-1 {
+				m.worksCursor++
+			}
+			return m, nil
+		case "g":
+			// Go to first
+			m.worksCursor = 0
+			return m, nil
+		case "G":
+			// Go to last
+			if len(m.works) > 0 {
+				m.worksCursor = len(m.works) - 1
+			}
+			return m, nil
+		case "enter":
+			// Zoom in on selected work
+			if len(m.works) > 0 && m.worksCursor < len(m.works) {
+				m.zoomLevel = ZoomZoomedIn
+				m.selectedWorkID = m.works[m.worksCursor].work.ID
+				m.activePanel = PanelLeft
+				m.tasksCursor = 0
+			}
+			return m, nil
+		case "c":
+			// Create work
+			m.textInput.Reset()
+			m.textInput.Placeholder = "feature/my-branch"
+			m.textInput.Focus()
+			m.viewMode = ViewCreateWork
+			return m, nil
+		case "d":
+			// Destroy selected work
+			if len(m.works) > 0 {
+				m.viewMode = ViewDestroyConfirm
+			}
+			return m, nil
+		case "r":
+			// Run selected work
+			if len(m.works) > 0 {
+				return m, m.runWork()
+			}
+			return m, nil
+		case "p":
+			// Plan selected work
+			if len(m.works) > 0 {
+				m.viewMode = ViewPlanDialog
+			}
+			return m, nil
+		case "a":
+			// Assign beads to selected work
+			if len(m.works) > 0 {
+				m.viewMode = ViewAssignBeads
+				m.beadsCursor = 0
+				return m, m.loadBeadsForAssign()
+			}
+			return m, nil
+		case "R":
+			// Create review task
+			if len(m.works) > 0 {
+				return m, m.createReviewTask()
+			}
+			return m, nil
+		case "P":
+			// Create PR task
+			if len(m.works) > 0 {
+				return m, m.createPRTask()
+			}
+			return m, nil
+		case "t":
+			// Open console tab for selected work
+			if len(m.works) > 0 {
+				return m, m.openConsole()
+			}
+			return m, nil
+		case "C":
+			// Open Claude Code session tab for selected work
+			if len(m.works) > 0 {
+				return m, m.openClaude()
+			}
+			return m, nil
+		case "?":
+			m.viewMode = ViewHelp
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
 	case "j", "down":
 		if m.activePanel == PanelLeft {
@@ -379,14 +500,22 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "tab":
-		m.activePanel = (m.activePanel + 1) % 3
+		if m.zoomLevel == ZoomZoomedIn {
+			m.activePanel = (m.activePanel + 1) % 3
+		}
 
 	case "1":
-		m.activePanel = PanelLeft
+		if m.zoomLevel == ZoomZoomedIn {
+			m.activePanel = PanelLeft
+		}
 	case "2":
-		m.activePanel = PanelMiddle
+		if m.zoomLevel == ZoomZoomedIn {
+			m.activePanel = PanelMiddle
+		}
 	case "3":
-		m.activePanel = PanelRight
+		if m.zoomLevel == ZoomZoomedIn {
+			m.activePanel = PanelRight
+		}
 
 	case "c":
 		// Create work
@@ -470,13 +599,6 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.viewMode = ViewHelp
 
-	case "enter":
-		// Zoom in on selected work
-		if m.zoomLevel == ZoomOverview && m.activePanel == PanelLeft && len(m.works) > 0 {
-			m.zoomLevel = ZoomZoomedIn
-			m.selectedWorkID = m.works[m.worksCursor].work.ID
-		}
-
 	case "esc":
 		// Zoom out to overview
 		if m.zoomLevel == ZoomZoomedIn {
@@ -485,23 +607,27 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "g":
-		// Go to top
-		if m.activePanel == PanelLeft {
-			m.worksCursor = 0
-			m.tasksCursor = 0
-		} else if m.activePanel == PanelMiddle {
-			m.tasksCursor = 0
+		// Go to top (only in zoomed view - grid handles overview)
+		if m.zoomLevel == ZoomZoomedIn {
+			if m.activePanel == PanelLeft {
+				m.worksCursor = 0
+				m.tasksCursor = 0
+			} else if m.activePanel == PanelMiddle {
+				m.tasksCursor = 0
+			}
 		}
 
 	case "G":
-		// Go to bottom
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
-			m.worksCursor = len(m.works) - 1
-			m.tasksCursor = 0
-		} else if m.activePanel == PanelMiddle && len(m.works) > 0 {
-			wp := m.works[m.worksCursor]
-			if len(wp.tasks) > 0 {
-				m.tasksCursor = len(wp.tasks) - 1
+		// Go to bottom (only in zoomed view - grid handles overview)
+		if m.zoomLevel == ZoomZoomedIn {
+			if m.activePanel == PanelLeft && len(m.works) > 0 {
+				m.worksCursor = len(m.works) - 1
+				m.tasksCursor = 0
+			} else if m.activePanel == PanelMiddle && len(m.works) > 0 {
+				wp := m.works[m.worksCursor]
+				if len(wp.tasks) > 0 {
+					m.tasksCursor = len(wp.tasks) - 1
+				}
 			}
 		}
 	}
@@ -703,24 +829,7 @@ func (m *workModel) View() string {
 		return m.renderHelp()
 	}
 
-	// Calculate panel dimensions
-	panelWidth1 := m.width / 3
-	panelWidth2 := m.width / 3
-	panelWidth3 := m.width - panelWidth1 - panelWidth2
-	// Reserve 1 line for status bar, and account for panel borders (2 lines per panel)
-	panelHeight := m.height - 1 - 2 // -1 for status bar, -2 for border
-
-	// Render three panels: Works | Tasks | Details
-	leftPanel := m.renderWorksPanel(panelWidth1, panelHeight)
-	middlePanel := m.renderTasksPanel(panelWidth2, panelHeight)
-	rightPanel := m.renderDetailsPanel(panelWidth3, panelHeight)
-
-	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, middlePanel, rightPanel)
-
-	// Render status bar
-	statusBar := m.renderStatusBar()
-
-	// Handle dialogs
+	// Handle dialogs first
 	switch m.viewMode {
 	case ViewCreateWork:
 		dialog := m.renderCreateWorkDialog()
@@ -738,7 +847,301 @@ func (m *workModel) View() string {
 		return m.renderAssignBeadsView()
 	}
 
+	// Render based on zoom level
+	if m.zoomLevel == ZoomOverview {
+		return m.renderOverviewGrid()
+	}
+
+	// Zoomed in view: 3-panel layout
+	// Calculate panel dimensions
+	panelWidth1 := m.width / 3
+	panelWidth2 := m.width / 3
+	panelWidth3 := m.width - panelWidth1 - panelWidth2
+	// Reserve 1 line for status bar, and account for panel borders (2 lines per panel)
+	panelHeight := m.height - 1 - 2 // -1 for status bar, -2 for border
+
+	// Render three panels: Works | Tasks | Details
+	leftPanel := m.renderWorksPanel(panelWidth1, panelHeight)
+	middlePanel := m.renderTasksPanel(panelWidth2, panelHeight)
+	rightPanel := m.renderDetailsPanel(panelWidth3, panelHeight)
+
+	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, middlePanel, rightPanel)
+
+	// Render status bar
+	statusBar := m.renderStatusBar()
+
 	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+}
+
+// renderOverviewGrid renders the grid view of all works
+func (m *workModel) renderOverviewGrid() string {
+	if m.loading && len(m.works) == 0 {
+		return "Loading workers..."
+	}
+
+	if len(m.works) == 0 {
+		return m.renderEmptyGridState()
+	}
+
+	// Render grid of worker panels
+	grid := m.renderGrid()
+
+	// Render status bar
+	statusBar := m.renderOverviewStatusBar()
+
+	return lipgloss.JoinVertical(lipgloss.Left, grid, statusBar)
+}
+
+// renderEmptyGridState renders the empty state when no works exist
+func (m *workModel) renderEmptyGridState() string {
+	content := `
+  No Active Workers
+
+  Workers will appear here as grid panels.
+  Each panel shows:
+    - Worker name and status
+    - Task list with states
+    - Progress indicators
+
+  Press 'c' to create a new work.
+  Press 'Enter' on a work to zoom into task view.
+`
+	style := lipgloss.NewStyle().
+		Padding(2, 4).
+		Foreground(lipgloss.Color("247"))
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+		style.Render(content))
+}
+
+// renderGrid renders the grid of worker panels
+func (m *workModel) renderGrid() string {
+	if len(m.works) == 0 {
+		return ""
+	}
+
+	cellWidth := m.gridConfig.CellWidth
+	cellHeight := m.gridConfig.CellHeight
+
+	var rows []string
+
+	for row := 0; row < m.gridConfig.Rows; row++ {
+		var rowPanels []string
+
+		for col := 0; col < m.gridConfig.Cols; col++ {
+			idx := row*m.gridConfig.Cols + col
+
+			if idx < len(m.works) {
+				panel := m.renderGridWorkerPanel(idx, cellWidth, cellHeight)
+				rowPanels = append(rowPanels, panel)
+			} else {
+				// Empty cell
+				emptyPanel := m.renderEmptyGridPanel(cellWidth, cellHeight)
+				rowPanels = append(rowPanels, emptyPanel)
+			}
+		}
+
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, rowPanels...))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
+}
+
+// renderGridWorkerPanel renders a single worker panel in the grid
+func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
+	wp := m.works[idx]
+	isSelected := idx == m.worksCursor
+
+	// Panel styling
+	var panelStyle lipgloss.Style
+	if isSelected {
+		panelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("99")).
+			Padding(0, 1).
+			Width(width - 2).
+			Height(height - 2)
+	} else {
+		panelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).
+			Padding(0, 1).
+			Width(width - 2).
+			Height(height - 2)
+	}
+
+	var content strings.Builder
+
+	// Header: Worker name and status
+	workerName := wp.work.Name
+	if workerName == "" {
+		workerName = wp.work.ID
+	}
+
+	// Check if any task is actively processing
+	hasActiveTask := false
+	for _, tp := range wp.tasks {
+		if tp.task.Status == db.StatusProcessing {
+			hasActiveTask = true
+			break
+		}
+	}
+
+	var icon string
+	if wp.work.Status == db.StatusProcessing && hasActiveTask {
+		icon = m.spinner.View()
+	} else {
+		icon = statusIcon(wp.work.Status)
+	}
+
+	header := fmt.Sprintf("%s %s", icon, workerName)
+	if isSelected {
+		header = tuiActiveTabStyle.Render(header)
+	} else {
+		header = tuiTitleStyle.Render(header)
+	}
+	content.WriteString(header)
+	content.WriteString("\n")
+
+	// Work ID (if different from name)
+	if wp.work.Name != "" {
+		content.WriteString(tuiDimStyle.Render(wp.work.ID))
+		content.WriteString("\n")
+	}
+
+	// Progress summary
+	if len(wp.tasks) > 0 {
+		pending := 0
+		processing := 0
+		completed := 0
+		failed := 0
+		for _, t := range wp.tasks {
+			switch t.task.Status {
+			case db.StatusPending:
+				pending++
+			case db.StatusProcessing:
+				processing++
+			case db.StatusCompleted:
+				completed++
+			case db.StatusFailed:
+				failed++
+			}
+		}
+
+		// Progress bar
+		total := len(wp.tasks)
+		donePercent := float64(completed) / float64(total) * 100
+		progressWidth := width - 6
+		if progressWidth < 10 {
+			progressWidth = 10
+		}
+		filledWidth := int(float64(progressWidth) * float64(completed) / float64(total))
+		emptyWidth := progressWidth - filledWidth
+
+		progressBar := strings.Repeat("█", filledWidth) + strings.Repeat("░", emptyWidth)
+		if failed > 0 {
+			progressBar = tuiErrorStyle.Render(progressBar)
+		} else if processing > 0 {
+			progressBar = statusProcessing.Render(progressBar)
+		} else if completed == total {
+			progressBar = statusCompleted.Render(progressBar)
+		}
+
+		content.WriteString(fmt.Sprintf("%s %.0f%%\n", progressBar, donePercent))
+
+		// Status counts
+		counts := fmt.Sprintf("✓%d ●%d ○%d", completed, processing, pending)
+		if failed > 0 {
+			counts += fmt.Sprintf(" ✗%d", failed)
+		}
+		content.WriteString(tuiDimStyle.Render(counts))
+		content.WriteString("\n")
+	} else {
+		// Show warning if there are unassigned beads
+		if wp.unassignedBeadCount > 0 {
+			content.WriteString(tuiErrorStyle.Render(fmt.Sprintf("⚠ %d pending", wp.unassignedBeadCount)))
+		} else {
+			content.WriteString(tuiDimStyle.Render("No tasks"))
+		}
+		content.WriteString("\n")
+	}
+
+	// Task list (show as many as fit)
+	linesUsed := 4 // header + id + progress + counts
+	availableLines := height - linesUsed - 3 // account for border
+	if availableLines < 0 {
+		availableLines = 0
+	}
+
+	if len(wp.tasks) > 0 && availableLines > 0 {
+		content.WriteString("\n")
+		for i, tp := range wp.tasks {
+			if i >= availableLines {
+				remaining := len(wp.tasks) - i
+				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  +%d more", remaining)))
+				break
+			}
+
+			taskIcon := statusIcon(tp.task.Status)
+			taskID := tp.task.ID
+			// Truncate long task IDs
+			maxLen := width - 8
+			if len(taskID) > maxLen && maxLen > 3 {
+				taskID = taskID[:maxLen-3] + "..."
+			}
+			content.WriteString(fmt.Sprintf("%s %s\n", taskIcon, taskID))
+		}
+	}
+
+	return panelStyle.Render(content.String())
+}
+
+// renderEmptyGridPanel renders an empty grid cell
+func (m *workModel) renderEmptyGridPanel(width, height int) string {
+	panelStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("237")).
+		Padding(0, 1).
+		Width(width - 2).
+		Height(height - 2)
+
+	return panelStyle.Render("")
+}
+
+// renderOverviewStatusBar renders the status bar for overview mode
+func (m *workModel) renderOverviewStatusBar() string {
+	// Commands on the left
+	cButton := styleButtonWithHover("[c]reate", m.hoveredButton == "c")
+	helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
+
+	keys := "[←↑↓→]navigate [Enter]zoom in " + cButton + " " + helpButton
+	keysPlain := "[←↑↓→]navigate [Enter]zoom in [c]reate [?]help"
+
+	// Status on the right
+	var statusParts []string
+	if len(m.works) > 0 {
+		pending := 0
+		processing := 0
+		completed := 0
+		for _, wp := range m.works {
+			switch wp.work.Status {
+			case db.StatusPending:
+				pending++
+			case db.StatusProcessing:
+				processing++
+			case db.StatusCompleted:
+				completed++
+			}
+		}
+		statusParts = append(statusParts, fmt.Sprintf("Workers: %d (●%d ✓%d ○%d)", len(m.works), processing, completed, pending))
+	}
+	statusParts = append(statusParts, fmt.Sprintf("Updated: %s", m.lastUpdate.Format("15:04:05")))
+	statusPlain := strings.Join(statusParts, " | ")
+	status := tuiDimStyle.Render(statusPlain)
+
+	// Build bar with commands left, status right
+	padding := max(m.width-len(keysPlain)-len(statusPlain)-4, 2)
+	return tuiStatusBarStyle.Width(m.width).Render(keys + strings.Repeat(" ", padding) + status)
 }
 
 func (m *workModel) renderWithDialog(dialog string) string {
@@ -1079,7 +1482,8 @@ func (m *workModel) renderStatusBar() string {
 		status = tuiDimStyle.Render(statusPlain)
 	}
 
-	// Commands on the left with hover effects
+	// Commands on the left with hover effects - include [Esc]back for zoomed view
+	escButton := "[Esc]back"
 	cButton := styleButtonWithHover("[c]reate", m.hoveredButton == "c")
 	nButton := styleButtonWithHover("[n]ew issue", m.hoveredButton == "n")
 	dButton := styleButtonWithHover("[d]estroy", m.hoveredButton == "d")
@@ -1092,10 +1496,10 @@ func (m *workModel) renderStatusBar() string {
 	PButton := styleButtonWithHover("[P]R", m.hoveredButton == "P")
 	helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-	keys := cButton + " " + nButton + " " + dButton + " " + pButton + " " + rButton + " " + aButton + " " + tButton + " " + CButton + " " + RButton + " " + PButton + " " + helpButton
+	keys := escButton + " " + cButton + " " + nButton + " " + dButton + " " + pButton + " " + rButton + " " + aButton + " " + tButton + " " + CButton + " " + RButton + " " + PButton + " " + helpButton
 
 	// Plain text for width calculation
-	keysPlain := "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [C]laude [R]eview [P]R [?]help"
+	keysPlain := "[Esc]back [c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [C]laude [R]eview [P]R [?]help"
 
 	// Build bar with commands left, status right
 	padding := max(m.width-len(keysPlain)-len(statusPlain)-4, 2)
@@ -1290,13 +1694,25 @@ func (m *workModel) renderHelp() string {
 	help := `
   Work Mode - Help
 
-  Navigation
+  View States
+  ────────────────────────────
+  Overview      Grid of all workers (default)
+  Zoomed        3-panel task view for selected work
+
+  Navigation (Overview/Grid)
+  ────────────────────────────
+  h/l, ←/→      Move between grid cells
+  j/k, ↑/↓      Move up/down in grid
+  Enter         Zoom into selected work
+  g             Go to first work
+  G             Go to last work
+
+  Navigation (Zoomed/3-Panel)
   ────────────────────────────
   h/l, ←/→      Move between panels
   j/k, ↑/↓      Navigate list
   Tab           Cycle panels
-  g             Go to top
-  G             Go to bottom
+  Esc           Zoom out to overview
 
   Work Management
   ────────────────────────────
@@ -1315,7 +1731,6 @@ func (m *workModel) renderHelp() string {
   General
   ────────────────────────────
   ?             Show this help
-  Esc           Close dialogs
 
   Press any key to close...
 `

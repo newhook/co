@@ -316,3 +316,63 @@ func styleButtonWithHover(text string, hovered bool) string {
 	}
 	return styleHotkeys(text)
 }
+
+// GridConfig holds the computed dimensions for a grid layout
+type GridConfig struct {
+	Cols       int
+	Rows       int
+	CellWidth  int
+	CellHeight int
+}
+
+// CalculateGridDimensions computes optimal grid layout based on item count and screen size
+func CalculateGridDimensions(numItems, screenWidth, screenHeight int) GridConfig {
+	if numItems == 0 {
+		return GridConfig{Cols: 1, Rows: 1, CellWidth: screenWidth, CellHeight: screenHeight}
+	}
+
+	// Aim for roughly square cells, considering terminal is usually wider than tall
+	// Each cell needs minimum 30 chars wide and 10 lines tall
+	minCellWidth := 30
+	minCellHeight := 10
+
+	maxCols := screenWidth / minCellWidth
+	if maxCols < 1 {
+		maxCols = 1
+	}
+	maxRows := screenHeight / minCellHeight
+	if maxRows < 1 {
+		maxRows = 1
+	}
+
+	var gridCols, gridRows int
+
+	// Find layout that fits all items
+	if numItems <= maxCols {
+		// Single row
+		gridCols = numItems
+		gridRows = 1
+	} else if numItems <= maxCols*2 {
+		// Two rows
+		gridCols = (numItems + 1) / 2
+		gridRows = 2
+	} else {
+		// Fill grid
+		gridCols = maxCols
+		gridRows = (numItems + maxCols - 1) / maxCols
+		if gridRows > maxRows {
+			gridRows = maxRows
+		}
+	}
+
+	// Calculate actual cell dimensions
+	cellWidth := screenWidth / gridCols
+	cellHeight := screenHeight / gridRows
+
+	return GridConfig{
+		Cols:       gridCols,
+		Rows:       gridRows,
+		CellWidth:  cellWidth,
+		CellHeight: cellHeight,
+	}
+}
