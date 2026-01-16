@@ -45,7 +45,7 @@ func fetchBeadByID(dir, id string) (*beadItem, error) {
 // treeDepth set for each item.
 // When searchText is non-empty, skip fetching parent beads to avoid adding
 // unfiltered items that don't match the search.
-func buildBeadTree(items []beadItem, client *beads.Client, dir string, searchText string) []beadItem {
+func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, dir string, searchText string) []beadItem {
 	if len(items) == 0 {
 		return items
 	}
@@ -65,7 +65,7 @@ func buildBeadTree(items []beadItem, client *beads.Client, dir string, searchTex
 	// Use database client if available, otherwise fall back to CLI
 	if client != nil {
 		// Fetch all issues with their dependencies in a single query
-		result, err := client.GetIssuesWithDeps(context.Background(), issueIDs)
+		result, err := client.GetIssuesWithDeps(ctx, issueIDs)
 		if err == nil {
 			// Populate dependencies from result
 			for i := range items {
@@ -102,7 +102,7 @@ func buildBeadTree(items []beadItem, client *beads.Client, dir string, searchTex
 				}
 
 				// Fetch missing parents in a single query
-				parentResult, err := client.GetIssuesWithDeps(context.Background(), missingParentIDs)
+				parentResult, err := client.GetIssuesWithDeps(ctx, missingParentIDs)
 				if err == nil {
 					// Add missing parents to items
 					for _, parentID := range missingParentIDs {
