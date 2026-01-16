@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -139,17 +140,25 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
 	if err != nil {
 		// Log error but continue without cache - fallback to CLI-based approach
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize beads client: %v\n", err)
 		beadsClient = nil
 	}
 
 	beadsWatcher, err := watcher.New(watcher.DefaultConfig(beadsDBPath))
 	if err != nil {
 		// Log error but continue without watcher
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize beads watcher: %v\n", err)
 		beadsWatcher = nil
 	} else {
 		if err := beadsWatcher.Start(); err != nil {
 			// Log error and disable watcher
+			fmt.Fprintf(os.Stderr, "Warning: Failed to start beads watcher: %v\n", err)
 			beadsWatcher = nil
+			// Close beadsClient to prevent resource leak
+			if beadsClient != nil {
+				beadsClient.Close()
+				beadsClient = nil
+			}
 		}
 	}
 
