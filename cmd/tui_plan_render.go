@@ -599,12 +599,12 @@ func (m *planModel) detectHoveredIssue(y int) int {
 }
 
 // detectDialogButton determines which dialog button is at the given position
-// Returns "ok", "cancel", or "" if not over a button
+// Returns "ok", "cancel", "execute", "auto", or "" if not over a button
 func (m *planModel) detectDialogButton(x, y int) string {
-	// Dialog buttons only visible in form modes and Linear import mode
+	// Dialog buttons only visible in form modes, Linear import mode, and work creation mode
 	if m.viewMode != ViewCreateBead && m.viewMode != ViewCreateBeadInline &&
 		m.viewMode != ViewAddChildBead && m.viewMode != ViewEditBead &&
-		m.viewMode != ViewLinearImportInline {
+		m.viewMode != ViewLinearImportInline && m.viewMode != ViewCreateWork {
 		return ""
 	}
 
@@ -621,8 +621,68 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		return ""
 	}
 
-	// Handle Linear import dialog separately
-	if m.viewMode == ViewLinearImportInline {
+	// Handle ViewCreateWork separately
+	if m.viewMode == ViewCreateWork {
+		// The work creation form structure:
+		// - Header line "Create Work"
+		// - Blank line
+		// - Bead info lines (variable)
+		// - Branch name label
+		// - Branch input
+		// - Blank line
+		// - "Actions:" label
+		// - Execute button line
+		// - Auto button line
+		// - Cancel button line
+		formStartY := 2
+		linesBeforeButtons := 1  // header
+		linesBeforeButtons += 1  // blank line
+
+		// Bead info lines
+		if len(m.createWorkBeadIDs) == 1 {
+			linesBeforeButtons += 1  // single bead info
+			linesBeforeButtons += 1  // blank line
+		} else {
+			linesBeforeButtons += 1  // "Creating work from N issues"
+			maxShow := 5
+			if len(m.createWorkBeadIDs) < maxShow {
+				maxShow = len(m.createWorkBeadIDs)
+			}
+			linesBeforeButtons += maxShow  // bead IDs
+			if len(m.createWorkBeadIDs) > maxShow {
+				linesBeforeButtons += 1  // "... and N more"
+			}
+			linesBeforeButtons += 1  // blank line
+		}
+
+		linesBeforeButtons += 1  // branch label
+		linesBeforeButtons += 1  // branch input
+		linesBeforeButtons += 1  // blank line
+		linesBeforeButtons += 1  // "Actions:" label
+
+		// Check if clicking on Execute, Auto, or Cancel button lines
+		executeButtonY := formStartY + linesBeforeButtons
+		autoButtonY := executeButtonY + 1
+		cancelButtonY := autoButtonY + 1
+
+		if y == executeButtonY {
+			// Check if X is over the Execute button text
+			if buttonAreaX := x - detailsPanelStart; buttonAreaX >= 2 && buttonAreaX <= 12 {
+				return "execute"
+			}
+		} else if y == autoButtonY {
+			// Check if X is over the Auto button text
+			if buttonAreaX := x - detailsPanelStart; buttonAreaX >= 2 && buttonAreaX <= 8 {
+				return "auto"
+			}
+		} else if y == cancelButtonY {
+			// Check if X is over the Cancel button text
+			if buttonAreaX := x - detailsPanelStart; buttonAreaX >= 2 && buttonAreaX <= 10 {
+				return "cancel"
+			}
+		}
+		return ""
+	} else if m.viewMode == ViewLinearImportInline {
 		// The Linear import form structure:
 		// - Header line "Import from Linear (Bulk)"
 		// - Blank line

@@ -336,6 +336,9 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Cancel the form
 					if m.viewMode == ViewLinearImportInline {
 						m.linearImportInput.Blur()
+					} else if m.viewMode == ViewCreateWork {
+						m.createWorkBranch.Blur()
+						m.viewMode = ViewNormal
 					} else {
 						m.textInput.Blur()
 						m.createDescTextarea.Blur()
@@ -344,6 +347,28 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.viewMode = ViewNormal
 					return m, nil
+				} else if clickedDialogButton == "execute" {
+					// Handle execute button for work creation
+					if m.viewMode == ViewCreateWork {
+						branchName := strings.TrimSpace(m.createWorkBranch.Value())
+						if branchName == "" {
+							return m, nil
+						}
+						m.viewMode = ViewNormal
+						m.selectedBeads = make(map[string]bool)
+						return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, false)
+					}
+				} else if clickedDialogButton == "auto" {
+					// Handle auto button for work creation
+					if m.viewMode == ViewCreateWork {
+						branchName := strings.TrimSpace(m.createWorkBranch.Value())
+						if branchName == "" {
+							return m, nil
+						}
+						m.viewMode = ViewNormal
+						m.selectedBeads = make(map[string]bool)
+						return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, true)
+					}
 				}
 
 				// Check if clicking on an issue

@@ -243,27 +243,39 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 	content.WriteString("Actions:\n")
 
 	// Execute button
+	executeStyle := tuiDimStyle
+	executePrefix := "  "
 	if m.createWorkField == 1 && m.createWorkButtonIdx == 0 {
-		content.WriteString("  " + tuiSelectedStyle.Render("► Execute"))
-	} else {
-		content.WriteString("  " + tuiDimStyle.Render("  Execute"))
+		executeStyle = tuiSelectedStyle
+		executePrefix = "► "
+	} else if m.hoveredDialogButton == "execute" {
+		executeStyle = tuiSuccessStyle
 	}
+	content.WriteString("  " + executeStyle.Render(executePrefix+"Execute"))
 	content.WriteString(" - Create work and spawn orchestrator\n")
 
 	// Auto button
+	autoStyle := tuiDimStyle
+	autoPrefix := "  "
 	if m.createWorkField == 1 && m.createWorkButtonIdx == 1 {
-		content.WriteString("  " + tuiSelectedStyle.Render("► Auto"))
-	} else {
-		content.WriteString("  " + tuiDimStyle.Render("  Auto"))
+		autoStyle = tuiSelectedStyle
+		autoPrefix = "► "
+	} else if m.hoveredDialogButton == "auto" {
+		autoStyle = tuiSuccessStyle
 	}
+	content.WriteString("  " + autoStyle.Render(autoPrefix+"Auto"))
 	content.WriteString(" - Create work with automated workflow\n")
 
 	// Cancel button
+	cancelStyle := tuiDimStyle
+	cancelPrefix := "  "
 	if m.createWorkField == 1 && m.createWorkButtonIdx == 2 {
-		content.WriteString("  " + tuiSelectedStyle.Render("► Cancel"))
-	} else {
-		content.WriteString("  " + tuiDimStyle.Render("  Cancel"))
+		cancelStyle = tuiSelectedStyle
+		cancelPrefix = "► "
+	} else if m.hoveredDialogButton == "cancel" {
+		cancelStyle = tuiSuccessStyle
 	}
+	content.WriteString("  " + cancelStyle.Render(cancelPrefix+"Cancel"))
 	content.WriteString(" - Cancel work creation\n")
 
 	// Navigation help
