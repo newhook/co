@@ -93,7 +93,7 @@ type planModel struct {
 	hoveredDialogButton string // which dialog button is hovered ("ok", "cancel")
 
 	// Linear import state
-	linearImportInput      textinput.Model // Input for Linear issue ID/URL
+	linearImportInput      textarea.Model  // Input for Linear issue IDs/URLs (multi-line)
 	linearImportCreateDeps bool            // Whether to create dependencies
 	linearImportUpdate     bool            // Whether to update existing beads
 	linearImportDryRun     bool            // Dry run mode
@@ -128,10 +128,11 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	branchInput.CharLimit = 100
 	branchInput.Width = 60
 
-	linearInput := textinput.New()
-	linearInput.Placeholder = "Enter Linear issue ID or URL (e.g., ENG-123 or https://linear.app/...)"
-	linearInput.CharLimit = 200
-	linearInput.Width = 60
+	linearInput := textarea.New()
+	linearInput.Placeholder = "Enter Linear issue IDs or URLs (one per line)..."
+	linearInput.CharLimit = 2000
+	linearInput.SetWidth(60)
+	linearInput.SetHeight(4)
 
 	// Initialize beads database client and watcher
 	beadsDBPath := filepath.Join(proj.Root, "main", ".beads", "beads.db")
@@ -317,15 +318,31 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Check if clicking on dialog buttons
 				clickedDialogButton := m.detectDialogButton(msg.X, msg.Y)
 				if clickedDialogButton == "ok" {
-					// Submit the form
-					return m.submitBeadForm()
+					// Handle different dialog types
+					if m.viewMode == ViewLinearImportInline {
+						// Submit Linear import
+						issueIDs := strings.TrimSpace(m.linearImportInput.Value())
+						if issueIDs != "" {
+							m.viewMode = ViewNormal
+							m.linearImporting = true
+							return m, m.importLinearIssue(issueIDs)
+						}
+						return m, nil
+					} else {
+						// Submit bead form
+						return m.submitBeadForm()
+					}
 				} else if clickedDialogButton == "cancel" {
 					// Cancel the form
+					if m.viewMode == ViewLinearImportInline {
+						m.linearImportInput.Blur()
+					} else {
+						m.textInput.Blur()
+						m.createDescTextarea.Blur()
+						m.editBeadID = ""
+						m.parentBeadID = ""
+					}
 					m.viewMode = ViewNormal
-					m.textInput.Blur()
-					m.createDescTextarea.Blur()
-					m.editBeadID = ""
-					m.parentBeadID = ""
 					return m, nil
 				}
 
@@ -422,8 +439,33 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("Import failed: %v", msg.err)
 			m.statusIsError = true
+		} else if msg.successCount > 0 || msg.skipCount > 0 || msg.errorCount > 0 {
+			// Batch import results
+			var summary []string
+
+			if msg.successCount > 0 {
+				summary = append(summary, fmt.Sprintf("%d imported", msg.successCount))
+			}
+			if msg.skipCount > 0 {
+				summary = append(summary, fmt.Sprintf("%d skipped", msg.skipCount))
+			}
+			if msg.errorCount > 0 {
+				summary = append(summary, fmt.Sprintf("%d failed", msg.errorCount))
+			}
+
+			m.statusMessage = fmt.Sprintf("Batch import: %s", strings.Join(summary, ", "))
+
+			// Mark as error if there were failures, otherwise success
+			m.statusIsError = msg.errorCount > 0
+
+			// Log detailed errors and skip reasons if verbose output needed
+			// These could be shown in a more detailed view or logged
+			if msg.errorCount > 0 && len(msg.errors) > 0 {
+				// Could expand to show first error in status
+				m.statusMessage += fmt.Sprintf(" (first error: %s)", msg.errors[0])
+			}
 		} else if msg.skipReason != "" {
-			// Issue was already imported or skipped
+			// Single import skipped
 			if len(msg.beadIDs) == 1 {
 				m.statusMessage = fmt.Sprintf("%s: %s", msg.skipReason, msg.beadIDs[0])
 			} else {
@@ -431,14 +473,17 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.statusIsError = false
 		} else {
+			// Single import success or legacy format
 			if len(msg.beadIDs) == 1 {
 				m.statusMessage = fmt.Sprintf("Successfully imported %s", msg.beadIDs[0])
-			} else {
+			} else if len(msg.beadIDs) > 1 {
 				m.statusMessage = fmt.Sprintf("Successfully imported %d issues", len(msg.beadIDs))
+			} else {
+				m.statusMessage = "Import completed (no new issues)"
 			}
 			m.statusIsError = false
 		}
-		return m, tea.Batch(m.refreshData(), clearStatusAfter(5*time.Second))
+		return m, tea.Batch(m.refreshData(), clearStatusAfter(7*time.Second))
 
 	case linearImportProgressMsg:
 		if msg.total > 0 {
@@ -535,9 +580,14 @@ type editorFinishedMsg struct{}
 
 // linearImportCompleteMsg is sent when a Linear import completes
 type linearImportCompleteMsg struct {
-	beadIDs    []string // IDs of imported beads
-	err        error
-	skipReason string // e.g., "already imported"
+	beadIDs      []string // IDs of imported beads
+	err          error
+	skipReason   string   // For single import: reason for skipping
+	successCount int      // For batch import: number of successful imports
+	skipCount    int      // For batch import: number of skipped issues
+	errorCount   int      // For batch import: number of failed imports
+	skipReasons  []string // For batch import: detailed skip reasons
+	errors       []string // For batch import: detailed error messages
 }
 
 // linearImportProgressMsg is sent to update Linear import progress
