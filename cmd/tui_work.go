@@ -198,11 +198,14 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			if msg.Y == statusBarY {
 				clickedButton := m.detectStatusBarButton(msg.X)
+				// Check if we can act on the selected work (overview mode or left panel in zoomed)
+				canActOnWork := m.zoomLevel == ZoomOverview || m.activePanel == PanelLeft
+
 				// Trigger the corresponding action by simulating a key press
 				switch clickedButton {
 				case "c":
-					// Create work
-					if m.activePanel == PanelLeft {
+					// Create work - available in overview or zoomed with left panel
+					if canActOnWork {
 						m.textInput.Reset()
 						m.textInput.Placeholder = "feature/my-branch"
 						m.textInput.Focus()
@@ -211,7 +214,7 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				case "n":
 					// Create new bead and assign to current work
-					if m.activePanel == PanelLeft && len(m.works) > 0 {
+					if canActOnWork && len(m.works) > 0 {
 						m.viewMode = ViewCreateBead
 						m.textInput.Reset()
 						m.textInput.Placeholder = "Enter issue title..."
@@ -224,25 +227,25 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				case "d":
 					// Destroy work
-					if m.activePanel == PanelLeft && len(m.works) > 0 {
+					if canActOnWork && len(m.works) > 0 {
 						m.viewMode = ViewDestroyConfirm
 					}
 					return m, nil
 				case "p":
 					// Plan work
-					if m.activePanel == PanelLeft && len(m.works) > 0 {
+					if canActOnWork && len(m.works) > 0 {
 						m.viewMode = ViewPlanDialog
 					}
 					return m, nil
 				case "r":
 					// Run work
-					if m.activePanel == PanelLeft && len(m.works) > 0 {
+					if canActOnWork && len(m.works) > 0 {
 						return m, m.runWork()
 					}
 					return m, nil
 				case "a":
 					// Assign beads to work
-					if m.activePanel == PanelLeft && len(m.works) > 0 {
+					if canActOnWork && len(m.works) > 0 {
 						m.viewMode = ViewAssignBeads
 						m.beadsCursor = 0
 						return m, m.loadBeadsForAssign()
@@ -250,25 +253,25 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				case "t":
 					// Open console tab for selected work
-					if m.activePanel == PanelLeft && len(m.works) > 0 {
+					if canActOnWork && len(m.works) > 0 {
 						return m, m.openConsole()
 					}
 					return m, nil
 				case "C":
 					// Open Claude Code session tab for selected work
-					if m.activePanel == PanelLeft && len(m.works) > 0 {
+					if canActOnWork && len(m.works) > 0 {
 						return m, m.openClaude()
 					}
 					return m, nil
 				case "R":
 					// Create review task
-					if m.activePanel == PanelLeft && len(m.works) > 0 {
+					if canActOnWork && len(m.works) > 0 {
 						return m, m.createReviewTask()
 					}
 					return m, nil
 				case "P":
 					// Create PR task
-					if m.activePanel == PanelLeft && len(m.works) > 0 {
+					if canActOnWork && len(m.works) > 0 {
 						return m, m.createPRTask()
 					}
 					return m, nil
@@ -1110,12 +1113,13 @@ func (m *workModel) renderEmptyGridPanel(width, height int) string {
 
 // renderOverviewStatusBar renders the status bar for overview mode
 func (m *workModel) renderOverviewStatusBar() string {
-	// Commands on the left
+	// Commands on the left - work-level actions for overview mode
 	cButton := styleButtonWithHover("[c]reate", m.hoveredButton == "c")
+	dButton := styleButtonWithHover("[d]estroy", m.hoveredButton == "d")
 	helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-	keys := "[←↑↓→]navigate [Enter]zoom in " + cButton + " " + helpButton
-	keysPlain := "[←↑↓→]navigate [Enter]zoom in [c]reate [?]help"
+	keys := "[←↑↓→]navigate [Enter]zoom " + cButton + " " + dButton + " " + helpButton
+	keysPlain := "[←↑↓→]navigate [Enter]zoom [c]reate [d]estroy [?]help"
 
 	// Status on the right
 	var statusParts []string
@@ -1482,24 +1486,22 @@ func (m *workModel) renderStatusBar() string {
 		status = tuiDimStyle.Render(statusPlain)
 	}
 
-	// Commands on the left with hover effects - include [Esc]back for zoomed view
-	escButton := "[Esc]back"
-	cButton := styleButtonWithHover("[c]reate", m.hoveredButton == "c")
-	nButton := styleButtonWithHover("[n]ew issue", m.hoveredButton == "n")
-	dButton := styleButtonWithHover("[d]estroy", m.hoveredButton == "d")
-	pButton := styleButtonWithHover("[p]lan", m.hoveredButton == "p")
+	// Commands on the left with hover effects - task-specific actions for zoomed view
+	escButton := "[Esc]overview"
 	rButton := styleButtonWithHover("[r]un", m.hoveredButton == "r")
+	pButton := styleButtonWithHover("[p]lan", m.hoveredButton == "p")
 	aButton := styleButtonWithHover("[a]ssign", m.hoveredButton == "a")
+	nButton := styleButtonWithHover("[n]ew", m.hoveredButton == "n")
 	tButton := styleButtonWithHover("[t]erminal", m.hoveredButton == "t")
 	CButton := styleButtonWithHover("[C]laude", m.hoveredButton == "C")
 	RButton := styleButtonWithHover("[R]eview", m.hoveredButton == "R")
 	PButton := styleButtonWithHover("[P]R", m.hoveredButton == "P")
 	helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-	keys := escButton + " " + cButton + " " + nButton + " " + dButton + " " + pButton + " " + rButton + " " + aButton + " " + tButton + " " + CButton + " " + RButton + " " + PButton + " " + helpButton
+	keys := escButton + " " + rButton + " " + pButton + " " + aButton + " " + nButton + " " + tButton + " " + CButton + " " + RButton + " " + PButton + " " + helpButton
 
 	// Plain text for width calculation
-	keysPlain := "[Esc]back [c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [C]laude [R]eview [P]R [?]help"
+	keysPlain := "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
 
 	// Build bar with commands left, status right
 	padding := max(m.width-len(keysPlain)-len(statusPlain)-4, 2)
@@ -2040,55 +2042,65 @@ func (m *workModel) detectStatusBarButton(x int) string {
 	}
 	x = x - 1
 
-	// Status bar format: "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [C]laude [R]eview [P]R [?]help"
-	keysPlain := "[c]reate [n]ew issue [d]estroy [p]lan [r]un [a]ssign [t]erminal [C]laude [R]eview [P]R [?]help"
+	// Use different button layouts based on zoom level
+	if m.zoomLevel == ZoomOverview {
+		// Overview mode: "[←↑↓→]navigate [Enter]zoom [c]reate [d]estroy [?]help"
+		keysPlain := "[←↑↓→]navigate [Enter]zoom [c]reate [d]estroy [?]help"
 
-	// Find positions of each button
-	cIdx := strings.Index(keysPlain, "[c]reate")
-	nIdx := strings.Index(keysPlain, "[n]ew issue")
-	dIdx := strings.Index(keysPlain, "[d]estroy")
-	pIdx := strings.Index(keysPlain, "[p]lan")
-	rIdx := strings.Index(keysPlain, "[r]un")
-	aIdx := strings.Index(keysPlain, "[a]ssign")
-	tIdx := strings.Index(keysPlain, "[t]erminal")
-	CIdx := strings.Index(keysPlain, "[C]laude")
-	RIdx := strings.Index(keysPlain, "[R]eview")
-	PIdx := strings.Index(keysPlain, "[P]R")
-	helpIdx := strings.Index(keysPlain, "[?]help")
+		cIdx := strings.Index(keysPlain, "[c]reate")
+		dIdx := strings.Index(keysPlain, "[d]estroy")
+		helpIdx := strings.Index(keysPlain, "[?]help")
 
-	// Check if mouse is over any button
-	if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]reate") {
-		return "c"
-	}
-	if nIdx >= 0 && x >= nIdx && x < nIdx+len("[n]ew issue") {
-		return "n"
-	}
-	if dIdx >= 0 && x >= dIdx && x < dIdx+len("[d]estroy") {
-		return "d"
-	}
-	if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]lan") {
-		return "p"
-	}
-	if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]un") {
-		return "r"
-	}
-	if aIdx >= 0 && x >= aIdx && x < aIdx+len("[a]ssign") {
-		return "a"
-	}
-	if tIdx >= 0 && x >= tIdx && x < tIdx+len("[t]erminal") {
-		return "t"
-	}
-	if CIdx >= 0 && x >= CIdx && x < CIdx+len("[C]laude") {
-		return "C"
-	}
-	if RIdx >= 0 && x >= RIdx && x < RIdx+len("[R]eview") {
-		return "R"
-	}
-	if PIdx >= 0 && x >= PIdx && x < PIdx+len("[P]R") {
-		return "P"
-	}
-	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]help") {
-		return "?"
+		if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]reate") {
+			return "c"
+		}
+		if dIdx >= 0 && x >= dIdx && x < dIdx+len("[d]estroy") {
+			return "d"
+		}
+		if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]help") {
+			return "?"
+		}
+	} else {
+		// Zoomed mode: "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
+		keysPlain := "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
+
+		rIdx := strings.Index(keysPlain, "[r]un")
+		pIdx := strings.Index(keysPlain, "[p]lan")
+		aIdx := strings.Index(keysPlain, "[a]ssign")
+		nIdx := strings.Index(keysPlain, "[n]ew")
+		tIdx := strings.Index(keysPlain, "[t]erminal")
+		CIdx := strings.Index(keysPlain, "[C]laude")
+		RIdx := strings.Index(keysPlain, "[R]eview")
+		PIdx := strings.Index(keysPlain, "[P]R")
+		helpIdx := strings.Index(keysPlain, "[?]help")
+
+		if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]un") {
+			return "r"
+		}
+		if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]lan") {
+			return "p"
+		}
+		if aIdx >= 0 && x >= aIdx && x < aIdx+len("[a]ssign") {
+			return "a"
+		}
+		if nIdx >= 0 && x >= nIdx && x < nIdx+len("[n]ew") {
+			return "n"
+		}
+		if tIdx >= 0 && x >= tIdx && x < tIdx+len("[t]erminal") {
+			return "t"
+		}
+		if CIdx >= 0 && x >= CIdx && x < CIdx+len("[C]laude") {
+			return "C"
+		}
+		if RIdx >= 0 && x >= RIdx && x < RIdx+len("[R]eview") {
+			return "R"
+		}
+		if PIdx >= 0 && x >= PIdx && x < PIdx+len("[P]R") {
+			return "P"
+		}
+		if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]help") {
+			return "?"
+		}
 	}
 
 	return ""
