@@ -1,0 +1,179 @@
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	"github.com/newhook/co/internal/linear"
+	"github.com/spf13/cobra"
+)
+
+var linearCmd = &cobra.Command{
+	Use:   "linear",
+	Short: "Linear integration commands",
+	Long:  "Commands for importing and syncing issues from Linear",
+}
+
+var linearImportCmd = &cobra.Command{
+	Use:   "import <issue-id-or-url>...",
+	Short: "Import issues from Linear into beads",
+	Long: `Import one or more Linear issues into the beads issue tracker.
+
+Examples:
+  # Import single issue by ID
+  co linear import ENG-123
+
+  # Import by URL
+  co linear import https://linear.app/company/issue/ENG-123/title
+
+  # Import multiple issues
+  co linear import ENG-123 ENG-124 ENG-125
+
+  # Import with dependencies
+  co linear import ENG-123 --create-deps
+
+  # Update existing bead from Linear
+  co linear import ENG-123 --update
+
+  # Dry run (preview without creating)
+  co linear import ENG-123 --dry-run
+
+Environment Variables:
+  LINEAR_API_KEY     Linear API key for authentication
+  BEADS_DIR          Beads directory (default: auto-detect)
+`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runLinearImport,
+}
+
+var (
+	linearAPIKey       string
+	linearBeadsDir     string
+	linearDryRun       bool
+	linearUpdateExist  bool
+	linearCreateDeps   bool
+	linearMaxDepDepth  int
+	linearStatusFilter string
+	linearPriorityFilt string
+	linearAssigneeFilt string
+)
+
+func init() {
+	rootCmd.AddCommand(linearCmd)
+	linearCmd.AddCommand(linearImportCmd)
+
+	// Import command flags
+	linearImportCmd.Flags().StringVar(&linearAPIKey, "api-key", "", "Linear API key (or set LINEAR_API_KEY env var)")
+	linearImportCmd.Flags().StringVar(&linearBeadsDir, "beads-dir", "", "Beads directory (default: auto-detect)")
+	linearImportCmd.Flags().BoolVar(&linearDryRun, "dry-run", false, "Preview import without creating beads")
+	linearImportCmd.Flags().BoolVar(&linearUpdateExist, "update", false, "Update existing beads if already imported")
+	linearImportCmd.Flags().BoolVar(&linearCreateDeps, "create-deps", false, "Import blocking issues as dependencies")
+	linearImportCmd.Flags().IntVar(&linearMaxDepDepth, "max-dep-depth", 1, "Maximum dependency depth to import")
+	linearImportCmd.Flags().StringVar(&linearStatusFilter, "status-filter", "", "Only import issues with this status")
+	linearImportCmd.Flags().StringVar(&linearPriorityFilt, "priority-filter", "", "Only import issues with this priority (P0-P4)")
+	linearImportCmd.Flags().StringVar(&linearAssigneeFilt, "assignee-filter", "", "Only import issues assigned to this user")
+}
+
+func runLinearImport(cmd *cobra.Command, args []string) error {
+	ctx := context.Background()
+
+	// Get API key from flag or environment
+	apiKey := linearAPIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("LINEAR_API_KEY")
+	}
+	if apiKey == "" {
+		return fmt.Errorf("LINEAR_API_KEY is required (set via --api-key flag or environment variable)")
+	}
+
+	// Get beads directory
+	beadsDir := linearBeadsDir
+	if beadsDir == "" {
+		beadsDir = os.Getenv("BEADS_DIR")
+	}
+	if beadsDir == "" {
+		// Auto-detect: look for .beads directory in current or parent directories
+		beadsDir = "."
+	}
+
+	// Create fetcher
+	fetcher, err := linear.NewFetcher(apiKey, beadsDir)
+	if err != nil {
+		return fmt.Errorf("failed to create Linear fetcher: %w", err)
+	}
+
+	// Prepare import options
+	opts := &linear.ImportOptions{
+		DryRun:         linearDryRun,
+		UpdateExisting: linearUpdateExist,
+		CreateDeps:     linearCreateDeps,
+		MaxDepDepth:    linearMaxDepDepth,
+		StatusFilter:   linearStatusFilter,
+		PriorityFilter: linearPriorityFilt,
+		AssigneeFilter: linearAssigneeFilt,
+	}
+
+	// Import issues
+	if len(args) == 1 {
+		// Single issue import
+		result, err := fetcher.FetchAndImport(ctx, args[0], opts)
+		if err != nil {
+			return fmt.Errorf("import failed: %w", err)
+		}
+		printImportResult(result)
+	} else {
+		// Batch import
+		results, err := fetcher.FetchBatch(ctx, args, opts)
+		if err != nil {
+			return fmt.Errorf("batch import failed: %w", err)
+		}
+		printBatchResults(results)
+	}
+
+	return nil
+}
+
+func printImportResult(result *linear.ImportResult) {
+	if result.Error != nil {
+		fmt.Fprintf(os.Stderr, "✗ Error: %v\n", result.Error)
+		return
+	}
+
+	if result.SkipReason != "" {
+		fmt.Printf("○ %s: %s\n", result.LinearID, result.SkipReason)
+		if result.BeadID != "" {
+			fmt.Printf("  Bead: %s\n", result.BeadID)
+		}
+		return
+	}
+
+	if result.Success {
+		fmt.Printf("✓ Imported %s -> %s\n", result.LinearID, result.BeadID)
+		if result.LinearURL != "" {
+			fmt.Printf("  URL: %s\n", result.LinearURL)
+		}
+	}
+}
+
+func printBatchResults(results []*linear.ImportResult) {
+	successCount := 0
+	skipCount := 0
+	errorCount := 0
+
+	for _, result := range results {
+		if result.Error != nil {
+			errorCount++
+			fmt.Fprintf(os.Stderr, "✗ %s: %v\n", result.LinearID, result.Error)
+		} else if result.SkipReason != "" {
+			skipCount++
+			fmt.Printf("○ %s: %s\n", result.LinearID, result.SkipReason)
+		} else if result.Success {
+			successCount++
+			fmt.Printf("✓ %s -> %s\n", result.LinearID, result.BeadID)
+		}
+	}
+
+	fmt.Printf("\nSummary: %d imported, %d skipped, %d failed\n",
+		successCount, skipCount, errorCount)
+}

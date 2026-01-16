@@ -2,7 +2,9 @@ package linear
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
@@ -67,6 +69,19 @@ func (f *Fetcher) FetchAndImport(ctx context.Context, linearIDOrURL string, opts
 		return result, result.Error
 	}
 	if beadID != "" {
+		// If update mode is enabled, update the existing bead
+		if opts != nil && opts.UpdateExisting {
+			if err := f.updateExistingBead(ctx, beadID, issue, opts); err != nil {
+				result.Error = fmt.Errorf("failed to update existing bead: %w", err)
+				return result, result.Error
+			}
+			result.BeadID = beadID
+			result.Success = true
+			result.SkipReason = "updated existing bead"
+			f.beadsCache[linearID] = beadID
+			return result, nil
+		}
+
 		result.BeadID = beadID
 		result.Success = true
 		result.SkipReason = "already imported"
@@ -155,16 +170,32 @@ func (f *Fetcher) FetchBatch(ctx context.Context, linearIDsOrURLs []string, opts
 
 // findExistingBead checks if a bead already exists for the given Linear ID
 func (f *Fetcher) findExistingBead(ctx context.Context, linearID string) (string, error) {
-	// List all beads and search for linear_id in metadata or description
-	// This is a simple implementation; a more efficient approach would use
-	// a metadata index in beads if available
-	beadsList, err := beads.ListBeads(ctx, f.beadsDir, beads.ListFilters{})
+	// First try to find by external_ref using bd list --external-ref
+	// This is the most reliable method since we now set external_ref
+	cmd := exec.CommandContext(ctx, "bd", "list", "--json")
+	if f.beadsDir != "" {
+		cmd.Dir = f.beadsDir
+	}
+	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to list beads: %w", err)
+	}
+
+	var beadsList []struct {
+		ID          string `json:"id"`
+		ExternalRef string `json:"external_ref"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(output, &beadsList); err != nil {
+		return "", fmt.Errorf("failed to parse beads list: %w", err)
 	}
 
 	for _, bead := range beadsList {
-		// Check if the bead's description or metadata contains the Linear ID
+		// Check external_ref first (most reliable)
+		if bead.ExternalRef == linearID {
+			return bead.ID, nil
+		}
+		// Fallback: check if the bead's description contains the Linear ID
 		if strings.Contains(bead.Description, linearID) ||
 			strings.Contains(bead.Description, "linear.app/") && strings.Contains(bead.Description, linearID) {
 			return bead.ID, nil
@@ -174,7 +205,7 @@ func (f *Fetcher) findExistingBead(ctx context.Context, linearID string) (string
 	return "", nil
 }
 
-// createBead creates a bead using the beads client
+// createBead creates a bead using the beads client and sets all metadata
 func (f *Fetcher) createBead(ctx context.Context, opts *BeadCreateOptions) (string, error) {
 	// Convert priority string (P0-P4) to int (0-4)
 	priority := 2 // default to medium
@@ -205,10 +236,98 @@ func (f *Fetcher) createBead(ctx context.Context, opts *BeadCreateOptions) (stri
 		return "", err
 	}
 
-	// Note: Assignee, Labels, and custom metadata are not yet supported in beads.CreateOptions
-	// These would need to be added via separate update commands in a future enhancement
+	// Set assignee if specified
+	if opts.Assignee != "" {
+		updateOpts := beads.UpdateOptions{
+			Assignee: opts.Assignee,
+		}
+		if err := beads.Update(ctx, beadID, f.beadsDir, updateOpts); err != nil {
+			return beadID, fmt.Errorf("created bead but failed to set assignee: %w", err)
+		}
+	}
+
+	// Add labels if specified
+	if len(opts.Labels) > 0 {
+		if err := beads.AddLabels(ctx, beadID, f.beadsDir, opts.Labels); err != nil {
+			return beadID, fmt.Errorf("created bead but failed to add labels: %w", err)
+		}
+	}
+
+	// Set Linear ID as external reference
+	if linearID, ok := opts.Metadata["linear_id"]; ok && linearID != "" {
+		if err := beads.SetExternalRef(ctx, beadID, linearID, f.beadsDir); err != nil {
+			return beadID, fmt.Errorf("created bead but failed to set external ref: %w", err)
+		}
+	}
+
+	// Set status if it's not the default "open"
+	if opts.Status != "" && opts.Status != "open" {
+		updateOpts := beads.UpdateOptions{
+			Status: opts.Status,
+		}
+		if err := beads.Update(ctx, beadID, f.beadsDir, updateOpts); err != nil {
+			return beadID, fmt.Errorf("created bead but failed to set status: %w", err)
+		}
+	}
 
 	return beadID, nil
+}
+
+// updateExistingBead updates an existing bead with fresh data from Linear
+func (f *Fetcher) updateExistingBead(ctx context.Context, beadID string, issue *Issue, opts *ImportOptions) error {
+	// Map Linear issue to Beads creation options (reuse mapping logic)
+	beadOpts := MapIssueToBeadCreate(issue)
+
+	// Override type if specified in options
+	if opts != nil && opts.TypeFilter != "" {
+		beadOpts.Type = opts.TypeFilter
+	}
+
+	// Format description with Linear metadata
+	beadOpts.Description = FormatBeadDescription(issue)
+
+	// Convert priority string (P0-P4) to int (0-4)
+	var priority *int
+	if beadOpts.Priority != "" {
+		p := 2 // default to medium
+		if len(beadOpts.Priority) >= 2 && beadOpts.Priority[0] == 'P' {
+			switch beadOpts.Priority[1] {
+			case '0':
+				p = 0
+			case '1':
+				p = 1
+			case '2':
+				p = 2
+			case '3':
+				p = 3
+			case '4':
+				p = 4
+			}
+		}
+		priority = &p
+	}
+
+	// Update the bead with all fields
+	updateOpts := beads.UpdateOptions{
+		Title:       beadOpts.Title,
+		Type:        beadOpts.Type,
+		Description: beadOpts.Description,
+		Assignee:    beadOpts.Assignee,
+		Priority:    priority,
+		Status:      beadOpts.Status,
+	}
+	if err := beads.Update(ctx, beadID, f.beadsDir, updateOpts); err != nil {
+		return fmt.Errorf("failed to update bead fields: %w", err)
+	}
+
+	// Update labels (replace all existing labels)
+	if len(beadOpts.Labels) > 0 {
+		if err := beads.AddLabels(ctx, beadID, f.beadsDir, beadOpts.Labels); err != nil {
+			return fmt.Errorf("failed to update labels: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // createDependencies creates dependency relationships for imported beads
