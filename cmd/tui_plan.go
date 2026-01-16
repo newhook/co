@@ -90,16 +90,13 @@ type planModel struct {
 	hoveredIssue  int    // index of hovered issue, -1 if none
 
 	// Linear import state
-	linearImportInput     textinput.Model // Input for Linear issue ID/URL
-	linearImportCreateDeps bool           // Whether to create dependencies
-	linearImportUpdate    bool           // Whether to update existing beads
-	linearImportDryRun    bool           // Dry run mode
-	linearImportMaxDepth  int            // Max dependency depth
-	linearImportFocus     int            // 0=input, 1=createDeps, 2=update, 3=dryRun, 4=maxDepth, 5=buttons
-	linearImportButtonIdx int            // 0=Import, 1=Cancel
-	linearImporting       bool           // Whether import is in progress
-	linearBatchInput      textarea.Model // Textarea for batch import (multiple IDs)
-	linearBatchFocus      int            // 0=input, 1=options, 2=buttons
+	linearImportInput      textinput.Model // Input for Linear issue ID/URL
+	linearImportCreateDeps bool            // Whether to create dependencies
+	linearImportUpdate     bool            // Whether to update existing beads
+	linearImportDryRun     bool            // Dry run mode
+	linearImportMaxDepth   int             // Max dependency depth
+	linearImportFocus      int             // 0=input, 1=createDeps, 2=update, 3=dryRun, 4=maxDepth
+	linearImporting        bool            // Whether import is in progress
 }
 
 // newPlanModel creates a new Plan Mode model
@@ -141,20 +138,13 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	linearInput.CharLimit = 200
 	linearInput.Width = 60
 
-	linearBatchTa := textarea.New()
-	linearBatchTa.Placeholder = "Enter Linear issue IDs or URLs, one per line..."
-	linearBatchTa.CharLimit = 2000
-	linearBatchTa.SetWidth(60)
-	linearBatchTa.SetHeight(8)
-
 	return &planModel{
-		editTitleTextarea:     titleTa,
-		editDescTextarea:      descTa,
-		createDescTextarea:    createDescTa,
-		createWorkBranch:      branchInput,
-		linearImportInput:     linearInput,
-		linearBatchInput:      linearBatchTa,
-		linearImportMaxDepth:  2, // Default max depth
+		editTitleTextarea:    titleTa,
+		editDescTextarea:     descTa,
+		createDescTextarea:   createDescTa,
+		createWorkBranch:     branchInput,
+		linearImportInput:    linearInput,
+		linearImportMaxDepth: 2, // Default max depth
 		ctx:                   ctx,
 		proj:                  proj,
 		width:                 80,
@@ -481,10 +471,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateLabelFilter(msg)
 	case ViewCloseBeadConfirm:
 		return m.updateCloseBeadConfirm(msg)
-	case ViewLinearImport:
-		return m.updateLinearImport(msg)
-	case ViewLinearBatchImport:
-		return m.updateLinearBatchImport(msg)
+	case ViewLinearImportInline:
+		return m.updateLinearImportInline(msg)
 	case ViewHelp:
 		m.viewMode = ViewNormal
 		return m, nil
@@ -709,24 +697,11 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "i":
-		// Import single Linear issue
-		m.viewMode = ViewLinearImport
+		// Import Linear issue inline
+		m.viewMode = ViewLinearImportInline
 		m.linearImportInput.Reset()
 		m.linearImportInput.Focus()
 		m.linearImportFocus = 0
-		m.linearImportButtonIdx = 0
-		m.linearImportCreateDeps = false
-		m.linearImportUpdate = false
-		m.linearImportDryRun = false
-		m.linearImportMaxDepth = 2
-		return m, nil
-
-	case "I":
-		// Batch import Linear issues
-		m.viewMode = ViewLinearBatchImport
-		m.linearBatchInput.Reset()
-		m.linearBatchInput.Focus()
-		m.linearBatchFocus = 0
 		m.linearImportCreateDeps = false
 		m.linearImportUpdate = false
 		m.linearImportDryRun = false
@@ -775,10 +750,9 @@ func (m *planModel) View() string {
 		return m.renderWithDialog(m.renderLabelFilterDialogContent())
 	case ViewCloseBeadConfirm:
 		return m.renderWithDialog(m.renderCloseBeadConfirmContent())
-	case ViewLinearImport:
-		return m.renderWithDialog(m.renderLinearImportDialogContent())
-	case ViewLinearBatchImport:
-		return m.renderWithDialog(m.renderLinearBatchImportDialogContent())
+	case ViewLinearImportInline:
+		// Inline import mode - render normal view with import form in details area
+		// Fall through to normal rendering
 	case ViewHelp:
 		return m.renderHelp()
 	}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -234,59 +233,5 @@ func (m *planModel) importLinearIssue(issueID string) tea.Cmd {
 		}
 
 		return linearImportCompleteMsg{err: fmt.Errorf("import completed but no bead ID returned")}
-	}
-}
-
-// importLinearBatch imports multiple Linear issues
-func (m *planModel) importLinearBatch(issueIDs []string) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		mainRepoPath := m.proj.MainRepoPath()
-
-		// Get API key from environment
-		apiKey := os.Getenv("LINEAR_API_KEY")
-		if apiKey == "" {
-			return linearImportCompleteMsg{err: fmt.Errorf("LINEAR_API_KEY environment variable not set")}
-		}
-
-		// Create fetcher
-		fetcher, err := linear.NewFetcher(apiKey, mainRepoPath)
-		if err != nil {
-			return linearImportCompleteMsg{err: fmt.Errorf("failed to create Linear fetcher: %w", err)}
-		}
-
-		// Prepare import options
-		opts := &linear.ImportOptions{
-			DryRun:         m.linearImportDryRun,
-			UpdateExisting: m.linearImportUpdate,
-			CreateDeps:     m.linearImportCreateDeps,
-			MaxDepDepth:    m.linearImportMaxDepth,
-		}
-
-		// Execute batch import
-		results, err := fetcher.FetchBatch(ctx, issueIDs, opts)
-		if err != nil {
-			return linearImportCompleteMsg{err: fmt.Errorf("batch import failed: %w", err)}
-		}
-
-		// Collect imported bead IDs and errors
-		var importedBeadIDs []string
-		var errors []string
-		for _, result := range results {
-			if result.Error != nil {
-				errors = append(errors, fmt.Sprintf("%s: %v", result.LinearID, result.Error))
-			} else if result.BeadID != "" {
-				importedBeadIDs = append(importedBeadIDs, result.BeadID)
-			}
-		}
-
-		if len(errors) > 0 {
-			return linearImportCompleteMsg{
-				beadIDs: importedBeadIDs,
-				err:     fmt.Errorf("some imports failed:\n%s", strings.Join(errors, "\n")),
-			}
-		}
-
-		return linearImportCompleteMsg{beadIDs: importedBeadIDs}
 	}
 }

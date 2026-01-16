@@ -146,8 +146,7 @@ const (
 	ViewAssignBeads
 	ViewBeadSearch
 	ViewLabelFilter
-	ViewLinearImport      // Import from Linear
-	ViewLinearBatchImport // Batch import from Linear
+	ViewLinearImportInline // Import from Linear (inline in details panel)
 	ViewHelp
 )
 
