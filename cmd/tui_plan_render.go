@@ -106,9 +106,10 @@ func (m *planModel) renderIssuesList(visibleLines int, panelWidth int) string {
 func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 	var content strings.Builder
 
-	// If in inline create mode, render the create form instead of issue details
-	if m.viewMode == ViewCreateBeadInline {
-		return m.renderCreateBeadInlineContent(visibleLines, width)
+	// If in any bead form mode, render the unified form
+	if m.viewMode == ViewCreateBead || m.viewMode == ViewCreateBeadInline ||
+		m.viewMode == ViewAddChildBead || m.viewMode == ViewEditBead {
+		return m.renderBeadFormContent(width)
 	}
 
 	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
@@ -207,9 +208,21 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 	return content.String()
 }
 
-// renderCreateBeadInlineContent renders the create issue form inline in the details panel
-func (m *planModel) renderCreateBeadInlineContent(visibleLines int, width int) string {
+// renderBeadFormContent renders the unified bead form (create, add child, or edit)
+// The mode is determined by:
+//   - editBeadID set → edit mode
+//   - parentBeadID set → add child mode
+//   - neither set → create mode
+func (m *planModel) renderBeadFormContent(width int) string {
 	var content strings.Builder
+
+	// Adapt input widths to available space (account for panel padding)
+	inputWidth := width - detailsPanelPadding
+	if inputWidth < 20 {
+		inputWidth = 20
+	}
+	m.textInput.Width = inputWidth
+	m.createDescTextarea.SetWidth(inputWidth)
 
 	typeFocused := m.createDialogFocus == 1
 	priorityFocused := m.createDialogFocus == 2
@@ -251,9 +264,31 @@ func (m *planModel) renderCreateBeadInlineContent(visibleLines int, width int) s
 		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
 	}
 
-	// Render the form
-	content.WriteString(tuiLabelStyle.Render("Create New Issue"))
-	content.WriteString("\n\n")
+	// Determine mode and render appropriate header
+	var header string
+	if m.editBeadID != "" {
+		// Edit mode
+		header = "Edit Issue " + issueIDStyle.Render(m.editBeadID)
+	} else if m.parentBeadID != "" {
+		// Add child mode
+		header = "Add Child Issue"
+	} else {
+		// Create mode
+		header = "Create New Issue"
+	}
+
+	// Render header
+	content.WriteString(tuiLabelStyle.Render(header))
+	content.WriteString("\n")
+
+	// Show parent info for add child mode
+	if m.parentBeadID != "" {
+		content.WriteString(tuiDimStyle.Render("Parent: ") + tuiValueStyle.Render(m.parentBeadID))
+		content.WriteString("\n")
+	}
+
+	// Render form fields
+	content.WriteString("\n")
 	content.WriteString(titleLabel)
 	content.WriteString("\n")
 	content.WriteString(m.textInput.View())
@@ -266,7 +301,13 @@ func (m *planModel) renderCreateBeadInlineContent(visibleLines int, width int) s
 	content.WriteString("\n")
 	content.WriteString(m.createDescTextarea.View())
 	content.WriteString("\n\n")
-	content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Enter] Create  [Esc] Cancel"))
+
+	// Render Ok and Cancel buttons with hover styling
+	okButton := styleButtonWithHover("  Ok  ", m.hoveredDialogButton == "ok")
+	cancelButton := styleButtonWithHover("Cancel", m.hoveredDialogButton == "cancel")
+	content.WriteString(okButton + "  " + cancelButton)
+	content.WriteString("\n")
+	content.WriteString(tuiDimStyle.Render("[Tab] Next field"))
 
 	return content.String()
 }
@@ -438,6 +479,83 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	}
 
 	return -1
+}
+
+// detectDialogButton determines which dialog button is at the given position
+// Returns "ok", "cancel", or "" if not over a button
+func (m *planModel) detectDialogButton(x, y int) string {
+	// Dialog buttons only visible in form modes
+	if m.viewMode != ViewCreateBead && m.viewMode != ViewCreateBeadInline &&
+		m.viewMode != ViewAddChildBead && m.viewMode != ViewEditBead {
+		return ""
+	}
+
+	// Calculate the details panel boundaries
+	totalContentWidth := m.width - 4
+	separatorWidth := 3
+	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+
+	// Details panel starts after issues panel + separator
+	detailsPanelStart := issuesWidth + separatorWidth + 2 // +2 for left margin
+
+	// Check if mouse is in the details panel
+	if x < detailsPanelStart {
+		return ""
+	}
+
+	// The buttons are rendered in the form content
+	// We need to calculate the Y position of the button row
+	// The form structure is:
+	// - Header line
+	// - Parent info line (if add child mode)
+	// - Blank line
+	// - Title label
+	// - Title input
+	// - Blank line + type + blank line
+	// - Priority line
+	// - Blank line
+	// - Description label
+	// - Textarea (4 lines)
+	// - Blank line
+	// - Button row
+
+	// Calculate expected Y position of button row
+	// Start from top of details panel (Y=1 for title, Y=2 for content start)
+	formStartY := 2
+	linesBeforeButtons := 1 // header
+	if m.parentBeadID != "" {
+		linesBeforeButtons++ // parent info line
+	}
+	linesBeforeButtons += 1  // blank line
+	linesBeforeButtons += 1  // title label
+	linesBeforeButtons += 1  // title input
+	linesBeforeButtons += 2  // type + priority lines with preceding blank
+	linesBeforeButtons += 1  // priority
+	linesBeforeButtons += 2  // blank + desc label
+	linesBeforeButtons += 4  // textarea (default height)
+	linesBeforeButtons += 1  // blank line before buttons
+	buttonRowY := formStartY + linesBeforeButtons
+
+	if y != buttonRowY {
+		return ""
+	}
+
+	// Calculate X position of buttons within the details panel
+	// Buttons are at the start of the panel content
+	// "  Ok  " (6 chars) + "  " (2 chars) + "Cancel" (6 chars)
+	buttonAreaX := x - detailsPanelStart
+
+	// Account for panel border and padding (approximately 2 chars)
+	buttonAreaX -= 2
+
+	if buttonAreaX >= 0 && buttonAreaX < 6 {
+		return "ok"
+	}
+	if buttonAreaX >= 8 && buttonAreaX < 14 {
+		return "cancel"
+	}
+
+	return ""
 }
 
 func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string {

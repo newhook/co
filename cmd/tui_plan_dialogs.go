@@ -9,76 +9,73 @@ import (
 
 // Dialog update handlers
 
-func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// updateBeadForm handles input for create, add-child, and edit bead dialogs.
+// The mode is determined by:
+//   - editBeadID set → edit mode
+//   - parentBeadID set → add child mode
+//   - neither set → create mode
+func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Check escape/cancel keys
 	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
 		m.viewMode = ViewNormal
 		m.textInput.Blur()
 		m.createDescTextarea.Blur()
+		m.editBeadID = ""
+		m.parentBeadID = ""
 		return m, nil
 	}
 
 	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> title(0)
 	if msg.Type == tea.KeyTab || msg.String() == "tab" {
+		// Leave current focus
+		if m.createDialogFocus == 0 {
+			m.textInput.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.createDescTextarea.Blur()
+		}
+
 		m.createDialogFocus = (m.createDialogFocus + 1) % 4
+
+		// Enter new focus
 		if m.createDialogFocus == 0 {
 			m.textInput.Focus()
-			m.createDescTextarea.Blur()
 		} else if m.createDialogFocus == 3 {
-			m.textInput.Blur()
 			m.createDescTextarea.Focus()
-		} else {
-			m.textInput.Blur()
-			m.createDescTextarea.Blur()
 		}
 		return m, nil
 	}
 
 	// Shift+Tab goes backwards
 	if msg.Type == tea.KeyShiftTab {
+		// Leave current focus
+		if m.createDialogFocus == 0 {
+			m.textInput.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.createDescTextarea.Blur()
+		}
+
 		m.createDialogFocus--
 		if m.createDialogFocus < 0 {
 			m.createDialogFocus = 3
 		}
+
+		// Enter new focus
 		if m.createDialogFocus == 0 {
 			m.textInput.Focus()
-			m.createDescTextarea.Blur()
 		} else if m.createDialogFocus == 3 {
-			m.textInput.Blur()
 			m.createDescTextarea.Focus()
-		} else {
-			m.textInput.Blur()
-			m.createDescTextarea.Blur()
 		}
 		return m, nil
 	}
 
 	// Enter submits from any field (but not from description textarea - use Ctrl+Enter there)
 	if msg.String() == "enter" && m.createDialogFocus != 3 {
-		title := strings.TrimSpace(m.textInput.Value())
-		if title != "" {
-			beadType := beadTypes[m.createBeadType]
-			isEpic := beadType == "epic"
-			description := strings.TrimSpace(m.createDescTextarea.Value())
-			m.viewMode = ViewNormal
-			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, "")
-		}
-		return m, nil
+		return m.submitBeadForm()
 	}
 
 	// Ctrl+Enter submits from description textarea
 	if msg.String() == "ctrl+enter" && m.createDialogFocus == 3 {
-		title := strings.TrimSpace(m.textInput.Value())
-		if title != "" {
-			beadType := beadTypes[m.createBeadType]
-			isEpic := beadType == "epic"
-			description := strings.TrimSpace(m.createDescTextarea.Value())
-			m.viewMode = ViewNormal
-			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, "")
-		}
-		return m, nil
+		return m.submitBeadForm()
 	}
 
 	// Handle input based on focused element
@@ -122,117 +119,33 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *planModel) updateCreateBeadInline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check escape/cancel keys
-	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
-		m.viewMode = ViewNormal
-		m.textInput.Blur()
-		m.createDescTextarea.Blur()
+// submitBeadForm handles form submission for create, add-child, and edit modes
+func (m *planModel) submitBeadForm() (tea.Model, tea.Cmd) {
+	title := strings.TrimSpace(m.textInput.Value())
+	if title == "" {
 		return m, nil
 	}
 
-	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> title(0)
-	if msg.Type == tea.KeyTab || msg.String() == "tab" {
-		m.createDialogFocus = (m.createDialogFocus + 1) % 4
-		if m.createDialogFocus == 0 {
-			m.textInput.Focus()
-			m.createDescTextarea.Blur()
-		} else if m.createDialogFocus == 3 {
-			m.textInput.Blur()
-			m.createDescTextarea.Focus()
-		} else {
-			m.textInput.Blur()
-			m.createDescTextarea.Blur()
-		}
-		return m, nil
+	beadType := beadTypes[m.createBeadType]
+	description := strings.TrimSpace(m.createDescTextarea.Value())
+
+	m.viewMode = ViewNormal
+	m.textInput.Blur()
+	m.createDescTextarea.Reset()
+
+	// Determine mode and call appropriate action
+	if m.editBeadID != "" {
+		// Edit mode
+		beadID := m.editBeadID
+		m.editBeadID = ""
+		return m, m.saveBeadEdit(beadID, title, description, beadType)
 	}
 
-	// Shift+Tab goes backwards
-	if msg.Type == tea.KeyShiftTab {
-		m.createDialogFocus--
-		if m.createDialogFocus < 0 {
-			m.createDialogFocus = 3
-		}
-		if m.createDialogFocus == 0 {
-			m.textInput.Focus()
-			m.createDescTextarea.Blur()
-		} else if m.createDialogFocus == 3 {
-			m.textInput.Blur()
-			m.createDescTextarea.Focus()
-		} else {
-			m.textInput.Blur()
-			m.createDescTextarea.Blur()
-		}
-		return m, nil
-	}
-
-	// Enter submits from any field (but not from description textarea - use Ctrl+Enter there)
-	if msg.String() == "enter" && m.createDialogFocus != 3 {
-		title := strings.TrimSpace(m.textInput.Value())
-		if title != "" {
-			beadType := beadTypes[m.createBeadType]
-			isEpic := beadType == "epic"
-			description := strings.TrimSpace(m.createDescTextarea.Value())
-			m.viewMode = ViewNormal
-			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, "")
-		}
-		return m, nil
-	}
-
-	// Ctrl+Enter submits from description textarea
-	if msg.String() == "ctrl+enter" && m.createDialogFocus == 3 {
-		title := strings.TrimSpace(m.textInput.Value())
-		if title != "" {
-			beadType := beadTypes[m.createBeadType]
-			isEpic := beadType == "epic"
-			description := strings.TrimSpace(m.createDescTextarea.Value())
-			m.viewMode = ViewNormal
-			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, "")
-		}
-		return m, nil
-	}
-
-	// Handle input based on focused element
-	switch m.createDialogFocus {
-	case 0: // Title input
-		var cmd tea.Cmd
-		m.textInput, cmd = m.textInput.Update(msg)
-		return m, cmd
-
-	case 1: // Type selector
-		switch msg.String() {
-		case "j", "down":
-			m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
-		case "k", "up":
-			m.createBeadType--
-			if m.createBeadType < 0 {
-				m.createBeadType = len(beadTypes) - 1
-			}
-		}
-		return m, nil
-
-	case 2: // Priority
-		switch msg.String() {
-		case "j", "down", "-":
-			if m.createBeadPriority < 4 {
-				m.createBeadPriority++
-			}
-		case "k", "up", "+", "=":
-			if m.createBeadPriority > 0 {
-				m.createBeadPriority--
-			}
-		}
-		return m, nil
-
-	case 3: // Description textarea
-		var cmd tea.Cmd
-		m.createDescTextarea, cmd = m.createDescTextarea.Update(msg)
-		return m, cmd
-	}
-
-	return m, nil
+	// Create or add-child mode
+	isEpic := beadType == "epic"
+	parentID := m.parentBeadID
+	m.parentBeadID = ""
+	return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, parentID)
 }
 
 func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -306,212 +219,6 @@ func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-func (m *planModel) updateEditBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
-		m.viewMode = ViewNormal
-		m.editTitleTextarea.Blur()
-		m.editDescTextarea.Blur()
-		m.editBeadID = ""
-		return m, nil
-	}
-
-	// Tab cycles between title(0), type(1), description(2), buttons(3)
-	if msg.Type == tea.KeyTab {
-		m.editField = (m.editField + 1) % 4
-		m.editTitleTextarea.Blur()
-		m.editDescTextarea.Blur()
-		if m.editField == 0 {
-			m.editTitleTextarea.Focus()
-		} else if m.editField == 2 {
-			m.editDescTextarea.Focus()
-		}
-		return m, nil
-	}
-
-	// Shift+Tab goes backwards
-	if msg.Type == tea.KeyShiftTab {
-		m.editField--
-		if m.editField < 0 {
-			m.editField = 3
-		}
-		m.editTitleTextarea.Blur()
-		m.editDescTextarea.Blur()
-		if m.editField == 0 {
-			m.editTitleTextarea.Focus()
-		} else if m.editField == 2 {
-			m.editDescTextarea.Focus()
-		}
-		return m, nil
-	}
-
-	// Handle input based on focused field
-	var cmd tea.Cmd
-	switch m.editField {
-	case 0: // Title
-		m.editTitleTextarea, cmd = m.editTitleTextarea.Update(msg)
-	case 1: // Type selector
-		switch msg.String() {
-		case "j", "down", "h", "left":
-			m.editBeadType--
-			if m.editBeadType < 0 {
-				m.editBeadType = len(beadTypes) - 1
-			}
-		case "k", "up", "l", "right":
-			m.editBeadType = (m.editBeadType + 1) % len(beadTypes)
-		}
-	case 2: // Description
-		m.editDescTextarea, cmd = m.editDescTextarea.Update(msg)
-	case 3: // Buttons
-		switch msg.String() {
-		case "h", "left", "j", "k", "up", "down", "l", "right":
-			// Toggle between OK(0) and Cancel(1)
-			m.editButtonIdx = 1 - m.editButtonIdx
-		case "enter":
-			if m.editButtonIdx == 0 {
-				// OK - save
-				title := strings.TrimSpace(m.editTitleTextarea.Value())
-				desc := strings.TrimSpace(m.editDescTextarea.Value())
-				beadType := beadTypes[m.editBeadType]
-				if title != "" {
-					m.viewMode = ViewNormal
-					return m, m.saveBeadEdit(m.editBeadID, title, desc, beadType)
-				}
-			} else {
-				// Cancel
-				m.viewMode = ViewNormal
-				m.editTitleTextarea.Blur()
-				m.editDescTextarea.Blur()
-				m.editBeadID = ""
-			}
-			return m, nil
-		}
-	}
-	return m, cmd
-}
-
-// updateAddChildBead handles input for the add child bead dialog
-// This uses the same logic as the create bead dialog, but with a parent set.
-func (m *planModel) updateAddChildBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
-		m.viewMode = ViewNormal
-		m.textInput.Blur()
-		m.createDescTextarea.Blur()
-		m.parentBeadID = ""
-		return m, nil
-	}
-
-	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> title(0)
-	if msg.Type == tea.KeyTab || msg.String() == "tab" {
-		// Leave current focus
-		if m.createDialogFocus == 0 {
-			m.textInput.Blur()
-		} else if m.createDialogFocus == 3 {
-			m.createDescTextarea.Blur()
-		}
-
-		m.createDialogFocus = (m.createDialogFocus + 1) % 4
-
-		// Enter new focus
-		if m.createDialogFocus == 0 {
-			m.textInput.Focus()
-		} else if m.createDialogFocus == 3 {
-			m.createDescTextarea.Focus()
-		}
-		return m, nil
-	}
-
-	// Shift+Tab goes backwards
-	if msg.Type == tea.KeyShiftTab {
-		// Leave current focus
-		if m.createDialogFocus == 0 {
-			m.textInput.Blur()
-		} else if m.createDialogFocus == 3 {
-			m.createDescTextarea.Blur()
-		}
-
-		m.createDialogFocus--
-		if m.createDialogFocus < 0 {
-			m.createDialogFocus = 3
-		}
-
-		// Enter new focus
-		if m.createDialogFocus == 0 {
-			m.textInput.Focus()
-		} else if m.createDialogFocus == 3 {
-			m.createDescTextarea.Focus()
-		}
-		return m, nil
-	}
-
-	// Enter submits from any field (but not from description textarea - use Ctrl+Enter there)
-	if msg.String() == "enter" && m.createDialogFocus != 3 {
-		title := strings.TrimSpace(m.textInput.Value())
-		if title != "" {
-			beadType := beadTypes[m.createBeadType]
-			isEpic := beadType == "epic"
-			description := strings.TrimSpace(m.createDescTextarea.Value())
-			m.viewMode = ViewNormal
-			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, m.parentBeadID)
-		}
-		return m, nil
-	}
-
-	// Ctrl+Enter submits from description textarea
-	if msg.String() == "ctrl+enter" && m.createDialogFocus == 3 {
-		title := strings.TrimSpace(m.textInput.Value())
-		if title != "" {
-			beadType := beadTypes[m.createBeadType]
-			isEpic := beadType == "epic"
-			description := strings.TrimSpace(m.createDescTextarea.Value())
-			m.viewMode = ViewNormal
-			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, m.parentBeadID)
-		}
-		return m, nil
-	}
-
-	// Handle input based on focused element
-	switch m.createDialogFocus {
-	case 0: // Title input
-		var cmd tea.Cmd
-		m.textInput, cmd = m.textInput.Update(msg)
-		return m, cmd
-
-	case 1: // Type selector
-		switch msg.String() {
-		case "j", "down":
-			m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
-		case "k", "up":
-			m.createBeadType--
-			if m.createBeadType < 0 {
-				m.createBeadType = len(beadTypes) - 1
-			}
-		}
-		return m, nil
-
-	case 2: // Priority
-		switch msg.String() {
-		case "j", "down", "-":
-			if m.createBeadPriority < 4 {
-				m.createBeadPriority++
-			}
-		case "k", "up", "+", "=":
-			if m.createBeadPriority > 0 {
-				m.createBeadPriority--
-			}
-		}
-		return m, nil
-
-	case 3: // Description textarea
-		var cmd tea.Cmd
-		m.createDescTextarea, cmd = m.createDescTextarea.Update(msg)
-		return m, cmd
-	}
-
-	return m, nil
-}
-
 // updateAddToWork handles input for the add to work dialog
 func (m *planModel) updateAddToWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
@@ -552,121 +259,6 @@ func indentLines(s, prefix string) string {
 
 // Dialog render helpers
 
-func (m *planModel) renderCreateBeadDialogContent() string {
-	typeFocused := m.createDialogFocus == 1
-	priorityFocused := m.createDialogFocus == 2
-	descFocused := m.createDialogFocus == 3
-
-	// Type rotator display
-	currentType := beadTypes[m.createBeadType]
-	var typeDisplay string
-	if typeFocused {
-		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
-	} else {
-		typeDisplay = typeFeatureStyle.Render(currentType)
-	}
-
-	// Priority display
-	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
-	var priorityDisplay string
-	if priorityFocused {
-		priorityDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(priorityLabels[m.createBeadPriority]))
-	} else {
-		priorityDisplay = priorityLabels[m.createBeadPriority]
-	}
-
-	// Show focus labels
-	titleLabel := "Title:"
-	typeLabel := "Type:"
-	priorityLabel := "Priority:"
-	descLabel := "Description:"
-	if m.createDialogFocus == 0 {
-		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
-	}
-	if typeFocused {
-		typeLabel = tuiValueStyle.Render("Type:") + " (j/k)"
-	}
-	if priorityFocused {
-		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
-	}
-	if descFocused {
-		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
-	}
-
-	content := fmt.Sprintf(`  Create New Issue
-
-  %s
-  %s
-
-  %s %s
-  %s %s
-
-  %s
-%s
-
-  [Tab] Next field  [Enter] Create  [Esc] Cancel
-`, titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay, descLabel, indentLines(m.createDescTextarea.View(), "  "))
-
-	return tuiDialogStyle.Render(content)
-}
-
-func (m *planModel) renderEditBeadDialogContent() string {
-	// Show focus labels
-	titleLabel := "Title:"
-	typeLabel := "Type:"
-	descLabel := "Description:"
-
-	switch m.editField {
-	case 0:
-		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
-	case 1:
-		typeLabel = tuiValueStyle.Render("Type:") + " (←/→)"
-	case 2:
-		descLabel = tuiValueStyle.Render("Description:") + " (editing)"
-	}
-
-	// Type rotator display
-	currentType := beadTypes[m.editBeadType]
-	var typeDisplay string
-	if m.editField == 1 {
-		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
-	} else {
-		typeDisplay = typeFeatureStyle.Render(currentType)
-	}
-
-	// Render OK/Cancel buttons
-	var okBtn, cancelBtn string
-	if m.editField == 3 {
-		if m.editButtonIdx == 0 {
-			okBtn = tuiSelectedStyle.Render(" OK ")
-			cancelBtn = tuiDimStyle.Render(" Cancel ")
-		} else {
-			okBtn = tuiDimStyle.Render(" OK ")
-			cancelBtn = tuiSelectedStyle.Render(" Cancel ")
-		}
-	} else {
-		okBtn = tuiDimStyle.Render(" OK ")
-		cancelBtn = tuiDimStyle.Render(" Cancel ")
-	}
-
-	content := fmt.Sprintf(`  Edit Issue %s
-
-  %s
-%s
-
-  %s %s
-
-  %s
-%s
-
-  %s  %s
-
-  [Tab] Switch field  [Esc] Cancel
-`, issueIDStyle.Render(m.editBeadID), titleLabel, indentLines(m.editTitleTextarea.View(), "  "), typeLabel, typeDisplay, descLabel, indentLines(m.editDescTextarea.View(), "  "), okBtn, cancelBtn)
-
-	return tuiDialogStyle.Render(content)
-}
-
 func (m *planModel) renderLabelFilterDialogContent() string {
 	currentLabel := m.filters.label
 	if currentLabel == "" {
@@ -703,68 +295,6 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 
   [y] Yes  [n] No
 `, beadID, beadTitle)
-
-	return tuiDialogStyle.Render(content)
-}
-
-// renderAddChildBeadDialogContent renders the add child bead dialog
-// This is similar to renderCreateBeadDialogContent but shows the parent relationship.
-func (m *planModel) renderAddChildBeadDialogContent() string {
-	typeFocused := m.createDialogFocus == 1
-	priorityFocused := m.createDialogFocus == 2
-	descFocused := m.createDialogFocus == 3
-
-	// Type rotator display
-	currentType := beadTypes[m.createBeadType]
-	var typeDisplay string
-	if typeFocused {
-		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
-	} else {
-		typeDisplay = typeFeatureStyle.Render(currentType)
-	}
-
-	// Priority display
-	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
-	var priorityDisplay string
-	if priorityFocused {
-		priorityDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(priorityLabels[m.createBeadPriority]))
-	} else {
-		priorityDisplay = priorityLabels[m.createBeadPriority]
-	}
-
-	// Show focus labels
-	titleLabel := "Title:"
-	typeLabel := "Type:"
-	priorityLabel := "Priority:"
-	descLabel := "Description:"
-	if m.createDialogFocus == 0 {
-		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
-	}
-	if typeFocused {
-		typeLabel = tuiValueStyle.Render("Type:") + " (j/k)"
-	}
-	if priorityFocused {
-		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
-	}
-	if descFocused {
-		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
-	}
-
-	content := fmt.Sprintf(`  Add Child Issue to %s
-
-  %s
-  %s
-
-  %s %s
-  %s %s
-
-  %s
-%s
-
-  The new issue will be a child of %s.
-
-  [Tab] Next field  [Enter] Create  [Esc] Cancel
-`, issueIDStyle.Render(m.parentBeadID), titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay, descLabel, indentLines(m.createDescTextarea.View(), "  "), m.parentBeadID)
 
 	return tuiDialogStyle.Render(content)
 }
