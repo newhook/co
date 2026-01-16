@@ -106,12 +106,12 @@ func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.createWorkBranch, cmd = m.createWorkBranch.Update(msg)
 	case 1: // Buttons
 		switch msg.String() {
-		case "h", "left", "k", "up":
+		case "k", "up":
 			m.createWorkButtonIdx--
 			if m.createWorkButtonIdx < 0 {
 				m.createWorkButtonIdx = 2
 			}
-		case "l", "right", "j", "down":
+		case "j", "down":
 			m.createWorkButtonIdx = (m.createWorkButtonIdx + 1) % 3
 		case "enter":
 			branchName := strings.TrimSpace(m.createWorkBranch.Value())
@@ -275,7 +275,7 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 
 	// Navigation help
 	content.WriteString("\n")
-	content.WriteString(tuiDimStyle.Render("Navigation: [Tab/Shift+Tab] Switch field  [↑↓/hl] Select button  [Enter] Confirm  [Esc] Cancel"))
+	content.WriteString(tuiDimStyle.Render("Navigation: [Tab/Shift+Tab] Switch field  [↑↓/jk] Select button  [Enter] Confirm  [Esc] Cancel"))
 
 	return content.String()
 }
