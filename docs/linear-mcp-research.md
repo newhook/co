@@ -266,7 +266,7 @@ Based on the available tools, the Linear MCP integration enables:
 - [Linear MCP Documentation](https://linear.app/docs/mcp)
 - [Linear API Rate Limiting](https://linear.app/developers/rate-limiting)
 - [Linear Developers](https://linear.app/developers)
-- [Linear MCP Changelog](https://linear.app/changelog/2025-05-01-mcp)
+- [Linear MCP Changelog](https://linear.app/changelog/2025-05-01-mcp) (official announcement: May 1, 2025)
 - [Remote MCP - Linear](https://www.remote-mcp.com/servers/linear)
 - [Glama MCP Directory](https://glama.ai/mcp/servers/@cosmix/linear-mcp)
 - [Apidog Linear MCP Guide](https://apidog.com/blog/linear-mcp-server/)
