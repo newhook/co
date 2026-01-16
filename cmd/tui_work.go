@@ -60,12 +60,17 @@ type workModel struct {
 	selectedWorkID string
 
 	// Grid state (for overview mode)
-	gridConfig GridConfig
+	gridConfig          GridConfig
+	overviewBeadCursor  int  // cursor for navigating beads within selected worker
+	overviewShowDetails bool // whether to show the details panel in overview
 
 	// Mouse state
-	mouseX        int
-	mouseY        int
-	hoveredButton string
+	mouseX           int
+	mouseY           int
+	hoveredButton    string
+	hoveredWorkerIdx int // -1 if no worker hovered
+	hoveredBeadIdx   int // -1 if no bead hovered
+	hoveredTaskIdx   int // -1 if no task hovered (zoomed mode)
 
 	// Bead selection (for assign dialogs)
 	beadItems     []beadItem
@@ -122,6 +127,9 @@ func newWorkModel(ctx context.Context, proj *project.Project) *workModel {
 		textInput:          ti,
 		selectedBeads:      make(map[string]bool),
 		createBeadPriority: 2,
+		hoveredWorkerIdx:   -1,
+		hoveredBeadIdx:     -1,
+		hoveredTaskIdx:     -1,
 		createDescTextarea: createDescTa,
 		loading:            true,
 	}
@@ -188,8 +196,20 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Action == tea.MouseActionMotion {
 			if msg.Y == statusBarY {
 				m.hoveredButton = m.detectStatusBarButton(msg.X)
+				m.hoveredWorkerIdx = -1
+				m.hoveredBeadIdx = -1
+				m.hoveredTaskIdx = -1
 			} else {
 				m.hoveredButton = ""
+				// Detect hover over beads in overview mode or tasks in zoomed mode
+				if m.zoomLevel == ZoomOverview {
+					m.detectOverviewHover(msg.X, msg.Y)
+					m.hoveredTaskIdx = -1
+				} else {
+					m.hoveredWorkerIdx = -1
+					m.hoveredBeadIdx = -1
+					m.detectZoomedHover(msg.X, msg.Y)
+				}
 			}
 			return m, nil
 		}
@@ -279,6 +299,12 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.viewMode = ViewHelp
 					return m, nil
 				}
+			} else if m.zoomLevel == ZoomOverview {
+				// Handle clicks in the grid area (overview mode)
+				m.handleOverviewClick(msg.X, msg.Y)
+			} else if m.zoomLevel == ZoomZoomedIn {
+				// Handle clicks in the zoomed view (tasks panel)
+				m.handleZoomedClick(msg.X, msg.Y)
 			}
 		}
 
@@ -359,37 +385,62 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.zoomLevel == ZoomOverview {
 		switch msg.String() {
 		case "j", "down":
-			// Move down in grid
-			newIdx := m.worksCursor + m.gridConfig.Cols
-			if newIdx < len(m.works) {
-				m.worksCursor = newIdx
+			// Move down through beads in current worker
+			if len(m.works) > 0 && m.worksCursor < len(m.works) {
+				wp := m.works[m.worksCursor]
+				if m.overviewBeadCursor < len(wp.workBeads)-1 {
+					m.overviewBeadCursor++
+				}
 			}
 			return m, nil
 		case "k", "up":
-			// Move up in grid
-			newIdx := m.worksCursor - m.gridConfig.Cols
-			if newIdx >= 0 {
-				m.worksCursor = newIdx
+			// Move up through beads in current worker
+			if m.overviewBeadCursor > 0 {
+				m.overviewBeadCursor--
 			}
 			return m, nil
 		case "h", "left":
+			// Move to previous worker
 			if m.worksCursor > 0 {
 				m.worksCursor--
+				m.overviewBeadCursor = 0 // Reset bead cursor when changing worker
 			}
 			return m, nil
 		case "l", "right":
+			// Move to next worker
 			if m.worksCursor < len(m.works)-1 {
 				m.worksCursor++
+				m.overviewBeadCursor = 0 // Reset bead cursor when changing worker
+			}
+			return m, nil
+		case "tab":
+			// Cycle through workers
+			if len(m.works) > 0 {
+				m.worksCursor = (m.worksCursor + 1) % len(m.works)
+				m.overviewBeadCursor = 0 // Reset bead cursor when changing worker
+			}
+			return m, nil
+		case "shift+tab":
+			// Cycle backwards through workers
+			if len(m.works) > 0 {
+				m.worksCursor--
+				if m.worksCursor < 0 {
+					m.worksCursor = len(m.works) - 1
+				}
+				m.overviewBeadCursor = 0 // Reset bead cursor when changing worker
 			}
 			return m, nil
 		case "g":
-			// Go to first
-			m.worksCursor = 0
+			// Go to first bead
+			m.overviewBeadCursor = 0
 			return m, nil
 		case "G":
-			// Go to last
-			if len(m.works) > 0 {
-				m.worksCursor = len(m.works) - 1
+			// Go to last bead
+			if len(m.works) > 0 && m.worksCursor < len(m.works) {
+				wp := m.works[m.worksCursor]
+				if len(wp.workBeads) > 0 {
+					m.overviewBeadCursor = len(wp.workBeads) - 1
+				}
 			}
 			return m, nil
 		case "enter":
@@ -397,7 +448,7 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(m.works) > 0 && m.worksCursor < len(m.works) {
 				m.zoomLevel = ZoomZoomedIn
 				m.selectedWorkID = m.works[m.worksCursor].work.ID
-				m.activePanel = PanelLeft
+				m.activePanel = PanelMiddle // Start on tasks panel (no left panel in zoom mode)
 				m.tasksCursor = 0
 			}
 			return m, nil
@@ -493,36 +544,48 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "h", "left":
-		if m.activePanel > PanelLeft {
+		// In zoomed mode, only toggle between Middle and Right (no Left panel)
+		if m.zoomLevel == ZoomZoomedIn {
+			if m.activePanel == PanelRight {
+				m.activePanel = PanelMiddle
+			}
+		} else if m.activePanel > PanelLeft {
 			m.activePanel--
 		}
 
 	case "l", "right":
-		if m.activePanel < PanelRight {
+		// In zoomed mode, only toggle between Middle and Right (no Left panel)
+		if m.zoomLevel == ZoomZoomedIn {
+			if m.activePanel == PanelMiddle {
+				m.activePanel = PanelRight
+			}
+		} else if m.activePanel < PanelRight {
 			m.activePanel++
 		}
 
 	case "tab":
 		if m.zoomLevel == ZoomZoomedIn {
-			m.activePanel = (m.activePanel + 1) % 3
+			// Toggle between Middle and Right panels only (no Left panel in zoom mode)
+			if m.activePanel == PanelMiddle {
+				m.activePanel = PanelRight
+			} else {
+				m.activePanel = PanelMiddle
+			}
 		}
 
 	case "1":
 		if m.zoomLevel == ZoomZoomedIn {
-			m.activePanel = PanelLeft
+			m.activePanel = PanelMiddle // 1 = Tasks panel
 		}
 	case "2":
 		if m.zoomLevel == ZoomZoomedIn {
-			m.activePanel = PanelMiddle
-		}
-	case "3":
-		if m.zoomLevel == ZoomZoomedIn {
-			m.activePanel = PanelRight
+			m.activePanel = PanelRight // 2 = Details panel
 		}
 
 	case "c":
-		// Create work
-		if m.activePanel == PanelLeft {
+		// Create work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork {
 			m.textInput.Reset()
 			m.textInput.Placeholder = "feature/my-branch"
 			m.textInput.Focus()
@@ -530,26 +593,30 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "d":
-		// Destroy work
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		// Destroy work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			m.viewMode = ViewDestroyConfirm
 		}
 
 	case "p":
-		// Plan work
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		// Plan work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			m.viewMode = ViewPlanDialog
 		}
 
 	case "r":
-		// Run work
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		// Run work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			return m, m.runWork()
 		}
 
 	case "a":
-		// Assign beads to work
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		// Assign beads to work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			m.viewMode = ViewAssignBeads
 			m.beadsCursor = 0
 			// Load beads for selection
@@ -558,25 +625,29 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "R":
 		// Create review task
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			return m, m.createReviewTask()
 		}
 
 	case "P":
 		// Create PR task
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			return m, m.createPRTask()
 		}
 
 	case "U":
 		// Update PR description task
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			return m, m.updatePRDescriptionTask()
 		}
 
 	case "n":
 		// Create new bead and assign to current work
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			m.viewMode = ViewCreateBead
 			m.textInput.Reset()
 			m.textInput.Placeholder = "Enter issue title..."
@@ -589,13 +660,15 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "t":
 		// Open console tab for selected work
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			return m, m.openConsole()
 		}
 
 	case "C":
 		// Open Claude Code session tab for selected work
-		if m.activePanel == PanelLeft && len(m.works) > 0 {
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
 			return m, m.openClaude()
 		}
 
@@ -702,6 +775,24 @@ func (m *workModel) updateAssignBeads(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.beadItems) > 0 {
 			id := m.beadItems[m.beadsCursor].id
 			m.selectedBeads[id] = !m.selectedBeads[id]
+		}
+	case "a":
+		// Select all / deselect all toggle
+		allSelected := true
+		for _, bead := range m.beadItems {
+			if !m.selectedBeads[bead.id] {
+				allSelected = false
+				break
+			}
+		}
+		if allSelected {
+			// Deselect all
+			m.selectedBeads = make(map[string]bool)
+		} else {
+			// Select all
+			for _, bead := range m.beadItems {
+				m.selectedBeads[bead.id] = true
+			}
 		}
 	case "enter":
 		m.viewMode = ViewNormal
@@ -838,8 +929,13 @@ func (m *workModel) View() string {
 		dialog := m.renderCreateWorkDialog()
 		return m.renderWithDialog(dialog)
 	case ViewCreateBead:
-		dialog := m.renderCreateBeadDialogContent()
-		return m.renderWithDialog(dialog)
+		// In zoomed mode, render inline in details panel (fall through)
+		// In overview mode, use dialog
+		if m.zoomLevel == ZoomOverview {
+			dialog := m.renderCreateBeadDialogContent()
+			return m.renderWithDialog(dialog)
+		}
+		// Fall through to normal rendering - details panel will show the form
 	case ViewDestroyConfirm:
 		dialog := m.renderDestroyConfirmDialog()
 		return m.renderWithDialog(dialog)
@@ -847,7 +943,12 @@ func (m *workModel) View() string {
 		dialog := m.renderPlanDialogContent()
 		return m.renderWithDialog(dialog)
 	case ViewAssignBeads:
-		return m.renderAssignBeadsView()
+		// In zoomed mode, render inline in details panel (fall through)
+		// In overview mode, use full-screen view
+		if m.zoomLevel == ZoomOverview {
+			return m.renderAssignBeadsView()
+		}
+		// Fall through to normal rendering - details panel will show the assign beads form
 	}
 
 	// Render based on zoom level
@@ -855,20 +956,18 @@ func (m *workModel) View() string {
 		return m.renderOverviewGrid()
 	}
 
-	// Zoomed in view: 3-panel layout
-	// Calculate panel dimensions
-	panelWidth1 := m.width / 3
-	panelWidth2 := m.width / 3
-	panelWidth3 := m.width - panelWidth1 - panelWidth2
+	// Zoomed in view: 2-panel layout (Tasks | Details)
+	// Calculate panel dimensions (40/60 ratio)
+	panelWidth1 := m.width * 40 / 100
+	panelWidth2 := m.width - panelWidth1
 	// Reserve 1 line for status bar, and account for panel borders (2 lines per panel)
 	panelHeight := m.height - 1 - 2 // -1 for status bar, -2 for border
 
-	// Render three panels: Works | Tasks | Details
-	leftPanel := m.renderWorksPanel(panelWidth1, panelHeight)
-	middlePanel := m.renderTasksPanel(panelWidth2, panelHeight)
-	rightPanel := m.renderDetailsPanel(panelWidth3, panelHeight)
+	// Render two panels: Tasks | Details
+	tasksPanel := m.renderTasksPanel(panelWidth1, panelHeight)
+	detailsPanel := m.renderDetailsPanel(panelWidth2, panelHeight)
 
-	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, middlePanel, rightPanel)
+	content := lipgloss.JoinHorizontal(lipgloss.Top, tasksPanel, detailsPanel)
 
 	// Render status bar
 	statusBar := m.renderStatusBar()
@@ -886,13 +985,32 @@ func (m *workModel) renderOverviewGrid() string {
 		return m.renderEmptyGridState()
 	}
 
-	// Render grid of worker panels
-	grid := m.renderGrid()
+	// Calculate layout: grid on left, details on right
+	detailsWidth := m.width / 3
+	if detailsWidth < 30 {
+		detailsWidth = 30
+	}
+	if detailsWidth > 50 {
+		detailsWidth = 50
+	}
+	gridWidth := m.width - detailsWidth
+
+	// Reserve 1 line for status bar
+	contentHeight := m.height - 1
+
+	// Render grid of worker panels (with reduced width)
+	grid := m.renderGridWithWidth(gridWidth, contentHeight)
+
+	// Render details panel for selected bead
+	detailsPanel := m.renderOverviewDetailsPanel(detailsWidth, contentHeight)
+
+	// Join grid and details horizontally
+	content := lipgloss.JoinHorizontal(lipgloss.Top, grid, detailsPanel)
 
 	// Render status bar
 	statusBar := m.renderOverviewStatusBar()
 
-	return lipgloss.JoinVertical(lipgloss.Left, grid, statusBar)
+	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 }
 
 // renderEmptyGridState renders the empty state when no works exist
@@ -917,29 +1035,29 @@ func (m *workModel) renderEmptyGridState() string {
 		style.Render(content))
 }
 
-// renderGrid renders the grid of worker panels
-func (m *workModel) renderGrid() string {
+// renderGridWithWidth renders the grid with a specific width
+func (m *workModel) renderGridWithWidth(width, height int) string {
 	if len(m.works) == 0 {
 		return ""
 	}
 
-	cellWidth := m.gridConfig.CellWidth
-	cellHeight := m.gridConfig.CellHeight
+	// Recalculate grid dimensions for the given width
+	gridConfig := CalculateGridDimensions(len(m.works), width, height)
 
 	var rows []string
 
-	for row := 0; row < m.gridConfig.Rows; row++ {
+	for row := 0; row < gridConfig.Rows; row++ {
 		var rowPanels []string
 
-		for col := 0; col < m.gridConfig.Cols; col++ {
-			idx := row*m.gridConfig.Cols + col
+		for col := 0; col < gridConfig.Cols; col++ {
+			idx := row*gridConfig.Cols + col
 
 			if idx < len(m.works) {
-				panel := m.renderGridWorkerPanel(idx, cellWidth, cellHeight)
+				panel := m.renderGridWorkerPanel(idx, gridConfig.CellWidth, gridConfig.CellHeight)
 				rowPanels = append(rowPanels, panel)
 			} else {
 				// Empty cell
-				emptyPanel := m.renderEmptyGridPanel(cellWidth, cellHeight)
+				emptyPanel := m.renderEmptyGridPanel(gridConfig.CellWidth, gridConfig.CellHeight)
 				rowPanels = append(rowPanels, emptyPanel)
 			}
 		}
@@ -948,6 +1066,107 @@ func (m *workModel) renderGrid() string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
+}
+
+// renderOverviewDetailsPanel renders the details panel for the selected bead in overview mode
+func (m *workModel) renderOverviewDetailsPanel(width, height int) string {
+	var content strings.Builder
+
+	title := tuiTitleStyle.Render("Details")
+	content.WriteString(title)
+	content.WriteString("\n\n")
+
+	// Check if we have a selected worker with beads
+	if len(m.works) == 0 || m.worksCursor >= len(m.works) {
+		content.WriteString(tuiDimStyle.Render("No worker selected"))
+		return tuiPanelStyle.Width(width - 2).Height(height - 2).Render(content.String())
+	}
+
+	wp := m.works[m.worksCursor]
+
+	// Show worker info
+	content.WriteString(tuiLabelStyle.Render("Worker: "))
+	if wp.work.Name != "" {
+		content.WriteString(tuiValueStyle.Render(wp.work.Name))
+		content.WriteString(tuiDimStyle.Render(fmt.Sprintf(" (%s)", wp.work.ID)))
+	} else {
+		content.WriteString(tuiValueStyle.Render(wp.work.ID))
+	}
+	content.WriteString("\n")
+
+	content.WriteString(tuiLabelStyle.Render("Branch: "))
+	content.WriteString(tuiValueStyle.Render(wp.work.BranchName))
+	content.WriteString("\n")
+
+	content.WriteString(tuiLabelStyle.Render("Status: "))
+	content.WriteString(statusStyled(wp.work.Status))
+	content.WriteString("\n\n")
+
+	// Show selected bead details
+	if len(wp.workBeads) == 0 {
+		content.WriteString(tuiDimStyle.Render("No issues assigned"))
+	} else {
+		// Ensure cursor is valid
+		if m.overviewBeadCursor >= len(wp.workBeads) {
+			m.overviewBeadCursor = len(wp.workBeads) - 1
+		}
+		if m.overviewBeadCursor < 0 {
+			m.overviewBeadCursor = 0
+		}
+
+		bp := wp.workBeads[m.overviewBeadCursor]
+
+		content.WriteString(tuiTitleStyle.Render("Selected Issue"))
+		content.WriteString("\n\n")
+
+		content.WriteString(tuiLabelStyle.Render("ID: "))
+		content.WriteString(tuiValueStyle.Render(bp.id))
+		content.WriteString("\n")
+
+		if bp.title != "" {
+			content.WriteString(tuiLabelStyle.Render("Title: "))
+			content.WriteString(tuiValueStyle.Render(bp.title))
+			content.WriteString("\n")
+		}
+
+		if bp.issueType != "" {
+			content.WriteString(tuiLabelStyle.Render("Type: "))
+			content.WriteString(tuiValueStyle.Render(bp.issueType))
+			content.WriteString("\n")
+		}
+
+		content.WriteString(tuiLabelStyle.Render("Priority: "))
+		content.WriteString(tuiValueStyle.Render(fmt.Sprintf("P%d", bp.priority)))
+		content.WriteString("\n")
+
+		content.WriteString(tuiLabelStyle.Render("Status: "))
+		if bp.beadStatus == "closed" {
+			content.WriteString(statusCompleted.Render("closed"))
+		} else {
+			content.WriteString(statusPending.Render("open"))
+		}
+		content.WriteString("\n")
+
+		if bp.description != "" {
+			content.WriteString("\n")
+			content.WriteString(tuiLabelStyle.Render("Description:"))
+			content.WriteString("\n")
+			// Word-wrap description to fit panel
+			desc := bp.description
+			maxDescLen := width - 6
+			if len(desc) > maxDescLen*3 {
+				desc = desc[:maxDescLen*3] + "..."
+			}
+			content.WriteString(tuiDimStyle.Render(desc))
+			content.WriteString("\n")
+		}
+
+		// Show navigation hint
+		content.WriteString("\n")
+		content.WriteString(tuiDimStyle.Render(fmt.Sprintf("Issue %d of %d", m.overviewBeadCursor+1, len(wp.workBeads))))
+	}
+
+	return tuiPanelStyle.Width(width - 2).Height(height - 2).Render(content.String())
 }
 
 // renderGridWorkerPanel renders a single worker panel in the grid
@@ -1012,6 +1231,17 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 		content.WriteString("\n")
 	}
 
+	// Branch name
+	if wp.work.BranchName != "" {
+		branch := wp.work.BranchName
+		maxBranchLen := width - 6
+		if len(branch) > maxBranchLen && maxBranchLen > 3 {
+			branch = branch[:maxBranchLen-3] + "..."
+		}
+		content.WriteString(tuiDimStyle.Render("⎇ " + branch))
+		content.WriteString("\n")
+	}
+
 	// Progress summary
 	if len(wp.tasks) > 0 {
 		pending := 0
@@ -1069,30 +1299,53 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 		content.WriteString("\n")
 	}
 
-	// Task list (show as many as fit)
-	linesUsed := 4 // header + id + progress + counts
+	// Assigned beads/issues (show as many as fit)
+	linesUsed := 5 // header + id + branch + progress + counts
 	availableLines := height - linesUsed - 3 // account for border
 	if availableLines < 0 {
 		availableLines = 0
 	}
 
-	if len(wp.tasks) > 0 && availableLines > 0 {
+	if len(wp.workBeads) > 0 && availableLines > 0 {
 		content.WriteString("\n")
-		for i, tp := range wp.tasks {
+		for i, bp := range wp.workBeads {
 			if i >= availableLines {
-				remaining := len(wp.tasks) - i
+				remaining := len(wp.workBeads) - i
 				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  +%d more", remaining)))
 				break
 			}
 
-			taskIcon := statusIcon(tp.task.Status)
-			taskID := tp.task.ID
-			// Truncate long task IDs
-			maxLen := width - 8
-			if len(taskID) > maxLen && maxLen > 3 {
-				taskID = taskID[:maxLen-3] + "..."
+			// Check if this bead is selected or hovered
+			isBeadSelected := isSelected && i == m.overviewBeadCursor
+			isBeadHovered := idx == m.hoveredWorkerIdx && i == m.hoveredBeadIdx
+
+			// Show bead with status icon
+			beadIcon := "○"
+			if bp.beadStatus == "closed" {
+				beadIcon = "✓"
 			}
-			content.WriteString(fmt.Sprintf("%s %s\n", taskIcon, taskID))
+
+			// Show bead ID and title (truncated if needed)
+			beadDisplay := bp.id
+			if bp.title != "" {
+				beadDisplay = fmt.Sprintf("%s %s", bp.id, bp.title)
+			}
+			maxLen := width - 8
+			if len(beadDisplay) > maxLen && maxLen > 3 {
+				beadDisplay = beadDisplay[:maxLen-3] + "..."
+			}
+
+			line := fmt.Sprintf("%s %s", beadIcon, beadDisplay)
+			if isBeadSelected {
+				line = tuiSelectedStyle.Render("> " + line)
+			} else if isBeadHovered {
+				// Hover style - cyan foreground
+				hoverStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+				line = hoverStyle.Render("  " + line)
+			} else {
+				line = "  " + line
+			}
+			content.WriteString(line + "\n")
 		}
 	}
 
@@ -1118,8 +1371,8 @@ func (m *workModel) renderOverviewStatusBar() string {
 	dButton := styleButtonWithHover("[d]estroy", m.hoveredButton == "d")
 	helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-	keys := "[←↑↓→]navigate [Enter]zoom " + cButton + " " + dButton + " " + helpButton
-	keysPlain := "[←↑↓→]navigate [Enter]zoom [c]reate [d]estroy [?]help"
+	keys := "[Tab]workers [←→]workers [↑↓]issues [Enter]zoom " + cButton + " " + dButton + " " + helpButton
+	keysPlain := "[Tab]workers [←→]workers [↑↓]issues [Enter]zoom [c]reate [d]estroy [?]help"
 
 	// Status on the right
 	var statusParts []string
@@ -1150,116 +1403,6 @@ func (m *workModel) renderOverviewStatusBar() string {
 
 func (m *workModel) renderWithDialog(dialog string) string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog)
-}
-
-func (m *workModel) renderWorksPanel(width, height int) string {
-	title := tuiTitleStyle.Render("Workers")
-
-	var content strings.Builder
-	content.WriteString(title)
-	content.WriteString("\n")
-
-	if m.loading {
-		content.WriteString(m.spinner.View())
-		content.WriteString(" Loading...")
-	} else if len(m.works) == 0 {
-		content.WriteString(tuiDimStyle.Render("No workers"))
-		content.WriteString("\n")
-		content.WriteString(tuiDimStyle.Render("Press 'c' to create"))
-	} else {
-		visibleLines := height - 3
-		if visibleLines < 1 {
-			visibleLines = 1
-		}
-
-		startIdx := 0
-		if m.worksCursor >= visibleLines {
-			startIdx = m.worksCursor - visibleLines + 1
-		}
-		endIdx := startIdx + visibleLines
-		if endIdx > len(m.works) {
-			endIdx = len(m.works)
-			startIdx = endIdx - visibleLines
-			if startIdx < 0 {
-				startIdx = 0
-			}
-		}
-
-		if startIdx > 0 {
-			content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ↑ %d more", startIdx)))
-			content.WriteString("\n")
-		}
-
-		for i := startIdx; i < endIdx; i++ {
-			wp := m.works[i]
-			isSelected := i == m.worksCursor && m.activePanel == PanelLeft
-
-			// Check if any task is actively processing
-			hasActiveTask := false
-			for _, tp := range wp.tasks {
-				if tp.task.Status == db.StatusProcessing {
-					hasActiveTask = true
-					break
-				}
-			}
-
-			var icon string
-			if wp.work.Status == db.StatusProcessing && hasActiveTask {
-				// Use spinner for works with active tasks
-				icon = m.spinner.View()
-			} else if wp.work.Status == db.StatusProcessing {
-				// Idle processing (no active task) - use pause icon
-				icon = statusProcessing.Render("◉")
-			} else if isSelected {
-				icon = statusIconPlain(wp.work.Status)
-			} else {
-				icon = statusIcon(wp.work.Status)
-			}
-
-			// Show human-readable name if available, otherwise work ID
-			displayName := wp.work.Name
-			if displayName == "" {
-				displayName = wp.work.ID
-			}
-
-			line := fmt.Sprintf("%s %s", icon, displayName)
-
-			// Show work ID as subtitle if we have a name
-			if wp.work.Name != "" {
-				line = fmt.Sprintf("%s %s (%s)", icon, displayName, wp.work.ID)
-			}
-
-			// Add pending beads badge if there are unassigned beads
-			if wp.unassignedBeadCount > 0 {
-				badge := fmt.Sprintf(" [%d pending]", wp.unassignedBeadCount)
-				line += tuiDimStyle.Render(badge)
-			}
-
-			if isSelected {
-				fullLine := "> " + line
-				visWidth := lipgloss.Width(fullLine)
-				if visWidth < width-4 {
-					fullLine += strings.Repeat(" ", width-4-visWidth)
-				}
-				line = tuiSelectedStyle.Render(fullLine)
-			} else {
-				line = "  " + line
-			}
-			content.WriteString(line)
-			content.WriteString("\n")
-		}
-
-		if endIdx < len(m.works) {
-			content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ↓ %d more", len(m.works)-endIdx)))
-			content.WriteString("\n")
-		}
-	}
-
-	style := tuiPanelStyle
-	if m.activePanel == PanelLeft {
-		style = tuiActivePanelStyle
-	}
-	return style.Width(width - 2).Height(height).Render(content.String())
 }
 
 func (m *workModel) renderTasksPanel(width, height int) string {
@@ -1311,6 +1454,7 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 			for i := startIdx; i < endIdx; i++ {
 				tp := wp.tasks[i]
 				isSelected := i == m.tasksCursor && m.activePanel == PanelMiddle
+				isHovered := i == m.hoveredTaskIdx
 
 				var icon string
 				if tp.task.Status == db.StatusProcessing {
@@ -1331,6 +1475,9 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 						fullLine += strings.Repeat(" ", width-4-visWidth)
 					}
 					line = tuiSelectedStyle.Render(fullLine)
+				} else if isHovered {
+					// Hover style - bold bright cyan with arrow indicator
+					line = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("51")).Render("→ " + line)
 				} else {
 					line = "  " + line
 				}
@@ -1353,6 +1500,16 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 }
 
 func (m *workModel) renderDetailsPanel(width, height int) string {
+	// If in create bead mode, render the bead form inline
+	if m.viewMode == ViewCreateBead {
+		return m.renderBeadFormInline(width, height)
+	}
+
+	// If in assign beads mode, render the assign beads form inline
+	if m.viewMode == ViewAssignBeads {
+		return m.renderAssignBeadsInline(width, height)
+	}
+
 	title := tuiTitleStyle.Render("Details")
 
 	var content strings.Builder
@@ -1470,6 +1627,247 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 	return style.Width(width - 2).Height(height).Render(content.String())
 }
 
+// renderBeadFormInline renders the create bead form inline in the details panel
+func (m *workModel) renderBeadFormInline(width, height int) string {
+	var content strings.Builder
+
+	// Adapt input widths to available space (account for panel padding)
+	inputWidth := width - 6
+	if inputWidth < 20 {
+		inputWidth = 20
+	}
+	m.textInput.Width = inputWidth
+	m.createDescTextarea.SetWidth(inputWidth)
+
+	typeFocused := m.createDialogFocus == 1
+	priorityFocused := m.createDialogFocus == 2
+	descFocused := m.createDialogFocus == 3
+
+	// Type rotator display
+	currentType := beadTypes[m.createBeadType]
+	var typeDisplay string
+	if typeFocused {
+		typeDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentType))
+	} else {
+		typeDisplay = typeFeatureStyle.Render(currentType)
+	}
+
+	// Priority display
+	priorityLabels := []string{"P0 (critical)", "P1 (high)", "P2 (medium)", "P3 (low)", "P4 (backlog)"}
+	var priorityDisplay string
+	if priorityFocused {
+		priorityDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(priorityLabels[m.createBeadPriority]))
+	} else {
+		priorityDisplay = priorityLabels[m.createBeadPriority]
+	}
+
+	// Show focus labels
+	titleLabel := "Title:"
+	typeLabel := "Type:"
+	priorityLabel := "Priority:"
+	descLabel := "Description:"
+	if m.createDialogFocus == 0 {
+		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
+	}
+	if typeFocused {
+		typeLabel = tuiValueStyle.Render("Type:") + " (←/→)"
+	}
+	if priorityFocused {
+		priorityLabel = tuiValueStyle.Render("Priority:") + " (←/→)"
+	}
+	if descFocused {
+		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
+	}
+
+	// Render header
+	content.WriteString(tuiTitleStyle.Render("Create New Issue"))
+	content.WriteString("\n\n")
+
+	// Render form fields
+	content.WriteString(titleLabel)
+	content.WriteString("\n")
+	content.WriteString(m.textInput.View())
+	content.WriteString("\n\n")
+	content.WriteString(typeLabel + " " + typeDisplay)
+	content.WriteString("\n\n")
+	content.WriteString(priorityLabel + " " + priorityDisplay)
+	content.WriteString("\n\n")
+	content.WriteString(descLabel)
+	content.WriteString("\n")
+	content.WriteString(m.createDescTextarea.View())
+	content.WriteString("\n\n")
+
+	// Render buttons
+	content.WriteString("[Tab] next  [Enter] create  [Esc] cancel")
+
+	style := tuiPanelStyle
+	if m.activePanel == PanelRight {
+		style = tuiActivePanelStyle
+	}
+	return style.Width(width - 2).Height(height).Render(content.String())
+}
+
+// renderAssignBeadsInline renders the assign beads form inline in the details panel
+func (m *workModel) renderAssignBeadsInline(width, height int) string {
+	var content strings.Builder
+
+	content.WriteString(tuiTitleStyle.Render("Assign Issues"))
+	content.WriteString("\n")
+
+	// Show target work
+	if len(m.works) > 0 && m.worksCursor < len(m.works) {
+		wp := m.works[m.worksCursor]
+		content.WriteString(tuiLabelStyle.Render("To: "))
+		if wp.work.Name != "" {
+			content.WriteString(tuiValueStyle.Render(wp.work.Name))
+		} else {
+			content.WriteString(tuiValueStyle.Render(wp.work.ID))
+		}
+		content.WriteString("\n\n")
+	}
+
+	// Reserve space for details section (about 40% of height) and controls (2 lines)
+	detailsLines := height * 40 / 100
+	if detailsLines < 5 {
+		detailsLines = 5
+	}
+	controlLines := 2
+	headerLines := 3 // title + target + blank
+	listLines := height - headerLines - detailsLines - controlLines
+	if listLines < 3 {
+		listLines = 3
+	}
+
+	// Show the beads list
+	if len(m.beadItems) == 0 {
+		content.WriteString(tuiDimStyle.Render("No ready issues found"))
+	} else {
+		// Calculate scroll window
+		start := 0
+		if m.beadsCursor >= listLines {
+			start = m.beadsCursor - listLines + 1
+		}
+		end := start + listLines
+		if end > len(m.beadItems) {
+			end = len(m.beadItems)
+		}
+
+		for i := start; i < end; i++ {
+			bead := m.beadItems[i]
+
+			// Checkbox
+			var checkbox string
+			if m.selectedBeads[bead.id] {
+				checkbox = tuiSelectedCheckStyle.Render("[●]")
+			} else {
+				checkbox = tuiDimStyle.Render("[ ]")
+			}
+
+			// Status and type icons
+			statusStr := statusIcon(bead.status)
+			var typeStr string
+			switch bead.beadType {
+			case "task":
+				typeStr = typeTaskStyle.Render("T")
+			case "bug":
+				typeStr = typeBugStyle.Render("B")
+			case "feature":
+				typeStr = typeFeatureStyle.Render("F")
+			case "epic":
+				typeStr = typeEpicStyle.Render("E")
+			case "chore":
+				typeStr = typeChoreStyle.Render("C")
+			default:
+				typeStr = typeDefaultStyle.Render("?")
+			}
+
+			// Truncate title to fit width
+			maxTitleLen := width - 20 // Account for checkbox, status, type, ID, spacing
+			if maxTitleLen < 10 {
+				maxTitleLen = 10
+			}
+			title := bead.title
+			if len(title) > maxTitleLen {
+				title = title[:maxTitleLen-3] + "..."
+			}
+
+			line := fmt.Sprintf("%s %s %s %s %s",
+				checkbox,
+				statusStr,
+				typeStr,
+				issueIDStyle.Render(bead.id),
+				title)
+
+			// Highlight selected row
+			if i == m.beadsCursor {
+				line = tuiSelectedStyle.Render("> " + line)
+			} else {
+				line = "  " + line
+			}
+
+			content.WriteString(line)
+			if i < end-1 {
+				content.WriteString("\n")
+			}
+		}
+	}
+
+	// Show details of currently selected issue
+	content.WriteString("\n\n")
+	content.WriteString(tuiDimStyle.Render(strings.Repeat("─", width-6)))
+	content.WriteString("\n")
+
+	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		bead := m.beadItems[m.beadsCursor]
+
+		// ID, Type, Priority, Status line
+		content.WriteString(tuiLabelStyle.Render("ID: "))
+		content.WriteString(issueIDStyle.Render(bead.id))
+		content.WriteString("  ")
+		content.WriteString(tuiLabelStyle.Render("Type: "))
+		content.WriteString(tuiValueStyle.Render(bead.beadType))
+		content.WriteString("  ")
+		content.WriteString(tuiLabelStyle.Render("P"))
+		content.WriteString(tuiValueStyle.Render(fmt.Sprintf("%d", bead.priority)))
+		content.WriteString("  ")
+		content.WriteString(tuiLabelStyle.Render("Status: "))
+		content.WriteString(tuiValueStyle.Render(bead.status))
+		content.WriteString("\n")
+
+		// Title (full, with wrapping)
+		titleStyle := tuiValueStyle.Width(width - 6)
+		content.WriteString(titleStyle.Render(bead.title))
+		content.WriteString("\n")
+
+		// Description (if available)
+		if bead.description != "" {
+			descStyle := tuiDimStyle.Width(width - 6)
+			// Limit description length to fit in remaining space
+			desc := bead.description
+			maxDescLen := (detailsLines - 3) * (width - 6)
+			if maxDescLen > 0 && len(desc) > maxDescLen {
+				desc = desc[:maxDescLen-3] + "..."
+			}
+			content.WriteString(descStyle.Render(desc))
+		}
+	}
+
+	// Show selection count and controls
+	selected := 0
+	for _, s := range m.selectedBeads {
+		if s {
+			selected++
+		}
+	}
+	content.WriteString(fmt.Sprintf("\n\n%d selected  [Space] toggle  [Enter] assign  [Esc] cancel", selected))
+
+	style := tuiPanelStyle
+	if m.activePanel == PanelRight {
+		style = tuiActivePanelStyle
+	}
+	return style.Width(width - 2).Height(height).Render(content.String())
+}
+
 func (m *workModel) renderStatusBar() string {
 	// Status on the right
 	var status string
@@ -1486,22 +1884,47 @@ func (m *workModel) renderStatusBar() string {
 		status = tuiDimStyle.Render(statusPlain)
 	}
 
-	// Commands on the left with hover effects - task-specific actions for zoomed view
-	escButton := "[Esc]overview"
-	rButton := styleButtonWithHover("[r]un", m.hoveredButton == "r")
-	pButton := styleButtonWithHover("[p]lan", m.hoveredButton == "p")
-	aButton := styleButtonWithHover("[a]ssign", m.hoveredButton == "a")
-	nButton := styleButtonWithHover("[n]ew", m.hoveredButton == "n")
-	tButton := styleButtonWithHover("[t]erminal", m.hoveredButton == "t")
-	CButton := styleButtonWithHover("[C]laude", m.hoveredButton == "C")
-	RButton := styleButtonWithHover("[R]eview", m.hoveredButton == "R")
-	PButton := styleButtonWithHover("[P]R", m.hoveredButton == "P")
-	helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
+	var keys, keysPlain string
 
-	keys := escButton + " " + rButton + " " + pButton + " " + aButton + " " + nButton + " " + tButton + " " + CButton + " " + RButton + " " + PButton + " " + helpButton
+	// Show different status bar based on view mode
+	if m.viewMode == ViewAssignBeads {
+		// Assign beads mode - show selection controls
+		selected := 0
+		for _, s := range m.selectedBeads {
+			if s {
+				selected++
+			}
+		}
+		selectionInfo := fmt.Sprintf("%d selected", selected)
+		if selected > 0 {
+			selectionInfo = tuiSuccessStyle.Render(selectionInfo)
+		} else {
+			selectionInfo = tuiDimStyle.Render(selectionInfo)
+		}
 
-	// Plain text for width calculation
-	keysPlain := "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
+		escButton := styleHotkeys("[Esc]cancel")
+		spaceButton := styleHotkeys("[Space]toggle")
+		enterButton := styleHotkeys("[Enter]assign")
+		aButton := styleHotkeys("[a]select all")
+
+		keys = escButton + "  " + spaceButton + "  " + aButton + "  " + enterButton + "  " + selectionInfo
+		keysPlain = fmt.Sprintf("[Esc]cancel  [Space]toggle  [a]select all  [Enter]assign  %d selected", selected)
+	} else {
+		// Normal zoomed view - task-specific actions
+		escButton := "[Esc]overview"
+		rButton := styleButtonWithHover("[r]un", m.hoveredButton == "r")
+		pButton := styleButtonWithHover("[p]lan", m.hoveredButton == "p")
+		aButton := styleButtonWithHover("[a]ssign", m.hoveredButton == "a")
+		nButton := styleButtonWithHover("[n]ew", m.hoveredButton == "n")
+		tButton := styleButtonWithHover("[t]erminal", m.hoveredButton == "t")
+		CButton := styleButtonWithHover("[C]laude", m.hoveredButton == "C")
+		RButton := styleButtonWithHover("[R]eview", m.hoveredButton == "R")
+		PButton := styleButtonWithHover("[P]R", m.hoveredButton == "P")
+		helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
+
+		keys = escButton + " " + rButton + " " + pButton + " " + aButton + " " + nButton + " " + tButton + " " + CButton + " " + RButton + " " + PButton + " " + helpButton
+		keysPlain = "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
+	}
 
 	// Build bar with commands left, status right
 	padding := max(m.width-len(keysPlain)-len(statusPlain)-4, 2)
@@ -2034,6 +2457,243 @@ func (m *workModel) openClaude() tea.Cmd {
 	}
 }
 
+// handleOverviewClick handles mouse clicks in the overview grid area
+// detectOverviewHover detects which worker/bead is being hovered in overview mode
+// detectZoomedHover detects which task is being hovered in zoomed mode
+func (m *workModel) detectZoomedHover(x, y int) {
+	m.hoveredTaskIdx = -1
+
+	if len(m.works) == 0 || m.worksCursor >= len(m.works) {
+		return
+	}
+
+	wp := m.works[m.worksCursor]
+	if len(wp.tasks) == 0 {
+		return
+	}
+
+	// Calculate panel dimensions to get scroll offset
+	panelWidth := m.width / 2
+	panelHeight := m.height - 1 - 2
+
+	// Check if hover is in the tasks panel (left side)
+	if x >= panelWidth {
+		return // Hover is in the details panel
+	}
+
+	visibleLines := panelHeight - 3
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+
+	// Calculate scroll offset (same as renderTasksPanel)
+	startIdx := 0
+	if m.tasksCursor >= visibleLines {
+		startIdx = m.tasksCursor - visibleLines + 1
+	}
+	endIdx := startIdx + visibleLines
+	if endIdx > len(wp.tasks) {
+		endIdx = len(wp.tasks)
+		startIdx = endIdx - visibleLines
+		if startIdx < 0 {
+			startIdx = 0
+		}
+	}
+
+	// Title is at y=1 (after border at y=0), tasks start at y=2
+	taskLine := y - 2
+
+	// Convert visual line to actual task index
+	if taskLine >= 0 && taskLine < (endIdx-startIdx) {
+		m.hoveredTaskIdx = startIdx + taskLine
+	}
+}
+
+// handleZoomedClick handles mouse clicks in the zoomed view
+func (m *workModel) handleZoomedClick(x, y int) {
+	if len(m.works) == 0 || m.worksCursor >= len(m.works) {
+		return
+	}
+
+	wp := m.works[m.worksCursor]
+	if len(wp.tasks) == 0 {
+		return
+	}
+
+	// Calculate panel dimensions (matching View layout)
+	panelWidth := m.width / 2
+
+	// Check if click is in the tasks panel (left side)
+	if x >= panelWidth {
+		return // Click was in the details panel
+	}
+
+	// Simple approach: just use y directly to find task
+	// Title is at y=1 (after border at y=0), tasks start at y=2
+	taskLine := y - 2
+
+	if taskLine >= 0 && taskLine < len(wp.tasks) {
+		m.tasksCursor = taskLine
+		m.activePanel = PanelMiddle // Switch to tasks panel
+	}
+}
+
+func (m *workModel) detectOverviewHover(x, y int) {
+	m.hoveredWorkerIdx = -1
+	m.hoveredBeadIdx = -1
+
+	if len(m.works) == 0 {
+		return
+	}
+
+	// Calculate grid dimensions (matching renderOverviewGrid layout)
+	detailsWidth := m.width / 3
+	if detailsWidth < 30 {
+		detailsWidth = 30
+	}
+	if detailsWidth > 50 {
+		detailsWidth = 50
+	}
+	gridWidth := m.width - detailsWidth
+	contentHeight := m.height - 1
+
+	// Check if hover is in the grid area (left side)
+	if x >= gridWidth {
+		return // Hover is in the details panel
+	}
+
+	// Recalculate grid config for the current grid width
+	gridConfig := CalculateGridDimensions(len(m.works), gridWidth, contentHeight)
+
+	if gridConfig.CellWidth <= 0 || gridConfig.CellHeight <= 0 {
+		return
+	}
+
+	cellCol := x / gridConfig.CellWidth
+	cellRow := y / gridConfig.CellHeight
+
+	// Clamp to valid range
+	if cellCol < 0 || cellCol >= gridConfig.Cols {
+		return
+	}
+	if cellRow < 0 || cellRow >= gridConfig.Rows {
+		return
+	}
+
+	workerIdx := cellRow*gridConfig.Cols + cellCol
+	if workerIdx >= len(m.works) || workerIdx < 0 {
+		return
+	}
+
+	m.hoveredWorkerIdx = workerIdx
+
+	// Calculate local position within the cell
+	cellStartY := cellRow * gridConfig.CellHeight
+	localY := y - cellStartY
+
+	// Detect which bead is being hovered
+	wp := m.works[workerIdx]
+	if len(wp.workBeads) == 0 {
+		return
+	}
+
+	// Account for panel structure (same as handleOverviewClick)
+	beadAreaStart := 8
+	beadLine := localY - beadAreaStart
+
+	if beadLine >= 0 && beadLine < len(wp.workBeads) {
+		m.hoveredBeadIdx = beadLine
+	}
+}
+
+func (m *workModel) handleOverviewClick(x, y int) {
+	if len(m.works) == 0 {
+		return
+	}
+
+	// Calculate grid dimensions (matching renderOverviewGrid layout)
+	detailsWidth := m.width / 3
+	if detailsWidth < 30 {
+		detailsWidth = 30
+	}
+	if detailsWidth > 50 {
+		detailsWidth = 50
+	}
+	gridWidth := m.width - detailsWidth
+	contentHeight := m.height - 1
+
+	// Check if click is in the grid area (left side)
+	if x >= gridWidth {
+		return // Click was in the details panel, ignore
+	}
+
+	// Recalculate grid config for the current grid width
+	gridConfig := CalculateGridDimensions(len(m.works), gridWidth, contentHeight)
+
+	// Determine which cell was clicked
+	if gridConfig.CellWidth <= 0 || gridConfig.CellHeight <= 0 {
+		return
+	}
+
+	cellCol := x / gridConfig.CellWidth
+	cellRow := y / gridConfig.CellHeight
+
+	// Clamp to valid range
+	if cellCol < 0 {
+		cellCol = 0
+	}
+	if cellCol >= gridConfig.Cols {
+		cellCol = gridConfig.Cols - 1
+	}
+	if cellRow < 0 {
+		cellRow = 0
+	}
+	if cellRow >= gridConfig.Rows {
+		cellRow = gridConfig.Rows - 1
+	}
+
+	workerIdx := cellRow*gridConfig.Cols + cellCol
+	if workerIdx >= len(m.works) || workerIdx < 0 {
+		return
+	}
+
+	// Calculate local position within the cell
+	cellStartX := cellCol * gridConfig.CellWidth
+	cellStartY := cellRow * gridConfig.CellHeight
+	localY := y - cellStartY
+	_ = x - cellStartX // localX not needed for now
+
+	// Update worker selection
+	previousWorker := m.worksCursor
+	m.worksCursor = workerIdx
+
+	// If clicking on a different worker, reset bead cursor
+	if workerIdx != previousWorker {
+		m.overviewBeadCursor = 0
+		return
+	}
+
+	// If clicking on the same worker, try to detect which bead was clicked
+	wp := m.works[workerIdx]
+	if len(wp.workBeads) == 0 {
+		return
+	}
+
+	// Account for panel structure:
+	// - Border top: 1 line
+	// - Header content: ~7 lines (name, id, branch, progress, counts, blank line before beads)
+	// - Beads start around line 8 from top of cell
+	// Each bead takes 1 line
+
+	// Subtract border (1 line) and header lines (~7 lines)
+	beadAreaStart := 8 // approximate line where beads start (1 border + 7 header)
+	beadLine := localY - beadAreaStart
+
+	if beadLine >= 0 && beadLine < len(wp.workBeads) {
+		m.overviewBeadCursor = beadLine
+	}
+}
+
 // detectStatusBarButton determines which button is at the given X position in the status bar
 func (m *workModel) detectStatusBarButton(x int) string {
 	// Account for the status bar's left padding (tuiStatusBarStyle has Padding(0, 1))
@@ -2044,20 +2704,25 @@ func (m *workModel) detectStatusBarButton(x int) string {
 
 	// Use different button layouts based on zoom level
 	if m.zoomLevel == ZoomOverview {
-		// Overview mode: "[←↑↓→]navigate [Enter]zoom [c]reate [d]estroy [?]help"
-		keysPlain := "[←↑↓→]navigate [Enter]zoom [c]reate [d]estroy [?]help"
+		// Overview mode - calculate visual positions (not byte positions)
+		// because arrows like ←→↑↓ are multi-byte but single-width
+		prefix := "[Tab]workers [←→]workers [↑↓]issues [Enter]zoom "
+		prefixWidth := lipgloss.Width(prefix)
 
-		cIdx := strings.Index(keysPlain, "[c]reate")
-		dIdx := strings.Index(keysPlain, "[d]estroy")
-		helpIdx := strings.Index(keysPlain, "[?]help")
+		cStart := prefixWidth
+		cEnd := cStart + len("[c]reate")
+		dStart := cEnd + 1 // +1 for space
+		dEnd := dStart + len("[d]estroy")
+		helpStart := dEnd + 1
+		helpEnd := helpStart + len("[?]help")
 
-		if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]reate") {
+		if x >= cStart && x < cEnd {
 			return "c"
 		}
-		if dIdx >= 0 && x >= dIdx && x < dIdx+len("[d]estroy") {
+		if x >= dStart && x < dEnd {
 			return "d"
 		}
-		if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]help") {
+		if x >= helpStart && x < helpEnd {
 			return "?"
 		}
 	} else {
