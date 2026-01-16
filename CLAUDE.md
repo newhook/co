@@ -236,40 +236,6 @@ Associates a review epic with a review task:
 - Task is auto-detected from CO_TASK_ID env var or current processing review task
 - Use `--task` flag for explicit specification
 
-## Linear Integration
-
-### `co linear import <issue-id-or-url>...`
-Imports Linear issues into the beads issue tracker:
-- Accepts Linear issue IDs (e.g., `ENG-123`) or URLs
-- Preserves all Linear metadata (ID, URL, assignee, labels, etc.)
-- Supports batch import of multiple issues
-- Use `--create-deps` to import blocking issues as dependencies
-- Use `--update` to update existing beads from Linear
-- Use `--dry-run` to preview without creating beads
-- Use filters to selectively import: `--status-filter`, `--priority-filter`, `--assignee-filter`
-- Requires Linear API key (via `--api-key` flag, `LINEAR_API_KEY` env var, or `[linear] api_key` in config.toml)
-
-Examples:
-```bash
-# Import single issue
-co linear import ENG-123
-
-# Import by URL
-co linear import https://linear.app/company/issue/ENG-123/title
-
-# Import multiple issues
-co linear import ENG-123 ENG-124 ENG-125
-
-# Import with dependencies
-co linear import ENG-123 --create-deps --max-dep-depth=2
-
-# Update existing bead
-co linear import ENG-123 --update
-
-# Preview without creating
-co linear import ENG-123 --dry-run
-```
-
 ## Additional Commands
 
 ### `co complete <bead-id|task-id>`
