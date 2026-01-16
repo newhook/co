@@ -65,7 +65,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 
 	// Build tree structure from dependencies
 	// When search is active, skip fetching parent beads to avoid adding unfiltered items
-	items = buildBeadTree(items, mainRepoPath, filters.searchText)
+	items = buildBeadTree(items, m.beadsClient, mainRepoPath, filters.searchText)
 
 	// If no tree structure, apply regular sorting
 	hasTree := false

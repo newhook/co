@@ -45,7 +45,7 @@ func fetchBeadByID(dir, id string) (*beadItem, error) {
 // treeDepth set for each item.
 // When searchText is non-empty, skip fetching parent beads to avoid adding
 // unfiltered items that don't match the search.
-func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
+func buildBeadTree(items []beadItem, client *beads.Client, dir string, searchText string) []beadItem {
 	if len(items) == 0 {
 		return items
 	}
@@ -56,63 +56,154 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 		itemMap[items[i].id] = &items[i]
 	}
 
-	// Fetch dependencies for items that have them
+	// Collect all issue IDs
+	issueIDs := make([]string, 0, len(items))
 	for i := range items {
-		if items[i].dependencyCount > 0 {
-			deps, err := fetchDependencyIDs(dir, items[i].id)
-			if err == nil {
-				items[i].dependencies = deps
-			}
-		}
+		issueIDs = append(issueIDs, items[i].id)
 	}
 
-	// Identify and fetch missing parent beads (dependencies not in our item list)
-	// to preserve tree structure. Loop until no more missing parents are found
-	// to handle multiple levels of closed ancestors.
-	// Skip this when search is active to avoid adding unfiltered items.
-	if searchText == "" {
-		fetchedParents := make(map[string]bool)
-		for {
-			missingParentIDs := make(map[string]bool)
+	// Use database client if available, otherwise fall back to CLI
+	if client != nil {
+		// Fetch all issues with their dependencies in a single query
+		result, err := client.GetIssuesWithDeps(context.Background(), issueIDs)
+		if err == nil {
+			// Populate dependencies from result
 			for i := range items {
-				for _, depID := range items[i].dependencies {
-					if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
-						missingParentIDs[depID] = true
+				if deps, ok := result.Dependencies[items[i].id]; ok {
+					depIDs := make([]string, 0, len(deps))
+					for _, dep := range deps {
+						// Only include "blocks" type dependencies
+						if dep.Type == "blocks" {
+							depIDs = append(depIDs, dep.DependsOnID)
+						}
 					}
+					items[i].dependencies = depIDs
 				}
 			}
 
-			if len(missingParentIDs) == 0 {
-				break
+			// Identify and fetch missing parent beads (dependencies not in our item list)
+			// to preserve tree structure. Loop until no more missing parents are found
+			// to handle multiple levels of closed ancestors.
+			// Skip this when search is active to avoid adding unfiltered items.
+			if searchText == "" {
+				fetchedParents := make(map[string]bool)
+				for {
+					missingParentIDs := make([]string, 0)
+					for i := range items {
+						for _, depID := range items[i].dependencies {
+							if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
+								missingParentIDs = append(missingParentIDs, depID)
+								fetchedParents[depID] = true
+							}
+						}
+					}
+
+					if len(missingParentIDs) == 0 {
+						break
+					}
+
+					// Fetch missing parents in a single query
+					parentResult, err := client.GetIssuesWithDeps(context.Background(), missingParentIDs)
+					if err == nil {
+						// Add missing parents to items
+						for _, parentID := range missingParentIDs {
+							if issue, ok := parentResult.Issues[parentID]; ok {
+								parentBead := &beadItem{
+									id:              issue.ID,
+									title:           issue.Title,
+									status:          issue.Status,
+									priority:        int(issue.Priority),
+									beadType:        issue.IssueType,
+									description:     issue.Description,
+									isClosedParent:  true,
+								}
+
+								// Populate dependencies for this parent
+								if deps, ok := parentResult.Dependencies[parentID]; ok {
+									depIDs := make([]string, 0, len(deps))
+									for _, dep := range deps {
+										if dep.Type == "blocks" {
+											depIDs = append(depIDs, dep.DependsOnID)
+										}
+									}
+									parentBead.dependencies = depIDs
+								}
+
+								items = append(items, *parentBead)
+								itemMap[parentBead.id] = &items[len(items)-1]
+							}
+						}
+					} else {
+						break
+					}
+				}
+
+				// Rebuild itemMap to fix stale pointers.
+				itemMap = make(map[string]*beadItem)
+				for i := range items {
+					itemMap[items[i].id] = &items[i]
+				}
 			}
-
-			// Fetch missing parent beads and add them to the list
-			for parentID := range missingParentIDs {
-				fetchedParents[parentID] = true
-				parentBead, err := fetchBeadByID(dir, parentID)
+		} else {
+			// Fall back to CLI-based approach on error
+			for i := range items {
+				if items[i].dependencyCount > 0 {
+					deps, err := fetchDependencyIDs(dir, items[i].id)
+					if err == nil {
+						items[i].dependencies = deps
+					}
+				}
+			}
+		}
+	} else {
+		// Use CLI-based approach when client is not available
+		for i := range items {
+			if items[i].dependencyCount > 0 {
+				deps, err := fetchDependencyIDs(dir, items[i].id)
 				if err == nil {
-					// Mark as closed parent (included for tree context only)
-					parentBead.isClosedParent = true
-					items = append(items, *parentBead)
-					itemMap[parentBead.id] = &items[len(items)-1]
+					items[i].dependencies = deps
+				}
+			}
+		}
 
-					// Fetch dependencies for this parent bead too
-					if parentBead.dependencyCount > 0 {
-						deps, err := fetchDependencyIDs(dir, parentBead.id)
-						if err == nil {
-							items[len(items)-1].dependencies = deps
+		if searchText == "" {
+			fetchedParents := make(map[string]bool)
+			for {
+				missingParentIDs := make(map[string]bool)
+				for i := range items {
+					for _, depID := range items[i].dependencies {
+						if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
+							missingParentIDs[depID] = true
+						}
+					}
+				}
+
+				if len(missingParentIDs) == 0 {
+					break
+				}
+
+				for parentID := range missingParentIDs {
+					fetchedParents[parentID] = true
+					parentBead, err := fetchBeadByID(dir, parentID)
+					if err == nil {
+						parentBead.isClosedParent = true
+						items = append(items, *parentBead)
+						itemMap[parentBead.id] = &items[len(items)-1]
+
+						if parentBead.dependencyCount > 0 {
+							deps, err := fetchDependencyIDs(dir, parentBead.id)
+							if err == nil {
+								items[len(items)-1].dependencies = deps
+							}
 						}
 					}
 				}
 			}
-		}
 
-		// Rebuild itemMap to fix stale pointers.
-		// When append() exceeds capacity, Go reallocates the slice,
-		// making all previously stored pointers in itemMap stale.
-		itemMap = make(map[string]*beadItem)
-		for i := range items {
-			itemMap[items[i].id] = &items[i]
+			itemMap = make(map[string]*beadItem)
+			for i := range items {
+				itemMap[items[i].id] = &items[i]
+			}
 		}
 	}
 
