@@ -3,35 +3,45 @@ package task
 import (
 	"fmt"
 
-	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/beads/queries"
 )
 
 // DependencyGraph represents bead dependencies.
 type DependencyGraph struct {
 	// DependsOn maps bead ID to IDs it depends on
 	DependsOn map[string][]string
-	// BlockedBy maps bead ID to IDs that depend on it
-	BlockedBy map[string][]string
+	// Dependents maps bead ID to IDs that depend on it (renamed from BlockedBy)
+	Dependents map[string][]string
 }
 
-// BuildDependencyGraph creates a dependency graph from beads.
-func BuildDependencyGraph(inputBeads []beads.BeadWithDeps) *DependencyGraph {
+// BuildDependencyGraph creates a dependency graph from issues and their dependencies.
+func BuildDependencyGraph(
+	issues []queries.Issue,
+	dependencies map[string][]queries.GetDependenciesForIssuesRow,
+) *DependencyGraph {
 	graph := &DependencyGraph{
-		DependsOn: make(map[string][]string),
-		BlockedBy: make(map[string][]string),
+		DependsOn:  make(map[string][]string),
+		Dependents: make(map[string][]string),
 	}
 
-	// Create set of valid bead IDs
+	// Create set of valid issue IDs
 	validIDs := make(map[string]bool)
-	for _, b := range inputBeads {
-		validIDs[b.ID] = true
+	for _, issue := range issues {
+		validIDs[issue.ID] = true
+		// Initialize empty slices for this issue
+		graph.DependsOn[issue.ID] = []string{}
+		graph.Dependents[issue.ID] = []string{}
 	}
 
-	for _, b := range inputBeads {
-		for _, dep := range b.Dependencies {
-			if dep.DependencyType == "depends_on" && validIDs[dep.ID] {
-				graph.DependsOn[b.ID] = append(graph.DependsOn[b.ID], dep.ID)
-				graph.BlockedBy[dep.ID] = append(graph.BlockedBy[dep.ID], b.ID)
+	// Build dependency relationships from the dependencies map
+	for issueID, deps := range dependencies {
+		for _, dep := range deps {
+			// Only add dependencies that are in our issue set
+			if validIDs[dep.DependsOnID] {
+				if dep.Type == "blocks" || dep.Type == "blocked_by" {
+					graph.DependsOn[issueID] = append(graph.DependsOn[issueID], dep.DependsOnID)
+					graph.Dependents[dep.DependsOnID] = append(graph.Dependents[dep.DependsOnID], issueID)
+				}
 			}
 		}
 	}
@@ -39,20 +49,20 @@ func BuildDependencyGraph(inputBeads []beads.BeadWithDeps) *DependencyGraph {
 	return graph
 }
 
-// TopologicalSort returns beads in dependency order (dependencies before dependents).
-func TopologicalSort(graph *DependencyGraph, inputBeads []beads.BeadWithDeps) ([]beads.BeadWithDeps, error) {
-	beadMap := make(map[string]beads.BeadWithDeps)
-	for _, b := range inputBeads {
-		beadMap[b.ID] = b
+// TopologicalSort returns issues in dependency order (dependencies before dependents).
+func TopologicalSort(graph *DependencyGraph, issues []queries.Issue) ([]queries.Issue, error) {
+	issueMap := make(map[string]queries.Issue)
+	for _, issue := range issues {
+		issueMap[issue.ID] = issue
 	}
 
 	// Kahn's algorithm
 	inDegree := make(map[string]int)
-	for _, b := range inputBeads {
-		inDegree[b.ID] = len(graph.DependsOn[b.ID])
+	for _, issue := range issues {
+		inDegree[issue.ID] = len(graph.DependsOn[issue.ID])
 	}
 
-	// Start with beads that have no dependencies
+	// Start with issues that have no dependencies
 	var queue []string
 	for id, degree := range inDegree {
 		if degree == 0 {
@@ -60,16 +70,16 @@ func TopologicalSort(graph *DependencyGraph, inputBeads []beads.BeadWithDeps) ([
 		}
 	}
 
-	var result []beads.BeadWithDeps
+	var result []queries.Issue
 	for len(queue) > 0 {
 		// Pop from queue
 		id := queue[0]
 		queue = queue[1:]
 
-		result = append(result, beadMap[id])
+		result = append(result, issueMap[id])
 
 		// Reduce in-degree of dependents
-		for _, dependent := range graph.BlockedBy[id] {
+		for _, dependent := range graph.Dependents[id] {
 			inDegree[dependent]--
 			if inDegree[dependent] == 0 {
 				queue = append(queue, dependent)
@@ -78,7 +88,7 @@ func TopologicalSort(graph *DependencyGraph, inputBeads []beads.BeadWithDeps) ([
 	}
 
 	// Check for cycles
-	if len(result) != len(inputBeads) {
+	if len(result) != len(issues) {
 		return nil, fmt.Errorf("dependency cycle detected")
 	}
 

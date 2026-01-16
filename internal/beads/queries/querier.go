@@ -9,8 +9,10 @@ import (
 )
 
 type Querier interface {
+	GetAllIssueIDs(ctx context.Context) ([]string, error)
 	GetDependenciesForIssues(ctx context.Context, issueIds []string) ([]GetDependenciesForIssuesRow, error)
 	GetDependentsForIssues(ctx context.Context, dependsOnIds []string) ([]GetDependentsForIssuesRow, error)
+	GetIssueIDsByStatus(ctx context.Context, status string) ([]string, error)
 	GetIssuesByIDs(ctx context.Context, ids []string) ([]Issue, error)
 }
 

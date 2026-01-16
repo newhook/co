@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
@@ -61,16 +62,27 @@ func runComplete(cmd *cobra.Command, args []string) error {
 		}
 
 		mainRepoPath := proj.MainRepoPath()
+		beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+		beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+		if err != nil {
+			return fmt.Errorf("failed to create beads client: %w", err)
+		}
+		defer beadsClient.Close()
+
 		for _, beadID := range beadIDs {
 			// Check actual bead status in the beads system
-			bead, err := beads.GetBeadWithDeps(ctx,beadID, mainRepoPath)
+			issue, _, _, err := beadsClient.GetIssue(ctx, beadID)
 			if err != nil {
 				fmt.Printf("Warning: failed to get bead %s status: %v\n", beadID, err)
 				continue
 			}
+			if issue == nil {
+				fmt.Printf("Warning: bead %s not found\n", beadID)
+				continue
+			}
 
 			// Only mark as completed if bead is actually closed
-			if bead.Status == "closed" {
+			if issue.Status == "closed" {
 				if err := proj.DB.CompleteTaskBead(ctx, id, beadID); err != nil {
 					fmt.Printf("Warning: failed to mark bead %s as completed: %v\n", beadID, err)
 				}

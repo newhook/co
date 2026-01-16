@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -75,6 +76,14 @@ type beadProgress struct {
 
 // fetchPollData fetches progress data for works/tasks (used by tui.go)
 func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID string) ([]*workProgress, error) {
+	// Create beads client for fetching bead details
+	beadsDBPath := filepath.Join(proj.MainRepoPath(), ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer beadsClient.Close()
+
 	var works []*workProgress
 
 	if taskID != "" {
@@ -105,10 +114,10 @@ func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID st
 			}
 			bp := beadProgress{id: beadID, status: status}
 			// Fetch additional bead details from beads system
-			if bead, err := beads.GetBeadWithDeps(ctx,beadID, proj.MainRepoPath()); err == nil {
-				bp.title = bead.Title
-				bp.description = bead.Description
-				bp.beadStatus = bead.Status
+			if issue, _, _, err := beadsClient.GetIssue(ctx, beadID); err == nil && issue != nil {
+				bp.title = issue.Title
+				bp.description = issue.Description
+				bp.beadStatus = issue.Status
 			}
 			tp.beads = append(tp.beads, bp)
 		}
@@ -127,7 +136,7 @@ func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID st
 			return nil, fmt.Errorf("work %s not found", workID)
 		}
 
-		wp, err := fetchWorkProgress(ctx, proj, work)
+		wp, err := fetchWorkProgress(ctx, proj, work, beadsClient)
 		if err != nil {
 			return nil, err
 		}
@@ -145,7 +154,7 @@ func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID st
 				continue
 			}
 
-			wp, err := fetchWorkProgress(ctx, proj, work)
+			wp, err := fetchWorkProgress(ctx, proj, work, beadsClient)
 			if err != nil {
 				continue // Skip works with errors
 			}
@@ -156,7 +165,7 @@ func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID st
 	return works, nil
 }
 
-func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work) (*workProgress, error) {
+func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work, beadsClient *beads.Client) (*workProgress, error) {
 	wp := &workProgress{work: work}
 
 	tasks, err := proj.DB.GetWorkTasks(ctx, work.ID)
@@ -174,10 +183,10 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 			}
 			bp := beadProgress{id: beadID, status: status}
 			// Fetch additional bead details from beads system
-			if bead, err := beads.GetBeadWithDeps(ctx,beadID, proj.MainRepoPath()); err == nil {
-				bp.title = bead.Title
-				bp.description = bead.Description
-				bp.beadStatus = bead.Status
+			if issue, _, _, err := beadsClient.GetIssue(ctx, beadID); err == nil && issue != nil {
+				bp.title = issue.Title
+				bp.description = issue.Description
+				bp.beadStatus = issue.Status
 			}
 			tp.beads = append(tp.beads, bp)
 		}

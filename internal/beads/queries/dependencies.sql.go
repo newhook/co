@@ -12,6 +12,35 @@ import (
 	"time"
 )
 
+const getAllIssueIDs = `-- name: GetAllIssueIDs :many
+SELECT id FROM issues
+WHERE deleted_at IS NULL
+  AND status != 'tombstone'
+`
+
+func (q *Queries) GetAllIssueIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, getAllIssueIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDependenciesForIssues = `-- name: GetDependenciesForIssues :many
 SELECT
     d.issue_id,
@@ -166,6 +195,36 @@ func (q *Queries) GetDependentsForIssues(ctx context.Context, dependsOnIds []str
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getIssueIDsByStatus = `-- name: GetIssueIDsByStatus :many
+SELECT id FROM issues
+WHERE deleted_at IS NULL
+  AND status != 'tombstone'
+  AND status = ?
+`
+
+func (q *Queries) GetIssueIDsByStatus(ctx context.Context, status string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, getIssueIDsByStatus, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/beads/queries"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,8 +14,8 @@ type mockEstimator struct {
 	scores map[string]int
 }
 
-func (m *mockEstimator) Estimate(ctx context.Context, bead beads.Bead) (int, int, error) {
-	score := m.scores[bead.ID]
+func (m *mockEstimator) Estimate(ctx context.Context, issue queries.Issue) (int, int, error) {
+	score := m.scores[issue.ID]
 	if score == 0 {
 		score = 5 // default
 	}
@@ -23,13 +23,18 @@ func (m *mockEstimator) Estimate(ctx context.Context, bead beads.Bead) (int, int
 }
 
 func TestBuildDependencyGraph(t *testing.T) {
-	inputBeads := []beads.BeadWithDeps{
+	issues := []queries.Issue{
 		{ID: "a", Title: "A"},
-		{ID: "b", Title: "B", Dependencies: []beads.Dependency{{ID: "a", DependencyType: "depends_on"}}},
-		{ID: "c", Title: "C", Dependencies: []beads.Dependency{{ID: "b", DependencyType: "depends_on"}}},
+		{ID: "b", Title: "B"},
+		{ID: "c", Title: "C"},
 	}
 
-	graph := BuildDependencyGraph(inputBeads)
+	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
+		"c": {{IssueID: "c", DependsOnID: "b", Type: "blocks"}},
+	}
+
+	graph := BuildDependencyGraph(issues, dependencies)
 
 	// b depends on a
 	require.Len(t, graph.DependsOn["b"], 1, "expected b to have 1 dependency")
@@ -39,37 +44,48 @@ func TestBuildDependencyGraph(t *testing.T) {
 	require.Len(t, graph.DependsOn["c"], 1, "expected c to have 1 dependency")
 	assert.Equal(t, "b", graph.DependsOn["c"][0], "expected c to depend on b")
 
-	// a blocks b
-	require.Len(t, graph.BlockedBy["a"], 1, "expected a to block 1 bead")
-	assert.Equal(t, "b", graph.BlockedBy["a"][0], "expected a to block b")
+	// a blocks b (now called Dependents)
+	require.Len(t, graph.Dependents["a"], 1, "expected a to have 1 dependent")
+	assert.Equal(t, "b", graph.Dependents["a"][0], "expected a to have dependent b")
 }
 
 func TestBuildDependencyGraphIgnoresExternalDeps(t *testing.T) {
-	inputBeads := []beads.BeadWithDeps{
-		{ID: "a", Title: "A", Dependencies: []beads.Dependency{{ID: "external", DependencyType: "depends_on"}}},
+	issues := []queries.Issue{
+		{ID: "a", Title: "A"},
 	}
 
-	graph := BuildDependencyGraph(inputBeads)
+	// Dependencies on external issues (not in issues list) should be ignored
+	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+		"a": {{IssueID: "a", DependsOnID: "external", Type: "blocks"}},
+	}
 
-	// External dependency should be ignored
-	assert.Empty(t, graph.DependsOn["a"], "expected no dependencies for a")
+	graph := BuildDependencyGraph(issues, dependencies)
+
+	// External dependency should be filtered out since "external" is not in the issues list
+	assert.Empty(t, graph.DependsOn["a"], "external dependency should be ignored")
+	assert.Empty(t, graph.Dependents["external"], "external should not have dependents since it's not in issues")
 }
 
 func TestTopologicalSort(t *testing.T) {
-	inputBeads := []beads.BeadWithDeps{
-		{ID: "c", Title: "C", Dependencies: []beads.Dependency{{ID: "b", DependencyType: "depends_on"}}},
+	issues := []queries.Issue{
+		{ID: "c", Title: "C"},
 		{ID: "a", Title: "A"},
-		{ID: "b", Title: "B", Dependencies: []beads.Dependency{{ID: "a", DependencyType: "depends_on"}}},
+		{ID: "b", Title: "B"},
 	}
 
-	graph := BuildDependencyGraph(inputBeads)
-	sorted, err := TopologicalSort(graph, inputBeads)
+	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+		"c": {{IssueID: "c", DependsOnID: "b", Type: "blocks"}},
+		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
+	}
+
+	graph := BuildDependencyGraph(issues, dependencies)
+	sorted, err := TopologicalSort(graph, issues)
 	require.NoError(t, err, "TopologicalSort failed")
 
 	// a should come before b, b should come before c
 	positions := make(map[string]int)
-	for i, b := range sorted {
-		positions[b.ID] = i
+	for i, issue := range sorted {
+		positions[issue.ID] = i
 	}
 
 	assert.Less(t, positions["a"], positions["b"], "a should come before b")
@@ -77,13 +93,18 @@ func TestTopologicalSort(t *testing.T) {
 }
 
 func TestTopologicalSortDetectsCycle(t *testing.T) {
-	inputBeads := []beads.BeadWithDeps{
-		{ID: "a", Title: "A", Dependencies: []beads.Dependency{{ID: "b", DependencyType: "depends_on"}}},
-		{ID: "b", Title: "B", Dependencies: []beads.Dependency{{ID: "a", DependencyType: "depends_on"}}},
+	issues := []queries.Issue{
+		{ID: "a", Title: "A"},
+		{ID: "b", Title: "B"},
 	}
 
-	graph := BuildDependencyGraph(inputBeads)
-	_, err := TopologicalSort(graph, inputBeads)
+	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+		"a": {{IssueID: "a", DependsOnID: "b", Type: "blocks"}},
+		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
+	}
+
+	graph := BuildDependencyGraph(issues, dependencies)
+	_, err := TopologicalSort(graph, issues)
 	assert.Error(t, err, "expected error for cycle detection")
 }
 
@@ -94,14 +115,16 @@ func TestPlanSimple(t *testing.T) {
 	}
 	planner := NewDefaultPlanner(estimator)
 
-	inputBeads := []beads.BeadWithDeps{
+	issues := []queries.Issue{
 		{ID: "a", Title: "A"},
 		{ID: "b", Title: "B"},
 		{ID: "c", Title: "C"},
 	}
 
+	dependencies := map[string][]queries.GetDependenciesForIssuesRow{}
+
 	// Budget of 10 should fit all beads in one task (3+3+3=9)
-	tasks, err := planner.Plan(ctx, inputBeads, 10)
+	tasks, err := planner.Plan(ctx, issues, dependencies, 10)
 	require.NoError(t, err, "Plan failed")
 
 	assert.Len(t, tasks, 1, "expected 1 task")
@@ -115,14 +138,16 @@ func TestPlanSplitByBudget(t *testing.T) {
 	}
 	planner := NewDefaultPlanner(estimator)
 
-	inputBeads := []beads.BeadWithDeps{
+	issues := []queries.Issue{
 		{ID: "a", Title: "A"},
 		{ID: "b", Title: "B"},
 		{ID: "c", Title: "C"},
 	}
 
+	dependencies := map[string][]queries.GetDependenciesForIssuesRow{}
+
 	// Budget of 7 should split into multiple tasks
-	tasks, err := planner.Plan(ctx, inputBeads, 7)
+	tasks, err := planner.Plan(ctx, issues, dependencies, 7)
 	require.NoError(t, err, "Plan failed")
 
 	assert.GreaterOrEqual(t, len(tasks), 2, "expected at least 2 tasks")
@@ -142,13 +167,17 @@ func TestPlanRespectsDependencies(t *testing.T) {
 	}
 	planner := NewDefaultPlanner(estimator)
 
-	inputBeads := []beads.BeadWithDeps{
+	issues := []queries.Issue{
 		{ID: "a", Title: "A"},
-		{ID: "b", Title: "B", Dependencies: []beads.Dependency{{ID: "a", DependencyType: "depends_on"}}},
+		{ID: "b", Title: "B"},
+	}
+
+	dependencies := map[string][]queries.GetDependenciesForIssuesRow{
+		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
 	}
 
 	// Small budget to force multiple tasks
-	tasks, err := planner.Plan(ctx, inputBeads, 4)
+	tasks, err := planner.Plan(ctx, issues, dependencies, 4)
 	require.NoError(t, err, "Plan failed")
 
 	// Find which tasks contain a and b
@@ -168,7 +197,9 @@ func TestPlanEmpty(t *testing.T) {
 	estimator := &mockEstimator{}
 	planner := NewDefaultPlanner(estimator)
 
-	tasks, err := planner.Plan(ctx, nil, 10)
+	dependencies := map[string][]queries.GetDependenciesForIssuesRow{}
+
+	tasks, err := planner.Plan(ctx, nil, dependencies, 10)
 	require.NoError(t, err, "Plan failed")
 
 	assert.Empty(t, tasks, "expected no tasks for empty input")
@@ -182,13 +213,15 @@ func TestPlanFirstFitDecreasing(t *testing.T) {
 	}
 	planner := NewDefaultPlanner(estimator)
 
-	inputBeads := []beads.BeadWithDeps{
+	issues := []queries.Issue{
 		{ID: "small", Title: "Small"},
 		{ID: "medium", Title: "Medium"},
 		{ID: "large", Title: "Large"},
 	}
 
-	tasks, err := planner.Plan(ctx, inputBeads, 10)
+	dependencies := map[string][]queries.GetDependenciesForIssuesRow{}
+
+	tasks, err := planner.Plan(ctx, issues, dependencies, 10)
 	require.NoError(t, err, "Plan failed")
 
 	// With budget 10, large (6) goes first, then small (2) fits, medium (4) won't fit
@@ -201,7 +234,7 @@ func TestCanAddToTask(t *testing.T) {
 		DependsOn: map[string][]string{
 			"b": {"a"},
 		},
-		BlockedBy: map[string][]string{
+		Dependents: map[string][]string{
 			"a": {"b"},
 		},
 	}

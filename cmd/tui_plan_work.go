@@ -200,30 +200,21 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 		firstBeadID := beadIDs[0]
 
 		// Expand all beads (handles epics and transitive deps)
-		var allBeads []beads.BeadWithDeps
+		var allIssueIDs []string
 		for _, beadID := range beadIDs {
-			expandedBeads, err := collectBeadsForAutomatedWorkflow(m.ctx, beadID, mainRepoPath)
+			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, mainRepoPath)
 			if err != nil {
 				return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
 			}
-			allBeads = append(allBeads, expandedBeads...)
+			allIssueIDs = append(allIssueIDs, expandedIDs...)
 		}
 
-		if len(allBeads) == 0 {
+		if len(allIssueIDs) == 0 {
 			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("no beads found for %v", beadIDs)}
 		}
 
-		// Convert to beadGroup for compatibility with existing code
 		// All selected beads go into one group (like comma-separated on CLI)
-		var groupBeads []*beads.Bead
-		for _, b := range allBeads {
-			groupBeads = append(groupBeads, &beads.Bead{
-				ID:          b.ID,
-				Title:       b.Title,
-				Description: b.Description,
-			})
-		}
-		beadGroups := []beadGroup{{beads: groupBeads}}
+		beadGroups := []beadGroup{{issueIDs: allIssueIDs}}
 
 		// Create work with branch name (silent to avoid console output in TUI)
 		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", WorkCreateOptions{Silent: true})

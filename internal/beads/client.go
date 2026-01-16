@@ -3,7 +3,6 @@ package beads
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -15,210 +14,6 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
-
-// Bead represents a work item from the beads system.
-type Bead struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-}
-
-// Dependency represents a dependency relationship.
-type Dependency struct {
-	ID             string `json:"id"`
-	Title          string `json:"title"`
-	Status         string `json:"status"`
-	DependencyType string `json:"dependency_type"`
-}
-
-// BeadWithDeps represents a bead with its dependency information.
-type BeadWithDeps struct {
-	ID           string       `json:"id"`
-	Title        string       `json:"title"`
-	Description  string       `json:"description"`
-	Status       string       `json:"status"`
-	Dependencies []Dependency `json:"dependencies"`
-	Dependents   []Dependency `json:"dependents"`
-}
-
-// BeadFull represents a bead with all available fields from bd list/show.
-type BeadFull struct {
-	ID              string `json:"id"`
-	Title           string `json:"title"`
-	Description     string `json:"description"`
-	Status          string `json:"status"`
-	Priority        int    `json:"priority"`
-	Type            string `json:"issue_type"`
-	DependencyCount int    `json:"dependency_count"`
-	DependentCount  int    `json:"dependent_count"`
-}
-
-// ListFilters specifies filters for listing beads.
-type ListFilters struct {
-	Status string // "open", "closed", or empty for all
-	Label  string // Filter by label
-}
-
-// GetReadyBeads queries ready beads in a specific directory.
-func GetReadyBeads(ctx context.Context, dir string) ([]Bead, error) {
-	cmd := exec.CommandContext(ctx, "bd", "ready", "--json")
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to run bd ready: %w", err)
-	}
-
-	var beads []Bead
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("failed to parse bd ready output: %w", err)
-	}
-
-	return beads, nil
-}
-
-// GetReadyBeadsFull queries ready beads with full details in a specific directory.
-func GetReadyBeadsFull(ctx context.Context, dir string) ([]BeadFull, error) {
-	cmd := exec.CommandContext(ctx, "bd", "ready", "--json")
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to run bd ready: %w", err)
-	}
-
-	var beads []BeadFull
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("failed to parse bd ready output: %w", err)
-	}
-
-	return beads, nil
-}
-
-// ListBeads lists beads with optional filters.
-func ListBeads(ctx context.Context, dir string, filters ListFilters) ([]BeadFull, error) {
-	args := []string{"list", "--json"}
-	if filters.Status == "open" || filters.Status == "closed" {
-		args = append(args, "--status="+filters.Status)
-	}
-	if filters.Label != "" {
-		args = append(args, "--label="+filters.Label)
-	}
-
-	cmd := exec.CommandContext(ctx, "bd", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to run bd list: %w", err)
-	}
-
-	var beads []BeadFull
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("failed to parse bd list output: %w", err)
-	}
-
-	return beads, nil
-}
-
-// GetBead retrieves a single bead by ID in a specific directory.
-func GetBead(ctx context.Context, id, dir string) (*Bead, error) {
-	cmd := exec.CommandContext(ctx, "bd", "show", id, "--json")
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bead %s: %w", id, err)
-	}
-
-	var beads []Bead
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("failed to parse bead %s: %w", id, err)
-	}
-
-	if len(beads) == 0 {
-		return nil, fmt.Errorf("bead %s not found", id)
-	}
-
-	return &beads[0], nil
-}
-
-// GetBeadFull retrieves a single bead by ID with full details.
-func GetBeadFull(ctx context.Context, id, dir string) (*BeadFull, error) {
-	cmd := exec.CommandContext(ctx, "bd", "show", id, "--json")
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bead %s: %w", id, err)
-	}
-
-	var beads []BeadFull
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("failed to parse bead %s: %w", id, err)
-	}
-
-	if len(beads) == 0 {
-		return nil, fmt.Errorf("bead %s not found", id)
-	}
-
-	return &beads[0], nil
-}
-
-// GetBeadWithDeps retrieves a single bead by ID including its dependencies.
-func GetBeadWithDeps(ctx context.Context, id, dir string) (*BeadWithDeps, error) {
-	cmd := exec.CommandContext(ctx, "bd", "show", id, "--json")
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bead %s: %w", id, err)
-	}
-
-	var beads []BeadWithDeps
-	if err := json.Unmarshal(output, &beads); err != nil {
-		return nil, fmt.Errorf("failed to parse bead %s: %w", id, err)
-	}
-
-	if len(beads) == 0 {
-		return nil, fmt.Errorf("bead %s not found", id)
-	}
-
-	return &beads[0], nil
-}
-
-// GetDependencies gets the list of issues that block the given issue.
-// Returns only dependencies of type "blocks".
-func GetDependencies(ctx context.Context, beadID, dir string) ([]Dependency, error) {
-	cmd := exec.CommandContext(ctx, "bd", "dep", "list", beadID, "--json")
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dependencies for %s: %w", beadID, err)
-	}
-
-	var deps []Dependency
-	if err := json.Unmarshal(output, &deps); err != nil {
-		return nil, fmt.Errorf("failed to parse dependencies for %s: %w", beadID, err)
-	}
-
-	// Filter to only "blocks" type
-	var result []Dependency
-	for _, d := range deps {
-		if d.DependencyType == "blocks" {
-			result = append(result, d)
-		}
-	}
-	return result, nil
-}
 
 // Init initializes beads in the specified directory.
 func Init(ctx context.Context, dir string) error {
@@ -379,87 +174,6 @@ func EditCommand(beadID, dir string) *exec.Cmd {
 	return cmd
 }
 
-// GetTransitiveDependencies collects all transitive dependencies for a bead.
-// It traverses the "blocked_by" dependency type to find all beads that must
-// be completed before the given bead. Returns beads in dependency order
-// (dependencies before dependents).
-func GetTransitiveDependencies(ctx context.Context, id, dir string) ([]BeadWithDeps, error) {
-	visited := make(map[string]bool)
-	var result []BeadWithDeps
-
-	// Use a recursive helper to collect dependencies
-	var collect func(beadID string) error
-	collect = func(beadID string) error {
-		if visited[beadID] {
-			return nil
-		}
-		visited[beadID] = true
-
-		bead, err := GetBeadWithDeps(ctx, beadID, dir)
-		if err != nil {
-			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
-		}
-
-		// First, recursively collect all dependencies
-		for _, dep := range bead.Dependencies {
-			if dep.DependencyType == "blocked_by" && !visited[dep.ID] {
-				if err := collect(dep.ID); err != nil {
-					return err
-				}
-			}
-		}
-
-		// Then add this bead (ensures dependencies come before dependents)
-		result = append(result, *bead)
-		return nil
-	}
-
-	if err := collect(id); err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
-// GetBeadWithChildren retrieves a bead and all its child beads recursively.
-// This is useful for epic beads that have sub-beads.
-func GetBeadWithChildren(ctx context.Context, id, dir string) ([]BeadWithDeps, error) {
-	visited := make(map[string]bool)
-	var result []BeadWithDeps
-
-	var collect func(beadID string) error
-	collect = func(beadID string) error {
-		if visited[beadID] {
-			return nil
-		}
-		visited[beadID] = true
-
-		bead, err := GetBeadWithDeps(ctx, beadID, dir)
-		if err != nil {
-			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
-		}
-
-		result = append(result, *bead)
-
-		// Recursively collect children (parent-child relationship in dependents)
-		for _, dep := range bead.Dependents {
-			if dep.DependencyType == "parent-child" && !visited[dep.ID] {
-				if err := collect(dep.ID); err != nil {
-					return err
-				}
-			}
-		}
-
-		return nil
-	}
-
-	if err := collect(id); err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
 // Client provides database access to beads with caching.
 type Client struct {
 	db           *sql.DB
@@ -611,4 +325,206 @@ func (c *Client) GetIssuesWithDeps(ctx context.Context, issueIDs []string) (*Iss
 	}
 
 	return result, nil
+}
+
+// GetIssue retrieves a single issue by ID with its dependencies/dependents.
+// Returns nil if the issue is not found.
+func (c *Client) GetIssue(ctx context.Context, id string) (*queries.Issue, []queries.GetDependenciesForIssuesRow, []queries.GetDependentsForIssuesRow, error) {
+	result, err := c.GetIssuesWithDeps(ctx, []string{id})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	issue, found := result.Issues[id]
+	if !found {
+		return nil, nil, nil, nil
+	}
+
+	return &issue, result.Dependencies[id], result.Dependents[id], nil
+}
+
+// ListIssues lists all issues with optional status filter.
+// Pass empty string for status to get all issues.
+func (c *Client) ListIssues(ctx context.Context, status string) ([]queries.Issue, error) {
+	var ids []string
+	var err error
+
+	if status == "" {
+		ids, err = c.queries.GetAllIssueIDs(ctx)
+	} else {
+		ids, err = c.queries.GetIssueIDsByStatus(ctx, status)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("fetching issue IDs: %w", err)
+	}
+
+	if len(ids) == 0 {
+		return []queries.Issue{}, nil
+	}
+
+	result, err := c.GetIssuesWithDeps(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert map to slice
+	issues := make([]queries.Issue, 0, len(result.Issues))
+	for _, issue := range result.Issues {
+		issues = append(issues, issue)
+	}
+
+	return issues, nil
+}
+
+// GetReadyIssues returns all open issues where all dependencies are satisfied.
+func (c *Client) GetReadyIssues(ctx context.Context) ([]queries.Issue, error) {
+	// Get all open issues
+	ids, err := c.queries.GetIssueIDsByStatus(ctx, "open")
+	if err != nil {
+		return nil, fmt.Errorf("fetching open issue IDs: %w", err)
+	}
+
+	if len(ids) == 0 {
+		return []queries.Issue{}, nil
+	}
+
+	result, err := c.GetIssuesWithDeps(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter to issues where all dependencies are closed
+	var ready []queries.Issue
+	for _, id := range ids {
+		issue, ok := result.Issues[id]
+		if !ok {
+			continue
+		}
+
+		// Check if all blocking dependencies are satisfied
+		isReady := true
+		for _, dep := range result.Dependencies[id] {
+			if dep.Type == "blocks" && dep.Status != "closed" {
+				isReady = false
+				break
+			}
+		}
+
+		if isReady {
+			ready = append(ready, issue)
+		}
+	}
+
+	return ready, nil
+}
+
+// GetTransitiveDependencies collects all transitive dependencies for an issue.
+// Returns issues in dependency order (dependencies before dependents).
+func (c *Client) GetTransitiveDependencies(ctx context.Context, id string) ([]queries.Issue, error) {
+	visited := make(map[string]bool)
+	var orderedIDs []string
+
+	// Recursive helper to collect dependency IDs
+	var collect func(issueID string) error
+	collect = func(issueID string) error {
+		if visited[issueID] {
+			return nil
+		}
+		visited[issueID] = true
+
+		// Get this issue to find its dependencies
+		result, err := c.GetIssuesWithDeps(ctx, []string{issueID})
+		if err != nil {
+			return err
+		}
+
+		// Recursively collect all blocked_by dependencies first
+		for _, dep := range result.Dependencies[issueID] {
+			if dep.Type == "blocked_by" && !visited[dep.DependsOnID] {
+				if err := collect(dep.DependsOnID); err != nil {
+					return err
+				}
+			}
+		}
+
+		// Add this issue after its dependencies
+		orderedIDs = append(orderedIDs, issueID)
+		return nil
+	}
+
+	if err := collect(id); err != nil {
+		return nil, err
+	}
+
+	// Fetch all collected issues in one call
+	result, err := c.GetIssuesWithDeps(ctx, orderedIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return in dependency order
+	issues := make([]queries.Issue, 0, len(orderedIDs))
+	for _, issueID := range orderedIDs {
+		if issue, ok := result.Issues[issueID]; ok {
+			issues = append(issues, issue)
+		}
+	}
+
+	return issues, nil
+}
+
+// GetIssueWithChildren retrieves an issue and all its child issues recursively.
+// This is useful for epic issues that have sub-issues (parent-child relationship).
+func (c *Client) GetIssueWithChildren(ctx context.Context, id string) ([]queries.Issue, error) {
+	visited := make(map[string]bool)
+	var orderedIDs []string
+
+	// Recursive helper to collect issue and children IDs
+	var collect func(issueID string) error
+	collect = func(issueID string) error {
+		if visited[issueID] {
+			return nil
+		}
+		visited[issueID] = true
+
+		// Add this issue first
+		orderedIDs = append(orderedIDs, issueID)
+
+		// Get this issue to find its children
+		result, err := c.GetIssuesWithDeps(ctx, []string{issueID})
+		if err != nil {
+			return err
+		}
+
+		// Recursively collect all parent-child dependents
+		for _, dep := range result.Dependents[issueID] {
+			if dep.Type == "parent-child" && !visited[dep.IssueID] {
+				if err := collect(dep.IssueID); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+
+	if err := collect(id); err != nil {
+		return nil, err
+	}
+
+	// Fetch all collected issues in one call
+	result, err := c.GetIssuesWithDeps(ctx, orderedIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return in order (parent before children)
+	issues := make([]queries.Issue, 0, len(orderedIDs))
+	for _, issueID := range orderedIDs {
+		if issue, ok := result.Issues[issueID]; ok {
+			issues = append(issues, issue)
+		}
+	}
+
+	return issues, nil
 }

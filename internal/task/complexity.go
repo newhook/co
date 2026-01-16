@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/beads/queries"
 	"github.com/newhook/co/internal/db"
 )
 
@@ -27,24 +27,24 @@ func NewLLMEstimator(database *db.DB, workDir, projectName, workID string) *LLME
 	}
 }
 
-// Estimate returns a complexity score (1-10) and estimated context tokens for a bead.
+// Estimate returns a complexity score (1-10) and estimated context tokens for an issue.
 // Results are cached based on the description hash.
-// Returns (0, 0, nil) if the bead needs estimation but an estimation task was spawned.
-func (e *LLMEstimator) Estimate(ctx context.Context, bead beads.Bead) (score int, tokens int, err error) {
+// Returns (0, 0, nil) if the issue needs estimation but an estimation task was spawned.
+func (e *LLMEstimator) Estimate(ctx context.Context, issue queries.Issue) (score int, tokens int, err error) {
 	// Calculate description hash for caching
-	fullDescription := bead.Title + "\n" + bead.Description
+	fullDescription := issue.Title + "\n" + issue.Description
 	descHash := db.HashDescription(fullDescription)
 
 	// Check cache first
 	if e.database != nil {
-		score, tokens, found, err := e.database.GetCachedComplexity(ctx, bead.ID, descHash)
+		score, tokens, found, err := e.database.GetCachedComplexity(ctx, issue.ID, descHash)
 		if err == nil && found {
 			return score, tokens, nil
 		}
 	}
 
 	// For single estimates, run a batch of one (never force)
-	result, err := e.EstimateBatch(ctx, []beads.Bead{bead}, false)
+	result, err := e.EstimateBatch(ctx, []queries.Issue{issue}, false)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -55,7 +55,7 @@ func (e *LLMEstimator) Estimate(ctx context.Context, bead beads.Bead) (score int
 	}
 
 	// Retrieve the cached result
-	score, tokens, found, err := e.database.GetCachedComplexity(ctx, bead.ID, descHash)
+	score, tokens, found, err := e.database.GetCachedComplexity(ctx, issue.ID, descHash)
 	if err != nil || !found {
 		return 0, 0, fmt.Errorf("failed to retrieve estimate after batch: %w", err)
 	}
@@ -71,48 +71,48 @@ type EstimationResult struct {
 	UncachedIDs  []string // IDs of beads that need estimation
 }
 
-// EstimateBatch spawns an estimation task for beads without cached complexity.
+// EstimateBatch spawns an estimation task for issues without cached complexity.
 // This function is non-blocking - it spawns the task and returns immediately.
-// Returns EstimationResult indicating whether all beads are cached or if a task was spawned.
-func (e *LLMEstimator) EstimateBatch(ctx context.Context, beadList []beads.Bead, forceEstimate bool) (*EstimationResult, error) {
+// Returns EstimationResult indicating whether all issues are cached or if a task was spawned.
+func (e *LLMEstimator) EstimateBatch(ctx context.Context, issues []queries.Issue, forceEstimate bool) (*EstimationResult, error) {
 	result := &EstimationResult{}
 
-	if len(beadList) == 0 {
+	if len(issues) == 0 {
 		result.AllCached = true
 		return result, nil
 	}
 
-	// Filter out already cached beads (unless forcing re-estimation)
-	var uncachedBeads []beads.Bead
+	// Filter out already cached issues (unless forcing re-estimation)
+	var uncachedIssues []queries.Issue
 
 	if forceEstimate {
-		// Force re-estimation of all beads
+		// Force re-estimation of all issues
 		fmt.Println("Force re-estimation enabled, ignoring cached estimates")
-		uncachedBeads = beadList
-		for _, bead := range beadList {
-			result.UncachedIDs = append(result.UncachedIDs, bead.ID)
+		uncachedIssues = issues
+		for _, issue := range issues {
+			result.UncachedIDs = append(result.UncachedIDs, issue.ID)
 		}
 	} else {
-		// Normal flow: filter out cached beads
-		for _, bead := range beadList {
-			fullDescription := bead.Title + "\n" + bead.Description
+		// Normal flow: filter out cached issues
+		for _, issue := range issues {
+			fullDescription := issue.Title + "\n" + issue.Description
 			descHash := db.HashDescription(fullDescription)
-			_, _, found, _ := e.database.GetCachedComplexity(ctx, bead.ID, descHash)
+			_, _, found, _ := e.database.GetCachedComplexity(ctx, issue.ID, descHash)
 			if !found {
-				uncachedBeads = append(uncachedBeads, bead)
-				result.UncachedIDs = append(result.UncachedIDs, bead.ID)
+				uncachedIssues = append(uncachedIssues, issue)
+				result.UncachedIDs = append(result.UncachedIDs, issue.ID)
 			}
 		}
 	}
 
-	if len(uncachedBeads) == 0 {
-		// All beads already cached
-		fmt.Printf("All %d bead(s) already have cached complexity estimates\n", len(beadList))
+	if len(uncachedIssues) == 0 {
+		// All issues already cached
+		fmt.Printf("All %d issue(s) already have cached complexity estimates\n", len(issues))
 		result.AllCached = true
 		return result, nil
 	}
 
 	// Cannot estimate here - estimation must happen through tasks run by orchestrator
-	return nil, fmt.Errorf("missing complexity estimates for %d bead(s): %s. Use 'co run --auto' to run estimation through the orchestrator",
+	return nil, fmt.Errorf("missing complexity estimates for %d issue(s): %s. Use 'co run --auto' to run estimation through the orchestrator",
 		len(result.UncachedIDs), strings.Join(result.UncachedIDs, ", "))
 }

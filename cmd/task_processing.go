@@ -3,8 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/beads/queries"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
@@ -22,18 +24,18 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 
 	switch task.TaskType {
 	case "estimate":
-		beadList, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
+		issues, err := getIssuesForTask(ctx, proj, task.ID, mainRepoPath)
 		if err != nil {
 			return "", err
 		}
-		return claude.BuildEstimatePrompt(task.ID, beadList), nil
+		return claude.BuildEstimatePrompt(task.ID, issues), nil
 
 	case "implement":
-		beadList, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
+		issues, err := getIssuesForTask(ctx, proj, task.ID, mainRepoPath)
 		if err != nil {
 			return "", err
 		}
-		return claude.BuildTaskPrompt(task.ID, beadList, work.BranchName, baseBranch), nil
+		return claude.BuildTaskPrompt(task.ID, issues, work.BranchName, baseBranch), nil
 
 	case "review":
 		return claude.BuildReviewPrompt(task.ID, work.ID, work.BranchName, baseBranch), nil
@@ -52,23 +54,38 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 	}
 }
 
-// getBeadsForTask retrieves the beads associated with a task.
-func getBeadsForTask(ctx context.Context, proj *project.Project, taskID, mainRepoPath string) ([]beads.Bead, error) {
+// getIssuesForTask retrieves the issues associated with a task.
+func getIssuesForTask(ctx context.Context, proj *project.Project, taskID, mainRepoPath string) ([]queries.Issue, error) {
 	beadIDs, err := proj.DB.GetTaskBeads(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task beads: %w", err)
 	}
 
-	var beadList []beads.Bead
-	for _, beadID := range beadIDs {
-		bead, err := beads.GetBead(ctx,beadID, mainRepoPath)
-		if err != nil {
-			fmt.Printf("Warning: failed to get bead %s: %v\n", beadID, err)
-			continue
-		}
-		beadList = append(beadList, *bead)
+	// Create beads client
+	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create beads client: %w", err)
 	}
-	return beadList, nil
+	defer beadsClient.Close()
+
+	// Get issues with dependencies
+	result, err := beadsClient.GetIssuesWithDeps(ctx, beadIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get issues: %w", err)
+	}
+
+	// Convert map to slice in order of beadIDs
+	var issues []queries.Issue
+	for _, beadID := range beadIDs {
+		if issue, ok := result.Issues[beadID]; ok {
+			issues = append(issues, issue)
+		} else {
+			fmt.Printf("Warning: bead %s not found\n", beadID)
+		}
+	}
+
+	return issues, nil
 }
 
 // processTask processes a single task by ID using inline execution.

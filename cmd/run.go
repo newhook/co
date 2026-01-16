@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/beads/queries"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
@@ -216,14 +218,31 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 
 	fmt.Fprintf(w, "\nFound %d unassigned bead(s)\n", len(unassigned))
 
-	// Get bead details for each unassigned bead
-	var beadsWithDeps []beads.BeadWithDeps
-	for _, wb := range unassigned {
-		bead, err := beads.GetBeadWithDeps(ctx,wb.BeadID, mainRepoPath)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get bead %s: %w", wb.BeadID, err)
+	// Create beads client
+	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return 0, fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer beadsClient.Close()
+
+	// Collect bead IDs from unassigned work_beads
+	beadIDs := make([]string, len(unassigned))
+	for i, wb := range unassigned {
+		beadIDs[i] = wb.BeadID
+	}
+
+	// Get all issues with dependencies in one call
+	issuesResult, err := beadsClient.GetIssuesWithDeps(ctx, beadIDs)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get bead details: %w", err)
+	}
+
+	// Verify all beads were found
+	for _, beadID := range beadIDs {
+		if _, found := issuesResult.Issues[beadID]; !found {
+			return 0, fmt.Errorf("bead %s not found", beadID)
 		}
-		beadsWithDeps = append(beadsWithDeps, *bead)
 	}
 
 	// Group beads into tasks
@@ -232,7 +251,7 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 	if usePlan {
 		// Use LLM complexity estimation to group beads
 		fmt.Fprintln(w, "Using LLM complexity estimation to group beads...")
-		taskGroups, err = planBeadsWithComplexity(proj, beadsWithDeps, mainRepoPath, workID, flagForceEstimate)
+		taskGroups, err = planBeadsWithComplexity(proj, issuesResult, mainRepoPath, workID, flagForceEstimate)
 		if err != nil {
 			return 0, fmt.Errorf("failed to plan beads: %w", err)
 		}
@@ -296,25 +315,21 @@ func groupBeadsByWorkBeadGroup(workBeads []*db.WorkBead) [][]string {
 
 // planBeadsWithComplexity uses LLM complexity estimation to group beads.
 // If forceEstimate is true, re-estimates complexity even if cached values exist.
-func planBeadsWithComplexity(proj *project.Project, beadsWithDeps []beads.BeadWithDeps, mainRepoPath, workID string, forceEstimate bool) ([][]string, error) {
+func planBeadsWithComplexity(proj *project.Project, issuesResult *beads.IssuesWithDepsResult, mainRepoPath, workID string, forceEstimate bool) ([][]string, error) {
 	ctx := GetContext()
 
 	// Use the task planner with complexity estimation
 	estimator := task.NewLLMEstimator(proj.DB, mainRepoPath, proj.Config.Project.Name, workID)
 	planner := task.NewDefaultPlanner(estimator)
 
-	// Convert BeadWithDeps to Bead for EstimateBatch
-	beadList := make([]beads.Bead, len(beadsWithDeps))
-	for i, b := range beadsWithDeps {
-		beadList[i] = beads.Bead{
-			ID:          b.ID,
-			Title:       b.Title,
-			Description: b.Description,
-		}
+	// Convert map to slice of issues
+	issues := make([]queries.Issue, 0, len(issuesResult.Issues))
+	for _, issue := range issuesResult.Issues {
+		issues = append(issues, issue)
 	}
 
-	// Estimate complexity for each bead
-	result, err := estimator.EstimateBatch(ctx, beadList, forceEstimate)
+	// Estimate complexity for each issue
+	result, err := estimator.EstimateBatch(ctx, issues, forceEstimate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to estimate complexity: %w", err)
 	}
@@ -325,7 +340,7 @@ func planBeadsWithComplexity(proj *project.Project, beadsWithDeps []beads.BeadWi
 	}
 
 	// Plan tasks using the bin-packing algorithm with default budget of 70
-	planned, err := planner.Plan(ctx, beadsWithDeps, 70)
+	planned, err := planner.Plan(ctx, issues, issuesResult.Dependencies, 70)
 	if err != nil {
 		return nil, fmt.Errorf("failed to plan tasks: %w", err)
 	}

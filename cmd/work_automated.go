@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/beads/queries"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/mise"
@@ -18,11 +19,11 @@ import (
 	"github.com/newhook/co/internal/worktree"
 )
 
-// generateBranchNameFromBead creates a git-friendly branch name from a bead's title.
+// generateBranchNameFromIssue creates a git-friendly branch name from an issue's title.
 // It converts the title to lowercase, replaces spaces with hyphens,
 // removes special characters, and prefixes with "feat/".
-func generateBranchNameFromBead(bead *beads.Bead) string {
-	title := bead.Title
+func generateBranchNameFromIssue(issue *queries.Issue) string {
+	title := issue.Title
 
 	// Convert to lowercase
 	title = strings.ToLower(title)
@@ -71,22 +72,22 @@ func parseBeadIDs(beadIDStr string) []string {
 	return result
 }
 
-// generateBranchNameFromBeads creates a git-friendly branch name from multiple beads' titles.
-// For a single bead, it uses that bead's title.
-// For multiple beads, it combines titles (truncated) or uses a generic name if too long.
-func generateBranchNameFromBeads(beadList []*beads.Bead) string {
-	if len(beadList) == 0 {
+// generateBranchNameFromIssues creates a git-friendly branch name from multiple issues' titles.
+// For a single issue, it uses that issue's title.
+// For multiple issues, it combines titles (truncated) or uses a generic name if too long.
+func generateBranchNameFromIssues(issues []*queries.Issue) string {
+	if len(issues) == 0 {
 		return "feat/automated-work"
 	}
 
-	if len(beadList) == 1 {
-		return generateBranchNameFromBead(beadList[0])
+	if len(issues) == 1 {
+		return generateBranchNameFromIssue(issues[0])
 	}
 
-	// For multiple beads, combine their titles
+	// For multiple issues, combine their titles
 	var titles []string
-	for _, bead := range beadList {
-		titles = append(titles, bead.Title)
+	for _, issue := range issues {
+		titles = append(titles, issue.Title)
 	}
 	combined := strings.Join(titles, " and ")
 
@@ -118,32 +119,37 @@ func generateBranchNameFromBeads(beadList []*beads.Bead) string {
 	return fmt.Sprintf("feat/%s", combined)
 }
 
-// collectBeadsForMultipleIDs collects all beads to include for multiple bead IDs.
+// collectIssuesForMultipleIDs collects all issues to include for multiple bead IDs.
 // It collects transitive dependencies for each bead and deduplicates the results.
-func collectBeadsForMultipleIDs(ctx context.Context, beadIDList []string, dir string) ([]beads.BeadWithDeps, error) {
-	// Use a map to deduplicate beads by ID
-	beadMap := make(map[string]beads.BeadWithDeps)
+func collectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, dir string) (*beads.IssuesWithDepsResult, error) {
+	// Use a map to deduplicate issue IDs
+	issueIDSet := make(map[string]bool)
 
 	for _, beadID := range beadIDList {
-		beadsForID, err := collectBeadsForAutomatedWorkflow(ctx, beadID, dir)
+		issueIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, dir)
 		if err != nil {
 			return nil, err
 		}
-		for _, b := range beadsForID {
-			// Only add if not already present (first occurrence wins)
-			if _, exists := beadMap[b.ID]; !exists {
-				beadMap[b.ID] = b
-			}
+		for _, id := range issueIDs {
+			issueIDSet[id] = true
 		}
 	}
 
-	// Convert map to slice
-	var result []beads.BeadWithDeps
-	for _, b := range beadMap {
-		result = append(result, b)
+	// Convert set to slice
+	var issueIDs []string
+	for id := range issueIDSet {
+		issueIDs = append(issueIDs, id)
 	}
 
-	return result, nil
+	// Get all issues with dependencies in one call
+	beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer beadsClient.Close()
+
+	return beadsClient.GetIssuesWithDeps(ctx, issueIDs)
 }
 
 // ensureUniqueBranchName checks if a branch already exists and appends a suffix if needed.
@@ -184,21 +190,32 @@ func branchExists(repoPath, branchName string) bool {
 	return false
 }
 
-// collectBeadsForAutomatedWorkflow collects all beads to include in the workflow.
-// For a bead with dependencies, it includes all transitive dependencies.
-// For an epic bead, it includes all child beads.
-func collectBeadsForAutomatedWorkflow(ctx context.Context, beadID, dir string) ([]beads.BeadWithDeps, error) {
-	// First, get the main bead
-	mainBead, err := beads.GetBeadWithDeps(ctx, beadID, dir)
+// collectIssueIDsForAutomatedWorkflow collects all issue IDs to include in the workflow.
+// For an issue with dependencies, it includes all transitive dependencies.
+// For an epic issue, it includes all child issues (non-epic).
+func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string) ([]string, error) {
+	// Create beads client
+	beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer beadsClient.Close()
+
+	// First, get the main issue
+	mainIssue, _, dependents, err := beadsClient.GetIssue(ctx, beadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bead %s: %w", beadID, err)
 	}
+	if mainIssue == nil {
+		return nil, fmt.Errorf("bead %s not found", beadID)
+	}
 
-	// Check if this bead has children (is an epic)
-	// Children are in the Dependents field with parent-child relationship
+	// Check if this issue has children (is an epic)
+	// Children are in the dependents with parent-child relationship
 	var hasChildren bool
-	for _, dep := range mainBead.Dependents {
-		if dep.DependencyType == "parent-child" {
+	for _, dep := range dependents {
+		if dep.Type == "parent-child" {
 			hasChildren = true
 			break
 		}
@@ -206,30 +223,54 @@ func collectBeadsForAutomatedWorkflow(ctx context.Context, beadID, dir string) (
 
 	if hasChildren {
 		// For epics, collect all children
-		allBeads, err := beads.GetBeadWithChildren(ctx, beadID, dir)
+		allIssues, err := beadsClient.GetIssueWithChildren(ctx, beadID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get children for epic %s: %w", beadID, err)
 		}
-		// Filter to only include non-epic beads (skip the epic itself)
-		var result []beads.BeadWithDeps
-		for _, b := range allBeads {
+
+		// Collect issue IDs
+		issueIDs := make([]string, len(allIssues))
+		for i, issue := range allIssues {
+			issueIDs[i] = issue.ID
+		}
+
+		// Get dependencies/dependents for all issues in one call to determine which are epics
+		depsResult, err := beadsClient.GetIssuesWithDeps(ctx, issueIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get dependencies for epic children: %w", err)
+		}
+
+		// Filter to only include non-epic issues
+		var result []string
+		for _, issue := range allIssues {
 			// Check if this is an epic (has children in dependents)
 			isEpic := false
-			for _, dep := range b.Dependents {
-				if dep.DependencyType == "parent-child" {
+			for _, dep := range depsResult.Dependents[issue.ID] {
+				if dep.Type == "parent-child" {
 					isEpic = true
 					break
 				}
 			}
 			if !isEpic {
-				result = append(result, b)
+				result = append(result, issue.ID)
 			}
 		}
 		return result, nil
 	}
 
-	// For regular beads, collect transitive dependencies
-	return beads.GetTransitiveDependencies(ctx, beadID, dir)
+	// For regular issues, collect transitive dependencies
+	transitiveIssues, err := beadsClient.GetTransitiveDependencies(ctx, beadID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract issue IDs
+	issueIDs := make([]string, len(transitiveIssues))
+	for i, issue := range transitiveIssues {
+		issueIDs[i] = issue.ID
+	}
+
+	return issueIDs, nil
 }
 
 // runWorkCreateWithBeads creates a work unit with an auto-generated branch name from beads.
@@ -253,18 +294,29 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 		fmt.Printf("Creating work for beads: %s\n", strings.Join(beadIDList, ", "))
 	}
 
-	// Get the beads and generate branch name
-	var mainBeads []*beads.Bead
+	// Create beads client
+	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer beadsClient.Close()
+
+	// Get the issues and generate branch name
+	var mainIssues []*queries.Issue
 	for _, beadID := range beadIDList {
-		bead, err := beads.GetBead(ctx,beadID, mainRepoPath)
-		if err != nil {
-			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		issue, _, _, err2 := beadsClient.GetIssue(ctx, beadID)
+		if err2 != nil {
+			return fmt.Errorf("failed to get bead %s: %w", beadID, err2)
 		}
-		mainBeads = append(mainBeads, bead)
+		if issue == nil {
+			return fmt.Errorf("bead %s not found", beadID)
+		}
+		mainIssues = append(mainIssues, issue)
 	}
 
-	branchName := generateBranchNameFromBeads(mainBeads)
-	branchName, err := ensureUniqueBranchName(mainRepoPath, branchName)
+	branchName := generateBranchNameFromIssues(mainIssues)
+	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to find unique branch name: %w", err)
 	}
@@ -370,17 +422,27 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 	}
 
 	// Step 1: Get the main beads and generate branch name
-	var mainBeads []*beads.Bead
+	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer beadsClient.Close()
+
+	var mainIssues []*queries.Issue
 	for _, beadID := range beadIDList {
-		bead, err := beads.GetBead(ctx,beadID, mainRepoPath)
-		if err != nil {
-			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		issue, _, _, err2 := beadsClient.GetIssue(ctx, beadID)
+		if err2 != nil {
+			return fmt.Errorf("failed to get bead %s: %w", beadID, err2)
 		}
-		mainBeads = append(mainBeads, bead)
+		if issue == nil {
+			return fmt.Errorf("bead %s not found", beadID)
+		}
+		mainIssues = append(mainIssues, issue)
 	}
 
-	branchName := generateBranchNameFromBeads(mainBeads)
-	branchName, err := ensureUniqueBranchName(mainRepoPath, branchName)
+	branchName := generateBranchNameFromIssues(mainIssues)
+	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to find unique branch name: %w", err)
 	}
@@ -442,22 +504,22 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 	}
 	fmt.Printf("Worktree: %s\n", worktreePath)
 
-	// Step 3: Collect beads
+	// Step 3: Collect issues
 	fmt.Println("Collecting beads...")
-	beadsToProcess, err := collectBeadsForMultipleIDs(ctx, beadIDList, mainRepoPath)
+	issuesResult, err := collectIssuesForMultipleIDs(ctx, beadIDList, mainRepoPath)
 	if err != nil {
 		return fmt.Errorf("failed to collect beads: %w", err)
 	}
 
-	if len(beadsToProcess) == 0 {
+	if len(issuesResult.Issues) == 0 {
 		return fmt.Errorf("no beads to process for %s", strings.Join(beadIDList, ", "))
 	}
 
-	fmt.Printf("Collected %d bead(s):\n", len(beadsToProcess))
+	fmt.Printf("Collected %d bead(s):\n", len(issuesResult.Issues))
 	var collectedBeadIDs []string
-	for _, b := range beadsToProcess {
-		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
-		collectedBeadIDs = append(collectedBeadIDs, b.ID)
+	for id, issue := range issuesResult.Issues {
+		fmt.Printf("  - %s: %s\n", id, issue.Title)
+		collectedBeadIDs = append(collectedBeadIDs, id)
 	}
 
 	// Step 4: Create estimate task only (implement/review/pr tasks created after estimation completes)

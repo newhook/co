@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
@@ -54,15 +55,27 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
+	// Create beads client
+	mainRepoPath := proj.MainRepoPath()
+	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer beadsClient.Close()
+
 	// Get bead from beads DB to compute description hash
-	bead, err := beads.GetBead(ctx,beadID, proj.MainRepoPath())
+	issue, _, _, err := beadsClient.GetIssue(ctx, beadID)
 	if err != nil {
 		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+	}
+	if issue == nil {
+		return fmt.Errorf("bead %s not found", beadID)
 	}
 
 	// Compute description hash
 	// Combine title and description as that's what affects complexity
-	fullDescription := bead.Title + "\n" + bead.Description
+	fullDescription := issue.Title + "\n" + issue.Description
 	descHash := db.HashDescription(fullDescription)
 
 	// Store estimate in complexity cache
@@ -122,17 +135,17 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 			fmt.Println("\nEstimation Summary:")
 			for _, id := range taskBeadIDs {
 				// Get bead info for display
-				b, err := beads.GetBead(ctx,id, proj.MainRepoPath())
-				if err != nil {
+				issue, _, _, err := beadsClient.GetIssue(ctx, id)
+				if err != nil || issue == nil {
 					continue
 				}
 				// Get cached complexity
-				fullDesc := b.Title + "\n" + b.Description
+				fullDesc := issue.Title + "\n" + issue.Description
 				hash := db.HashDescription(fullDesc)
 				score, tokens, found, _ := proj.DB.GetCachedComplexity(ctx, id, hash)
 				if found {
 					// Truncate title if too long
-					title := b.Title
+					title := issue.Title
 					if len(title) > 50 {
 						title = title[:47] + "..."
 					}
@@ -143,9 +156,9 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 			// Count remaining
 			var remaining []string
 			for _, id := range taskBeadIDs {
-				b, _ := beads.GetBead(ctx,id, proj.MainRepoPath())
-				if b != nil {
-					fullDesc := b.Title + "\n" + b.Description
+				issue, _, _, err := beadsClient.GetIssue(ctx, id)
+				if err == nil && issue != nil {
+					fullDesc := issue.Title + "\n" + issue.Description
 					hash := db.HashDescription(fullDesc)
 					_, _, found, _ := proj.DB.GetCachedComplexity(ctx, id, hash)
 					if !found {

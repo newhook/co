@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -201,45 +202,65 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 		return fetchReadyBeads(dir, filters)
 	}
 
-	// Use beads package for listing
-	listFilters := beads.ListFilters{
-		Status: filters.status,
-		Label:  filters.label,
+	// Create beads client
+	beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
+	client, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create beads client: %w", err)
 	}
-	beadsList, err := beads.ListBeads(ctx, dir, listFilters)
+	defer client.Close()
+
+	// List issues with optional status filter
+	statusFilter := ""
+	if filters.status != "" && filters.status != "all" {
+		statusFilter = filters.status
+	}
+	issuesList, err := client.ListIssues(ctx, statusFilter)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check which beads are ready
-	readyBeadsList, _ := beads.GetReadyBeads(ctx, dir)
+	// TODO: Apply label filter if needed (requires additional query support)
+
+	// Get ready issues to mark which ones are ready
+	readyIssues, _ := client.GetReadyIssues(ctx)
 	readySet := make(map[string]bool)
-	for _, b := range readyBeadsList {
-		readySet[b.ID] = true
+	for _, issue := range readyIssues {
+		readySet[issue.ID] = true
+	}
+
+	// Fetch dependency/dependent counts for all issues
+	issueIDs := make([]string, 0, len(issuesList))
+	for _, issue := range issuesList {
+		issueIDs = append(issueIDs, issue.ID)
+	}
+	depsResult, err := client.GetIssuesWithDeps(ctx, issueIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	var items []beadItem
-	for _, b := range beadsList {
+	for _, issue := range issuesList {
 		// Apply search filter
 		if filters.searchText != "" {
 			searchLower := strings.ToLower(filters.searchText)
-			if !strings.Contains(strings.ToLower(b.ID), searchLower) &&
-				!strings.Contains(strings.ToLower(b.Title), searchLower) &&
-				!strings.Contains(strings.ToLower(b.Description), searchLower) {
+			if !strings.Contains(strings.ToLower(issue.ID), searchLower) &&
+				!strings.Contains(strings.ToLower(issue.Title), searchLower) &&
+				!strings.Contains(strings.ToLower(issue.Description), searchLower) {
 				continue
 			}
 		}
 
 		items = append(items, beadItem{
-			id:              b.ID,
-			title:           b.Title,
-			status:          b.Status,
-			priority:        b.Priority,
-			beadType:        b.Type,
-			description:     b.Description,
-			isReady:         readySet[b.ID],
-			dependencyCount: b.DependencyCount,
-			dependentCount:  b.DependentCount,
+			id:              issue.ID,
+			title:           issue.Title,
+			status:          issue.Status,
+			priority:        int(issue.Priority),
+			beadType:        issue.IssueType,
+			description:     issue.Description,
+			isReady:         readySet[issue.ID],
+			dependencyCount: len(depsResult.Dependencies[issue.ID]),
+			dependentCount:  len(depsResult.Dependents[issue.ID]),
 		})
 	}
 
@@ -252,44 +273,52 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 func fetchReadyBeads(dir string, filters beadFilters) ([]beadItem, error) {
 	ctx := context.Background()
 
-	// Use beads package to get ready beads with full details
-	readyBeadsList, err := beads.GetReadyBeadsFull(ctx, dir)
+	// Create beads client
+	beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
+	client, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer client.Close()
+
+	// Get ready issues
+	readyIssues, err := client.GetReadyIssues(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get dependency counts from bd list (which includes them)
-	depCounts := make(map[string]struct{ dep, dependent int })
-	listBeadsList, err := beads.ListBeads(ctx, dir, beads.ListFilters{Status: "open"})
-	if err == nil {
-		for _, b := range listBeadsList {
-			depCounts[b.ID] = struct{ dep, dependent int }{b.DependencyCount, b.DependentCount}
-		}
+	// Fetch dependency/dependent counts for ready issues
+	issueIDs := make([]string, 0, len(readyIssues))
+	for _, issue := range readyIssues {
+		issueIDs = append(issueIDs, issue.ID)
+	}
+	depsResult, err := client.GetIssuesWithDeps(ctx, issueIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	var items []beadItem
-	for _, b := range readyBeadsList {
+	for _, issue := range readyIssues {
 		// Apply search filter
 		if filters.searchText != "" {
 			searchLower := strings.ToLower(filters.searchText)
-			if !strings.Contains(strings.ToLower(b.ID), searchLower) &&
-				!strings.Contains(strings.ToLower(b.Title), searchLower) &&
-				!strings.Contains(strings.ToLower(b.Description), searchLower) {
+			if !strings.Contains(strings.ToLower(issue.ID), searchLower) &&
+				!strings.Contains(strings.ToLower(issue.Title), searchLower) &&
+				!strings.Contains(strings.ToLower(issue.Description), searchLower) {
 				continue
 			}
 		}
 
-		counts := depCounts[b.ID]
 		items = append(items, beadItem{
-			id:              b.ID,
-			title:           b.Title,
-			description:     b.Description,
-			status:          b.Status,
-			priority:        b.Priority,
-			beadType:        b.Type,
+			id:              issue.ID,
+			title:           issue.Title,
+			description:     issue.Description,
+			status:          issue.Status,
+			priority:        int(issue.Priority),
+			beadType:        issue.IssueType,
 			isReady:         true,
-			dependencyCount: counts.dep,
-			dependentCount:  counts.dependent,
+			dependencyCount: len(depsResult.Dependencies[issue.ID]),
+			dependentCount:  len(depsResult.Dependents[issue.ID]),
 		})
 	}
 

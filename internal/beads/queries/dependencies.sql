@@ -43,3 +43,14 @@ INNER JOIN issues i ON d.issue_id = i.id
 WHERE d.depends_on_id IN (sqlc.slice('depends_on_ids'))
   AND i.deleted_at IS NULL
   AND i.status != 'tombstone';
+
+-- name: GetAllIssueIDs :many
+SELECT id FROM issues
+WHERE deleted_at IS NULL
+  AND status != 'tombstone';
+
+-- name: GetIssueIDsByStatus :many
+SELECT id FROM issues
+WHERE deleted_at IS NULL
+  AND status != 'tombstone'
+  AND status = ?;

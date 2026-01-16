@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/beads/queries"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
@@ -188,25 +189,37 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	beadID := args[0]
 
 	// Expand the bead (handles epics and transitive deps)
-	expandedBeads, err := collectBeadsForAutomatedWorkflow(ctx, beadID, mainRepoPath)
+	expandedIssueIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, mainRepoPath)
 	if err != nil {
 		return fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 	}
 
-	if len(expandedBeads) == 0 {
+	if len(expandedIssueIDs) == 0 {
 		return fmt.Errorf("no beads found for %s", beadID)
 	}
 
-	// Convert to beadGroup for compatibility with existing code
-	var groupBeads []*beads.Bead
-	for _, b := range expandedBeads {
-		groupBeads = append(groupBeads, &beads.Bead{
-			ID:          b.ID,
-			Title:       b.Title,
-			Description: b.Description,
-		})
+	// Get issue details for branch name generation
+	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return fmt.Errorf("failed to create beads client: %w", err)
 	}
-	beadGroups := []beadGroup{{beads: groupBeads}}
+	defer beadsClient.Close()
+
+	issuesResult, err := beadsClient.GetIssuesWithDeps(ctx, expandedIssueIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get issue details: %w", err)
+	}
+
+	// Convert to slice of issue pointers for branch name generation
+	var groupIssues []*queries.Issue
+	for _, issueID := range expandedIssueIDs {
+		if issue, ok := issuesResult.Issues[issueID]; ok {
+			issueCopy := issue
+			groupIssues = append(groupIssues, &issueCopy)
+		}
+	}
+	beadGroups := []beadGroup{{issueIDs: expandedIssueIDs}}
 
 	// Determine branch name
 	var branchName string
@@ -214,8 +227,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		// Use provided branch name
 		branchName = flagBranchName
 	} else {
-		// Generate branch name from bead titles
-		branchName = generateBranchNameFromBeads(groupBeads)
+		// Generate branch name from issue titles
+		branchName = generateBranchNameFromIssues(groupIssues)
 		branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
 		if err != nil {
 			return fmt.Errorf("failed to find unique branch name: %w", err)
@@ -303,9 +316,9 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Base Branch: %s\n", baseBranch)
 
 	// Display beads
-	fmt.Printf("\nBeads (%d):\n", len(groupBeads))
-	for _, b := range groupBeads {
-		fmt.Printf("  - %s: %s\n", b.ID, b.Title)
+	fmt.Printf("\nBeads (%d):\n", len(groupIssues))
+	for _, issue := range groupIssues {
+		fmt.Printf("  - %s: %s\n", issue.ID, issue.Title)
 	}
 
 	// If --auto, run the full automated workflow
@@ -332,7 +345,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 // beadGroup represents a group of beads that should be in the same task.
 type beadGroup struct {
-	beads []*beads.Bead
+	issueIDs []string
 }
 
 // parseBeadGroups parses positional args into bead groups.
@@ -350,32 +363,25 @@ func parseBeadGroups(ctx context.Context, args []string, mainRepoPath string) ([
 			continue
 		}
 
-		var groupBeads []*beads.Bead
+		var groupIssueIDs []string
 		for _, beadID := range beadIDs {
 			// Expand this bead (handles epics and transitive deps)
-			expanded, err := collectBeadsForAutomatedWorkflow(ctx, beadID, mainRepoPath)
+			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, mainRepoPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 			}
-			for _, b := range expanded {
+			for _, issueID := range expandedIDs {
 				// Check for duplicates
-				if seenBeads[b.ID] {
-					return nil, fmt.Errorf("duplicate bead %s specified", b.ID)
+				if seenBeads[issueID] {
+					return nil, fmt.Errorf("duplicate bead %s specified", issueID)
 				}
-				seenBeads[b.ID] = true
-
-				// Convert BeadWithDeps to Bead
-				bead := &beads.Bead{
-					ID:          b.ID,
-					Title:       b.Title,
-					Description: b.Description,
-				}
-				groupBeads = append(groupBeads, bead)
+				seenBeads[issueID] = true
+				groupIssueIDs = append(groupIssueIDs, issueID)
 			}
 		}
 
-		if len(groupBeads) > 0 {
-			groups = append(groups, beadGroup{beads: groupBeads})
+		if len(groupIssueIDs) > 0 {
+			groups = append(groups, beadGroup{issueIDs: groupIssueIDs})
 		}
 	}
 
@@ -413,7 +419,7 @@ func promptForBranchName(proposed string) (string, error) {
 func addBeadGroupsToWork(ctx context.Context, proj *project.Project, workID string, groups []beadGroup) error {
 	for _, group := range groups {
 		var groupID int64
-		if len(group.beads) > 1 {
+		if len(group.issueIDs) > 1 {
 			// Get next group ID for grouped beads
 			var err error
 			groupID, err = proj.DB.GetNextBeadGroupID(ctx, workID)
@@ -423,11 +429,8 @@ func addBeadGroupsToWork(ctx context.Context, proj *project.Project, workID stri
 		}
 		// groupID = 0 for ungrouped beads (single bead in group)
 
-		// Extract bead IDs
-		var beadIDs []string
-		for _, b := range group.beads {
-			beadIDs = append(beadIDs, b.ID)
-		}
+		// issueIDs are already bead IDs
+		beadIDs := group.issueIDs
 
 		// Add beads to work
 		if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs, groupID); err != nil {
@@ -441,7 +444,7 @@ func addBeadGroupsToWork(ctx context.Context, proj *project.Project, workID stri
 func countBeadsInGroups(groups []beadGroup) int {
 	count := 0
 	for _, g := range groups {
-		count += len(g.beads)
+		count += len(g.issueIDs)
 	}
 	return count
 }
@@ -702,13 +705,13 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 
 	// Check if any bead is already in a task
 	for _, group := range beadGroups {
-		for _, bead := range group.beads {
-			inTask, err := proj.DB.IsBeadInTask(ctx, workID, bead.ID)
+		for _, beadID := range group.issueIDs {
+			inTask, err := proj.DB.IsBeadInTask(ctx, workID, beadID)
 			if err != nil {
-				return fmt.Errorf("failed to check bead %s: %w", bead.ID, err)
+				return fmt.Errorf("failed to check bead %s: %w", beadID, err)
 			}
 			if inTask {
-				return fmt.Errorf("bead %s is already assigned to a task", bead.ID)
+				return fmt.Errorf("bead %s is already assigned to a task", beadID)
 			}
 		}
 	}
@@ -1098,18 +1101,26 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to get review epic ID: %w", err)
 		}
 
-		var beadsToFix []beads.BeadWithDeps
+		var beadsToFix []queries.Issue
 		if epicID != "" {
+			// Create beads client
+			beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+			beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+			if err != nil {
+				return fmt.Errorf("failed to create beads client: %w", err)
+			}
+			defer beadsClient.Close()
+
 			// Get all children of the review epic
-			epicChildren, err := beads.GetBeadWithChildren(ctx,epicID, mainRepoPath)
+			epicChildrenIssues, err := beadsClient.GetIssueWithChildren(ctx, epicID)
 			if err != nil {
 				return fmt.Errorf("failed to get children of review epic %s: %w", epicID, err)
 			}
 
 			// Filter to only ready beads (excluding the epic itself)
-			for _, b := range epicChildren {
-				if b.ID != epicID && (b.Status == "" || b.Status == "ready" || b.Status == "open") {
-					beadsToFix = append(beadsToFix, b)
+			for _, issue := range epicChildrenIssues {
+				if issue.ID != epicID && (issue.Status == "" || issue.Status == "ready" || issue.Status == "open") {
+					beadsToFix = append(beadsToFix, issue)
 				}
 			}
 		}
