@@ -114,7 +114,7 @@ func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID st
 			}
 			bp := beadProgress{id: beadID, status: status}
 			// Fetch additional bead details from beads system
-			if bead, _, _, err := beadsClient.GetBead(ctx, beadID); err == nil && bead != nil {
+			if bead, err := beadsClient.GetBead(ctx, beadID); err == nil && bead != nil {
 				bp.title = bead.Title
 				bp.description = bead.Description
 				bp.beadStatus = bead.Status
@@ -183,7 +183,7 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 			}
 			bp := beadProgress{id: beadID, status: status}
 			// Fetch additional bead details from beads system
-			if bead, _, _, err := beadsClient.GetBead(ctx, beadID); err == nil && bead != nil {
+			if bead, err := beadsClient.GetBead(ctx, beadID); err == nil && bead != nil {
 				bp.title = bead.Title
 				bp.description = bead.Description
 				bp.beadStatus = bead.Status

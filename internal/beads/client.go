@@ -201,11 +201,31 @@ type Dependent struct {
 	Title       string // title of the dependent issue
 }
 
+// BeadWithDeps bundles a bead with its dependencies and dependents.
+type BeadWithDeps struct {
+	*Bead
+	Dependencies []Dependency
+	Dependents   []Dependent
+}
+
 // BeadsWithDepsResult holds the result of GetBeadsWithDeps.
 type BeadsWithDepsResult struct {
 	Beads        map[string]Bead
 	Dependencies map[string][]Dependency
 	Dependents   map[string][]Dependent
+}
+
+// GetBead returns a single BeadWithDeps from the result, or nil if not found.
+func (r *BeadsWithDepsResult) GetBead(id string) *BeadWithDeps {
+	bead, ok := r.Beads[id]
+	if !ok {
+		return nil
+	}
+	return &BeadWithDeps{
+		Bead:         &bead,
+		Dependencies: r.Dependencies[id],
+		Dependents:   r.Dependents[id],
+	}
 }
 
 // ClientConfig holds configuration for the Client.
@@ -359,18 +379,13 @@ func (c *Client) GetBeadsWithDeps(ctx context.Context, beadIDs []string) (*Beads
 
 // GetBead retrieves a single bead by ID with its dependencies/dependents.
 // Returns nil if the bead is not found.
-func (c *Client) GetBead(ctx context.Context, id string) (*Bead, []Dependency, []Dependent, error) {
+func (c *Client) GetBead(ctx context.Context, id string) (*BeadWithDeps, error) {
 	result, err := c.GetBeadsWithDeps(ctx, []string{id})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
-	bead, found := result.Beads[id]
-	if !found {
-		return nil, nil, nil, nil
-	}
-
-	return &bead, result.Dependencies[id], result.Dependents[id], nil
+	return result.GetBead(id), nil
 }
 
 // ListBeads lists all beads with optional status filter.

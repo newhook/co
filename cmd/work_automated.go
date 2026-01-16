@@ -202,7 +202,7 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string
 	defer beadsClient.Close()
 
 	// First, get the main issue
-	mainIssue, _, dependents, err := beadsClient.GetBead(ctx, beadID)
+	mainIssue, err := beadsClient.GetBead(ctx, beadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bead %s: %w", beadID, err)
 	}
@@ -213,7 +213,7 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string
 	// Check if this issue has children (is an epic)
 	// Children are in the dependents with parent-child relationship
 	var hasChildren bool
-	for _, dep := range dependents {
+	for _, dep := range mainIssue.Dependents {
 		if dep.Type == "parent-child" {
 			hasChildren = true
 			break
@@ -304,14 +304,14 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 	// Get the issues and generate branch name
 	var mainIssues []*beads.Bead
 	for _, beadID := range beadIDList {
-		issue, _, _, err2 := beadsClient.GetBead(ctx, beadID)
+		issue, err2 := beadsClient.GetBead(ctx, beadID)
 		if err2 != nil {
 			return fmt.Errorf("failed to get bead %s: %w", beadID, err2)
 		}
 		if issue == nil {
 			return fmt.Errorf("bead %s not found", beadID)
 		}
-		mainIssues = append(mainIssues, issue)
+		mainIssues = append(mainIssues, issue.Bead)
 	}
 
 	branchName := generateBranchNameFromIssues(mainIssues)
@@ -430,14 +430,14 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 
 	var mainIssues []*beads.Bead
 	for _, beadID := range beadIDList {
-		issue, _, _, err2 := beadsClient.GetBead(ctx, beadID)
+		issue, err2 := beadsClient.GetBead(ctx, beadID)
 		if err2 != nil {
 			return fmt.Errorf("failed to get bead %s: %w", beadID, err2)
 		}
 		if issue == nil {
 			return fmt.Errorf("bead %s not found", beadID)
 		}
-		mainIssues = append(mainIssues, issue)
+		mainIssues = append(mainIssues, issue.Bead)
 	}
 
 	branchName := generateBranchNameFromIssues(mainIssues)
