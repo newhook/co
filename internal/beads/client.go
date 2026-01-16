@@ -59,6 +59,7 @@ type CreateOptions struct {
 	Priority    int
 	IsEpic      bool
 	Description string
+	Parent      string // Parent bead ID for hierarchical child
 }
 
 // Create creates a new bead and returns its ID.
@@ -69,6 +70,9 @@ func Create(ctx context.Context, dir string, opts CreateOptions) (string, error)
 	}
 	if opts.Description != "" {
 		args = append(args, "--description="+opts.Description)
+	}
+	if opts.Parent != "" {
+		args = append(args, "--parent="+opts.Parent)
 	}
 
 	cmd := exec.CommandContext(ctx, "bd", args...)

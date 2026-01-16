@@ -62,7 +62,7 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			description := strings.TrimSpace(m.createDescTextarea.Value())
 			m.viewMode = ViewNormal
 			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description)
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, "")
 		}
 		return m, nil
 	}
@@ -76,7 +76,7 @@ func (m *planModel) updateCreateBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			description := strings.TrimSpace(m.createDescTextarea.Value())
 			m.viewMode = ViewNormal
 			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description)
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, "")
 		}
 		return m, nil
 	}
@@ -175,7 +175,7 @@ func (m *planModel) updateCreateBeadInline(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			description := strings.TrimSpace(m.createDescTextarea.Value())
 			m.viewMode = ViewNormal
 			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description)
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, "")
 		}
 		return m, nil
 	}
@@ -189,7 +189,7 @@ func (m *planModel) updateCreateBeadInline(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			description := strings.TrimSpace(m.createDescTextarea.Value())
 			m.viewMode = ViewNormal
 			m.createDescTextarea.Reset()
-			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description)
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, "")
 		}
 		return m, nil
 	}
@@ -390,45 +390,83 @@ func (m *planModel) updateEditBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateAddChildBead handles input for the add child bead dialog
+// This uses the same logic as the create bead dialog, but with a parent set.
 func (m *planModel) updateAddChildBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
 		m.viewMode = ViewNormal
 		m.textInput.Blur()
+		m.createDescTextarea.Blur()
 		m.parentBeadID = ""
 		return m, nil
 	}
 
-	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> title(0)
+	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> title(0)
 	if msg.Type == tea.KeyTab || msg.String() == "tab" {
-		m.createDialogFocus = (m.createDialogFocus + 1) % 3
+		// Leave current focus
+		if m.createDialogFocus == 0 {
+			m.textInput.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.createDescTextarea.Blur()
+		}
+
+		m.createDialogFocus = (m.createDialogFocus + 1) % 4
+
+		// Enter new focus
 		if m.createDialogFocus == 0 {
 			m.textInput.Focus()
-		} else {
-			m.textInput.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.createDescTextarea.Focus()
 		}
 		return m, nil
 	}
 
 	// Shift+Tab goes backwards
 	if msg.Type == tea.KeyShiftTab {
+		// Leave current focus
+		if m.createDialogFocus == 0 {
+			m.textInput.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.createDescTextarea.Blur()
+		}
+
 		m.createDialogFocus--
 		if m.createDialogFocus < 0 {
-			m.createDialogFocus = 2
+			m.createDialogFocus = 3
 		}
+
+		// Enter new focus
 		if m.createDialogFocus == 0 {
 			m.textInput.Focus()
-		} else {
-			m.textInput.Blur()
+		} else if m.createDialogFocus == 3 {
+			m.createDescTextarea.Focus()
 		}
 		return m, nil
 	}
 
-	// Enter submits from any field
-	if msg.String() == "enter" {
+	// Enter submits from any field (but not from description textarea - use Ctrl+Enter there)
+	if msg.String() == "enter" && m.createDialogFocus != 3 {
 		title := strings.TrimSpace(m.textInput.Value())
 		if title != "" {
+			beadType := beadTypes[m.createBeadType]
+			isEpic := beadType == "epic"
+			description := strings.TrimSpace(m.createDescTextarea.Value())
 			m.viewMode = ViewNormal
-			return m, m.createChildBead(title, beadTypes[m.createBeadType], m.createBeadPriority)
+			m.createDescTextarea.Reset()
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, m.parentBeadID)
+		}
+		return m, nil
+	}
+
+	// Ctrl+Enter submits from description textarea
+	if msg.String() == "ctrl+enter" && m.createDialogFocus == 3 {
+		title := strings.TrimSpace(m.textInput.Value())
+		if title != "" {
+			beadType := beadTypes[m.createBeadType]
+			isEpic := beadType == "epic"
+			description := strings.TrimSpace(m.createDescTextarea.Value())
+			m.viewMode = ViewNormal
+			m.createDescTextarea.Reset()
+			return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, m.parentBeadID)
 		}
 		return m, nil
 	}
@@ -464,6 +502,11 @@ func (m *planModel) updateAddChildBead(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+
+	case 3: // Description textarea
+		var cmd tea.Cmd
+		m.createDescTextarea, cmd = m.createDescTextarea.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -665,9 +708,11 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 }
 
 // renderAddChildBeadDialogContent renders the add child bead dialog
+// This is similar to renderCreateBeadDialogContent but shows the parent relationship.
 func (m *planModel) renderAddChildBeadDialogContent() string {
 	typeFocused := m.createDialogFocus == 1
 	priorityFocused := m.createDialogFocus == 2
+	descFocused := m.createDialogFocus == 3
 
 	// Type rotator display
 	currentType := beadTypes[m.createBeadType]
@@ -691,6 +736,7 @@ func (m *planModel) renderAddChildBeadDialogContent() string {
 	titleLabel := "Title:"
 	typeLabel := "Type:"
 	priorityLabel := "Priority:"
+	descLabel := "Description:"
 	if m.createDialogFocus == 0 {
 		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
 	}
@@ -699,6 +745,9 @@ func (m *planModel) renderAddChildBeadDialogContent() string {
 	}
 	if priorityFocused {
 		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
+	}
+	if descFocused {
+		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
 	}
 
 	content := fmt.Sprintf(`  Add Child Issue to %s
@@ -709,10 +758,13 @@ func (m *planModel) renderAddChildBeadDialogContent() string {
   %s %s
   %s %s
 
-  The new issue will be blocked by %s.
+  %s
+%s
+
+  The new issue will be a child of %s.
 
   [Tab] Next field  [Enter] Create  [Esc] Cancel
-`, issueIDStyle.Render(m.parentBeadID), titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay, m.parentBeadID)
+`, issueIDStyle.Render(m.parentBeadID), titleLabel, m.textInput.View(), typeLabel, typeDisplay, priorityLabel, priorityDisplay, descLabel, indentLines(m.createDescTextarea.View(), "  "), m.parentBeadID)
 
 	return tuiDialogStyle.Render(content)
 }
