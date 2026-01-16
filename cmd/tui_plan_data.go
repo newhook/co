@@ -93,7 +93,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	return items, nil
 }
 
-func (m *planModel) createBead(title, beadType string, priority int, isEpic bool, description string) tea.Cmd {
+func (m *planModel) createBead(title, beadType string, priority int, isEpic bool, description string, parent string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
@@ -104,6 +104,7 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 			Priority:    priority,
 			IsEpic:      isEpic,
 			Description: description,
+			Parent:      parent,
 		})
 		if err != nil {
 			return planDataMsg{err: fmt.Errorf("failed to create issue: %w", err)}

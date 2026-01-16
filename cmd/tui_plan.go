@@ -56,13 +56,8 @@ type planModel struct {
 	// Add child bead state
 	parentBeadID string // ID of parent when adding child
 
-	// Edit bead state
-	editBeadID        string         // ID of bead being edited
-	editTitleTextarea textarea.Model // Textarea for title editing
-	editDescTextarea  textarea.Model // Textarea for description editing
-	editBeadType      int            // Index into beadTypes
-	editField         int            // 0=title, 1=type, 2=description, 3=buttons
-	editButtonIdx     int            // 0=OK, 1=Cancel
+	// Edit bead state (editBeadID is set when editing, uses shared form fields)
+	editBeadID string // ID of bead being edited
 
 	// Create work dialog state
 	createWorkBeadIDs   []string        // Bead IDs for work creation (supports multi-select)
@@ -91,10 +86,11 @@ type planModel struct {
 	columnRatio float64 // Ratio of issues column width (0.0-1.0), default 0.4 for 40/60 split
 
 	// Mouse state
-	mouseX        int
-	mouseY        int
-	hoveredButton string // which button is hovered ("n", "e", "w", "p", etc.)
-	hoveredIssue  int    // index of hovered issue, -1 if none
+	mouseX              int
+	mouseY              int
+	hoveredButton       string // which button is hovered ("n", "e", "w", "p", etc.)
+	hoveredIssue        int    // index of hovered issue, -1 if none
+	hoveredDialogButton string // which dialog button is hovered ("ok", "cancel")
 
 	// Database watcher for cache invalidation
 	beadsWatcher *watcher.Watcher
@@ -111,18 +107,6 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	ti.Placeholder = "Enter title..."
 	ti.CharLimit = 100
 	ti.Width = 40
-
-	titleTa := textarea.New()
-	titleTa.Placeholder = "Enter title..."
-	titleTa.CharLimit = 200
-	titleTa.SetWidth(60)
-	titleTa.SetHeight(2)
-
-	descTa := textarea.New()
-	descTa.Placeholder = "Enter description..."
-	descTa.CharLimit = 2000
-	descTa.SetWidth(60)
-	descTa.SetHeight(6)
 
 	createDescTa := textarea.New()
 	createDescTa.Placeholder = "Enter description (optional)..."
@@ -163,8 +147,6 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	}
 
 	return &planModel{
-		editTitleTextarea:  titleTa,
-		editDescTextarea:   descTa,
 		createDescTextarea: createDescTa,
 		createWorkBranch:   branchInput,
 		ctx:                ctx,
@@ -279,10 +261,17 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Y == statusBarY {
 				m.hoveredButton = m.detectCommandsBarButton(msg.X)
 				m.hoveredIssue = -1
+				m.hoveredDialogButton = ""
 			} else {
 				m.hoveredButton = ""
-				// Detect hover over issue lines
-				m.hoveredIssue = m.detectHoveredIssue(msg.Y)
+				// Detect hover over dialog buttons if in form mode
+				m.hoveredDialogButton = m.detectDialogButton(msg.X, msg.Y)
+				if m.hoveredDialogButton != "" {
+					m.hoveredIssue = -1
+				} else {
+					// Detect hover over issue lines
+					m.hoveredIssue = m.detectHoveredIssue(msg.Y)
+				}
 			}
 			return m, nil
 		}
@@ -309,6 +298,21 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 				}
 			} else {
+				// Check if clicking on dialog buttons
+				clickedDialogButton := m.detectDialogButton(msg.X, msg.Y)
+				if clickedDialogButton == "ok" {
+					// Submit the form
+					return m.submitBeadForm()
+				} else if clickedDialogButton == "cancel" {
+					// Cancel the form
+					m.viewMode = ViewNormal
+					m.textInput.Blur()
+					m.createDescTextarea.Blur()
+					m.editBeadID = ""
+					m.parentBeadID = ""
+					return m, nil
+				}
+
 				// Check if clicking on an issue
 				clickedIssue := m.detectHoveredIssue(msg.Y)
 				if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
@@ -481,14 +485,9 @@ type editorFinishedMsg struct{}
 func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle dialog-specific input
 	switch m.viewMode {
-	case ViewCreateBead:
-		return m.updateCreateBead(msg)
-	case ViewCreateBeadInline:
-		return m.updateCreateBeadInline(msg)
-	case ViewAddChildBead:
-		return m.updateAddChildBead(msg)
-	case ViewEditBead:
-		return m.updateEditBead(msg)
+	case ViewCreateBead, ViewCreateBeadInline, ViewAddChildBead, ViewEditBead:
+		// All bead form dialogs use the unified handler
+		return m.updateBeadForm(msg)
 	case ViewCreateWork:
 		return m.updateCreateWorkDialog(msg)
 	case ViewAddToWork:
@@ -691,26 +690,26 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "e":
-		// Edit selected issue with textarea
+		// Edit selected issue using the unified bead form
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			bead := m.beadItems[m.beadsCursor]
 			m.editBeadID = bead.id
 			m.viewMode = ViewEditBead
-			m.editTitleTextarea.Reset()
-			m.editTitleTextarea.SetValue(bead.title)
-			m.editTitleTextarea.Focus()
-			m.editDescTextarea.Reset()
-			m.editDescTextarea.SetValue(bead.description)
+			m.textInput.Reset()
+			m.textInput.SetValue(bead.title)
+			m.textInput.Focus()
+			m.createDescTextarea.Reset()
+			m.createDescTextarea.SetValue(bead.description)
 			// Find the type index
-			m.editBeadType = 0
+			m.createBeadType = 0
 			for i, t := range beadTypes {
 				if t == bead.beadType {
-					m.editBeadType = i
+					m.createBeadType = i
 					break
 				}
 			}
-			m.editField = 0     // Start with title focused
-			m.editButtonIdx = 0 // OK selected by default
+			m.createBeadPriority = bead.priority
+			m.createDialogFocus = 0 // Start with title focused
 		}
 		return m, nil
 
@@ -758,15 +757,9 @@ func (m *planModel) cleanup() {
 func (m *planModel) View() string {
 	// Handle dialogs
 	switch m.viewMode {
-	case ViewCreateBead:
-		return m.renderWithDialog(m.renderCreateBeadDialogContent())
-	case ViewCreateBeadInline:
-		// Inline create mode - render normal view with create form in details area
+	case ViewCreateBead, ViewCreateBeadInline, ViewAddChildBead, ViewEditBead:
+		// All bead form modes render inline in the details panel
 		// Fall through to normal rendering
-	case ViewAddChildBead:
-		return m.renderWithDialog(m.renderAddChildBeadDialogContent())
-	case ViewEditBead:
-		return m.renderWithDialog(m.renderEditBeadDialogContent())
 	case ViewCreateWork:
 		return m.renderWithDialog(m.renderCreateWorkDialogContent())
 	case ViewAddToWork:
