@@ -22,6 +22,7 @@ require (
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -31,6 +32,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
+	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
