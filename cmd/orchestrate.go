@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -205,14 +206,31 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 		return fmt.Errorf("no beads found for estimate task %s", estimateTask.ID)
 	}
 
-	// Get beads with dependencies for planning
-	var beadsWithDeps []beads.BeadWithDeps
+	// Create beads client
+	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer beadsClient.Close()
+
+	// Get issues with dependencies for planning
+	issuesResult, err := beadsClient.GetBeadsWithDeps(ctx, beadIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get bead details: %w", err)
+	}
+
+	// Verify all beads were found
 	for _, beadID := range beadIDs {
-		bwd, err := beads.GetBeadWithDeps(ctx,beadID, mainRepoPath)
-		if err != nil {
-			return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+		if _, found := issuesResult.Beads[beadID]; !found {
+			return fmt.Errorf("bead %s not found", beadID)
 		}
-		beadsWithDeps = append(beadsWithDeps, *bwd)
+	}
+
+	// Convert map to slice
+	beadList := make([]beads.Bead, 0, len(issuesResult.Beads))
+	for _, b := range issuesResult.Beads {
+		beadList = append(beadList, b)
 	}
 
 	// Create planner with cached complexity estimator
@@ -223,7 +241,7 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 	const budget = 70
 	fmt.Printf("Planning tasks with budget %d...\n", budget)
 
-	tasks, err := planner.Plan(ctx, beadsWithDeps, budget)
+	tasks, err := planner.Plan(ctx, beadList, issuesResult.Dependencies, budget)
 	if err != nil {
 		return fmt.Errorf("failed to plan tasks: %w", err)
 	}
@@ -308,18 +326,26 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 		return fmt.Errorf("failed to get review epic ID: %w", err)
 	}
 
-	var beadsToFix []beads.BeadWithDeps
+	var beadsToFix []beads.Bead
 	if epicID != "" {
+		// Create beads client
+		beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+		beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+		if err != nil {
+			return fmt.Errorf("failed to create beads client: %w", err)
+		}
+		defer beadsClient.Close()
+
 		// Get all children of the review epic
-		epicChildren, err := beads.GetBeadWithChildren(ctx,epicID, mainRepoPath)
+		epicChildrenIssues, err := beadsClient.GetBeadWithChildren(ctx, epicID)
 		if err != nil {
 			return fmt.Errorf("failed to get children of review epic %s: %w", epicID, err)
 		}
 
 		// Filter to only ready beads (excluding the epic itself)
-		for _, b := range epicChildren {
-			if b.ID != epicID && (b.Status == "" || b.Status == "ready" || b.Status == "open") {
-				beadsToFix = append(beadsToFix, b)
+		for _, issue := range epicChildrenIssues {
+			if issue.ID != epicID && (issue.Status == "" || issue.Status == "ready" || issue.Status == "open") {
+				beadsToFix = append(beadsToFix, issue)
 			}
 		}
 	}

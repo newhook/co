@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
@@ -22,18 +23,18 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 
 	switch task.TaskType {
 	case "estimate":
-		beadList, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
+		issues, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
 		if err != nil {
 			return "", err
 		}
-		return claude.BuildEstimatePrompt(task.ID, beadList), nil
+		return claude.BuildEstimatePrompt(task.ID, issues), nil
 
 	case "implement":
-		beadList, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
+		issues, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
 		if err != nil {
 			return "", err
 		}
-		return claude.BuildTaskPrompt(task.ID, beadList, work.BranchName, baseBranch), nil
+		return claude.BuildTaskPrompt(task.ID, issues, work.BranchName, baseBranch), nil
 
 	case "review":
 		return claude.BuildReviewPrompt(task.ID, work.ID, work.BranchName, baseBranch), nil
@@ -59,15 +60,30 @@ func getBeadsForTask(ctx context.Context, proj *project.Project, taskID, mainRep
 		return nil, fmt.Errorf("failed to get task beads: %w", err)
 	}
 
+	// Create beads client
+	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create beads client: %w", err)
+	}
+	defer beadsClient.Close()
+
+	// Get beads with dependencies
+	result, err := beadsClient.GetBeadsWithDeps(ctx, beadIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get beads: %w", err)
+	}
+
+	// Convert map to slice in order of beadIDs
 	var beadList []beads.Bead
 	for _, beadID := range beadIDs {
-		bead, err := beads.GetBead(ctx,beadID, mainRepoPath)
-		if err != nil {
-			fmt.Printf("Warning: failed to get bead %s: %v\n", beadID, err)
-			continue
+		if b, ok := result.Beads[beadID]; ok {
+			beadList = append(beadList, b)
+		} else {
+			fmt.Printf("Warning: bead %s not found\n", beadID)
 		}
-		beadList = append(beadList, *bead)
 	}
+
 	return beadList, nil
 }
 

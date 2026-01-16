@@ -16,11 +16,11 @@ const (
 
 // Task represents a virtual task - a group of beads to be processed together.
 type Task struct {
-	ID         string       // Unique task identifier
-	BeadIDs    []string     // IDs of beads in this task
-	Beads      []beads.Bead // Full bead information
-	Complexity int          // Sum of bead complexity scores
-	Status     string       // pending, processing, completed, failed
+	ID         string        // Unique task identifier
+	BeadIDs    []string      // IDs of beads in this task
+	Beads      []beads.Bead  // Full bead information
+	Complexity int           // Sum of bead complexity scores
+	Status     string        // pending, processing, completed, failed
 }
 
 // Planner creates task groupings from a list of beads.
@@ -28,7 +28,11 @@ type Planner interface {
 	// Plan analyzes beads and creates task assignments based on complexity budget.
 	// The budget represents the target complexity per task (e.g., 70% of context window).
 	// Returns a list of tasks with beads grouped to respect dependencies and fit within budget.
-	Plan(beads []beads.BeadWithDeps, budget int) ([]Task, error)
+	Plan(
+		beadList []beads.Bead,
+		dependencies map[string][]beads.Dependency,
+		budget int,
+	) ([]Task, error)
 }
 
 // ComplexityEstimator estimates the complexity of a bead.

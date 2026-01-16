@@ -20,36 +20,37 @@ func NewDefaultPlanner(estimator ComplexityEstimator) *DefaultPlanner {
 
 // Plan creates task assignments from beads using bin-packing algorithm.
 // The budget represents the target complexity per task.
-func (p *DefaultPlanner) Plan(ctx context.Context, inputBeads []beads.BeadWithDeps, budget int) ([]Task, error) {
-	if len(inputBeads) == 0 {
+func (p *DefaultPlanner) Plan(
+	ctx context.Context,
+	beadList []beads.Bead,
+	dependencies map[string][]beads.Dependency,
+	budget int,
+) ([]Task, error) {
+	if len(beadList) == 0 {
 		return nil, nil
 	}
 
 	// Build dependency graph
-	graph := BuildDependencyGraph(inputBeads)
+	graph := BuildDependencyGraph(beadList, dependencies)
 
 	// Get topologically sorted beads (respecting dependencies)
-	sorted, err := TopologicalSort(graph, inputBeads)
+	sorted, err := TopologicalSort(graph, beadList)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sort beads: %w", err)
 	}
 
 	// Estimate complexity for each bead
 	complexities := make(map[string]int)
-	for _, b := range sorted {
-		score, _, err := p.estimator.Estimate(ctx, beads.Bead{
-			ID:          b.ID,
-			Title:       b.Title,
-			Description: b.Description,
-		})
+	for _, bead := range sorted {
+		score, _, err := p.estimator.Estimate(ctx, bead)
 		if err != nil {
-			return nil, fmt.Errorf("failed to estimate complexity for %s: %w", b.ID, err)
+			return nil, fmt.Errorf("failed to estimate complexity for %s: %w", bead.ID, err)
 		}
-		complexities[b.ID] = score
+		complexities[bead.ID] = score
 	}
 
 	// Sort beads by complexity (descending) for first-fit decreasing
-	sortedByComplexity := make([]beads.BeadWithDeps, len(sorted))
+	sortedByComplexity := make([]beads.Bead, len(sorted))
 	copy(sortedByComplexity, sorted)
 	sort.Slice(sortedByComplexity, func(i, j int) bool {
 		return complexities[sortedByComplexity[i].ID] > complexities[sortedByComplexity[j].ID]
@@ -62,13 +63,13 @@ func (p *DefaultPlanner) Plan(ctx context.Context, inputBeads []beads.BeadWithDe
 }
 
 // binPackBeads assigns beads to tasks using first-fit decreasing algorithm.
-func binPackBeads(beadsByComplexity []beads.BeadWithDeps, complexities map[string]int, graph *DependencyGraph, budget int) []Task {
+func binPackBeads(beadsByComplexity []beads.Bead, complexities map[string]int, graph *DependencyGraph, budget int) []Task {
 	var tasks []Task
 	assigned := make(map[string]int) // bead ID -> task index
 
-	for _, b := range beadsByComplexity {
-		complexity := complexities[b.ID]
-		taskIdx := findBestTask(b, complexity, tasks, assigned, graph, budget)
+	for _, bead := range beadsByComplexity {
+		complexity := complexities[bead.ID]
+		taskIdx := findBestTask(bead.ID, complexity, tasks, assigned, graph, budget)
 
 		if taskIdx == -1 {
 			// Create new task
@@ -83,21 +84,17 @@ func binPackBeads(beadsByComplexity []beads.BeadWithDeps, complexities map[strin
 		}
 
 		// Add bead to task
-		tasks[taskIdx].BeadIDs = append(tasks[taskIdx].BeadIDs, b.ID)
-		tasks[taskIdx].Beads = append(tasks[taskIdx].Beads, beads.Bead{
-			ID:          b.ID,
-			Title:       b.Title,
-			Description: b.Description,
-		})
+		tasks[taskIdx].BeadIDs = append(tasks[taskIdx].BeadIDs, bead.ID)
+		tasks[taskIdx].Beads = append(tasks[taskIdx].Beads, bead)
 		tasks[taskIdx].Complexity += complexity
-		assigned[b.ID] = taskIdx
+		assigned[bead.ID] = taskIdx
 	}
 
 	return tasks
 }
 
 // findBestTask finds the best task for a bead, or -1 if a new task is needed.
-func findBestTask(b beads.BeadWithDeps, complexity int, tasks []Task, assigned map[string]int, graph *DependencyGraph, budget int) int {
+func findBestTask(beadID string, complexity int, tasks []Task, assigned map[string]int, graph *DependencyGraph, budget int) int {
 	bestIdx := -1
 	bestFit := budget + 1 // Initialize to impossible value
 
@@ -112,7 +109,7 @@ func findBestTask(b beads.BeadWithDeps, complexity int, tasks []Task, assigned m
 		// All dependencies must either be:
 		// 1. In a previous task (already completed)
 		// 2. In the same task
-		if !canAddToTask(b.ID, i, assigned, graph) {
+		if !canAddToTask(beadID, i, assigned, graph) {
 			continue
 		}
 

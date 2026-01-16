@@ -53,7 +53,7 @@ func FormatTabName(prefix, workID, friendlyName string) string {
 }
 
 // BuildTaskPrompt builds a prompt for a task with multiple beads.
-func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBranch string) string {
+func BuildTaskPrompt(taskID string, beadList []beads.Bead, branchName, baseBranch string) string {
 	data := struct {
 		TaskID     string
 		BeadIDs    []string
@@ -61,7 +61,7 @@ func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBran
 		BaseBranch string
 	}{
 		TaskID:     taskID,
-		BeadIDs:    getBeadIDs(taskBeads),
+		BeadIDs:    getBeadIDs(beadList),
 		BranchName: branchName,
 		BaseBranch: baseBranch,
 	}
@@ -69,16 +69,16 @@ func BuildTaskPrompt(taskID string, taskBeads []beads.Bead, branchName, baseBran
 	var buf bytes.Buffer
 	if err := taskTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
-		return fmt.Sprintf("Task %s on branch %s for beads: %v", taskID, branchName, getBeadIDs(taskBeads))
+		return fmt.Sprintf("Task %s on branch %s for beads: %v", taskID, branchName, getBeadIDs(beadList))
 	}
 
 	return buf.String()
 }
 
 // getBeadIDs extracts bead IDs from a slice of beads.
-func getBeadIDs(beads []beads.Bead) []string {
-	ids := make([]string, len(beads))
-	for i, b := range beads {
+func getBeadIDs(beadList []beads.Bead) []string {
+	ids := make([]string, len(beadList))
+	for i, b := range beadList {
 		ids[i] = b.ID
 	}
 	return ids
@@ -148,19 +148,19 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w
 }
 
 // BuildEstimatePrompt builds a prompt for complexity estimation of beads.
-func BuildEstimatePrompt(taskID string, taskBeads []beads.Bead) string {
+func BuildEstimatePrompt(taskID string, beadList []beads.Bead) string {
 	data := struct {
 		TaskID  string
 		BeadIDs []string
 	}{
 		TaskID:  taskID,
-		BeadIDs: getBeadIDs(taskBeads),
+		BeadIDs: getBeadIDs(beadList),
 	}
 
 	var buf bytes.Buffer
 	if err := estimateTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
-		return fmt.Sprintf("Estimation task %s for beads: %v", taskID, getBeadIDs(taskBeads))
+		return fmt.Sprintf("Estimation task %s for beads: %v", taskID, getBeadIDs(beadList))
 	}
 
 	return buf.String()
