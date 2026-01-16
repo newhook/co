@@ -13,7 +13,9 @@ Linear provides an official, centrally-hosted MCP server with two transport opti
 
 ## Available Tools/Methods
 
-The Linear MCP server provides 24 specialized tools covering comprehensive Linear project management functionality:
+The Linear MCP server provides 24 specialized tools covering comprehensive Linear project management functionality.
+
+**Note**: Tool names separated by `/` indicate aliases (the same tool accessible by multiple names).
 
 ### Issue Management Tools
 
@@ -94,7 +96,7 @@ The Linear MCP server provides 24 specialized tools covering comprehensive Linea
 21. **get_issue_status** - Get specific status details
 22. **list_issue_labels** - Advanced categorization and filtering
 
-23. **get_document** & **list_documents** - Documentation integration
+23. **get_document** / **list_documents** - Documentation integration
 24. **search_documentation** - AI-powered Linear feature discovery
 
 ## Issue Fields Returned
