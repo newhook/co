@@ -343,36 +343,58 @@ func (m *planModel) updateLinearImportInline(msg tea.KeyMsg) (tea.Model, tea.Cmd
 
 	// Tab cycles between elements: input(0) -> createDeps(1) -> update(2) -> dryRun(3) -> maxDepth(4)
 	if msg.Type == tea.KeyTab || msg.String() == "tab" {
+		// Leave textarea focus before switching
+		if m.linearImportFocus == 0 {
+			m.linearImportInput.Blur()
+		}
+
 		m.linearImportFocus = (m.linearImportFocus + 1) % 5
+
+		// Enter new focus
 		if m.linearImportFocus == 0 {
 			m.linearImportInput.Focus()
-		} else {
-			m.linearImportInput.Blur()
 		}
 		return m, nil
 	}
 
 	// Shift+Tab goes backwards
 	if msg.Type == tea.KeyShiftTab {
+		// Leave textarea focus before switching
+		if m.linearImportFocus == 0 {
+			m.linearImportInput.Blur()
+		}
+
 		m.linearImportFocus--
 		if m.linearImportFocus < 0 {
 			m.linearImportFocus = 4
 		}
+
+		// Enter new focus
 		if m.linearImportFocus == 0 {
 			m.linearImportInput.Focus()
-		} else {
-			m.linearImportInput.Blur()
 		}
 		return m, nil
 	}
 
-	// Enter submits from input field
-	if msg.String() == "enter" && m.linearImportFocus == 0 {
-		issueID := strings.TrimSpace(m.linearImportInput.Value())
-		if issueID != "" {
+	// Ctrl+Enter submits from textarea
+	if msg.String() == "ctrl+enter" && m.linearImportFocus == 0 {
+		issueIDs := strings.TrimSpace(m.linearImportInput.Value())
+		if issueIDs != "" {
 			m.viewMode = ViewNormal
 			m.linearImporting = true
-			return m, m.importLinearIssue(issueID)
+			return m, m.importLinearIssue(issueIDs)
+		}
+		return m, nil
+	}
+
+	// Enter submits from other fields (but not from textarea - use Ctrl+Enter there)
+	if msg.String() == "enter" && m.linearImportFocus != 0 {
+		// Submit the form from non-textarea fields
+		issueIDs := strings.TrimSpace(m.linearImportInput.Value())
+		if issueIDs != "" {
+			m.viewMode = ViewNormal
+			m.linearImporting = true
+			return m, m.importLinearIssue(issueIDs)
 		}
 		return m, nil
 	}
@@ -380,7 +402,7 @@ func (m *planModel) updateLinearImportInline(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	// Handle input based on focused element
 	var cmd tea.Cmd
 	switch m.linearImportFocus {
-	case 0: // Input field
+	case 0: // Textarea field
 		m.linearImportInput, cmd = m.linearImportInput.Update(msg)
 		return m, cmd
 

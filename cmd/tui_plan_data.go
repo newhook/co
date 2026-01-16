@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -193,8 +194,8 @@ func (m *planModel) startPeriodicRefresh() tea.Cmd {
 	})
 }
 
-// importLinearIssue imports a single Linear issue
-func (m *planModel) importLinearIssue(issueID string) tea.Cmd {
+// importLinearIssue imports Linear issues (supports multiple IDs/URLs)
+func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
@@ -222,24 +223,73 @@ func (m *planModel) importLinearIssue(issueID string) tea.Cmd {
 			MaxDepDepth:    m.linearImportMaxDepth,
 		}
 
-		// Execute import
-		result, err := fetcher.FetchAndImport(ctx, issueID, opts)
-		if err != nil {
-			return linearImportCompleteMsg{err: fmt.Errorf("import failed: %w", err)}
-		}
-
-		// Check result
-		if result.Error != nil {
-			return linearImportCompleteMsg{err: result.Error}
-		}
-
-		if result.BeadID != "" {
-			return linearImportCompleteMsg{
-				beadIDs:    []string{result.BeadID},
-				skipReason: result.SkipReason,
+		// Parse newline-delimited input
+		lines := strings.Split(issueIDsInput, "\n")
+		var issueIDs []string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" {
+				issueIDs = append(issueIDs, trimmed)
 			}
 		}
 
-		return linearImportCompleteMsg{err: fmt.Errorf("import completed but no bead ID returned")}
+		// If only one ID, use single import for backward compatibility
+		if len(issueIDs) == 1 {
+			result, err := fetcher.FetchAndImport(ctx, issueIDs[0], opts)
+			if err != nil {
+				return linearImportCompleteMsg{err: fmt.Errorf("import failed: %w", err)}
+			}
+
+			// Check result
+			if result.Error != nil {
+				return linearImportCompleteMsg{err: result.Error}
+			}
+
+			if result.BeadID != "" {
+				return linearImportCompleteMsg{
+					beadIDs:    []string{result.BeadID},
+					skipReason: result.SkipReason,
+				}
+			}
+
+			return linearImportCompleteMsg{err: fmt.Errorf("import completed but no bead ID returned")}
+		}
+
+		// Use batch import for multiple IDs
+		results, err := fetcher.FetchBatch(ctx, issueIDs, opts)
+		if err != nil {
+			return linearImportCompleteMsg{err: fmt.Errorf("batch import failed: %w", err)}
+		}
+
+		// Collect results
+		var beadIDs []string
+		var skipReasons []string
+		var errors []string
+		successCount := 0
+		skipCount := 0
+		errorCount := 0
+
+		for i, result := range results {
+			if result.Error != nil {
+				errorCount++
+				errors = append(errors, fmt.Sprintf("%s: %v", issueIDs[i], result.Error))
+			} else if result.SkipReason != "" {
+				skipCount++
+				skipReasons = append(skipReasons, fmt.Sprintf("%s: %s", issueIDs[i], result.SkipReason))
+			} else if result.BeadID != "" {
+				successCount++
+				beadIDs = append(beadIDs, result.BeadID)
+			}
+		}
+
+		// Return aggregated results
+		return linearImportCompleteMsg{
+			beadIDs:      beadIDs,
+			successCount: successCount,
+			skipCount:    skipCount,
+			errorCount:   errorCount,
+			skipReasons:  skipReasons,
+			errors:       errors,
+		}
 	}
 }

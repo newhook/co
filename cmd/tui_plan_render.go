@@ -321,15 +321,22 @@ func (m *planModel) renderBeadFormContent(width int) string {
 func (m *planModel) renderLinearImportInlineContent(visibleLines int, width int) string {
 	var content strings.Builder
 
+	// Adapt textarea width to available space (account for panel padding)
+	inputWidth := width - detailsPanelPadding
+	if inputWidth < 20 {
+		inputWidth = 20
+	}
+	m.linearImportInput.SetWidth(inputWidth)
+
 	// Show focus labels
-	issueIDLabel := "Issue ID/URL:"
+	issueIDsLabel := "Issue IDs/URLs:"
 	createDepsLabel := "Create Dependencies:"
 	updateLabel := "Update Existing:"
 	dryRunLabel := "Dry Run:"
 	maxDepthLabel := "Max Dependency Depth:"
 
 	if m.linearImportFocus == 0 {
-		issueIDLabel = tuiValueStyle.Render("Issue ID/URL:") + " (editing)"
+		issueIDsLabel = tuiValueStyle.Render("Issue IDs/URLs:") + " (one per line, Ctrl+Enter to submit)"
 	}
 	if m.linearImportFocus == 1 {
 		createDepsLabel = tuiValueStyle.Render("Create Dependencies:") + " (space to toggle)"
@@ -359,9 +366,9 @@ func (m *planModel) renderLinearImportInlineContent(visibleLines int, width int)
 	}
 
 	// Render the form
-	content.WriteString(tuiLabelStyle.Render("Import from Linear"))
+	content.WriteString(tuiLabelStyle.Render("Import from Linear (Bulk)"))
 	content.WriteString("\n\n")
-	content.WriteString(issueIDLabel)
+	content.WriteString(issueIDsLabel)
 	content.WriteString("\n")
 	content.WriteString(m.linearImportInput.View())
 	content.WriteString("\n\n")
@@ -377,7 +384,7 @@ func (m *planModel) renderLinearImportInlineContent(visibleLines int, width int)
 	if m.linearImporting {
 		content.WriteString(tuiDimStyle.Render("Importing..."))
 	} else {
-		content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Enter] Import  [Esc] Cancel"))
+		content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Ctrl+Enter] Import  [Esc] Cancel"))
 	}
 
 	return content.String()
