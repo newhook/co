@@ -17,6 +17,8 @@ The Linear MCP server provides 24 specialized tools covering comprehensive Linea
 
 **Note**: Tool names separated by `/` indicate aliases (the same tool accessible by multiple names).
 
+**Documentation Completeness**: This document provides detailed parameter documentation for frequently-used tools. Tools with simplified descriptions follow common API patterns (e.g., accepting entity IDs, supporting standard pagination). For complete parameter specifications, refer to [Linear's official MCP documentation](https://linear.app/docs/mcp).
+
 ### Issue Management Tools
 
 1. **list_issues** - Browse and filter Linear issues
@@ -32,6 +34,13 @@ The Linear MCP server provides 24 specialized tools covering comprehensive Linea
    - Returns: Formatted list of issues with all fields
 
 2. **list_my_issues** - Personal task management with priority tracking
+   - Parameters:
+     - `status` (string) - Filter by issue status/state name
+     - `project` (string) - Filter by project name
+     - `sortBy` (enum: "createdAt" | "updatedAt" | "priority", default: "priority")
+     - `sortDirection` (enum: "ASC" | "DESC", default: "DESC")
+     - `limit` (number, 1-100, default: 25) - Results limit
+   - Returns: Issues assigned to current user with priority highlighting
 
 3. **get_issue** - Retrieve detailed issue data
    - Accepts: Issue identifier (e.g., "ENG-123") or full Linear URL
@@ -64,40 +73,116 @@ The Linear MCP server provides 24 specialized tools covering comprehensive Linea
    - Assignee can use 'me' for self-assignment
 
 6. **delete_issue** - Delete an existing issue
+   - Required parameters:
+     - `issueId` (string) - Issue identifier (e.g., "ENG-123") or UUID
+   - Returns: Confirmation of deletion
 
 7. **search_issues** - Advanced issue search
-   - Supports text queries and filters
-   - Filter options: assignee, creator, project, status, priority, dates, labels
-   - Logical operators and relative date filtering supported
+   - Parameters:
+     - `query` (string) - Search text (searches title and description)
+     - `assignee` (string) - Filter by assignee name
+     - `creator` (string) - Filter by issue creator
+     - `project` (string) - Filter by project name
+     - `status` (string) - Filter by workflow state
+     - `priority` (number, 0-4) - Filter by priority level
+     - `labels` (array of strings) - Filter by label names
+     - `dateFrom` (string) - Filter issues created/updated after date
+     - `dateTo` (string) - Filter issues created/updated before date
+     - `limit` (number, default: 25) - Results limit
+   - Supports logical operators (AND, OR) and relative date filtering
+   - Returns: Ranked search results matching query and filters
 
 ### Comment Tools
 
 8. **list_comments** - List comments on an issue
+   - Required parameters:
+     - `issueId` (string) - Issue identifier (e.g., "ENG-123") or UUID
+   - Optional parameters:
+     - `limit` (number, default: 25) - Number of comments to retrieve
+     - `sortDirection` (enum: "ASC" | "DESC", default: "ASC") - Sort by creation time
+   - Returns: List of comments with author, timestamp, and markdown body
+
 9. **create_comment** / **add_comment** - Create markdown-formatted comments on issues
+   - Required parameters:
+     - `issueId` (string) - Issue identifier (e.g., "ENG-123") or UUID
+     - `body` (string) - Comment text (supports markdown formatting)
+   - Returns: Created comment with ID and metadata
 
 ### Project & Team Tools
 
 10. **list_projects** - Get list of projects with name filtering and pagination
+   - Optional parameters:
+     - `name` (string) - Filter by project name (partial match)
+     - `status` (string) - Filter by project status
+     - `limit` (number, default: 25) - Results limit
+   - Returns: List of projects with details
+
 11. **get_project** - Get specific project details
+   - Required parameters:
+     - `projectId` (string) - Project identifier or name
+   - Returns: Comprehensive project details including members, issues, and status
 12. **create_project** - Create new project
 13. **update_project** - Update project details
 14. **get_project_updates** - Get project updates with filtering
 15. **create_project_update** - Create project update
 
 16. **list_teams** / **get_teams** - List teams with name/key filtering
+   - Optional parameters:
+     - `name` (string) - Filter by team name
+     - `key` (string) - Filter by team key prefix
+     - `limit` (number, default: 25) - Results limit
+   - Returns: List of teams with identifiers and metadata
+
 17. **get_team** - Get specific team details
+   - Required parameters:
+     - `teamId` (string) - Team identifier, name, or key
+   - Returns: Team details including members, projects, and workflow states
 
 18. **list_users** - List team members
+   - Optional parameters:
+     - `teamId` (string) - Filter by team
+     - `name` (string) - Filter by user name
+     - `limit` (number, default: 25) - Results limit
+   - Returns: List of users with names, emails, and roles
+
 19. **get_user** - Get specific user details
+   - Required parameters:
+     - `userId` (string) - User identifier or email
+   - Returns: User profile with assigned issues and activity
 
 ### Workflow & Documentation
 
 20. **get_workflow_states** / **list_issue_statuses** - List workflow states/statuses for a team
+   - Required parameters:
+     - `teamId` (string) - Team identifier or key
+   - Returns: List of available workflow states with names and metadata
+
 21. **get_issue_status** - Get specific status details
+   - Required parameters:
+     - `statusId` (string) - Status identifier or name
+   - Returns: Status details including color, type, and position
+
 22. **list_issue_labels** - Advanced categorization and filtering
+   - Optional parameters:
+     - `teamId` (string) - Filter by team
+     - `name` (string) - Filter by label name
+     - `limit` (number, default: 25) - Results limit
+   - Returns: List of labels with names, colors, and descriptions
 
 23. **get_document** / **list_documents** - Documentation integration
+   - Optional parameters (list_documents):
+     - `projectId` (string) - Filter by project
+     - `limit` (number, default: 25) - Results limit
+   - Required parameters (get_document):
+     - `documentId` (string) - Document identifier
+   - Returns: Document content and metadata
+
 24. **search_documentation** - AI-powered Linear feature discovery
+   - Required parameters:
+     - `query` (string) - Search query for Linear features and capabilities
+   - Optional parameters:
+     - `limit` (number, default: 10) - Number of results
+   - Returns: Relevant documentation sections and feature explanations
 
 ## Issue Fields Returned
 
