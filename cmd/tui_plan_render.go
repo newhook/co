@@ -381,10 +381,32 @@ func (m *planModel) renderLinearImportInlineContent(visibleLines int, width int)
 	content.WriteString(maxDepthLabel + " " + tuiValueStyle.Render(fmt.Sprintf("%d", m.linearImportMaxDepth)))
 	content.WriteString("\n\n")
 
+	// Render Ok and Cancel buttons
+	okLabel := "  Ok  "
+	cancelLabel := "Cancel"
+	focusHint := ""
+
+	if m.linearImportFocus == 5 {
+		okLabel = tuiValueStyle.Render("[ Ok ]")
+		focusHint = tuiDimStyle.Render(" (press Enter to import)")
+	} else {
+		okLabel = styleButtonWithHover("  Ok  ", m.hoveredDialogButton == "ok")
+	}
+
+	if m.linearImportFocus == 6 {
+		cancelLabel = tuiValueStyle.Render("[Cancel]")
+		focusHint = tuiDimStyle.Render(" (press Enter to cancel)")
+	} else {
+		cancelLabel = styleButtonWithHover("Cancel", m.hoveredDialogButton == "cancel")
+	}
+
+	content.WriteString(okLabel + "  " + cancelLabel + focusHint)
+	content.WriteString("\n")
+
 	if m.linearImporting {
 		content.WriteString(tuiDimStyle.Render("Importing..."))
 	} else {
-		content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Ctrl+Enter] Import  [Esc] Cancel"))
+		content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Enter] Activate"))
 	}
 
 	return content.String()
@@ -567,9 +589,10 @@ func (m *planModel) detectHoveredIssue(y int) int {
 // detectDialogButton determines which dialog button is at the given position
 // Returns "ok", "cancel", or "" if not over a button
 func (m *planModel) detectDialogButton(x, y int) string {
-	// Dialog buttons only visible in form modes
+	// Dialog buttons only visible in form modes and Linear import mode
 	if m.viewMode != ViewCreateBead && m.viewMode != ViewCreateBeadInline &&
-		m.viewMode != ViewAddChildBead && m.viewMode != ViewEditBead {
+		m.viewMode != ViewAddChildBead && m.viewMode != ViewEditBead &&
+		m.viewMode != ViewLinearImportInline {
 		return ""
 	}
 
@@ -586,41 +609,75 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		return ""
 	}
 
-	// The buttons are rendered in the form content
-	// We need to calculate the Y position of the button row
-	// The form structure is:
-	// - Header line
-	// - Parent info line (if add child mode)
-	// - Blank line
-	// - Title label
-	// - Title input
-	// - Blank line + type + blank line
-	// - Priority line
-	// - Blank line
-	// - Description label
-	// - Textarea (4 lines)
-	// - Blank line
-	// - Button row
+	// Handle Linear import dialog separately
+	if m.viewMode == ViewLinearImportInline {
+		// The Linear import form structure:
+		// - Header line "Import from Linear (Bulk)"
+		// - Blank line
+		// - Issue IDs label
+		// - Textarea (height 4)
+		// - Blank line
+		// - Create Dependencies checkbox
+		// - Update Existing checkbox
+		// - Dry Run checkbox
+		// - Blank line
+		// - Max Depth line
+		// - Blank line
+		// - Button row
+		formStartY := 2
+		linesBeforeButtons := 1  // header
+		linesBeforeButtons += 1  // blank line
+		linesBeforeButtons += 1  // issue IDs label
+		linesBeforeButtons += 4  // textarea (height 4)
+		linesBeforeButtons += 1  // blank line
+		linesBeforeButtons += 1  // create deps checkbox
+		linesBeforeButtons += 1  // update checkbox
+		linesBeforeButtons += 1  // dry run checkbox
+		linesBeforeButtons += 1  // blank line
+		linesBeforeButtons += 1  // max depth
+		linesBeforeButtons += 1  // blank line
+		buttonRowY := formStartY + linesBeforeButtons
 
-	// Calculate expected Y position of button row
-	// Start from top of details panel (Y=1 for title, Y=2 for content start)
-	formStartY := 2
-	linesBeforeButtons := 1 // header
-	if m.parentBeadID != "" {
-		linesBeforeButtons++ // parent info line
-	}
-	linesBeforeButtons += 1  // blank line
-	linesBeforeButtons += 1  // title label
-	linesBeforeButtons += 1  // title input
-	linesBeforeButtons += 2  // type + priority lines with preceding blank
-	linesBeforeButtons += 1  // priority
-	linesBeforeButtons += 2  // blank + desc label
-	linesBeforeButtons += 4  // textarea (default height)
-	linesBeforeButtons += 1  // blank line before buttons
-	buttonRowY := formStartY + linesBeforeButtons
+		if y != buttonRowY {
+			return ""
+		}
+	} else {
+		// The buttons are rendered in the form content
+		// We need to calculate the Y position of the button row
+		// The form structure is:
+		// - Header line
+		// - Parent info line (if add child mode)
+		// - Blank line
+		// - Title label
+		// - Title input
+		// - Blank line + type + blank line
+		// - Priority line
+		// - Blank line
+		// - Description label
+		// - Textarea (4 lines)
+		// - Blank line
+		// - Button row
 
-	if y != buttonRowY {
-		return ""
+		// Calculate expected Y position of button row
+		// Start from top of details panel (Y=1 for title, Y=2 for content start)
+		formStartY := 2
+		linesBeforeButtons := 1 // header
+		if m.parentBeadID != "" {
+			linesBeforeButtons++ // parent info line
+		}
+		linesBeforeButtons += 1  // blank line
+		linesBeforeButtons += 1  // title label
+		linesBeforeButtons += 1  // title input
+		linesBeforeButtons += 2  // type + priority lines with preceding blank
+		linesBeforeButtons += 1  // priority
+		linesBeforeButtons += 2  // blank + desc label
+		linesBeforeButtons += 4  // textarea (default height)
+		linesBeforeButtons += 1  // blank line before buttons
+		buttonRowY := formStartY + linesBeforeButtons
+
+		if y != buttonRowY {
+			return ""
+		}
 	}
 
 	// Calculate X position of buttons within the details panel

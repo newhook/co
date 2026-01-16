@@ -341,14 +341,14 @@ func (m *planModel) updateLinearImportInline(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		return m, nil
 	}
 
-	// Tab cycles between elements: input(0) -> createDeps(1) -> update(2) -> dryRun(3) -> maxDepth(4)
+	// Tab cycles between elements: input(0) -> createDeps(1) -> update(2) -> dryRun(3) -> maxDepth(4) -> Ok(5) -> Cancel(6)
 	if msg.Type == tea.KeyTab || msg.String() == "tab" {
 		// Leave textarea focus before switching
 		if m.linearImportFocus == 0 {
 			m.linearImportInput.Blur()
 		}
 
-		m.linearImportFocus = (m.linearImportFocus + 1) % 5
+		m.linearImportFocus = (m.linearImportFocus + 1) % 7
 
 		// Enter new focus
 		if m.linearImportFocus == 0 {
@@ -366,7 +366,7 @@ func (m *planModel) updateLinearImportInline(msg tea.KeyMsg) (tea.Model, tea.Cmd
 
 		m.linearImportFocus--
 		if m.linearImportFocus < 0 {
-			m.linearImportFocus = 4
+			m.linearImportFocus = 6
 		}
 
 		// Enter new focus
@@ -387,14 +387,32 @@ func (m *planModel) updateLinearImportInline(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		return m, nil
 	}
 
-	// Enter submits from other fields (but not from textarea - use Ctrl+Enter there)
-	if msg.String() == "enter" && m.linearImportFocus != 0 {
-		// Submit the form from non-textarea fields
-		issueIDs := strings.TrimSpace(m.linearImportInput.Value())
-		if issueIDs != "" {
+	// Enter or Space activates buttons and submits from other fields (but not from textarea - use Ctrl+Enter there)
+	if (msg.String() == "enter" || msg.String() == " ") && m.linearImportFocus != 0 {
+		// Handle Ok button (focus = 5)
+		if m.linearImportFocus == 5 {
+			issueIDs := strings.TrimSpace(m.linearImportInput.Value())
+			if issueIDs != "" {
+				m.viewMode = ViewNormal
+				m.linearImporting = true
+				return m, m.importLinearIssue(issueIDs)
+			}
+			return m, nil
+		}
+		// Handle Cancel button (focus = 6)
+		if m.linearImportFocus == 6 {
 			m.viewMode = ViewNormal
-			m.linearImporting = true
-			return m, m.importLinearIssue(issueIDs)
+			m.linearImportInput.Blur()
+			return m, nil
+		}
+		// Only Enter (not space) submits the form from other non-textarea fields
+		if msg.String() == "enter" {
+			issueIDs := strings.TrimSpace(m.linearImportInput.Value())
+			if issueIDs != "" {
+				m.viewMode = ViewNormal
+				m.linearImporting = true
+				return m, m.importLinearIssue(issueIDs)
+			}
 		}
 		return m, nil
 	}

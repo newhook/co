@@ -318,15 +318,31 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Check if clicking on dialog buttons
 				clickedDialogButton := m.detectDialogButton(msg.X, msg.Y)
 				if clickedDialogButton == "ok" {
-					// Submit the form
-					return m.submitBeadForm()
+					// Handle different dialog types
+					if m.viewMode == ViewLinearImportInline {
+						// Submit Linear import
+						issueIDs := strings.TrimSpace(m.linearImportInput.Value())
+						if issueIDs != "" {
+							m.viewMode = ViewNormal
+							m.linearImporting = true
+							return m, m.importLinearIssue(issueIDs)
+						}
+						return m, nil
+					} else {
+						// Submit bead form
+						return m.submitBeadForm()
+					}
 				} else if clickedDialogButton == "cancel" {
 					// Cancel the form
+					if m.viewMode == ViewLinearImportInline {
+						m.linearImportInput.Blur()
+					} else {
+						m.textInput.Blur()
+						m.createDescTextarea.Blur()
+						m.editBeadID = ""
+						m.parentBeadID = ""
+					}
 					m.viewMode = ViewNormal
-					m.textInput.Blur()
-					m.createDescTextarea.Blur()
-					m.editBeadID = ""
-					m.parentBeadID = ""
 					return m, nil
 				}
 
