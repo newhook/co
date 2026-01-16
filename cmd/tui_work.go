@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,7 +17,9 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/tracking/watcher"
 )
 
 // ZoomLevel represents the zoom state of the work mode view
@@ -29,6 +32,8 @@ const (
 	ZoomZoomedIn
 )
 
+// trackingWatcherEventMsg wraps tracking database watcher events
+type trackingWatcherEventMsg watcher.WatcherEvent
 
 // workModel is the Work Mode model focused on work/task management
 type workModel struct {
@@ -46,6 +51,9 @@ type workModel struct {
 	works   []*workProgress
 	loading bool
 	focused bool
+
+	// Watcher for tracking database
+	trackingWatcher *watcher.Watcher
 
 	// UI state
 	viewMode      ViewMode
@@ -117,6 +125,21 @@ func newWorkModel(ctx context.Context, proj *project.Project) *workModel {
 	createDescTa.SetWidth(60)
 	createDescTa.SetHeight(4)
 
+	// Initialize tracking database watcher
+	trackingDBPath := filepath.Join(proj.Root, ".co", "tracking.db")
+	trackingWatcher, err := watcher.New(watcher.DefaultConfig(trackingDBPath))
+	if err != nil {
+		// Log error but continue without watcher
+		logging.Warn("Failed to initialize tracking watcher", "error", err)
+		trackingWatcher = nil
+	} else {
+		if err := trackingWatcher.Start(); err != nil {
+			// Log error and disable watcher
+			logging.Warn("Failed to start tracking watcher", "error", err)
+			trackingWatcher = nil
+		}
+	}
+
 	return &workModel{
 		ctx:                ctx,
 		proj:               proj,
@@ -132,22 +155,58 @@ func newWorkModel(ctx context.Context, proj *project.Project) *workModel {
 		hoveredTaskIdx:     -1,
 		createDescTextarea: createDescTa,
 		loading:            true,
+		trackingWatcher:    trackingWatcher,
 	}
 }
 
 // Init implements tea.Model
 func (m *workModel) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		m.spinner.Tick,
 		m.refreshData(),
-		m.tick(),
-	)
+	}
+
+	// Subscribe to watcher events if watcher is available
+	if m.trackingWatcher != nil {
+		cmds = append(cmds, m.waitForWatcherEvent())
+	} else {
+		// Fall back to polling if no watcher
+		cmds = append(cmds, m.tick())
+	}
+
+	return tea.Batch(cmds...)
 }
 
 func (m *workModel) tick() tea.Cmd {
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		return workTickMsg(t)
 	})
+}
+
+// waitForWatcherEvent waits for a watcher event and returns it as a tea.Msg
+func (m *workModel) waitForWatcherEvent() tea.Cmd {
+	if m.trackingWatcher == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		sub := m.trackingWatcher.Broker().Subscribe(m.ctx)
+
+		evt, ok := <-sub
+		if !ok {
+			return nil
+		}
+
+		return trackingWatcherEventMsg(evt.Payload)
+	}
+}
+
+// cleanup releases resources when the TUI exits
+func (m *workModel) cleanup() {
+	// Stop the tracking watcher if it's running
+	if m.trackingWatcher != nil {
+		_ = m.trackingWatcher.Stop()
+	}
 }
 
 // SetSize implements SubModel
@@ -168,9 +227,21 @@ func (m *workModel) recalculateGrid() {
 func (m *workModel) FocusChanged(focused bool) tea.Cmd {
 	m.focused = focused
 	if focused {
-		// Refresh data when gaining focus and restart periodic tick and spinner
+		// Refresh data when gaining focus and restart spinner
 		m.loading = true
-		return tea.Batch(m.spinner.Tick, m.refreshData(), m.tick())
+		cmds := []tea.Cmd{
+			m.spinner.Tick,
+			m.refreshData(),
+		}
+
+		// Use watcher if available, otherwise fall back to polling
+		if m.trackingWatcher != nil {
+			cmds = append(cmds, m.waitForWatcherEvent())
+		} else {
+			cmds = append(cmds, m.tick())
+		}
+
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
@@ -372,9 +443,24 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 
 	case workTickMsg:
-		// Periodic refresh
+		// Periodic refresh (fallback when no watcher)
 		cmds = append(cmds, m.refreshData())
 		cmds = append(cmds, m.tick())
+
+	case trackingWatcherEventMsg:
+		// Handle watcher events
+		if msg.Type == watcher.DBChanged {
+			// Trigger data reload and wait for next watcher event
+			cmds = append(cmds, m.refreshData())
+			cmds = append(cmds, m.waitForWatcherEvent())
+		} else if msg.Type == watcher.WatcherError {
+			// Log error and continue waiting for events
+			logging.Error("Tracking watcher error", "error", msg.Error)
+			cmds = append(cmds, m.waitForWatcherEvent())
+		} else {
+			// Continue waiting for next event
+			cmds = append(cmds, m.waitForWatcherEvent())
+		}
 	}
 
 	return m, tea.Batch(cmds...)

@@ -247,6 +247,13 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "q":
 			m.quitting = true
+			// Clean up resources in both models
+			if planModel, ok := m.planModel.(*planModel); ok {
+				planModel.cleanup()
+			}
+			if workModel, ok := m.workModel.(*workModel); ok {
+				workModel.cleanup()
+			}
 			return m, tea.Quit
 		}
 
