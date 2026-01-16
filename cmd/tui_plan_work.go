@@ -116,6 +116,8 @@ func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		case "enter":
 			branchName := strings.TrimSpace(m.createWorkBranch.Value())
 			if branchName == "" {
+				m.statusMessage = "Branch name cannot be empty"
+				m.statusIsError = true
 				return m, nil
 			}
 			switch m.createWorkButtonIdx {

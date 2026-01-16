@@ -351,6 +351,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.viewMode == ViewCreateWork {
 						branchName := strings.TrimSpace(m.createWorkBranch.Value())
 						if branchName == "" {
+							m.statusMessage = "Branch name cannot be empty"
+							m.statusIsError = true
 							return m, nil
 						}
 						m.viewMode = ViewNormal
@@ -362,6 +364,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.viewMode == ViewCreateWork {
 						branchName := strings.TrimSpace(m.createWorkBranch.Value())
 						if branchName == "" {
+							m.statusMessage = "Branch name cannot be empty"
+							m.statusIsError = true
 							return m, nil
 						}
 						m.viewMode = ViewNormal
