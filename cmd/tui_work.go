@@ -443,6 +443,18 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			// Direct zoom to panel by number (0-9)
+			panelIdx := int(msg.String()[0] - '0')
+			if panelIdx < len(m.works) && panelIdx < 10 {
+				m.worksCursor = panelIdx
+				m.overviewBeadCursor = 0
+				m.zoomLevel = ZoomZoomedIn
+				m.selectedWorkID = m.works[panelIdx].work.ID
+				m.activePanel = PanelMiddle // Start on tasks panel (no left panel in zoom mode)
+				m.tasksCursor = 0
+			}
+			return m, nil
 		case "enter":
 			// Zoom in on selected work
 			if len(m.works) > 0 && m.worksCursor < len(m.works) {
@@ -1216,7 +1228,13 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 		icon = statusIcon(wp.work.Status)
 	}
 
-	header := fmt.Sprintf("%s %s", icon, workerName)
+	// Add panel number (0-9) for first 10 panels
+	var panelNumber string
+	if idx < 10 {
+		panelNumber = fmt.Sprintf("[%d] ", idx)
+	}
+
+	header := fmt.Sprintf("%s%s %s", panelNumber, icon, workerName)
 	if isSelected {
 		header = tuiActiveTabStyle.Render(header)
 	} else {
