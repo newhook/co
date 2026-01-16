@@ -190,6 +190,89 @@ func (m *planModel) renderCreateWorkDialogContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
+// renderCreateWorkInlineContent renders the work creation panel inline in the details area
+func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) string {
+	var content strings.Builder
+
+	// Panel header
+	content.WriteString(tuiSuccessStyle.Render("Create Work"))
+	content.WriteString("\n\n")
+
+	// Show bead info
+	var beadInfo string
+	if len(m.createWorkBeadIDs) == 1 {
+		beadInfo = fmt.Sprintf("Creating work from issue: %s", issueIDStyle.Render(m.createWorkBeadIDs[0]))
+	} else {
+		beadInfo = fmt.Sprintf("Creating work from %d issues", len(m.createWorkBeadIDs))
+		// List the first few IDs
+		content.WriteString(beadInfo)
+		content.WriteString("\n")
+		maxShow := 5
+		if len(m.createWorkBeadIDs) < maxShow {
+			maxShow = len(m.createWorkBeadIDs)
+		}
+		for i := 0; i < maxShow; i++ {
+			content.WriteString("  • " + issueIDStyle.Render(m.createWorkBeadIDs[i]))
+			content.WriteString("\n")
+		}
+		if len(m.createWorkBeadIDs) > maxShow {
+			content.WriteString(fmt.Sprintf("  ... and %d more", len(m.createWorkBeadIDs)-maxShow))
+			content.WriteString("\n")
+		}
+		content.WriteString("\n")
+	}
+
+	if len(m.createWorkBeadIDs) == 1 {
+		content.WriteString(beadInfo)
+		content.WriteString("\n\n")
+	}
+
+	// Branch name input
+	branchLabel := "Branch name:"
+	if m.createWorkField == 0 {
+		branchLabel = tuiSuccessStyle.Render("Branch name:") + " " + tuiDimStyle.Render("(editing)")
+	} else {
+		branchLabel = tuiLabelStyle.Render("Branch name:")
+	}
+	content.WriteString(branchLabel)
+	content.WriteString("\n")
+	content.WriteString(m.createWorkBranch.View())
+	content.WriteString("\n\n")
+
+	// Action buttons with better spacing
+	content.WriteString("Actions:\n")
+
+	// Execute button
+	if m.createWorkField == 1 && m.createWorkButtonIdx == 0 {
+		content.WriteString("  " + tuiSelectedStyle.Render("► Execute"))
+	} else {
+		content.WriteString("  " + tuiDimStyle.Render("  Execute"))
+	}
+	content.WriteString(" - Create work and spawn orchestrator\n")
+
+	// Auto button
+	if m.createWorkField == 1 && m.createWorkButtonIdx == 1 {
+		content.WriteString("  " + tuiSelectedStyle.Render("► Auto"))
+	} else {
+		content.WriteString("  " + tuiDimStyle.Render("  Auto"))
+	}
+	content.WriteString(" - Create work with automated workflow\n")
+
+	// Cancel button
+	if m.createWorkField == 1 && m.createWorkButtonIdx == 2 {
+		content.WriteString("  " + tuiSelectedStyle.Render("► Cancel"))
+	} else {
+		content.WriteString("  " + tuiDimStyle.Render("  Cancel"))
+	}
+	content.WriteString(" - Cancel work creation\n")
+
+	// Navigation help
+	content.WriteString("\n")
+	content.WriteString(tuiDimStyle.Render("Navigation: [Tab/Shift+Tab] Switch field  [↑↓/hl] Select button  [Enter] Confirm  [Esc] Cancel"))
+
+	return content.String()
+}
+
 // executeCreateWork creates a work unit with the given branch name.
 // This calls internal logic directly instead of shelling out to the CLI.
 func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto bool) tea.Cmd {

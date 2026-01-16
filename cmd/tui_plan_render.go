@@ -117,6 +117,11 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 		return m.renderLinearImportInlineContent(visibleLines, width)
 	}
 
+	// If in create work mode, render the work creation panel overlay
+	if m.viewMode == ViewCreateWork {
+		return m.renderCreateWorkInlineContent(visibleLines, width)
+	}
+
 	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
 		content.WriteString(tuiDimStyle.Render("No issue selected"))
 	} else {

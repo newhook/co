@@ -909,7 +909,8 @@ func (m *planModel) View() string {
 		// All bead form modes render inline in the details panel
 		// Fall through to normal rendering
 	case ViewCreateWork:
-		return m.renderWithDialog(m.renderCreateWorkDialogContent())
+		// Create work now renders inline in the details panel
+		// Fall through to normal rendering
 	case ViewAddToWork:
 		return m.renderWithDialog(m.renderAddToWorkDialogContent())
 	case ViewBeadSearch:
