@@ -24,7 +24,9 @@ go test ./...
 - `cmd/task.go` - Task management (list/show/delete/reset/set-review-epic)
 - `cmd/work.go` - Work management (create/list/show/destroy/pr/review)
 - `cmd/work_automated.go` - Automated bead-to-PR workflow
+- `cmd/linear.go` - Linear integration commands (import issues from Linear)
 - `internal/beads/` - Beads database client (bd CLI wrapper)
+- `internal/linear/` - Linear MCP client and import logic
 - `internal/claude/` - Claude Code invocation
 - `internal/db/` - SQLite tracking database
 - `internal/task/` - Task planning and complexity estimation
@@ -233,6 +235,42 @@ Associates a review epic with a review task:
 - Sets the review_epic_id metadata on a review task
 - Task is auto-detected from CO_TASK_ID env var or current processing review task
 - Use `--task` flag for explicit specification
+
+## Linear Integration
+
+### `co linear import <issue-id-or-url>...`
+Imports Linear issues into the beads issue tracker:
+- Accepts Linear issue IDs (e.g., `ENG-123`) or URLs
+- Preserves all Linear metadata (ID, URL, assignee, labels, etc.)
+- Supports batch import of multiple issues
+- Use `--create-deps` to import blocking issues as dependencies
+- Use `--update` to update existing beads from Linear
+- Use `--dry-run` to preview without creating beads
+- Use filters to selectively import: `--status-filter`, `--priority-filter`, `--assignee-filter`
+- Requires `LINEAR_API_KEY` environment variable
+
+Examples:
+```bash
+# Import single issue
+co linear import ENG-123
+
+# Import by URL
+co linear import https://linear.app/company/issue/ENG-123/title
+
+# Import multiple issues
+co linear import ENG-123 ENG-124 ENG-125
+
+# Import with dependencies
+co linear import ENG-123 --create-deps --max-dep-depth=2
+
+# Update existing bead
+co linear import ENG-123 --update
+
+# Preview without creating
+co linear import ENG-123 --dry-run
+```
+
+For detailed API documentation and TUI integration examples, see `docs/linear-import-api.md`.
 
 ## Additional Commands
 
