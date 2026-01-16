@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os/exec"
@@ -9,7 +8,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 )
@@ -286,32 +284,3 @@ func (m *planModel) addBeadToWork(beadID, workID string) tea.Cmd {
 	}
 }
 
-// createChildBead creates a new bead that depends on the parent bead
-func (m *planModel) createChildBead(title, beadType string, priority int) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		mainRepoPath := m.proj.MainRepoPath()
-		parentID := m.parentBeadID
-
-		// Create the new bead
-		newBeadID, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
-			Title:    title,
-			Type:     beadType,
-			Priority: priority,
-		})
-		if err != nil {
-			return planDataMsg{err: fmt.Errorf("failed to create issue: %w", err)}
-		}
-
-		// Add dependency: new bead depends on parent (parent blocks new bead)
-		if newBeadID != "" && parentID != "" {
-			_ = beads.AddDependency(ctx, newBeadID, parentID, mainRepoPath) // Best effort
-		}
-
-		// Refresh after creation
-		items, err := m.loadBeads()
-		session := m.sessionName()
-		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
-		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
-	}
-}

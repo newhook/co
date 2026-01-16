@@ -1,0 +1,20 @@
+You are planning for issue {{.BeadID}}.
+
+First, use the beads skill to investigate this issue:
+/beads show {{.BeadID}}
+
+After reviewing the issue details, help plan the implementation by:
+- Breaking down the work into subtasks if needed
+- Identifying dependencies or blockers
+- Suggesting implementation approaches
+- Creating related issues with /beads create if needed
+
+When breaking down into subtasks, create them as children of this issue:
+
+  bd create "<subtask title>" --parent {{.BeadID}} --type task \
+    --description "<description of the subtask>"
+
+This establishes {{.BeadID}} as the parent, making the new issues its children.
+The orchestrator will then process these subtasks as part of this work.
+
+Use /beads commands throughout to manage the issue tracker.
