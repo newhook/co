@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 	"text/template"
 	"time"
@@ -29,12 +30,16 @@ var reviewTemplateText string
 //go:embed templates/update-pr-description.tmpl
 var updatePRDescriptionTemplateText string
 
+//go:embed templates/plan.tmpl
+var planTemplateText string
+
 var (
 	estimateTmpl            = template.Must(template.New("estimate").Parse(estimateTemplateText))
 	taskTmpl                = template.Must(template.New("task").Parse(taskTemplateText))
 	prTmpl                  = template.Must(template.New("pr").Parse(prTemplateText))
 	reviewTmpl              = template.Must(template.New("review").Parse(reviewTemplateText))
 	updatePRDescriptionTmpl = template.Must(template.New("update-pr-description").Parse(updatePRDescriptionTemplateText))
+	planTmpl                = template.Must(template.New("plan").Parse(planTemplateText))
 )
 
 // SessionNameForProject returns the zellij session name for a specific project.
@@ -235,6 +240,42 @@ func BuildUpdatePRDescriptionPrompt(taskID string, workID string, prURL string, 
 	}
 
 	return buf.String()
+}
+
+// BuildPlanPrompt builds a prompt for planning an issue.
+func BuildPlanPrompt(beadID string) string {
+	data := struct {
+		BeadID string
+	}{
+		BeadID: beadID,
+	}
+
+	var buf bytes.Buffer
+	if err := planTmpl.Execute(&buf, data); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("Planning for issue %s", beadID)
+	}
+
+	return buf.String()
+}
+
+// RunPlanSession runs an interactive Claude session for planning an issue.
+// This launches Claude with the plan prompt and connects stdin/stdout/stderr
+// for interactive use.
+func RunPlanSession(ctx context.Context, beadID string, workDir string, stdin io.Reader, stdout, stderr io.Writer) error {
+	prompt := BuildPlanPrompt(beadID)
+
+	cmd := exec.CommandContext(ctx, "claude", "--dangerously-skip-permissions", prompt)
+	cmd.Dir = workDir
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("claude exited with error: %w", err)
+	}
+
+	return nil
 }
 
 // SpawnWorkOrchestrator creates a zellij tab and runs the orchestrate command for a work unit.
