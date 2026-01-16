@@ -23,6 +23,14 @@ import (
 // watcherEventMsg wraps watcher events for tea.Msg
 type watcherEventMsg watcher.WatcherEvent
 
+// ButtonRegion represents a clickable button's position in the terminal
+type ButtonRegion struct {
+	ID     string // Button identifier (e.g., "execute", "auto", "cancel")
+	Y      int    // Y coordinate (row)
+	StartX int    // Starting X coordinate (column)
+	EndX   int    // Ending X coordinate (column)
+}
+
 // planModel is the Plan Mode model focused on issue/bead management
 type planModel struct {
 	ctx    context.Context
@@ -91,6 +99,9 @@ type planModel struct {
 	hoveredButton       string // which button is hovered ("n", "e", "w", "p", etc.)
 	hoveredIssue        int    // index of hovered issue, -1 if none
 	hoveredDialogButton string // which dialog button is hovered ("ok", "cancel")
+
+	// Button position tracking for robust click detection
+	dialogButtons []ButtonRegion // Tracked button positions for current dialog
 
 	// Linear import state
 	linearImportInput      textarea.Model  // Input for Linear issue IDs/URLs (multi-line)

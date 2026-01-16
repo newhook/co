@@ -146,9 +146,16 @@ func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) string {
 	var content strings.Builder
 
+	// Clear previous button positions
+	m.dialogButtons = nil
+
+	// Track current line number (starting at 2 for the form content area)
+	currentLine := 2
+
 	// Panel header
 	content.WriteString(tuiSuccessStyle.Render("Create Work"))
 	content.WriteString("\n\n")
+	currentLine += 2 // header + blank line
 
 	// Show bead info
 	var beadInfo string
@@ -159,6 +166,7 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 		// List the first few IDs
 		content.WriteString(beadInfo)
 		content.WriteString("\n")
+		currentLine++ // bead info line
 		maxShow := 5
 		if len(m.createWorkBeadIDs) < maxShow {
 			maxShow = len(m.createWorkBeadIDs)
@@ -166,17 +174,21 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 		for i := 0; i < maxShow; i++ {
 			content.WriteString("  • " + issueIDStyle.Render(m.createWorkBeadIDs[i]))
 			content.WriteString("\n")
+			currentLine++ // each bead ID line
 		}
 		if len(m.createWorkBeadIDs) > maxShow {
 			content.WriteString(fmt.Sprintf("  ... and %d more", len(m.createWorkBeadIDs)-maxShow))
 			content.WriteString("\n")
+			currentLine++ // "... and N more" line
 		}
 		content.WriteString("\n")
+		currentLine++ // blank line
 	}
 
 	if len(m.createWorkBeadIDs) == 1 {
 		content.WriteString(beadInfo)
 		content.WriteString("\n\n")
+		currentLine += 2 // bead info + blank line
 	}
 
 	// Branch name input
@@ -188,11 +200,14 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 	}
 	content.WriteString(branchLabel)
 	content.WriteString("\n")
+	currentLine++ // branch label line
 	content.WriteString(m.createWorkBranch.View())
 	content.WriteString("\n\n")
+	currentLine += 2 // branch input + blank line
 
 	// Action buttons with better spacing
 	content.WriteString("Actions:\n")
+	currentLine++ // "Actions:" label
 
 	// Execute button
 	executeStyle := tuiDimStyle
@@ -203,8 +218,17 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 	} else if m.hoveredDialogButton == "execute" {
 		executeStyle = tuiSuccessStyle
 	}
+	// Track Execute button position (starts at column 2, ends after "Execute" text)
+	// The button text "  Execute" or "► Execute" starts at column 2
+	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
+		ID:     "execute",
+		Y:      currentLine,
+		StartX: 2,
+		EndX:   12, // "  Execute" is ~10 chars, plus some margin
+	})
 	content.WriteString("  " + executeStyle.Render(executePrefix+"Execute"))
 	content.WriteString(" - Create work and spawn orchestrator\n")
+	currentLine++
 
 	// Auto button
 	autoStyle := tuiDimStyle
@@ -215,8 +239,16 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 	} else if m.hoveredDialogButton == "auto" {
 		autoStyle = tuiSuccessStyle
 	}
+	// Track Auto button position
+	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
+		ID:     "auto",
+		Y:      currentLine,
+		StartX: 2,
+		EndX:   8, // "  Auto" is ~6 chars, plus some margin
+	})
 	content.WriteString("  " + autoStyle.Render(autoPrefix+"Auto"))
 	content.WriteString(" - Create work with automated workflow\n")
+	currentLine++
 
 	// Cancel button
 	cancelStyle := tuiDimStyle
@@ -227,8 +259,16 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 	} else if m.hoveredDialogButton == "cancel" {
 		cancelStyle = tuiSuccessStyle
 	}
+	// Track Cancel button position
+	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
+		ID:     "cancel",
+		Y:      currentLine,
+		StartX: 2,
+		EndX:   10, // "  Cancel" is ~8 chars, plus some margin
+	})
 	content.WriteString("  " + cancelStyle.Render(cancelPrefix+"Cancel"))
 	content.WriteString(" - Cancel work creation\n")
+	currentLine++
 
 	// Navigation help
 	content.WriteString("\n")

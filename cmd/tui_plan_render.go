@@ -621,64 +621,20 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		return ""
 	}
 
-	// Handle ViewCreateWork separately
+	// Handle ViewCreateWork using tracked button positions
 	if m.viewMode == ViewCreateWork {
-		// The work creation form structure:
-		// - Header line "Create Work"
-		// - Blank line
-		// - Bead info lines (variable)
-		// - Branch name label
-		// - Branch input
-		// - Blank line
-		// - "Actions:" label
-		// - Execute button line
-		// - Auto button line
-		// - Cancel button line
-		formStartY := 2
-		linesBeforeButtons := 1  // header
-		linesBeforeButtons += 1  // blank line
+		// Use the button positions tracked during rendering
+		// These positions are relative to the details panel content area
+		buttonAreaX := x - detailsPanelStart
 
-		// Bead info lines
-		if len(m.createWorkBeadIDs) == 1 {
-			linesBeforeButtons += 1  // single bead info
-			linesBeforeButtons += 1  // blank line
-		} else {
-			linesBeforeButtons += 1  // "Creating work from N issues"
-			maxShow := 5
-			if len(m.createWorkBeadIDs) < maxShow {
-				maxShow = len(m.createWorkBeadIDs)
-			}
-			linesBeforeButtons += maxShow  // bead IDs
-			if len(m.createWorkBeadIDs) > maxShow {
-				linesBeforeButtons += 1  // "... and N more"
-			}
-			linesBeforeButtons += 1  // blank line
-		}
+		// Check each tracked button region
+		for _, button := range m.dialogButtons {
+			// The Y position stored is relative to the form start (y=2)
+			// So we need to add the form start position
+			absoluteY := 2 + button.Y
 
-		linesBeforeButtons += 1  // branch label
-		linesBeforeButtons += 1  // branch input
-		linesBeforeButtons += 1  // blank line
-		linesBeforeButtons += 1  // "Actions:" label
-
-		// Check if clicking on Execute, Auto, or Cancel button lines
-		executeButtonY := formStartY + linesBeforeButtons
-		autoButtonY := executeButtonY + 1
-		cancelButtonY := autoButtonY + 1
-
-		if y == executeButtonY {
-			// Check if X is over the Execute button text
-			if buttonAreaX := x - detailsPanelStart; buttonAreaX >= 2 && buttonAreaX <= 12 {
-				return "execute"
-			}
-		} else if y == autoButtonY {
-			// Check if X is over the Auto button text
-			if buttonAreaX := x - detailsPanelStart; buttonAreaX >= 2 && buttonAreaX <= 8 {
-				return "auto"
-			}
-		} else if y == cancelButtonY {
-			// Check if X is over the Cancel button text
-			if buttonAreaX := x - detailsPanelStart; buttonAreaX >= 2 && buttonAreaX <= 10 {
-				return "cancel"
+			if y == absoluteY && buttonAreaX >= button.StartX && buttonAreaX <= button.EndX {
+				return button.ID
 			}
 		}
 		return ""
