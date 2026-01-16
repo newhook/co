@@ -13,7 +13,7 @@ Linear provides an official, centrally-hosted MCP server with two transport opti
 
 ## Available Tools/Methods
 
-The Linear MCP server provides 21 specialized tools covering comprehensive Linear project management functionality:
+The Linear MCP server provides 24 specialized tools covering comprehensive Linear project management functionality:
 
 ### Issue Management Tools
 
