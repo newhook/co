@@ -40,8 +40,8 @@ func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, 
 				if deps, ok := result.Dependencies[items[i].id]; ok {
 					depIDs := make([]string, 0, len(deps))
 					for _, dep := range deps {
-						// Only include "blocks" type dependencies
-						if dep.Type == "blocks" {
+						// Include "blocks" and "parent-child" type dependencies
+						if dep.Type == "blocks" || dep.Type == "parent-child" {
 							depIDs = append(depIDs, dep.DependsOnID)
 						}
 					}
@@ -89,7 +89,7 @@ func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, 
 							if deps, ok := parentResult.Dependencies[parentID]; ok {
 								depIDs := make([]string, 0, len(deps))
 								for _, dep := range deps {
-									if dep.Type == "blocks" {
+									if dep.Type == "blocks" || dep.Type == "parent-child" {
 										depIDs = append(depIDs, dep.DependsOnID)
 									}
 								}
@@ -126,7 +126,7 @@ func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, 
 					if deps, ok := result.Dependencies[items[i].id]; ok {
 						depIDs := make([]string, 0, len(deps))
 						for _, dep := range deps {
-							if dep.Type == "blocks" {
+							if dep.Type == "blocks" || dep.Type == "parent-child" {
 								depIDs = append(depIDs, dep.DependsOnID)
 							}
 						}
@@ -174,7 +174,7 @@ func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, 
 							if deps, ok := parentResult.Dependencies[parentID]; ok {
 								depIDs := make([]string, 0, len(deps))
 								for _, dep := range deps {
-									if dep.Type == "blocks" {
+									if dep.Type == "blocks" || dep.Type == "parent-child" {
 										depIDs = append(depIDs, dep.DependsOnID)
 									}
 								}
