@@ -10,28 +10,38 @@ import (
 type DependencyGraph struct {
 	// DependsOn maps bead ID to IDs it depends on
 	DependsOn map[string][]string
-	// BlockedBy maps bead ID to IDs that depend on it
-	BlockedBy map[string][]string
+	// Dependents maps bead ID to IDs that depend on it (renamed from BlockedBy)
+	Dependents map[string][]string
 }
 
-// BuildDependencyGraph creates a dependency graph from beads.
-func BuildDependencyGraph(inputBeads []beads.BeadWithDeps) *DependencyGraph {
+// BuildDependencyGraph creates a dependency graph from beads and their dependencies.
+func BuildDependencyGraph(
+	beadList []beads.Bead,
+	dependencies map[string][]beads.Dependency,
+) *DependencyGraph {
 	graph := &DependencyGraph{
-		DependsOn: make(map[string][]string),
-		BlockedBy: make(map[string][]string),
+		DependsOn:  make(map[string][]string),
+		Dependents: make(map[string][]string),
 	}
 
 	// Create set of valid bead IDs
 	validIDs := make(map[string]bool)
-	for _, b := range inputBeads {
-		validIDs[b.ID] = true
+	for _, bead := range beadList {
+		validIDs[bead.ID] = true
+		// Initialize empty slices for this bead
+		graph.DependsOn[bead.ID] = []string{}
+		graph.Dependents[bead.ID] = []string{}
 	}
 
-	for _, b := range inputBeads {
-		for _, dep := range b.Dependencies {
-			if dep.DependencyType == "depends_on" && validIDs[dep.ID] {
-				graph.DependsOn[b.ID] = append(graph.DependsOn[b.ID], dep.ID)
-				graph.BlockedBy[dep.ID] = append(graph.BlockedBy[dep.ID], b.ID)
+	// Build dependency relationships from the dependencies map
+	for beadID, deps := range dependencies {
+		for _, dep := range deps {
+			// Only add dependencies that are in our bead set
+			if validIDs[dep.DependsOnID] {
+				if dep.Type == "blocks" || dep.Type == "blocked_by" {
+					graph.DependsOn[beadID] = append(graph.DependsOn[beadID], dep.DependsOnID)
+					graph.Dependents[dep.DependsOnID] = append(graph.Dependents[dep.DependsOnID], beadID)
+				}
 			}
 		}
 	}
@@ -40,16 +50,16 @@ func BuildDependencyGraph(inputBeads []beads.BeadWithDeps) *DependencyGraph {
 }
 
 // TopologicalSort returns beads in dependency order (dependencies before dependents).
-func TopologicalSort(graph *DependencyGraph, inputBeads []beads.BeadWithDeps) ([]beads.BeadWithDeps, error) {
-	beadMap := make(map[string]beads.BeadWithDeps)
-	for _, b := range inputBeads {
-		beadMap[b.ID] = b
+func TopologicalSort(graph *DependencyGraph, beadList []beads.Bead) ([]beads.Bead, error) {
+	beadMap := make(map[string]beads.Bead)
+	for _, bead := range beadList {
+		beadMap[bead.ID] = bead
 	}
 
 	// Kahn's algorithm
 	inDegree := make(map[string]int)
-	for _, b := range inputBeads {
-		inDegree[b.ID] = len(graph.DependsOn[b.ID])
+	for _, bead := range beadList {
+		inDegree[bead.ID] = len(graph.DependsOn[bead.ID])
 	}
 
 	// Start with beads that have no dependencies
@@ -60,7 +70,7 @@ func TopologicalSort(graph *DependencyGraph, inputBeads []beads.BeadWithDeps) ([
 		}
 	}
 
-	var result []beads.BeadWithDeps
+	var result []beads.Bead
 	for len(queue) > 0 {
 		// Pop from queue
 		id := queue[0]
@@ -69,7 +79,7 @@ func TopologicalSort(graph *DependencyGraph, inputBeads []beads.BeadWithDeps) ([
 		result = append(result, beadMap[id])
 
 		// Reduce in-degree of dependents
-		for _, dependent := range graph.BlockedBy[id] {
+		for _, dependent := range graph.Dependents[id] {
 			inDegree[dependent]--
 			if inDegree[dependent] == 0 {
 				queue = append(queue, dependent)
@@ -78,7 +88,7 @@ func TopologicalSort(graph *DependencyGraph, inputBeads []beads.BeadWithDeps) ([
 	}
 
 	// Check for cycles
-	if len(result) != len(inputBeads) {
+	if len(result) != len(beadList) {
 		return nil, fmt.Errorf("dependency cycle detected")
 	}
 

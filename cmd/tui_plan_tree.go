@@ -2,50 +2,18 @@ package cmd
 
 import (
 	"context"
+	"path/filepath"
 	"sort"
 
 	"github.com/newhook/co/internal/beads"
 )
-
-// fetchDependencyIDs gets the list of issue IDs that block the given issue
-func fetchDependencyIDs(dir, beadID string) ([]string, error) {
-	deps, err := beads.GetDependencies(context.Background(), beadID, dir)
-	if err != nil {
-		return nil, err
-	}
-
-	var ids []string
-	for _, d := range deps {
-		ids = append(ids, d.ID)
-	}
-	return ids, nil
-}
-
-// fetchBeadByID fetches a single bead by ID and returns a beadItem
-func fetchBeadByID(dir, id string) (*beadItem, error) {
-	b, err := beads.GetBeadFull(context.Background(), id, dir)
-	if err != nil {
-		return nil, err
-	}
-
-	return &beadItem{
-		id:              b.ID,
-		title:           b.Title,
-		status:          b.Status,
-		priority:        b.Priority,
-		beadType:        b.Type,
-		description:     b.Description,
-		dependencyCount: b.DependencyCount,
-		dependentCount:  b.DependentCount,
-	}, nil
-}
 
 // buildBeadTree takes a flat list of beads and organizes them into a tree
 // based on dependency relationships. Returns the items in tree order with
 // treeDepth set for each item.
 // When searchText is non-empty, skip fetching parent beads to avoid adding
 // unfiltered items that don't match the search.
-func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
+func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client, dir string, searchText string) []beadItem {
 	if len(items) == 0 {
 		return items
 	}
@@ -56,65 +24,179 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 		itemMap[items[i].id] = &items[i]
 	}
 
-	// Fetch dependencies for items that have them
+	// Collect all issue IDs
+	issueIDs := make([]string, 0, len(items))
 	for i := range items {
-		if items[i].dependencyCount > 0 {
-			deps, err := fetchDependencyIDs(dir, items[i].id)
-			if err == nil {
-				items[i].dependencies = deps
-			}
-		}
+		issueIDs = append(issueIDs, items[i].id)
 	}
 
-	// Identify and fetch missing parent beads (dependencies not in our item list)
-	// to preserve tree structure. Loop until no more missing parents are found
-	// to handle multiple levels of closed ancestors.
-	// Skip this when search is active to avoid adding unfiltered items.
-	if searchText == "" {
-		fetchedParents := make(map[string]bool)
-		for {
-			missingParentIDs := make(map[string]bool)
+	// Use database client if available, otherwise fall back to CLI
+	if client != nil {
+		// Fetch all issues with their dependencies in a single query
+		result, err := client.GetBeadsWithDeps(ctx, issueIDs)
+		if err == nil {
+			// Populate dependencies from result
 			for i := range items {
-				for _, depID := range items[i].dependencies {
-					if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
-						missingParentIDs[depID] = true
+				if deps, ok := result.Dependencies[items[i].id]; ok {
+					depIDs := make([]string, 0, len(deps))
+					for _, dep := range deps {
+						// Only include "blocks" type dependencies
+						if dep.Type == "blocks" {
+							depIDs = append(depIDs, dep.DependsOnID)
+						}
 					}
+					items[i].dependencies = depIDs
 				}
 			}
 
-			if len(missingParentIDs) == 0 {
-				break
-			}
-
-			// Fetch missing parent beads and add them to the list
-			for parentID := range missingParentIDs {
-				fetchedParents[parentID] = true
-				parentBead, err := fetchBeadByID(dir, parentID)
-				if err == nil {
-					// Mark as closed parent (included for tree context only)
-					parentBead.isClosedParent = true
-					items = append(items, *parentBead)
-					itemMap[parentBead.id] = &items[len(items)-1]
-
-					// Fetch dependencies for this parent bead too
-					if parentBead.dependencyCount > 0 {
-						deps, err := fetchDependencyIDs(dir, parentBead.id)
-						if err == nil {
-							items[len(items)-1].dependencies = deps
+			// Identify and fetch missing parent beads (dependencies not in our item list)
+			// to preserve tree structure. Loop until no more missing parents are found
+			// to handle multiple levels of closed ancestors.
+			// Always fetch parents to preserve hierarchy context, even during search.
+			fetchedParents := make(map[string]bool)
+			for {
+				missingParentIDs := make([]string, 0)
+				for i := range items {
+					for _, depID := range items[i].dependencies {
+						if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
+							missingParentIDs = append(missingParentIDs, depID)
+							fetchedParents[depID] = true
 						}
 					}
 				}
+
+				if len(missingParentIDs) == 0 {
+					break
+				}
+
+				// Fetch missing parents in a single query
+				parentResult, err := client.GetBeadsWithDeps(ctx, missingParentIDs)
+				if err == nil {
+					// Add missing parents to items
+					for _, parentID := range missingParentIDs {
+						if issue, ok := parentResult.Beads[parentID]; ok {
+							parentBead := &beadItem{
+								id:              issue.ID,
+								title:           issue.Title,
+								status:          issue.Status,
+								priority:        issue.Priority,
+								beadType:        issue.Type,
+								description:     issue.Description,
+								isClosedParent:  true,
+							}
+
+							// Populate dependencies for this parent
+							if deps, ok := parentResult.Dependencies[parentID]; ok {
+								depIDs := make([]string, 0, len(deps))
+								for _, dep := range deps {
+									if dep.Type == "blocks" {
+										depIDs = append(depIDs, dep.DependsOnID)
+									}
+								}
+								parentBead.dependencies = depIDs
+							}
+
+							items = append(items, *parentBead)
+							itemMap[parentBead.id] = &items[len(items)-1]
+						}
+					}
+				} else {
+					break
+				}
+			}
+
+			// Rebuild itemMap to fix stale pointers.
+			itemMap = make(map[string]*beadItem)
+			for i := range items {
+				itemMap[items[i].id] = &items[i]
 			}
 		}
+	} else if dir != "" {
+		// Client not available but dir provided - create temporary client
+		beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
+		tempClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+		if err == nil {
+			defer tempClient.Close()
 
-		// Rebuild itemMap to fix stale pointers.
-		// When append() exceeds capacity, Go reallocates the slice,
-		// making all previously stored pointers in itemMap stale.
-		itemMap = make(map[string]*beadItem)
-		for i := range items {
-			itemMap[items[i].id] = &items[i]
+			// Use the temp client to fetch dependencies
+			result, err := tempClient.GetBeadsWithDeps(ctx, issueIDs)
+			if err == nil {
+				// Populate dependencies from result
+				for i := range items {
+					if deps, ok := result.Dependencies[items[i].id]; ok {
+						depIDs := make([]string, 0, len(deps))
+						for _, dep := range deps {
+							if dep.Type == "blocks" {
+								depIDs = append(depIDs, dep.DependsOnID)
+							}
+						}
+						items[i].dependencies = depIDs
+					}
+				}
+
+				// Identify and fetch missing parent beads
+				fetchedParents := make(map[string]bool)
+				for {
+					missingParentIDs := make([]string, 0)
+					for i := range items {
+						for _, depID := range items[i].dependencies {
+							if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
+								missingParentIDs = append(missingParentIDs, depID)
+								fetchedParents[depID] = true
+							}
+						}
+					}
+
+					if len(missingParentIDs) == 0 {
+						break
+					}
+
+					// Fetch missing parents in a single query
+					parentResult, err := tempClient.GetBeadsWithDeps(ctx, missingParentIDs)
+					if err != nil {
+						break
+					}
+
+					// Add missing parents to items
+					for _, parentID := range missingParentIDs {
+						if issue, ok := parentResult.Beads[parentID]; ok {
+							parentBead := &beadItem{
+								id:              issue.ID,
+								title:           issue.Title,
+								status:          issue.Status,
+								priority:        issue.Priority,
+								beadType:        issue.Type,
+								description:     issue.Description,
+								isClosedParent:  true,
+							}
+
+							// Populate dependencies for this parent
+							if deps, ok := parentResult.Dependencies[parentID]; ok {
+								depIDs := make([]string, 0, len(deps))
+								for _, dep := range deps {
+									if dep.Type == "blocks" {
+										depIDs = append(depIDs, dep.DependsOnID)
+									}
+								}
+								parentBead.dependencies = depIDs
+							}
+
+							items = append(items, *parentBead)
+							itemMap[parentBead.id] = &items[len(items)-1]
+						}
+					}
+				}
+
+				// Rebuild itemMap to fix stale pointers
+				itemMap = make(map[string]*beadItem)
+				for i := range items {
+					itemMap[items[i].id] = &items[i]
+				}
+			}
 		}
+		// If client creation or queries fail, fall through to use existing dependencies
 	}
+	// else: No client and no dir - use dependencies already set on items (for tests)
 
 	// Build parent -> children map (issues that block -> issues they block)
 	// If A blocks B, then B depends on A, so A is parent, B is child
@@ -253,33 +335,33 @@ func buildBeadTree(items []beadItem, dir string, searchText string) []beadItem {
 		}
 	}
 
-	// Filter out closed parents that have no visible children directly under them.
-	// They were only fetched to show tree structure, but if their children
-	// appear under other parents, these closed parents add no value.
-	// We check by looking at the next items in the result - if a closed parent
-	// at depth N has no items at depth N+1 immediately following, it has no visible children.
+	// Filter out closed parents that have no visible children.
+	// Build set of visible IDs from the result
+	visibleIDs := make(map[string]bool)
+	for _, item := range result {
+		visibleIDs[item.id] = true
+	}
+
+	// Filter closed parents: only keep them if they have at least one visible child
 	var filtered []beadItem
-	for i, item := range result {
+	for _, item := range result {
 		// Keep the item if it's not a closed parent
 		if !item.isClosedParent {
 			filtered = append(filtered, item)
 			continue
 		}
-		// For closed parents, check if there are children directly following
+
+		// For closed parents, check if any of their children are visible
 		hasVisibleChild := false
-		expectedChildDepth := item.treeDepth + 1
-		for j := i + 1; j < len(result); j++ {
-			nextItem := result[j]
-			if nextItem.treeDepth <= item.treeDepth {
-				// We've moved past this parent's subtree
-				break
-			}
-			if nextItem.treeDepth == expectedChildDepth {
-				// Found a direct child
-				hasVisibleChild = true
-				break
+		if children, ok := childrenMap[item.id]; ok {
+			for _, childID := range children {
+				if visibleIDs[childID] {
+					hasVisibleChild = true
+					break
+				}
 			}
 		}
+
 		if hasVisibleChild {
 			filtered = append(filtered, item)
 		}
