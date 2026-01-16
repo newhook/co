@@ -84,65 +84,63 @@ func buildBeadTree(items []beadItem, client *beads.Client, dir string, searchTex
 			// Identify and fetch missing parent beads (dependencies not in our item list)
 			// to preserve tree structure. Loop until no more missing parents are found
 			// to handle multiple levels of closed ancestors.
-			// Skip this when search is active to avoid adding unfiltered items.
-			if searchText == "" {
-				fetchedParents := make(map[string]bool)
-				for {
-					missingParentIDs := make([]string, 0)
-					for i := range items {
-						for _, depID := range items[i].dependencies {
-							if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
-								missingParentIDs = append(missingParentIDs, depID)
-								fetchedParents[depID] = true
-							}
-						}
-					}
-
-					if len(missingParentIDs) == 0 {
-						break
-					}
-
-					// Fetch missing parents in a single query
-					parentResult, err := client.GetIssuesWithDeps(context.Background(), missingParentIDs)
-					if err == nil {
-						// Add missing parents to items
-						for _, parentID := range missingParentIDs {
-							if issue, ok := parentResult.Issues[parentID]; ok {
-								parentBead := &beadItem{
-									id:              issue.ID,
-									title:           issue.Title,
-									status:          issue.Status,
-									priority:        int(issue.Priority),
-									beadType:        issue.IssueType,
-									description:     issue.Description,
-									isClosedParent:  true,
-								}
-
-								// Populate dependencies for this parent
-								if deps, ok := parentResult.Dependencies[parentID]; ok {
-									depIDs := make([]string, 0, len(deps))
-									for _, dep := range deps {
-										if dep.Type == "blocks" {
-											depIDs = append(depIDs, dep.DependsOnID)
-										}
-									}
-									parentBead.dependencies = depIDs
-								}
-
-								items = append(items, *parentBead)
-								itemMap[parentBead.id] = &items[len(items)-1]
-							}
-						}
-					} else {
-						break
-					}
-				}
-
-				// Rebuild itemMap to fix stale pointers.
-				itemMap = make(map[string]*beadItem)
+			// Always fetch parents to preserve hierarchy context, even during search.
+			fetchedParents := make(map[string]bool)
+			for {
+				missingParentIDs := make([]string, 0)
 				for i := range items {
-					itemMap[items[i].id] = &items[i]
+					for _, depID := range items[i].dependencies {
+						if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
+							missingParentIDs = append(missingParentIDs, depID)
+							fetchedParents[depID] = true
+						}
+					}
 				}
+
+				if len(missingParentIDs) == 0 {
+					break
+				}
+
+				// Fetch missing parents in a single query
+				parentResult, err := client.GetIssuesWithDeps(context.Background(), missingParentIDs)
+				if err == nil {
+					// Add missing parents to items
+					for _, parentID := range missingParentIDs {
+						if issue, ok := parentResult.Issues[parentID]; ok {
+							parentBead := &beadItem{
+								id:              issue.ID,
+								title:           issue.Title,
+								status:          issue.Status,
+								priority:        int(issue.Priority),
+								beadType:        issue.IssueType,
+								description:     issue.Description,
+								isClosedParent:  true,
+							}
+
+							// Populate dependencies for this parent
+							if deps, ok := parentResult.Dependencies[parentID]; ok {
+								depIDs := make([]string, 0, len(deps))
+								for _, dep := range deps {
+									if dep.Type == "blocks" {
+										depIDs = append(depIDs, dep.DependsOnID)
+									}
+								}
+								parentBead.dependencies = depIDs
+							}
+
+							items = append(items, *parentBead)
+							itemMap[parentBead.id] = &items[len(items)-1]
+						}
+					}
+				} else {
+					break
+				}
+			}
+
+			// Rebuild itemMap to fix stale pointers.
+			itemMap = make(map[string]*beadItem)
+			for i := range items {
+				itemMap[items[i].id] = &items[i]
 			}
 		} else {
 			// Fall back to CLI-based approach on error
@@ -166,44 +164,42 @@ func buildBeadTree(items []beadItem, client *beads.Client, dir string, searchTex
 			}
 		}
 
-		if searchText == "" {
-			fetchedParents := make(map[string]bool)
-			for {
-				missingParentIDs := make(map[string]bool)
-				for i := range items {
-					for _, depID := range items[i].dependencies {
-						if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
-							missingParentIDs[depID] = true
-						}
-					}
-				}
-
-				if len(missingParentIDs) == 0 {
-					break
-				}
-
-				for parentID := range missingParentIDs {
-					fetchedParents[parentID] = true
-					parentBead, err := fetchBeadByID(dir, parentID)
-					if err == nil {
-						parentBead.isClosedParent = true
-						items = append(items, *parentBead)
-						itemMap[parentBead.id] = &items[len(items)-1]
-
-						if parentBead.dependencyCount > 0 {
-							deps, err := fetchDependencyIDs(dir, parentBead.id)
-							if err == nil {
-								items[len(items)-1].dependencies = deps
-							}
-						}
-					}
-				}
-			}
-
-			itemMap = make(map[string]*beadItem)
+		fetchedParents := make(map[string]bool)
+		for {
+			missingParentIDs := make(map[string]bool)
 			for i := range items {
-				itemMap[items[i].id] = &items[i]
+				for _, depID := range items[i].dependencies {
+					if _, exists := itemMap[depID]; !exists && !fetchedParents[depID] {
+						missingParentIDs[depID] = true
+					}
+				}
 			}
+
+			if len(missingParentIDs) == 0 {
+				break
+			}
+
+			for parentID := range missingParentIDs {
+				fetchedParents[parentID] = true
+				parentBead, err := fetchBeadByID(dir, parentID)
+				if err == nil {
+					parentBead.isClosedParent = true
+					items = append(items, *parentBead)
+					itemMap[parentBead.id] = &items[len(items)-1]
+
+					if parentBead.dependencyCount > 0 {
+						deps, err := fetchDependencyIDs(dir, parentBead.id)
+						if err == nil {
+							items[len(items)-1].dependencies = deps
+						}
+					}
+				}
+			}
+		}
+
+		itemMap = make(map[string]*beadItem)
+		for i := range items {
+			itemMap[items[i].id] = &items[i]
 		}
 	}
 
