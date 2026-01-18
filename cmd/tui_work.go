@@ -1295,7 +1295,17 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 		panelNumber = fmt.Sprintf("[%d] ", idx)
 	}
 
-	header := fmt.Sprintf("%s%s %s", panelNumber, icon, workerName)
+	// Check orchestrator health
+	orchestratorHealth := ""
+	if wp.work.Status == db.StatusProcessing || hasActiveTask {
+		if checkOrchestratorHealth(m.ctx, wp.work.ID) {
+			orchestratorHealth = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("●") // Green dot for healthy
+		} else {
+			orchestratorHealth = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("●") // Red dot for dead
+		}
+	}
+
+	header := fmt.Sprintf("%s%s %s%s", panelNumber, icon, workerName, orchestratorHealth)
 	if isSelected {
 		header = tuiActiveTabStyle.Render(header)
 	} else {
@@ -1307,6 +1317,18 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 	// Work ID (if different from name)
 	if wp.work.Name != "" {
 		content.WriteString(tuiDimStyle.Render(wp.work.ID))
+		content.WriteString("\n")
+	}
+
+	// Show orchestrator health status
+	if wp.work.Status == db.StatusProcessing || hasActiveTask {
+		healthStatus := ""
+		if checkOrchestratorHealth(m.ctx, wp.work.ID) {
+			healthStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("✓ Orchestrator running")
+		} else {
+			healthStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("✗ Orchestrator dead")
+		}
+		content.WriteString(healthStatus)
 		content.WriteString("\n")
 	}
 
@@ -3060,4 +3082,15 @@ func (m *workModel) detectStatusBarButton(x int) string {
 	}
 
 	return ""
+}
+
+// checkOrchestratorHealth checks if the orchestrator process is running for a work
+func checkOrchestratorHealth(ctx context.Context, workID string) bool {
+	// Check if orchestrator process is running
+	cmd := exec.CommandContext(ctx, "pgrep", "-f", fmt.Sprintf("co orchestrate --work %s", workID))
+	if err := cmd.Run(); err != nil {
+		// Process not found
+		return false
+	}
+	return true
 }
