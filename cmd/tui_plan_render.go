@@ -897,10 +897,25 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 		}
 
 		if i == m.beadsCursor {
+			// Use yellow background for newly created beads, regular blue for others
+			if _, isNew := m.newBeads[bead.id]; isNew {
+				newSelectedStyle := lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("0")).   // Black text
+					Background(lipgloss.Color("226")) // Yellow background
+				return newSelectedStyle.Render(plainLine)
+			}
 			return tuiSelectedStyle.Render(plainLine)
 		}
 
-		// Hover style
+		// Hover style - also check for new beads
+		if _, isNew := m.newBeads[bead.id]; isNew {
+			newHoverStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("0")).   // Black text
+				Background(lipgloss.Color("228")). // Lighter yellow
+				Bold(true)
+			return newHoverStyle.Render(plainLine)
+		}
 		hoverStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("255")).
 			Background(lipgloss.Color("240")).
@@ -911,6 +926,20 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	// Style closed parent beads with dim style (grayed out)
 	if bead.isClosedParent {
 		return tuiDimStyle.Render(line)
+	}
+
+	// Style new beads - apply yellow only to the title
+	if _, isNew := m.newBeads[bead.id]; isNew {
+		yellowTitle := tuiNewBeadStyle.Render(title)
+
+		var newLine string
+		if m.beadsExpanded {
+			newLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.priority, bead.beadType, sessionIndicator, yellowTitle)
+		} else {
+			newLine = fmt.Sprintf("%s%s%s%s %s %s%s %s", selectionIndicator, treePrefix, workIndicator, icon, styledID, styledType, sessionIndicator, yellowTitle)
+		}
+
+		return newLine
 	}
 
 	return line

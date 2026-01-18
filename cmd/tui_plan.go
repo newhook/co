@@ -133,6 +133,9 @@ type planModel struct {
 	// Database watcher for cache invalidation
 	beadsWatcher *watcher.Watcher
 	beadsClient  *beads.Client
+
+	// New bead animation tracking
+	newBeads map[string]time.Time // beadID -> creation timestamp for animation
 }
 
 // newPlanModel creates a new Plan Mode model
@@ -204,6 +207,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		textInput:            ti,
 		activeBeadSessions:   make(map[string]bool),
 		selectedBeads:        make(map[string]bool),
+		newBeads:             make(map[string]time.Time),
 		createBeadPriority:   2,
 		zj:                   zellij.New(),
 		columnRatio:          0.4, // Default 40/60 split (issues/details)
@@ -417,6 +421,25 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.searchSeq < m.searchSeq {
 			return m, nil
 		}
+
+		var expireCmds []tea.Cmd
+		now := time.Now()
+
+		// Detect new beads by comparing with existing list
+		if len(m.beadItems) > 0 {
+			existingIDs := make(map[string]bool)
+			for _, bead := range m.beadItems {
+				existingIDs[bead.id] = true
+			}
+			for _, bead := range msg.beads {
+				// Mark as new if not in existing list and not already animated
+				if !existingIDs[bead.id] && m.newBeads[bead.id].IsZero() {
+					m.newBeads[bead.id] = now
+					expireCmds = append(expireCmds, scheduleNewBeadExpire(bead.id))
+				}
+			}
+		}
+
 		m.beadItems = msg.beads
 		if msg.activeSessions != nil {
 			m.activeBeadSessions = msg.activeSessions
@@ -427,7 +450,11 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = msg.err.Error()
 			m.statusIsError = true
 		}
+
 		// Don't clear status message on success - let it persist until next action
+		if len(expireCmds) > 0 {
+			return m, tea.Batch(expireCmds...)
+		}
 		return m, nil
 
 	case planTickMsg:
@@ -556,6 +583,11 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusIsError = false
 		return m, nil
 
+	case newBeadExpireMsg:
+		// Remove the bead from the newBeads map to stop animation
+		delete(m.newBeads, msg.beadID)
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 
@@ -661,6 +693,21 @@ type statusClearMsg struct{}
 func clearStatusAfter(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg {
 		return statusClearMsg{}
+	})
+}
+
+// newBeadExpireMsg is sent when the animation for a new bead should expire
+type newBeadExpireMsg struct {
+	beadID string
+}
+
+// newBeadAnimationDuration is how long newly created beads are highlighted
+const newBeadAnimationDuration = 5 * time.Second
+
+// scheduleNewBeadExpire returns a command that expires a new bead animation after the duration
+func scheduleNewBeadExpire(beadID string) tea.Cmd {
+	return tea.Tick(newBeadAnimationDuration, func(t time.Time) tea.Msg {
+		return newBeadExpireMsg{beadID: beadID}
 	})
 }
 

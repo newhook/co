@@ -117,6 +117,7 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 		items, err := m.loadBeads()
 		session := m.sessionName()
 		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
+
 		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
 	}
 }
