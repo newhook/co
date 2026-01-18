@@ -22,6 +22,10 @@ type ClaudeConfig struct {
 	// SkipPermissions controls whether to run Claude with --dangerously-skip-permissions.
 	// Defaults to true when not specified in config.
 	SkipPermissions *bool `toml:"skip_permissions"`
+
+	// TimeLimitMinutes is the maximum duration in minutes for a Claude session.
+	// When set to 0 or omitted, there is no time limit.
+	TimeLimitMinutes int `toml:"time_limit"`
 }
 
 // ShouldSkipPermissions returns true if Claude should run with --dangerously-skip-permissions.
@@ -31,6 +35,15 @@ func (c *ClaudeConfig) ShouldSkipPermissions() bool {
 		return true // default to true
 	}
 	return *c.SkipPermissions
+}
+
+// TimeLimit returns the maximum duration for a Claude session.
+// Returns 0 if no time limit is configured.
+func (c *ClaudeConfig) TimeLimit() time.Duration {
+	if c.TimeLimitMinutes <= 0 {
+		return 0
+	}
+	return time.Duration(c.TimeLimitMinutes) * time.Minute
 }
 
 // ProjectConfig contains project metadata.
