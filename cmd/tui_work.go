@@ -688,6 +688,13 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.runWork(true)
 		}
 
+	case "O":
+		// Restart orchestrator for selected work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
+			return m, m.restartOrchestrator()
+		}
+
 	case "s":
 		// Run work simple - one task per issue (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
@@ -2356,6 +2363,7 @@ func (m *workModel) renderHelp() string {
   a             Assign issues to work
   t             Open console tab
   C             Open Claude Code session
+  O             Restart orchestrator
   R             Create review task
   P             Create PR task
   U             Update PR description
@@ -2451,6 +2459,53 @@ func (m *workModel) runWork(usePlan bool) tea.Cmd {
 			msg = fmt.Sprintf("Orchestrator %s", orchestratorStatus)
 		}
 		return workCommandMsg{action: msg}
+	}
+}
+
+func (m *workModel) restartOrchestrator() tea.Cmd {
+	return func() tea.Msg {
+		if m.worksCursor >= len(m.works) {
+			return workCommandMsg{action: "Restart orchestrator", err: fmt.Errorf("no work selected")}
+		}
+		wp := m.works[m.worksCursor]
+		workID := wp.work.ID
+
+		// Get the work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil || work == nil {
+			return workCommandMsg{action: "Restart orchestrator", err: fmt.Errorf("work not found: %w", err)}
+		}
+
+		// Kill any existing orchestrator
+		projectName := m.proj.Config.Project.Name
+
+		// Check if process is running and kill it
+		cmd := exec.CommandContext(m.ctx, "pgrep", "-f", fmt.Sprintf("co orchestrate --work %s", workID))
+		if err := cmd.Run(); err == nil {
+			// Process is running, kill it
+			killCmd := exec.CommandContext(m.ctx, "pkill", "-f", fmt.Sprintf("co orchestrate --work %s", workID))
+			killCmd.Run() // Ignore error as process might have already exited
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		// Ensure the orchestrator is running (will restart if dead)
+		spawned, err := claude.EnsureWorkOrchestrator(
+			m.ctx,
+			workID,
+			projectName,
+			work.WorktreePath,
+			work.Name,
+			io.Discard,
+		)
+		if err != nil {
+			return workCommandMsg{action: "Restart orchestrator", err: err}
+		}
+
+		status := "already running"
+		if spawned {
+			status = "restarted"
+		}
+		return workCommandMsg{action: fmt.Sprintf("Orchestrator %s", status)}
 	}
 }
 
