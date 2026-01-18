@@ -106,16 +106,18 @@ func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.createWorkBranch, cmd = m.createWorkBranch.Update(msg)
 	case 1: // Buttons
 		switch msg.String() {
-		case "h", "left":
+		case "k", "up":
 			m.createWorkButtonIdx--
 			if m.createWorkButtonIdx < 0 {
 				m.createWorkButtonIdx = 2
 			}
-		case "l", "right":
+		case "j", "down":
 			m.createWorkButtonIdx = (m.createWorkButtonIdx + 1) % 3
 		case "enter":
 			branchName := strings.TrimSpace(m.createWorkBranch.Value())
 			if branchName == "" {
+				m.statusMessage = "Branch name cannot be empty"
+				m.statusIsError = true
 				return m, nil
 			}
 			switch m.createWorkButtonIdx {
@@ -139,55 +141,152 @@ func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	return m, cmd
 }
 
-// renderCreateWorkDialogContent renders the create work dialog
-func (m *planModel) renderCreateWorkDialogContent() string {
-	branchLabel := "Branch:"
-	if m.createWorkField == 0 {
-		branchLabel = tuiValueStyle.Render("Branch:") + " (editing)"
-	}
 
-	// Render buttons
-	var execBtn, autoBtn, cancelBtn string
-	if m.createWorkField == 1 {
-		switch m.createWorkButtonIdx {
-		case 0:
-			execBtn = tuiSelectedStyle.Render(" Execute ")
-			autoBtn = tuiDimStyle.Render(" Auto ")
-			cancelBtn = tuiDimStyle.Render(" Cancel ")
-		case 1:
-			execBtn = tuiDimStyle.Render(" Execute ")
-			autoBtn = tuiSelectedStyle.Render(" Auto ")
-			cancelBtn = tuiDimStyle.Render(" Cancel ")
-		case 2:
-			execBtn = tuiDimStyle.Render(" Execute ")
-			autoBtn = tuiDimStyle.Render(" Auto ")
-			cancelBtn = tuiSelectedStyle.Render(" Cancel ")
-		}
-	} else {
-		execBtn = tuiDimStyle.Render(" Execute ")
-		autoBtn = tuiDimStyle.Render(" Auto ")
-		cancelBtn = tuiDimStyle.Render(" Cancel ")
-	}
+// renderCreateWorkInlineContent renders the work creation panel inline in the details area.
+// This function implements the button position tracking mechanism by:
+// 1. Clearing previous button positions at the start (m.dialogButtons = nil)
+// 2. Tracking the current line number as content is rendered
+// 3. Recording each button's position when it's drawn to the screen
+// 4. Storing positions relative to the content area for accurate mouse detection
+func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) string {
+	var content strings.Builder
 
-	// Show bead IDs or count
+	// Clear previous button positions to ensure we're tracking the current render state.
+	// This is critical for accuracy as button positions may change between renders
+	// due to content changes, terminal resizing, or scrolling.
+	m.dialogButtons = nil
+
+	// Track current line number (starting at 0, counting lines in the content area)
+	currentLine := 0
+
+	// Panel header
+	content.WriteString(tuiSuccessStyle.Render("Create Work"))
+	content.WriteString("\n\n")
+	currentLine += 2 // header + blank line
+
+	// Show bead info
 	var beadInfo string
 	if len(m.createWorkBeadIDs) == 1 {
-		beadInfo = issueIDStyle.Render(m.createWorkBeadIDs[0])
+		beadInfo = fmt.Sprintf("Creating work from issue: %s", issueIDStyle.Render(m.createWorkBeadIDs[0]))
 	} else {
-		beadInfo = fmt.Sprintf("%d issues", len(m.createWorkBeadIDs))
+		beadInfo = fmt.Sprintf("Creating work from %d issues", len(m.createWorkBeadIDs))
+		// List the first few IDs
+		content.WriteString(beadInfo)
+		content.WriteString("\n")
+		currentLine++ // bead info line
+		maxShow := 5
+		if len(m.createWorkBeadIDs) < maxShow {
+			maxShow = len(m.createWorkBeadIDs)
+		}
+		for i := 0; i < maxShow; i++ {
+			content.WriteString("  • " + issueIDStyle.Render(m.createWorkBeadIDs[i]))
+			content.WriteString("\n")
+			currentLine++ // each bead ID line
+		}
+		if len(m.createWorkBeadIDs) > maxShow {
+			content.WriteString(fmt.Sprintf("  ... and %d more", len(m.createWorkBeadIDs)-maxShow))
+			content.WriteString("\n")
+			currentLine++ // "... and N more" line
+		}
+		content.WriteString("\n")
+		currentLine++ // blank line
 	}
 
-	content := fmt.Sprintf(`  Create Work from %s
+	if len(m.createWorkBeadIDs) == 1 {
+		content.WriteString(beadInfo)
+		content.WriteString("\n\n")
+		currentLine += 2 // bead info + blank line
+	}
 
-  %s
-  %s
+	// Branch name input
+	branchLabel := "Branch name:"
+	if m.createWorkField == 0 {
+		branchLabel = tuiSuccessStyle.Render("Branch name:") + " " + tuiDimStyle.Render("(editing)")
+	} else {
+		branchLabel = tuiLabelStyle.Render("Branch name:")
+	}
+	content.WriteString(branchLabel)
+	content.WriteString("\n")
+	currentLine++ // branch label line
+	content.WriteString(m.createWorkBranch.View())
+	content.WriteString("\n\n")
+	currentLine += 2 // branch input + blank line
 
-  %s  %s  %s
+	// Action buttons with better spacing
+	content.WriteString("Actions:\n")
+	currentLine++ // "Actions:" label
 
-  [Tab] Switch field  [Esc] Cancel
-`, beadInfo, branchLabel, m.createWorkBranch.View(), execBtn, autoBtn, cancelBtn)
+	// Execute button
+	executeStyle := tuiDimStyle
+	executePrefix := "  "
+	if m.createWorkField == 1 && m.createWorkButtonIdx == 0 {
+		executeStyle = tuiSelectedStyle
+		executePrefix = "► "
+	} else if m.hoveredDialogButton == "execute" {
+		executeStyle = tuiSuccessStyle
+	}
+	// Track Execute button position for mouse click detection.
+	// The position is calculated dynamically based on the actual button text,
+	// which changes when selected (adds "► " prefix). This ensures accurate
+	// click detection regardless of the button's visual state.
+	executeButtonText := executePrefix + "Execute"
+	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
+		ID:     "execute",
+		Y:      currentLine,                // Y position relative to content area
+		StartX: 2,                           // Button always starts at column 2
+		EndX:   2 + len(executeButtonText), // End position based on actual text length
+	})
+	content.WriteString("  " + executeStyle.Render(executeButtonText))
+	content.WriteString(" - Create work and spawn orchestrator\n")
+	currentLine++
 
-	return tuiDialogStyle.Render(content)
+	// Auto button
+	autoStyle := tuiDimStyle
+	autoPrefix := "  "
+	if m.createWorkField == 1 && m.createWorkButtonIdx == 1 {
+		autoStyle = tuiSelectedStyle
+		autoPrefix = "► "
+	} else if m.hoveredDialogButton == "auto" {
+		autoStyle = tuiSuccessStyle
+	}
+	// Track Auto button position
+	autoButtonText := autoPrefix + "Auto"
+	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
+		ID:     "auto",
+		Y:      currentLine,
+		StartX: 2,
+		EndX:   2 + len(autoButtonText), // Calculate based on actual text length
+	})
+	content.WriteString("  " + autoStyle.Render(autoButtonText))
+	content.WriteString(" - Create work with automated workflow\n")
+	currentLine++
+
+	// Cancel button
+	cancelStyle := tuiDimStyle
+	cancelPrefix := "  "
+	if m.createWorkField == 1 && m.createWorkButtonIdx == 2 {
+		cancelStyle = tuiSelectedStyle
+		cancelPrefix = "► "
+	} else if m.hoveredDialogButton == "cancel" {
+		cancelStyle = tuiSuccessStyle
+	}
+	// Track Cancel button position
+	cancelButtonText := cancelPrefix + "Cancel"
+	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
+		ID:     "cancel",
+		Y:      currentLine,
+		StartX: 2,
+		EndX:   2 + len(cancelButtonText), // Calculate based on actual text length
+	})
+	content.WriteString("  " + cancelStyle.Render(cancelButtonText))
+	content.WriteString(" - Cancel work creation\n")
+	currentLine++
+
+	// Navigation help
+	content.WriteString("\n")
+	content.WriteString(tuiDimStyle.Render("Navigation: [Tab/Shift+Tab] Switch field  [↑↓/jk] Select button  [Enter] Confirm  [Esc] Cancel"))
+
+	return content.String()
 }
 
 // executeCreateWork creates a work unit with the given branch name.

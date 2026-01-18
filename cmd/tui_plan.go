@@ -23,6 +23,27 @@ import (
 // watcherEventMsg wraps watcher events for tea.Msg
 type watcherEventMsg watcher.WatcherEvent
 
+// ButtonRegion represents a clickable button's position in the terminal.
+// This struct is used to track the exact screen coordinates of interactive
+// buttons during rendering, enabling accurate mouse click detection.
+//
+// The tracking lifecycle works as follows:
+// 1. Button regions are cleared at the start of each render cycle (m.dialogButtons = nil)
+// 2. During rendering, button positions are calculated and stored as they're drawn
+// 3. Mouse events check against these stored positions to determine which button was clicked
+// 4. Positions are relative to the panel/dialog content area, not absolute screen coordinates
+//
+// This approach ensures button detection remains accurate even when:
+// - Terminal size changes
+// - Content scrolls
+// - Button text changes (e.g., selected state adds "► " prefix)
+type ButtonRegion struct {
+	ID     string // Button identifier (e.g., "execute", "auto", "cancel")
+	Y      int    // Y coordinate (row) relative to the content area
+	StartX int    // Starting X coordinate (column) inclusive
+	EndX   int    // Ending X coordinate (column) inclusive
+}
+
 // planModel is the Plan Mode model focused on issue/bead management
 type planModel struct {
 	ctx    context.Context
@@ -91,6 +112,14 @@ type planModel struct {
 	hoveredButton       string // which button is hovered ("n", "e", "w", "p", etc.)
 	hoveredIssue        int    // index of hovered issue, -1 if none
 	hoveredDialogButton string // which dialog button is hovered ("ok", "cancel")
+
+	// Button position tracking for robust click detection
+	// This slice stores the positions of all clickable buttons in the current dialog.
+	// It is cleared at the start of each render cycle to ensure accuracy, then
+	// populated during rendering as buttons are drawn to the screen. Mouse click
+	// detection uses these stored positions to determine which button was clicked.
+	// See ButtonRegion struct for details on the tracking lifecycle.
+	dialogButtons []ButtonRegion // Tracked button positions for current dialog
 
 	// Linear import state
 	linearImportInput      textarea.Model  // Input for Linear issue IDs/URLs (multi-line)
@@ -336,6 +365,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Cancel the form
 					if m.viewMode == ViewLinearImportInline {
 						m.linearImportInput.Blur()
+					} else if m.viewMode == ViewCreateWork {
+						m.createWorkBranch.Blur()
 					} else {
 						m.textInput.Blur()
 						m.createDescTextarea.Blur()
@@ -344,6 +375,32 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.viewMode = ViewNormal
 					return m, nil
+				} else if clickedDialogButton == "execute" {
+					// Handle execute button for work creation
+					if m.viewMode == ViewCreateWork {
+						branchName := strings.TrimSpace(m.createWorkBranch.Value())
+						if branchName == "" {
+							m.statusMessage = "Branch name cannot be empty"
+							m.statusIsError = true
+							return m, nil
+						}
+						m.viewMode = ViewNormal
+						m.selectedBeads = make(map[string]bool)
+						return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, false)
+					}
+				} else if clickedDialogButton == "auto" {
+					// Handle auto button for work creation
+					if m.viewMode == ViewCreateWork {
+						branchName := strings.TrimSpace(m.createWorkBranch.Value())
+						if branchName == "" {
+							m.statusMessage = "Branch name cannot be empty"
+							m.statusIsError = true
+							return m, nil
+						}
+						m.viewMode = ViewNormal
+						m.selectedBeads = make(map[string]bool)
+						return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, true)
+					}
 				}
 
 				// Check if clicking on an issue
@@ -909,7 +966,8 @@ func (m *planModel) View() string {
 		// All bead form modes render inline in the details panel
 		// Fall through to normal rendering
 	case ViewCreateWork:
-		return m.renderWithDialog(m.renderCreateWorkDialogContent())
+		// Create work now renders inline in the details panel
+		// Fall through to normal rendering
 	case ViewAddToWork:
 		return m.renderWithDialog(m.renderAddToWorkDialogContent())
 	case ViewBeadSearch:

@@ -117,6 +117,11 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 		return m.renderLinearImportInlineContent(visibleLines, width)
 	}
 
+	// If in create work mode, render the work creation panel overlay
+	if m.viewMode == ViewCreateWork {
+		return m.renderCreateWorkInlineContent(visibleLines, width)
+	}
+
 	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
 		content.WriteString(tuiDimStyle.Render("No issue selected"))
 	} else {
@@ -593,13 +598,22 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	return -1
 }
 
-// detectDialogButton determines which dialog button is at the given position
-// Returns "ok", "cancel", or "" if not over a button
+// detectDialogButton determines which dialog button is at the given position.
+// This is the mouse click detection component of the button tracking system.
+//
+// For ViewCreateWork mode, it uses the button positions tracked during rendering:
+// 1. Calculates the mouse position relative to the details panel content area
+// 2. Iterates through m.dialogButtons to find a matching region
+// 3. Checks if the click coordinates fall within any button's boundaries
+// 4. Returns the button ID if found, or "" if no button matches
+//
+// For other dialog modes, it calculates button positions based on the form structure.
+// Returns "ok", "cancel", "execute", "auto", or "" if not over a button.
 func (m *planModel) detectDialogButton(x, y int) string {
-	// Dialog buttons only visible in form modes and Linear import mode
+	// Dialog buttons only visible in form modes, Linear import mode, and work creation mode
 	if m.viewMode != ViewCreateBead && m.viewMode != ViewCreateBeadInline &&
 		m.viewMode != ViewAddChildBead && m.viewMode != ViewEditBead &&
-		m.viewMode != ViewLinearImportInline {
+		m.viewMode != ViewLinearImportInline && m.viewMode != ViewCreateWork {
 		return ""
 	}
 
@@ -616,8 +630,30 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		return ""
 	}
 
-	// Handle Linear import dialog separately
-	if m.viewMode == ViewLinearImportInline {
+	// Handle ViewCreateWork using tracked button positions
+	if m.viewMode == ViewCreateWork {
+		// Use the button positions tracked during rendering.
+		// This is the core of the mouse click detection system for dialog buttons.
+		// The positions stored in m.dialogButtons are relative to the details panel
+		// content area, so we need to translate the absolute mouse coordinates.
+		buttonAreaX := x - detailsPanelStart
+
+		// Check each tracked button region to see if the click falls within it
+		for _, button := range m.dialogButtons {
+			// The Y position stored in button.Y is the line number within the content area.
+			// The content starts at row 2 of the details panel (after border and title).
+			// The mouse Y has already been adjusted by -1 in tui_root.go.
+			// So the absolute Y position for comparison is button.Y + 2 (for border+title)
+			absoluteY := button.Y + 2
+
+			// Check if the mouse click coordinates match this button's region.
+			// StartX and EndX are inclusive boundaries.
+			if y == absoluteY && buttonAreaX >= button.StartX && buttonAreaX <= button.EndX {
+				return button.ID
+			}
+		}
+		return ""
+	} else if m.viewMode == ViewLinearImportInline {
 		// The Linear import form structure:
 		// - Header line "Import from Linear (Bulk)"
 		// - Blank line
