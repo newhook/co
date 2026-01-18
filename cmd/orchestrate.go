@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -182,14 +183,29 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 	ctx := GetContext()
 
+	// Create a context with timeout from configuration
+	timeout := proj.Config.Claude.GetTaskTimeout()
+	taskCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	fmt.Printf("Task timeout: %v\n", timeout)
+
 	// Build prompt for Claude based on task type
-	prompt, err := buildPromptForTask(ctx, proj, t, work)
+	prompt, err := buildPromptForTask(taskCtx, proj, t, work)
 	if err != nil {
 		return err
 	}
 
-	// Execute Claude inline
-	if err = claude.Run(ctx, proj.DB, t.ID, prompt, work.WorktreePath, proj.Config); err != nil {
+	// Execute Claude inline with timeout context
+	if err = claude.Run(taskCtx, proj.DB, t.ID, prompt, work.WorktreePath, proj.Config); err != nil {
+		// Check if it was a timeout error
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Mark the task as failed due to timeout
+			if dbErr := proj.DB.FailTask(taskCtx, t.ID, fmt.Sprintf("Task timed out after %v", timeout)); dbErr != nil {
+				fmt.Printf("Warning: failed to mark timed out task as failed: %v\n", dbErr)
+			}
+			return fmt.Errorf("task %s timed out after %v", t.ID, timeout)
+		}
 		return err
 	}
 

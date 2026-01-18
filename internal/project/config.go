@@ -22,6 +22,10 @@ type ClaudeConfig struct {
 	// SkipPermissions controls whether to run Claude with --dangerously-skip-permissions.
 	// Defaults to true when not specified in config.
 	SkipPermissions *bool `toml:"skip_permissions"`
+
+	// TaskTimeoutMinutes controls the maximum execution time for a task in minutes.
+	// Defaults to 60 minutes when not specified.
+	TaskTimeoutMinutes *int `toml:"task_timeout_minutes"`
 }
 
 // ShouldSkipPermissions returns true if Claude should run with --dangerously-skip-permissions.
@@ -31,6 +35,15 @@ func (c *ClaudeConfig) ShouldSkipPermissions() bool {
 		return true // default to true
 	}
 	return *c.SkipPermissions
+}
+
+// GetTaskTimeout returns the task timeout duration.
+// Defaults to 60 minutes when not explicitly configured.
+func (c *ClaudeConfig) GetTaskTimeout() time.Duration {
+	if c.TaskTimeoutMinutes == nil || *c.TaskTimeoutMinutes <= 0 {
+		return 60 * time.Minute // default to 60 minutes
+	}
+	return time.Duration(*c.TaskTimeoutMinutes) * time.Minute
 }
 
 // ProjectConfig contains project metadata.
