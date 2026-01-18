@@ -640,9 +640,11 @@ func (m *planModel) detectDialogButton(x, y int) string {
 
 		// Check each tracked button region to see if the click falls within it
 		for _, button := range m.dialogButtons {
-			// The Y position stored is relative to the form start (y=2)
-			// So we need to add the form start position to get the absolute Y
-			absoluteY := 2 + button.Y
+			// The Y position stored in button.Y is the line number within the content area.
+			// The content starts at row 2 of the details panel (after border and title).
+			// The mouse Y has already been adjusted by -1 in tui_root.go.
+			// So the absolute Y position for comparison is button.Y + 2 (for border+title)
+			absoluteY := button.Y + 2
 
 			// Check if the mouse click coordinates match this button's region.
 			// StartX and EndX are inclusive boundaries.

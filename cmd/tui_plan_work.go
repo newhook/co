@@ -156,8 +156,8 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 	// due to content changes, terminal resizing, or scrolling.
 	m.dialogButtons = nil
 
-	// Track current line number (starting at 2 for the form content area)
-	currentLine := 2
+	// Track current line number (starting at 0, counting lines in the content area)
+	currentLine := 0
 
 	// Panel header
 	content.WriteString(tuiSuccessStyle.Render("Create Work"))
