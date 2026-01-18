@@ -148,6 +148,7 @@ func (m *workModel) renderHelp() string {
   v             Create review task
   p             Create PR task
   u             Update PR description
+  f             Poll PR feedback (if PR exists)
   d             Destroy selected work
 
   General

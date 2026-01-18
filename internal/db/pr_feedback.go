@@ -146,6 +146,17 @@ func (db *DB) MarkFeedbackProcessed(ctx context.Context, feedbackID, beadID stri
 	return nil
 }
 
+// CountUnresolvedFeedbackForWork returns the count of unresolved PR feedback items for a work.
+func (db *DB) CountUnresolvedFeedbackForWork(ctx context.Context, workID string) (int, error) {
+	query := `SELECT COUNT(*) FROM pr_feedback WHERE work_id = ? AND bead_id IS NULL`
+	var count int
+	err := db.DB.QueryRowContext(ctx, query, workID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count unresolved feedback: %w", err)
+	}
+	return count, nil
+}
+
 // GetFeedbackByBeadID returns the feedback associated with a bead.
 func (db *DB) GetFeedbackByBeadID(ctx context.Context, beadID string) (*PRFeedback, error) {
 	query := `

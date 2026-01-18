@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -99,6 +100,62 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				if err := updateWorkTaskActivity(ctx, proj.DB, workID); err != nil {
 					// Log but don't fail - this is just health monitoring
 					fmt.Printf("Warning: failed to update task activity: %v\n", err)
+				}
+			}
+		}
+	}()
+
+	// Start manual PR feedback poll watcher in a separate goroutine
+	go func() {
+		// Recover from any panics
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Error: feedback poll watcher panicked: %v\n", r)
+			}
+		}()
+
+		// Watch for poll signal files
+		signalPattern := filepath.Join(proj.Root, ".co", fmt.Sprintf("poll-feedback-%s-*", workID))
+		checkTicker := time.NewTicker(500 * time.Millisecond) // Check every 500ms
+		defer checkTicker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-checkTicker.C:
+				// Check for signal files
+				matches, err := filepath.Glob(signalPattern)
+				if err != nil {
+					continue
+				}
+
+				for _, signalFile := range matches {
+					fmt.Printf("\n=== Manual PR feedback poll triggered ===\n")
+
+					// Remove the signal file
+					_ = os.Remove(signalFile)
+
+					// Check if work has a PR URL
+					if work.PRURL == "" {
+						fmt.Println("No PR URL associated with this work, skipping feedback poll.")
+						continue
+					}
+
+					// Run the feedback check using the co work feedback command
+					fmt.Printf("Checking PR feedback for: %s\n", work.PRURL)
+
+					// Run the 'co work feedback' command with auto-add flag
+					cmd := exec.CommandContext(ctx, "co", "work", "feedback", workID, "--auto-add")
+					cmd.Dir = proj.Root
+					cmd.Stdout = os.Stdout
+					cmd.Stderr = os.Stderr
+
+					if err := cmd.Run(); err != nil {
+						fmt.Printf("Error checking PR feedback: %v\n", err)
+					} else {
+						fmt.Println("PR feedback check completed.")
+					}
 				}
 			}
 		}

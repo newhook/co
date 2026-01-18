@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -351,5 +353,38 @@ func (m *workModel) openClaude() tea.Cmd {
 		}
 
 		return workCommandMsg{action: fmt.Sprintf("Opened Claude session for %s", workID)}
+	}
+}
+
+// pollPRFeedback triggers a manual PR feedback poll for the selected work
+func (m *workModel) pollPRFeedback() tea.Cmd {
+	return func() tea.Msg {
+		if m.worksCursor >= len(m.works) {
+			return workCommandMsg{action: "Poll PR feedback", err: fmt.Errorf("no work selected")}
+		}
+
+		wp := m.works[m.worksCursor]
+		workID := wp.work.ID
+
+		// Check if work has a PR URL
+		if wp.work.PRURL == "" {
+			return workCommandMsg{action: "Poll PR feedback", err: fmt.Errorf("work %s has no PR URL", workID)}
+		}
+
+		// Create a signal file that the orchestrator will watch for
+		signalPath := filepath.Join(m.proj.Root, ".co", fmt.Sprintf("poll-feedback-%s-%d", workID, time.Now().UnixNano()))
+
+		// Write the signal file
+		if err := os.WriteFile(signalPath, []byte(wp.work.PRURL), 0644); err != nil {
+			return workCommandMsg{action: "Poll PR feedback", err: fmt.Errorf("failed to create poll signal: %w", err)}
+		}
+
+		// Clean up the signal file after a short delay
+		go func() {
+			time.Sleep(2 * time.Second)
+			_ = os.Remove(signalPath)
+		}()
+
+		return workCommandMsg{action: fmt.Sprintf("Triggered PR feedback poll for %s", workID)}
 	}
 }
