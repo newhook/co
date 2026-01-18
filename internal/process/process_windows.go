@@ -45,6 +45,14 @@ func getProcessList(ctx context.Context) ([]string, error) {
 	return processes, nil
 }
 
+// escapeForPowerShell escapes a string for safe use in PowerShell commands
+func escapeForPowerShell(s string) string {
+	// Escape single quotes by doubling them (PowerShell escaping convention)
+	// and wrap the whole string in single quotes for safety
+	escaped := strings.ReplaceAll(s, "'", "''")
+	return escaped
+}
+
 // killProcessByPattern kills all processes matching the given pattern.
 func killProcessByPattern(ctx context.Context, pattern string) error {
 	// Get process list to find PIDs
@@ -68,8 +76,10 @@ func killProcessByPattern(ctx context.Context, pattern string) error {
 	}
 
 	// Use taskkill with filter to kill processes
-	// We'll use PowerShell for more reliable pattern matching
-	psScript := fmt.Sprintf(`Get-Process | Where-Object { $_.CommandLine -like '*%s*' } | Stop-Process -Force`, pattern)
+	// Escape the pattern to prevent command injection in PowerShell
+	escapedPattern := escapeForPowerShell(pattern)
+	// Use single quotes and properly escaped pattern to prevent injection
+	psScript := fmt.Sprintf(`Get-Process | Where-Object { $_.CommandLine -like '*%s*' } | Stop-Process -Force`, escapedPattern)
 	cmd := exec.CommandContext(ctx, "powershell", "-Command", psScript)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
