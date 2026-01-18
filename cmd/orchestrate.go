@@ -162,6 +162,15 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 	ctx := GetContext()
 
+	// Apply time limit if configured
+	timeLimit := proj.Config.Claude.TimeLimit()
+	if timeLimit > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeLimit)
+		defer cancel()
+		fmt.Printf("Time limit: %v\n", timeLimit)
+	}
+
 	// Build prompt for Claude based on task type
 	prompt, err := buildPromptForTask(ctx, proj, t, work)
 	if err != nil {
@@ -170,6 +179,10 @@ func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 
 	// Execute Claude inline
 	if err = claude.Run(ctx, proj.DB, t.ID, prompt, work.WorktreePath, proj.Config); err != nil {
+		// Check for context timeout
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("task timed out after %v", timeLimit)
+		}
 		return err
 	}
 
