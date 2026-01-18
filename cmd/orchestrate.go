@@ -83,6 +83,15 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 
 	// Run activity updates in background
 	go func() {
+		// Recover from any panics to prevent health monitoring from stopping
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Error: activity tracker panicked: %v\n", r)
+				// Log the panic but don't crash the entire orchestrator
+				// The main loop will continue running
+			}
+		}()
+
 		for {
 			select {
 			case <-ctx.Done():
