@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const addTaskToWork = `-- name: AddTaskToWork :exec
@@ -250,15 +251,32 @@ WHERE wt.work_id = ?
 ORDER BY wt.position
 `
 
-func (q *Queries) GetWorkTasks(ctx context.Context, workID string) ([]Task, error) {
+type GetWorkTasksRow struct {
+	ID               string       `json:"id"`
+	Status           string       `json:"status"`
+	TaskType         string       `json:"task_type"`
+	ComplexityBudget int64        `json:"complexity_budget"`
+	ActualComplexity int64        `json:"actual_complexity"`
+	WorkID           string       `json:"work_id"`
+	WorktreePath     string       `json:"worktree_path"`
+	PrUrl            string       `json:"pr_url"`
+	ErrorMessage     string       `json:"error_message"`
+	StartedAt        sql.NullTime `json:"started_at"`
+	CompletedAt      sql.NullTime `json:"completed_at"`
+	CreatedAt        time.Time    `json:"created_at"`
+	SpawnedAt        sql.NullTime `json:"spawned_at"`
+	SpawnStatus      string       `json:"spawn_status"`
+}
+
+func (q *Queries) GetWorkTasks(ctx context.Context, workID string) ([]GetWorkTasksRow, error) {
 	rows, err := q.db.QueryContext(ctx, getWorkTasks, workID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Task{}
+	items := []GetWorkTasksRow{}
 	for rows.Next() {
-		var i Task
+		var i GetWorkTasksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Status,

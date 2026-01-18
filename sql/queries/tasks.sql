@@ -149,3 +149,27 @@ UPDATE tasks
 SET spawned_at = ?,
     spawn_status = ?
 WHERE id = ?;
+
+-- name: UpdateTaskActivity :execrows
+UPDATE tasks
+SET last_activity = ?
+WHERE id = ? AND status = 'processing';
+
+-- name: GetTasksWithActivity :many
+SELECT id, status,
+       COALESCE(task_type, 'implement') as task_type,
+       complexity_budget,
+       actual_complexity,
+       work_id,
+       worktree_path,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       spawned_at,
+       spawn_status,
+       last_activity
+FROM tasks
+WHERE status = 'processing'
+ORDER BY last_activity DESC;

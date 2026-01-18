@@ -1,5 +1,6 @@
 # Binary
 /co
+*.test
 .claude
 .idea
 ac

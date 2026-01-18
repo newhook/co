@@ -7,6 +7,8 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
+	"time"
 )
 
 const addTaskDependency = `-- name: AddTaskDependency :exec
@@ -97,15 +99,32 @@ WHERE wt.work_id = ?
 ORDER BY wt.position ASC
 `
 
-func (q *Queries) GetReadyTasksForWork(ctx context.Context, workID string) ([]Task, error) {
+type GetReadyTasksForWorkRow struct {
+	ID               string       `json:"id"`
+	Status           string       `json:"status"`
+	TaskType         string       `json:"task_type"`
+	ComplexityBudget int64        `json:"complexity_budget"`
+	ActualComplexity int64        `json:"actual_complexity"`
+	WorkID           string       `json:"work_id"`
+	WorktreePath     string       `json:"worktree_path"`
+	PrUrl            string       `json:"pr_url"`
+	ErrorMessage     string       `json:"error_message"`
+	StartedAt        sql.NullTime `json:"started_at"`
+	CompletedAt      sql.NullTime `json:"completed_at"`
+	CreatedAt        time.Time    `json:"created_at"`
+	SpawnedAt        sql.NullTime `json:"spawned_at"`
+	SpawnStatus      string       `json:"spawn_status"`
+}
+
+func (q *Queries) GetReadyTasksForWork(ctx context.Context, workID string) ([]GetReadyTasksForWorkRow, error) {
 	rows, err := q.db.QueryContext(ctx, getReadyTasksForWork, workID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Task{}
+	items := []GetReadyTasksForWorkRow{}
 	for rows.Next() {
-		var i Task
+		var i GetReadyTasksForWorkRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Status,

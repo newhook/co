@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const completeTask = `-- name: CompleteTask :execrows
@@ -233,9 +234,26 @@ FROM tasks
 WHERE id = ?
 `
 
-func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
+type GetTaskRow struct {
+	ID               string       `json:"id"`
+	Status           string       `json:"status"`
+	TaskType         string       `json:"task_type"`
+	ComplexityBudget int64        `json:"complexity_budget"`
+	ActualComplexity int64        `json:"actual_complexity"`
+	WorkID           string       `json:"work_id"`
+	WorktreePath     string       `json:"worktree_path"`
+	PrUrl            string       `json:"pr_url"`
+	ErrorMessage     string       `json:"error_message"`
+	StartedAt        sql.NullTime `json:"started_at"`
+	CompletedAt      sql.NullTime `json:"completed_at"`
+	CreatedAt        time.Time    `json:"created_at"`
+	SpawnedAt        sql.NullTime `json:"spawned_at"`
+	SpawnStatus      string       `json:"spawn_status"`
+}
+
+func (q *Queries) GetTask(ctx context.Context, id string) (GetTaskRow, error) {
 	row := q.db.QueryRowContext(ctx, getTask, id)
-	var i Task
+	var i GetTaskRow
 	err := row.Scan(
 		&i.ID,
 		&i.Status,
@@ -315,6 +333,65 @@ func (q *Queries) GetTaskForBead(ctx context.Context, beadID string) (string, er
 	return task_id, err
 }
 
+const getTasksWithActivity = `-- name: GetTasksWithActivity :many
+SELECT id, status,
+       COALESCE(task_type, 'implement') as task_type,
+       complexity_budget,
+       actual_complexity,
+       work_id,
+       worktree_path,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       spawned_at,
+       spawn_status,
+       last_activity
+FROM tasks
+WHERE status = 'processing'
+ORDER BY last_activity DESC
+`
+
+func (q *Queries) GetTasksWithActivity(ctx context.Context) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, getTasksWithActivity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Task{}
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.TaskType,
+			&i.ComplexityBudget,
+			&i.ActualComplexity,
+			&i.WorkID,
+			&i.WorktreePath,
+			&i.PrUrl,
+			&i.ErrorMessage,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.CreatedAt,
+			&i.SpawnedAt,
+			&i.SpawnStatus,
+			&i.LastActivity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTasks = `-- name: ListTasks :many
 SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,
@@ -333,15 +410,32 @@ FROM tasks
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListTasks(ctx context.Context) ([]Task, error) {
+type ListTasksRow struct {
+	ID               string       `json:"id"`
+	Status           string       `json:"status"`
+	TaskType         string       `json:"task_type"`
+	ComplexityBudget int64        `json:"complexity_budget"`
+	ActualComplexity int64        `json:"actual_complexity"`
+	WorkID           string       `json:"work_id"`
+	WorktreePath     string       `json:"worktree_path"`
+	PrUrl            string       `json:"pr_url"`
+	ErrorMessage     string       `json:"error_message"`
+	StartedAt        sql.NullTime `json:"started_at"`
+	CompletedAt      sql.NullTime `json:"completed_at"`
+	CreatedAt        time.Time    `json:"created_at"`
+	SpawnedAt        sql.NullTime `json:"spawned_at"`
+	SpawnStatus      string       `json:"spawn_status"`
+}
+
+func (q *Queries) ListTasks(ctx context.Context) ([]ListTasksRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTasks)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Task{}
+	items := []ListTasksRow{}
 	for rows.Next() {
-		var i Task
+		var i ListTasksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Status,
@@ -390,15 +484,32 @@ WHERE status = ?
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListTasksByStatus(ctx context.Context, status string) ([]Task, error) {
+type ListTasksByStatusRow struct {
+	ID               string       `json:"id"`
+	Status           string       `json:"status"`
+	TaskType         string       `json:"task_type"`
+	ComplexityBudget int64        `json:"complexity_budget"`
+	ActualComplexity int64        `json:"actual_complexity"`
+	WorkID           string       `json:"work_id"`
+	WorktreePath     string       `json:"worktree_path"`
+	PrUrl            string       `json:"pr_url"`
+	ErrorMessage     string       `json:"error_message"`
+	StartedAt        sql.NullTime `json:"started_at"`
+	CompletedAt      sql.NullTime `json:"completed_at"`
+	CreatedAt        time.Time    `json:"created_at"`
+	SpawnedAt        sql.NullTime `json:"spawned_at"`
+	SpawnStatus      string       `json:"spawn_status"`
+}
+
+func (q *Queries) ListTasksByStatus(ctx context.Context, status string) ([]ListTasksByStatusRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTasksByStatus, status)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Task{}
+	items := []ListTasksByStatusRow{}
 	for rows.Next() {
-		var i Task
+		var i ListTasksByStatusRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Status,
@@ -495,6 +606,25 @@ type StartTaskParams struct {
 
 func (q *Queries) StartTask(ctx context.Context, arg StartTaskParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, startTask, arg.WorktreePath, arg.StartedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateTaskActivity = `-- name: UpdateTaskActivity :execrows
+UPDATE tasks
+SET last_activity = ?
+WHERE id = ? AND status = 'processing'
+`
+
+type UpdateTaskActivityParams struct {
+	LastActivity sql.NullTime `json:"last_activity"`
+	ID           string       `json:"id"`
+}
+
+func (q *Queries) UpdateTaskActivity(ctx context.Context, arg UpdateTaskActivityParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTaskActivity, arg.LastActivity, arg.ID)
 	if err != nil {
 		return 0, err
 	}

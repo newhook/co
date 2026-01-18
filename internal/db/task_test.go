@@ -36,7 +36,7 @@ func TestStartTask(t *testing.T) {
 	err := db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
 	require.NoError(t, err, "CreateTask failed")
 
-	err = db.StartTask(context.Background(), "task-1")
+	err = db.StartTask(context.Background(), "task-1", "")
 	require.NoError(t, err, "StartTask failed")
 
 	task, err := db.GetTask(context.Background(), "task-1")
@@ -51,7 +51,7 @@ func TestStartTaskNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	err := db.StartTask(context.Background(), "nonexistent")
+	err := db.StartTask(context.Background(), "nonexistent", "")
 	assert.Error(t, err, "expected error for nonexistent task")
 }
 
@@ -60,7 +60,7 @@ func TestCompleteTask(t *testing.T) {
 	defer cleanup()
 
 	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
-	db.StartTask(context.Background(), "task-1")
+	db.StartTask(context.Background(), "task-1", "")
 
 	err := db.CompleteTask(context.Background(), "task-1", "https://github.com/example/pr/1")
 	require.NoError(t, err, "CompleteTask failed")
@@ -84,7 +84,7 @@ func TestFailTask(t *testing.T) {
 	defer cleanup()
 
 	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
-	db.StartTask(context.Background(), "task-1")
+	db.StartTask(context.Background(), "task-1", "")
 
 	err := db.FailTask(context.Background(), "task-1", "something went wrong")
 	require.NoError(t, err, "FailTask failed")
@@ -141,10 +141,10 @@ func TestCompleteTaskBead(t *testing.T) {
 	err := db.CompleteTaskBead(context.Background(), "task-1", "bead-1")
 	require.NoError(t, err, "CompleteTaskBead failed")
 
-	// Verify via IsTaskCompleted (should be false since bead-2 is still pending)
-	completed, err := db.IsTaskCompleted(context.Background(), "task-1")
-	require.NoError(t, err, "IsTaskCompleted failed")
-	assert.False(t, completed, "expected task to not be completed yet")
+	// Verify via CountTaskBeadStatuses (should be false since bead-2 is still pending)
+	total, completed, err := db.CountTaskBeadStatuses(context.Background(), "task-1")
+	require.NoError(t, err, "CountTaskBeadStatuses failed")
+	assert.False(t, total > 0 && total == completed, "expected task to not be completed yet")
 }
 
 func TestCompleteTaskBeadNotFound(t *testing.T) {
@@ -167,8 +167,8 @@ func TestFailTaskBead(t *testing.T) {
 	require.NoError(t, err, "FailTaskBead failed")
 
 	// Task should not be considered completed since bead is failed
-	completed, _ := db.IsTaskCompleted(context.Background(), "task-1")
-	assert.False(t, completed, "expected task to not be completed when bead is failed")
+	total, completed, _ := db.CountTaskBeadStatuses(context.Background(), "task-1")
+	assert.False(t, total > 0 && total == completed, "expected task to not be completed when bead is failed")
 }
 
 func TestFailTaskBeadNotFound(t *testing.T) {
@@ -188,19 +188,19 @@ func TestIsTaskCompleted(t *testing.T) {
 	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
 
 	// Initially not completed
-	completed, err := db.IsTaskCompleted(context.Background(), "task-1")
-	require.NoError(t, err, "IsTaskCompleted failed")
-	assert.False(t, completed, "expected task to not be completed initially")
+	total, completed, err := db.CountTaskBeadStatuses(context.Background(), "task-1")
+	require.NoError(t, err, "CountTaskBeadStatuses failed")
+	assert.False(t, total > 0 && total == completed, "expected task to not be completed initially")
 
 	// Complete first bead
 	db.CompleteTaskBead(context.Background(), "task-1", "bead-1")
-	completed, _ = db.IsTaskCompleted(context.Background(), "task-1")
-	assert.False(t, completed, "expected task to not be completed with one bead pending")
+	total, completed, _ = db.CountTaskBeadStatuses(context.Background(), "task-1")
+	assert.False(t, total > 0 && total == completed, "expected task to not be completed with one bead pending")
 
 	// Complete second bead
 	db.CompleteTaskBead(context.Background(), "task-1", "bead-2")
-	completed, _ = db.IsTaskCompleted(context.Background(), "task-1")
-	assert.True(t, completed, "expected task to be completed when all beads are completed")
+	total, completed, _ = db.CountTaskBeadStatuses(context.Background(), "task-1")
+	assert.True(t, total > 0 && total == completed, "expected task to be completed when all beads are completed")
 }
 
 func TestIsTaskCompletedEmpty(t *testing.T) {
@@ -211,9 +211,9 @@ func TestIsTaskCompletedEmpty(t *testing.T) {
 	_, err := db.Exec(`INSERT INTO tasks (id, status) VALUES ('empty-task', 'pending')`)
 	require.NoError(t, err, "failed to create empty task")
 
-	completed, err := db.IsTaskCompleted(context.Background(), "empty-task")
-	require.NoError(t, err, "IsTaskCompleted failed")
-	assert.False(t, completed, "expected empty task to not be considered completed")
+	total, completed, err := db.CountTaskBeadStatuses(context.Background(), "empty-task")
+	require.NoError(t, err, "CountTaskBeadStatuses failed")
+	assert.False(t, total > 0 && total == completed, "expected empty task to not be considered completed")
 }
 
 func TestCheckAndCompleteTask(t *testing.T) {
@@ -221,7 +221,7 @@ func TestCheckAndCompleteTask(t *testing.T) {
 	defer cleanup()
 
 	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
-	db.StartTask(context.Background(), "task-1")
+	db.StartTask(context.Background(), "task-1", "")
 
 	// Not all beads completed yet
 	autoCompleted, err := db.CheckAndCompleteTask(context.Background(), "task-1", "https://github.com/pr/1")
@@ -251,12 +251,12 @@ func TestListTasks(t *testing.T) {
 	// Create several tasks with different statuses
 	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
 	db.CreateTask(context.Background(), "task-2", "implement", []string{"bead-2"}, 100, "")
-	db.StartTask(context.Background(), "task-2")
+	db.StartTask(context.Background(), "task-2", "")
 	db.CreateTask(context.Background(), "task-3", "implement", []string{"bead-3"}, 100, "")
-	db.StartTask(context.Background(), "task-3")
+	db.StartTask(context.Background(), "task-3", "")
 	db.CompleteTask(context.Background(), "task-3", "")
 	db.CreateTask(context.Background(), "task-4", "implement", []string{"bead-4"}, 100, "")
-	db.StartTask(context.Background(), "task-4")
+	db.StartTask(context.Background(), "task-4", "")
 	db.FailTask(context.Background(), "task-4", "error")
 
 	// List all
@@ -349,7 +349,7 @@ func TestGetReadyTasksForWork(t *testing.T) {
 	assert.Equal(t, "task-1", ready[0].ID)
 
 	// Complete task-1, now task-2 should be ready
-	db.StartTask(ctx, "task-1")
+	db.StartTask(ctx, "task-1", "")
 	db.CompleteTask(ctx, "task-1", "")
 
 	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
@@ -358,7 +358,7 @@ func TestGetReadyTasksForWork(t *testing.T) {
 	assert.Equal(t, "task-2", ready[0].ID)
 
 	// Complete task-2, now task-3 should be ready
-	db.StartTask(ctx, "task-2")
+	db.StartTask(ctx, "task-2", "")
 	db.CompleteTask(ctx, "task-2", "")
 
 	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
@@ -367,7 +367,7 @@ func TestGetReadyTasksForWork(t *testing.T) {
 	assert.Equal(t, "task-3", ready[0].ID)
 
 	// Complete task-3, no more ready tasks
-	db.StartTask(ctx, "task-3")
+	db.StartTask(ctx, "task-3", "")
 	db.CompleteTask(ctx, "task-3", "")
 
 	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
@@ -405,7 +405,7 @@ func TestGetReadyTasksForWorkMultipleDependencies(t *testing.T) {
 	assert.Len(t, ready, 2, "expected 2 ready tasks initially")
 
 	// Complete only task-1, task-3 should NOT be ready yet
-	db.StartTask(ctx, "task-1")
+	db.StartTask(ctx, "task-1", "")
 	db.CompleteTask(ctx, "task-1", "")
 
 	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
@@ -414,7 +414,7 @@ func TestGetReadyTasksForWorkMultipleDependencies(t *testing.T) {
 	assert.Equal(t, "task-2", ready[0].ID)
 
 	// Complete task-2, now task-3 should be ready
-	db.StartTask(ctx, "task-2")
+	db.StartTask(ctx, "task-2", "")
 	db.CompleteTask(ctx, "task-2", "")
 
 	ready, err = db.GetReadyTasksForWork(ctx, "work-1")
@@ -452,7 +452,7 @@ func TestHasPendingDependencies(t *testing.T) {
 	assert.True(t, hasPending, "task-2 should have pending dependencies")
 
 	// Complete task-1
-	db.StartTask(ctx, "task-1")
+	db.StartTask(ctx, "task-1", "")
 	db.CompleteTask(ctx, "task-1", "")
 
 	// Now task-2 should have no pending dependencies
@@ -518,7 +518,7 @@ func TestBlockedTasksNotReady(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start task-1 (now processing, not completed)
-	db.StartTask(ctx, "task-1")
+	db.StartTask(ctx, "task-1", "")
 
 	// task-2 should still be blocked (task-1 is processing, not completed)
 	ready, err := db.GetReadyTasksForWork(ctx, "work-1")
@@ -549,7 +549,7 @@ func TestFailedTaskBlocksDependents(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fail task-1
-	db.StartTask(ctx, "task-1")
+	db.StartTask(ctx, "task-1", "")
 	db.FailTask(ctx, "task-1", "error")
 
 	// task-2 should still have pending dependencies (failed != completed)

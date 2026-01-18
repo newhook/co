@@ -18,6 +18,7 @@ import (
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
+	"github.com/newhook/co/internal/process"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/tracking/watcher"
 )
@@ -343,6 +344,12 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Open Claude Code session tab for selected work
 					if canActOnWork && len(m.works) > 0 {
 						return m, m.openClaude()
+					}
+					return m, nil
+				case "o":
+					// Restart orchestrator for selected work
+					if canActOnWork && len(m.works) > 0 {
+						return m, m.restartOrchestrator()
 					}
 					return m, nil
 				case "v":
@@ -686,6 +693,13 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.runWork(true)
+		}
+
+	case "o":
+		// Restart orchestrator for selected work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
+			return m, m.restartOrchestrator()
 		}
 
 	case "s":
@@ -1288,7 +1302,17 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 		panelNumber = fmt.Sprintf("[%d] ", idx)
 	}
 
-	header := fmt.Sprintf("%s%s %s", panelNumber, icon, workerName)
+	// Check orchestrator health
+	orchestratorHealth := ""
+	if wp.work.Status == db.StatusProcessing || hasActiveTask {
+		if checkOrchestratorHealth(m.ctx, wp.work.ID) {
+			orchestratorHealth = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("●") // Green dot for healthy
+		} else {
+			orchestratorHealth = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("●") // Red dot for dead
+		}
+	}
+
+	header := fmt.Sprintf("%s%s %s%s", panelNumber, icon, workerName, orchestratorHealth)
 	if isSelected {
 		header = tuiActiveTabStyle.Render(header)
 	} else {
@@ -1300,6 +1324,18 @@ func (m *workModel) renderGridWorkerPanel(idx int, width, height int) string {
 	// Work ID (if different from name)
 	if wp.work.Name != "" {
 		content.WriteString(tuiDimStyle.Render(wp.work.ID))
+		content.WriteString("\n")
+	}
+
+	// Show orchestrator health status
+	if wp.work.Status == db.StatusProcessing || hasActiveTask {
+		healthStatus := ""
+		if checkOrchestratorHealth(m.ctx, wp.work.ID) {
+			healthStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("✓ Orchestrator running")
+		} else {
+			healthStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("✗ Orchestrator dead")
+		}
+		content.WriteString(healthStatus)
 		content.WriteString("\n")
 	}
 
@@ -2185,13 +2221,14 @@ func (m *workModel) renderStatusBar() string {
 
 		tButton := styleButtonWithHover("[t]erminal", m.hoveredButton == "t")
 		cButton := styleButtonWithHover("[c]laude", m.hoveredButton == "c")
+		oButton := styleButtonWithHover("[o]rchestrator", m.hoveredButton == "o")
 		vButton := styleButtonWithHover("[v]review", m.hoveredButton == "v")
 		pButton := styleButtonWithHover("[p]r", m.hoveredButton == "p")
 		uButton := styleButtonWithHover("[u]pdate", m.hoveredButton == "u")
 		helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + xButton + " " + tButton + " " + cButton + " " + vButton + " " + pButton + " " + uButton + " " + helpButton
-		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
+		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + xButton + " " + tButton + " " + cButton + " " + oButton + " " + vButton + " " + pButton + " " + uButton + " " + helpButton
+		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
 	}
 
 	// Build bar with commands left, status right
@@ -2376,6 +2413,7 @@ func (m *workModel) renderHelp() string {
   x             Remove selected unassigned issue
   t             Open terminal/console tab
   c             Open Claude Code session
+  o             Restart orchestrator
   v             Create review task
   p             Create PR task
   u             Update PR description
@@ -2472,6 +2510,52 @@ func (m *workModel) runWork(usePlan bool) tea.Cmd {
 			msg = fmt.Sprintf("Orchestrator %s", orchestratorStatus)
 		}
 		return workCommandMsg{action: msg}
+	}
+}
+
+func (m *workModel) restartOrchestrator() tea.Cmd {
+	return func() tea.Msg {
+		if m.worksCursor >= len(m.works) {
+			return workCommandMsg{action: "Restart orchestrator", err: fmt.Errorf("no work selected")}
+		}
+		wp := m.works[m.worksCursor]
+		workID := wp.work.ID
+
+		// Get the work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil || work == nil {
+			return workCommandMsg{action: "Restart orchestrator", err: fmt.Errorf("work not found: %w", err)}
+		}
+
+		// Kill any existing orchestrator
+		projectName := m.proj.Config.Project.Name
+
+		// Check if process is running and kill it
+		pattern := fmt.Sprintf("co orchestrate --work %s", workID)
+		if running, _ := process.IsProcessRunning(m.ctx, pattern); running {
+			// Process is running, kill it
+			process.KillProcess(m.ctx, pattern) // Ignore error as process might have already exited
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		// Ensure the orchestrator is running (will restart if dead)
+		spawned, err := claude.EnsureWorkOrchestrator(
+			m.ctx,
+			workID,
+			projectName,
+			work.WorktreePath,
+			work.Name,
+			io.Discard,
+		)
+		if err != nil {
+			return workCommandMsg{action: "Restart orchestrator", err: err}
+		}
+
+		status := "already running"
+		if spawned {
+			status = "restarted"
+		}
+		return workCommandMsg{action: fmt.Sprintf("Orchestrator %s", status)}
 	}
 }
 
@@ -2989,8 +3073,8 @@ func (m *workModel) detectStatusBarButton(x int) string {
 			return "?"
 		}
 	} else {
-		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
-		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
+		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
+		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
 
 		rIdx := strings.Index(keysPlain, "[r]un")
 		sIdx := strings.Index(keysPlain, "[s]imple")
@@ -2999,6 +3083,7 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		xIdx := strings.Index(keysPlain, "[x]remove")
 		tIdx := strings.Index(keysPlain, "[t]erminal")
 		cIdx := strings.Index(keysPlain, "[c]laude")
+		oIdx := strings.Index(keysPlain, "[o]rchestrator")
 		vIdx := strings.Index(keysPlain, "[v]review")
 		pIdx := strings.Index(keysPlain, "[p]r")
 		uIdx := strings.Index(keysPlain, "[u]pdate")
@@ -3025,6 +3110,9 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]laude") {
 			return "c"
 		}
+		if oIdx >= 0 && x >= oIdx && x < oIdx+len("[o]rchestrator") {
+			return "o"
+		}
 		if vIdx >= 0 && x >= vIdx && x < vIdx+len("[v]review") {
 			return "v"
 		}
@@ -3040,4 +3128,17 @@ func (m *workModel) detectStatusBarButton(x int) string {
 	}
 
 	return ""
+}
+
+// checkOrchestratorHealth checks if the orchestrator process is running for a work
+func checkOrchestratorHealth(ctx context.Context, workID string) bool {
+	// Check if orchestrator process is running
+	pattern := fmt.Sprintf("co orchestrate --work %s", workID)
+	running, err := process.IsProcessRunning(ctx, pattern)
+	if err != nil {
+		// Log error but treat as not running
+		logging.Debug("Failed to check orchestrator health", "error", err, "workID", workID)
+		return false
+	}
+	return running
 }
