@@ -215,7 +215,8 @@ func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 		// Check if it was a timeout error
 		if errors.Is(err, context.DeadlineExceeded) {
 			// Mark the task as failed due to timeout
-			if dbErr := proj.DB.FailTask(taskCtx, t.ID, fmt.Sprintf("Task timed out after %v", timeout)); dbErr != nil {
+			// Use context.Background() since the original context is cancelled
+			if dbErr := proj.DB.FailTask(context.Background(), t.ID, fmt.Sprintf("Task timed out after %v", timeout)); dbErr != nil {
 				fmt.Printf("Warning: failed to mark timed out task as failed: %v\n", dbErr)
 			}
 			return fmt.Errorf("task %s timed out after %v", t.ID, timeout)

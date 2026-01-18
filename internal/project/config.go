@@ -24,6 +24,10 @@ type ClaudeConfig struct {
 	// Defaults to true when not specified in config.
 	SkipPermissions *bool `toml:"skip_permissions"`
 
+	// TimeLimitMinutes is the maximum duration in minutes for a Claude session.
+	// When set to 0 or omitted, there is no time limit.
+	TimeLimitMinutes int `toml:"time_limit"`
+
 	// TaskTimeoutMinutes controls the maximum execution time for a task in minutes.
 	// Defaults to 60 minutes when not specified.
 	TaskTimeoutMinutes *int `toml:"task_timeout_minutes"`
@@ -38,13 +42,37 @@ func (c *ClaudeConfig) ShouldSkipPermissions() bool {
 	return *c.SkipPermissions
 }
 
+// TimeLimit returns the maximum duration for a Claude session.
+// Returns 0 if no time limit is configured.
+func (c *ClaudeConfig) TimeLimit() time.Duration {
+	if c.TimeLimitMinutes <= 0 {
+		return 0
+	}
+	return time.Duration(c.TimeLimitMinutes) * time.Minute
+}
+
 // GetTaskTimeout returns the task timeout duration.
 // Defaults to 60 minutes when not explicitly configured.
+// If time_limit is set and is less than the default/configured task_timeout_minutes,
+// time_limit takes precedence.
 func (c *ClaudeConfig) GetTaskTimeout() time.Duration {
+	// Calculate the task timeout
+	var taskTimeout time.Duration
 	if c.TaskTimeoutMinutes == nil || *c.TaskTimeoutMinutes <= 0 {
-		return 60 * time.Minute // default to 60 minutes
+		taskTimeout = 60 * time.Minute // default to 60 minutes
+	} else {
+		taskTimeout = time.Duration(*c.TaskTimeoutMinutes) * time.Minute
 	}
-	return time.Duration(*c.TaskTimeoutMinutes) * time.Minute
+
+	// If time_limit is set and is less than task timeout, use time_limit
+	if c.TimeLimitMinutes > 0 {
+		timeLimit := time.Duration(c.TimeLimitMinutes) * time.Minute
+		if timeLimit < taskTimeout {
+			return timeLimit
+		}
+	}
+
+	return taskTimeout
 }
 
 // ProjectConfig contains project metadata.
