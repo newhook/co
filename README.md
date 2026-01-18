@@ -108,12 +108,19 @@ The `.co/config.toml` file stores project settings:
     "CLOUD_ML_REGION=us-east5",
     "MY_VAR=value"
   ]
+
+[claude]
+  # Whether to run Claude with --dangerously-skip-permissions flag.
+  # Defaults to true when not specified.
+  skip_permissions = true
 ```
 
 The `hooks.env` setting is useful for:
 - Configuring Claude Code to use Vertex AI
 - Setting custom PATH for tools
 - Any environment variables Claude needs
+
+The `claude.skip_permissions` setting controls whether Claude runs with `--dangerously-skip-permissions`. This flag allows Claude to execute commands without prompting for confirmation. Set to `false` if you want Claude to prompt for permission before running commands.
 
 ## Usage
 
