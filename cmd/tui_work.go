@@ -294,13 +294,6 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Trigger the corresponding action by simulating a key press
 				switch clickedButton {
-				case "c":
-					// Create work - disabled in TUI, must use CLI with root issue
-					if canActOnWork {
-						m.statusMessage = "Work creation requires a root issue. Use: co work create <bead-id>"
-						m.statusIsError = true
-					}
-					return m, nil
 				case "n":
 					// Create new bead and assign to current work
 					if canActOnWork && len(m.works) > 0 {
@@ -320,16 +313,16 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.viewMode = ViewDestroyConfirm
 					}
 					return m, nil
-				case "p":
-					// Plan work
+				case "r":
+					// Run work with LLM estimation
 					if canActOnWork && len(m.works) > 0 {
-						m.viewMode = ViewPlanDialog
+						return m, m.runWork(true)
 					}
 					return m, nil
-				case "r":
-					// Run work
+				case "s":
+					// Run work simple (one task per issue)
 					if canActOnWork && len(m.works) > 0 {
-						return m, m.runWork()
+						return m, m.runWork(false)
 					}
 					return m, nil
 				case "a":
@@ -346,22 +339,28 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.openConsole()
 					}
 					return m, nil
-				case "C":
+				case "c":
 					// Open Claude Code session tab for selected work
 					if canActOnWork && len(m.works) > 0 {
 						return m, m.openClaude()
 					}
 					return m, nil
-				case "R":
+				case "v":
 					// Create review task
 					if canActOnWork && len(m.works) > 0 {
 						return m, m.createReviewTask()
 					}
 					return m, nil
-				case "P":
+				case "p":
 					// Create PR task
 					if canActOnWork && len(m.works) > 0 {
 						return m, m.createPRTask()
+					}
+					return m, nil
+				case "u":
+					// Update PR description
+					if canActOnWork && len(m.works) > 0 {
+						return m, m.updatePRDescriptionTask()
 					}
 					return m, nil
 				case "?":
@@ -386,8 +385,6 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCreateBead(msg)
 		case ViewDestroyConfirm:
 			return m.updateDestroyConfirm(msg)
-		case ViewPlanDialog:
-			return m.updatePlanDialog(msg)
 		case ViewAssignBeads:
 			return m.updateAssignBeads(msg)
 		case ViewHelp:
@@ -546,11 +543,6 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.tasksCursor = 0
 			}
 			return m, nil
-		case "c":
-			// Create work - disabled in TUI, must use CLI with root issue
-			m.statusMessage = "Work creation requires a root issue. Use: co work create <bead-id>"
-			m.statusIsError = true
-			return m, nil
 		case "d":
 			// Destroy selected work
 			if len(m.works) > 0 {
@@ -558,15 +550,15 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "r":
-			// Run selected work
+			// Run selected work with LLM estimation
 			if len(m.works) > 0 {
-				return m, m.runWork()
+				return m, m.runWork(true)
 			}
 			return m, nil
-		case "p":
-			// Plan selected work
+		case "s":
+			// Run selected work simple (one task per issue)
 			if len(m.works) > 0 {
-				m.viewMode = ViewPlanDialog
+				return m, m.runWork(false)
 			}
 			return m, nil
 		case "a":
@@ -577,16 +569,22 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.loadBeadsForAssign()
 			}
 			return m, nil
-		case "R":
+		case "v":
 			// Create review task
 			if len(m.works) > 0 {
 				return m, m.createReviewTask()
 			}
 			return m, nil
-		case "P":
+		case "p":
 			// Create PR task
 			if len(m.works) > 0 {
 				return m, m.createPRTask()
+			}
+			return m, nil
+		case "u":
+			// Update PR description
+			if len(m.works) > 0 {
+				return m, m.updatePRDescriptionTask()
 			}
 			return m, nil
 		case "t":
@@ -595,7 +593,7 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.openConsole()
 			}
 			return m, nil
-		case "C":
+		case "c":
 			// Open Claude Code session tab for selected work
 			if len(m.works) > 0 {
 				return m, m.openClaude()
@@ -674,14 +672,6 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.activePanel = PanelRight // 2 = Details panel
 		}
 
-	case "c":
-		// Create work - disabled in TUI, must use CLI with root issue
-		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
-		if canActOnWork {
-			m.statusMessage = "Work creation requires a root issue. Use: co work create <bead-id>"
-			m.statusIsError = true
-		}
-
 	case "d":
 		// Destroy work (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
@@ -689,18 +679,18 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewDestroyConfirm
 		}
 
-	case "p":
-		// Plan work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+	case "r":
+		// Run work with LLM estimation (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
-			m.viewMode = ViewPlanDialog
+			return m, m.runWork(true)
 		}
 
-	case "r":
-		// Run work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+	case "s":
+		// Run work simple - one task per issue (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
-			return m, m.runWork()
+			return m, m.runWork(false)
 		}
 
 	case "a":
@@ -713,25 +703,32 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadBeadsForAssign()
 		}
 
-	case "R":
+	case "v":
 		// Create review task
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.createReviewTask()
 		}
 
-	case "P":
+	case "p":
 		// Create PR task
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.createPRTask()
 		}
 
-	case "U":
+	case "u":
 		// Update PR description task
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.updatePRDescriptionTask()
+		}
+
+	case "c":
+		// Open Claude Code session tab for selected work
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
+			return m, m.openClaude()
 		}
 
 	case "n":
@@ -809,22 +806,6 @@ func (m *workModel) updateDestroyConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.destroyWork()
 		}
 	case "n", "N", "esc":
-		m.viewMode = ViewNormal
-	}
-	return m, nil
-}
-
-func (m *workModel) updatePlanDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "a":
-		// Auto-group planning
-		m.viewMode = ViewNormal
-		return m, m.planWork(true)
-	case "s":
-		// Single-bead planning
-		m.viewMode = ViewNormal
-		return m, m.planWork(false)
-	case "esc":
 		m.viewMode = ViewNormal
 	}
 	return m, nil
@@ -1005,9 +986,6 @@ func (m *workModel) View() string {
 		// Fall through to normal rendering - details panel will show the form
 	case ViewDestroyConfirm:
 		dialog := m.renderDestroyConfirmDialog()
-		return m.renderWithDialog(dialog)
-	case ViewPlanDialog:
-		dialog := m.renderPlanDialogContent()
 		return m.renderWithDialog(dialog)
 	case ViewAssignBeads:
 		// In zoomed mode, render inline in details panel (fall through)
@@ -2068,17 +2046,18 @@ func (m *workModel) renderStatusBar() string {
 		// Normal zoomed view - task-specific actions
 		escButton := "[Esc]overview"
 		rButton := styleButtonWithHover("[r]un", m.hoveredButton == "r")
-		pButton := styleButtonWithHover("[p]lan", m.hoveredButton == "p")
+		sButton := styleButtonWithHover("[s]imple", m.hoveredButton == "s")
 		aButton := styleButtonWithHover("[a]ssign", m.hoveredButton == "a")
 		nButton := styleButtonWithHover("[n]ew", m.hoveredButton == "n")
 		tButton := styleButtonWithHover("[t]erminal", m.hoveredButton == "t")
-		CButton := styleButtonWithHover("[C]laude", m.hoveredButton == "C")
-		RButton := styleButtonWithHover("[R]eview", m.hoveredButton == "R")
-		PButton := styleButtonWithHover("[P]R", m.hoveredButton == "P")
+		cButton := styleButtonWithHover("[c]laude", m.hoveredButton == "c")
+		vButton := styleButtonWithHover("[v]review", m.hoveredButton == "v")
+		pButton := styleButtonWithHover("[p]r", m.hoveredButton == "p")
+		uButton := styleButtonWithHover("[u]pdate", m.hoveredButton == "u")
 		helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-		keys = escButton + " " + rButton + " " + pButton + " " + aButton + " " + nButton + " " + tButton + " " + CButton + " " + RButton + " " + PButton + " " + helpButton
-		keysPlain = "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
+		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + tButton + " " + cButton + " " + vButton + " " + pButton + " " + uButton + " " + helpButton
+		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
 	}
 
 	// Build bar with commands left, status right
@@ -2108,20 +2087,6 @@ func (m *workModel) renderDestroyConfirmDialog() string {
   [y] Yes  [n] No
 `, displayName)
 
-	return tuiDialogStyle.Render(content)
-}
-
-func (m *workModel) renderPlanDialogContent() string {
-	content := `
-  Plan Work
-
-  Choose planning mode:
-
-  [a] Auto-group - LLM estimates complexity
-  [s] Single-bead - One task per bead
-
-  [Esc] Cancel
-`
 	return tuiDialogStyle.Render(content)
 }
 
@@ -2330,33 +2295,14 @@ func (m *workModel) destroyWork() tea.Cmd {
 	}
 }
 
-func (m *workModel) planWork(autoGroup bool) tea.Cmd {
-	return func() tea.Msg {
-		if m.worksCursor >= len(m.works) {
-			return workCommandMsg{action: "Plan work", err: fmt.Errorf("no work selected")}
-		}
-		workID := m.works[m.worksCursor].work.ID
-
-		result, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup, io.Discard)
-		if err != nil {
-			return workCommandMsg{action: "Plan work", err: err}
-		}
-
-		if result.TasksCreated == 0 {
-			return workCommandMsg{action: "Plan work (no unassigned beads)"}
-		}
-		return workCommandMsg{action: fmt.Sprintf("Planned %d task(s)", result.TasksCreated)}
-	}
-}
-
-func (m *workModel) runWork() tea.Cmd {
+func (m *workModel) runWork(usePlan bool) tea.Cmd {
 	return func() tea.Msg {
 		if m.worksCursor >= len(m.works) {
 			return workCommandMsg{action: "Run work", err: fmt.Errorf("no work selected")}
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		result, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
+		result, err := RunWork(m.ctx, m.proj, workID, usePlan, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Run work", err: err}
 		}
@@ -2367,8 +2313,12 @@ func (m *workModel) runWork() tea.Cmd {
 		}
 
 		var msg string
+		modeStr := ""
+		if usePlan {
+			modeStr = " (with estimation)"
+		}
 		if result.TasksCreated > 0 {
-			msg = fmt.Sprintf("Created %d task(s), orchestrator %s", result.TasksCreated, orchestratorStatus)
+			msg = fmt.Sprintf("Created %d task(s)%s, orchestrator %s", result.TasksCreated, modeStr, orchestratorStatus)
 		} else {
 			msg = fmt.Sprintf("Orchestrator %s", orchestratorStatus)
 		}
