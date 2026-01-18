@@ -27,7 +27,7 @@ func Run(ctx context.Context, database *db.DB, taskID string, prompt string, wor
 	}
 
 	// Mark task as processing
-	if err := database.StartTask(ctx, taskID); err != nil {
+	if err := database.StartTask(ctx, taskID, workDir); err != nil {
 		return fmt.Errorf("failed to start task: %w", err)
 	}
 

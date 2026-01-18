@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,8 +16,6 @@ import (
 	"github.com/newhook/co/internal/task"
 	"github.com/spf13/cobra"
 )
-
-const maxReviewIterations = 5
 
 // Spinner frames for animated waiting display
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -75,8 +74,39 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to reset stuck tasks: %w", err)
 	}
 
+	// Start activity tracker for health monitoring in a separate goroutine
+	// This avoids the busy loop issue from having a select with default in the main loop
+	activityTicker := time.NewTicker(30 * time.Second)
+	defer activityTicker.Stop()
+
+	// Run activity updates in background
+	go func() {
+		// Recover from any panics to prevent health monitoring from stopping
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Error: activity tracker panicked: %v\n", r)
+				// Log the panic but don't crash the entire orchestrator
+				// The main loop will continue running
+			}
+		}()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-activityTicker.C:
+				// Update last_activity for all processing tasks of this work
+				if err := updateWorkTaskActivity(ctx, proj.DB, workID); err != nil {
+					// Log but don't fail - this is just health monitoring
+					fmt.Printf("Warning: failed to update task activity: %v\n", err)
+				}
+			}
+		}
+	}()
+
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
+
 		// Check if work still exists (may have been destroyed)
 		work, err = proj.DB.GetWork(ctx, workID)
 		if err != nil {
@@ -152,6 +182,11 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		task := readyTasks[0]
 		fmt.Printf("\n=== Executing task: %s (type: %s) ===\n", task.ID, task.TaskType)
 
+		// Update activity when starting execution
+		if err := proj.DB.UpdateTaskActivity(ctx, task.ID, time.Now()); err != nil {
+			fmt.Printf("Warning: failed to update task activity at start: %v\n", err)
+		}
+
 		if err := executeTask(proj, task, work); err != nil {
 			return fmt.Errorf("task %s failed: %w", task.ID, err)
 		}
@@ -162,32 +197,29 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 	ctx := GetContext()
 
-	// Apply time limit if configured
-	timeLimit := proj.Config.Claude.TimeLimit()
-	if timeLimit > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeLimit)
-		defer cancel()
-		fmt.Printf("Time limit: %v\n", timeLimit)
-	}
+	// Create a context with timeout from configuration
+	timeout := proj.Config.Claude.GetTaskTimeout()
+	taskCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	fmt.Printf("Task timeout: %v\n", timeout)
 
 	// Build prompt for Claude based on task type
-	prompt, err := buildPromptForTask(ctx, proj, t, work)
+	prompt, err := buildPromptForTask(taskCtx, proj, t, work)
 	if err != nil {
 		return err
 	}
 
-	// Execute Claude inline
-	if err = claude.Run(ctx, proj.DB, t.ID, prompt, work.WorktreePath, proj.Config); err != nil {
-		// Check for context timeout
-		if ctx.Err() == context.DeadlineExceeded {
-			// Mark task as failed in database to prevent infinite retry loop
+	// Execute Claude inline with timeout context
+	if err = claude.Run(taskCtx, proj.DB, t.ID, prompt, work.WorktreePath, proj.Config); err != nil {
+		// Check if it was a timeout error
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Mark the task as failed due to timeout
 			// Use context.Background() since the original context is cancelled
-			errMsg := fmt.Sprintf("task timed out after %v", timeLimit)
-			if failErr := proj.DB.FailTask(context.Background(), t.ID, errMsg); failErr != nil {
-				fmt.Printf("Warning: failed to mark task as failed in database: %v\n", failErr)
+			if dbErr := proj.DB.FailTask(context.Background(), t.ID, fmt.Sprintf("Task timed out after %v", timeout)); dbErr != nil {
+				fmt.Printf("Warning: failed to mark timed out task as failed: %v\n", dbErr)
 			}
-			return fmt.Errorf("%s", errMsg)
+			return fmt.Errorf("task %s timed out after %v", t.ID, timeout)
 		}
 		return err
 	}
@@ -311,6 +343,26 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 }
 
 
+// updateWorkTaskActivity updates the last_activity timestamp for all processing tasks of a work.
+func updateWorkTaskActivity(ctx context.Context, db *db.DB, workID string) error {
+	// Get all processing tasks for this work
+	tasks, err := db.GetWorkTasks(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work tasks: %w", err)
+	}
+
+	// Update activity for each processing task
+	for _, task := range tasks {
+		if task.Status == "processing" {
+			if err := db.UpdateTaskActivity(ctx, task.ID, time.Now()); err != nil {
+				// Log but don't fail on individual task updates
+				fmt.Printf("Warning: failed to update activity for task %s: %v\n", task.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
 // spinnerWait displays an animated spinner with a message for the specified duration.
 // The spinner updates every 100ms to create a smooth animation effect.
 // Does not print a newline so the spinner can continue on the same line.
@@ -334,8 +386,9 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 
 	// Count how many review iterations we've had
 	reviewCount := countReviewIterations(proj, work.ID)
-	if reviewCount >= maxReviewIterations {
-		fmt.Printf("Warning: Maximum review iterations (%d) reached, proceeding to PR\n", maxReviewIterations)
+	maxIterations := proj.Config.Workflow.GetMaxReviewIterations()
+	if reviewCount >= maxIterations {
+		fmt.Printf("Warning: Maximum review iterations (%d) reached, proceeding to PR\n", maxIterations)
 		return createPRTask(proj, work, reviewTask.ID)
 	}
 

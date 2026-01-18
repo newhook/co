@@ -57,21 +57,22 @@ type Querier interface {
 	GetLatestReviewTaskWithMetadata(ctx context.Context, workID string) (string, error)
 	GetMaxWorkBeadPosition(ctx context.Context, workID string) (int64, error)
 	GetMigrationDownSQL(ctx context.Context, version string) (GetMigrationDownSQLRow, error)
-	GetReadyTasksForWork(ctx context.Context, workID string) ([]Task, error)
-	GetTask(ctx context.Context, id string) (Task, error)
+	GetReadyTasksForWork(ctx context.Context, workID string) ([]GetReadyTasksForWorkRow, error)
+	GetTask(ctx context.Context, id string) (GetTaskRow, error)
 	GetTaskBeadStatus(ctx context.Context, arg GetTaskBeadStatusParams) (string, error)
 	GetTaskBeads(ctx context.Context, taskID string) ([]string, error)
 	GetTaskDependencies(ctx context.Context, taskID string) ([]string, error)
 	GetTaskDependents(ctx context.Context, dependsOnTaskID string) ([]string, error)
 	GetTaskForBead(ctx context.Context, beadID string) (string, error)
 	GetTaskMetadata(ctx context.Context, arg GetTaskMetadataParams) (string, error)
+	GetTasksWithActivity(ctx context.Context) ([]Task, error)
 	GetUnassignedWorkBeads(ctx context.Context, workID string) ([]WorkBead, error)
 	GetWork(ctx context.Context, id string) (Work, error)
 	GetWorkBeadGroups(ctx context.Context, workID string) ([]int64, error)
 	GetWorkBeads(ctx context.Context, workID string) ([]WorkBead, error)
 	GetWorkBeadsByGroup(ctx context.Context, arg GetWorkBeadsByGroupParams) ([]WorkBead, error)
 	GetWorkByDirectory(ctx context.Context, worktreePath string) (Work, error)
-	GetWorkTasks(ctx context.Context, workID string) ([]Task, error)
+	GetWorkTasks(ctx context.Context, workID string) ([]GetWorkTasksRow, error)
 	HasPendingDependencies(ctx context.Context, taskID string) (bool, error)
 	InitializeBeadGroupCounter(ctx context.Context, workID string) error
 	InitializeTaskCounter(ctx context.Context, workID string) error
@@ -80,8 +81,8 @@ type Querier interface {
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)
 	ListMigrationVersions(ctx context.Context) ([]string, error)
 	ListMigrationsWithDetails(ctx context.Context) ([]ListMigrationsWithDetailsRow, error)
-	ListTasks(ctx context.Context) ([]Task, error)
-	ListTasksByStatus(ctx context.Context, status string) ([]Task, error)
+	ListTasks(ctx context.Context) ([]ListTasksRow, error)
+	ListTasksByStatus(ctx context.Context, status string) ([]ListTasksByStatusRow, error)
 	ListWorks(ctx context.Context) ([]Work, error)
 	ListWorksByStatus(ctx context.Context, status string) ([]Work, error)
 	RecordMigration(ctx context.Context, version string) error
@@ -95,6 +96,7 @@ type Querier interface {
 	StartTask(ctx context.Context, arg StartTaskParams) (int64, error)
 	StartWork(ctx context.Context, arg StartWorkParams) (int64, error)
 	UpdateMigrationDownSQL(ctx context.Context, arg UpdateMigrationDownSQLParams) error
+	UpdateTaskActivity(ctx context.Context, arg UpdateTaskActivityParams) (int64, error)
 	UpdateWorkBeadGroup(ctx context.Context, arg UpdateWorkBeadGroupParams) (int64, error)
 }
 

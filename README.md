@@ -117,6 +117,11 @@ The `.co/config.toml` file stores project settings:
   # Maximum minutes for a Claude session (0 = no limit).
   # When set, tasks that exceed this limit will be marked as failed.
   time_limit = 30
+
+[workflow]
+  # Maximum number of review/fix cycles before proceeding to PR.
+  # Defaults to 2 when not specified.
+  max_review_iterations = 2
 ```
 
 The `hooks.env` setting is useful for:
@@ -127,6 +132,8 @@ The `hooks.env` setting is useful for:
 The `claude.skip_permissions` setting controls whether Claude runs with `--dangerously-skip-permissions`. This flag allows Claude to execute commands without prompting for confirmation. Set to `false` if you want Claude to prompt for permission before running commands.
 
 The `claude.time_limit` setting specifies the maximum duration in minutes for a Claude session. When a task exceeds this limit, it is automatically terminated and marked as failed with a timeout error. This is useful for preventing runaway sessions. Set to `0` or omit to disable the time limit.
+
+The `workflow.max_review_iterations` setting limits the number of review/fix cycles in automated workflows. The default is 2 iterations. Increase this value if you want Claude to perform more review passes, or decrease it to limit iteration time.
 
 ## Usage
 
@@ -250,7 +257,7 @@ co work create bead-1 bead-2 --auto
 This mode:
 1. Creates work unit and tasks from beads
 2. Executes all implementation tasks
-3. Runs review/fix loop until code is clean (max 3 iterations)
+3. Runs review/fix loop until code is clean (default max 2 iterations, configurable)
 4. Creates PR automatically
 5. Returns PR URL when complete
 
