@@ -75,8 +75,23 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to reset stuck tasks: %w", err)
 	}
 
+	// Start activity tracker for health monitoring
+	activityTicker := time.NewTicker(30 * time.Second)
+	defer activityTicker.Stop()
+
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
+		select {
+		case <-activityTicker.C:
+			// Update last_activity for all processing tasks of this work
+			if err := updateWorkTaskActivity(ctx, proj.DB, workID); err != nil {
+				// Log but don't fail - this is just health monitoring
+				fmt.Printf("Warning: failed to update task activity: %v\n", err)
+			}
+		default:
+			// Continue with normal processing
+		}
+
 		// Check if work still exists (may have been destroyed)
 		work, err = proj.DB.GetWork(ctx, workID)
 		if err != nil {
@@ -151,6 +166,11 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		// Execute the first ready task
 		task := readyTasks[0]
 		fmt.Printf("\n=== Executing task: %s (type: %s) ===\n", task.ID, task.TaskType)
+
+		// Update activity when starting execution
+		if err := proj.DB.UpdateTaskActivity(ctx, task.ID, time.Now()); err != nil {
+			fmt.Printf("Warning: failed to update task activity at start: %v\n", err)
+		}
 
 		if err := executeTask(proj, task, work); err != nil {
 			return fmt.Errorf("task %s failed: %w", task.ID, err)
@@ -291,6 +311,26 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 	return nil
 }
 
+
+// updateWorkTaskActivity updates the last_activity timestamp for all processing tasks of a work.
+func updateWorkTaskActivity(ctx context.Context, db *db.DB, workID string) error {
+	// Get all processing tasks for this work
+	tasks, err := db.GetWorkTasks(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work tasks: %w", err)
+	}
+
+	// Update activity for each processing task
+	for _, task := range tasks {
+		if task.Status == "processing" {
+			if err := db.UpdateTaskActivity(ctx, task.ID, time.Now()); err != nil {
+				// Log but don't fail on individual task updates
+				fmt.Printf("Warning: failed to update activity for task %s: %v\n", task.ID, err)
+			}
+		}
+	}
+	return nil
+}
 
 // spinnerWait displays an animated spinner with a message for the specified duration.
 // The spinner updates every 100ms to create a smooth animation effect.

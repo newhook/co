@@ -476,8 +476,28 @@ func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName stri
 
 	// Check if the tab already exists
 	if TabExists(ctx, sessionName, tabName) {
-		fmt.Fprintf(w, "Work orchestrator tab %s already exists\n", tabName)
-		return false, nil
+		// Tab exists, but we need to check if the orchestrator is actually running
+		// Check for running orchestrator process
+		cmd := exec.CommandContext(ctx, "pgrep", "-f", fmt.Sprintf("co orchestrate --work %s", workID))
+		if err := cmd.Run(); err == nil {
+			// Process is running
+			fmt.Fprintf(w, "Work orchestrator tab %s already exists and process is running\n", tabName)
+			return false, nil
+		}
+
+		// Tab exists but process is not running - orchestrator is dead
+		fmt.Fprintf(w, "Work orchestrator tab %s exists but process is dead - restarting...\n", tabName)
+
+		// Try to close the dead tab first
+		zc := zellij.New()
+		if err := zc.SwitchToTab(ctx, sessionName, tabName); err == nil {
+			// Send Ctrl+C to ensure any hung process is terminated
+			zc.SendCtrlC(ctx, sessionName)
+			time.Sleep(zc.CtrlCDelay)
+			// Close the tab
+			zc.CloseTab(ctx, sessionName)
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 
 	// Spawn the orchestrator

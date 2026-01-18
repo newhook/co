@@ -222,7 +222,12 @@ func (db *DB) GetWorkTasks(ctx context.Context, workID string) ([]*Task, error) 
 
 	result := make([]*Task, len(tasks))
 	for i, t := range tasks {
-		result[i] = taskToLocal(&t)
+		result[i] = listTaskRowToLocal(
+			t.ID, t.Status, t.TaskType, t.ComplexityBudget, t.ActualComplexity,
+			t.WorkID, t.WorktreePath, t.PrUrl, t.ErrorMessage,
+			t.StartedAt, t.CompletedAt, t.CreatedAt,
+			t.SpawnedAt, t.SpawnStatus,
+		)
 	}
 	return result, nil
 }
