@@ -2564,7 +2564,7 @@ func (m *workModel) openClaude() tea.Cmd {
 		wp := m.works[m.worksCursor]
 		workID := wp.work.ID
 
-		err := claude.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, wp.work.Name, m.proj.Config.Hooks.Env, io.Discard)
+		err := claude.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, wp.work.WorktreePath, wp.work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open Claude session", err: err}
 		}

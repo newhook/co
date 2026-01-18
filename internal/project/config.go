@@ -14,6 +14,23 @@ type Config struct {
 	Repo    RepoConfig    `toml:"repo"`
 	Hooks   HooksConfig   `toml:"hooks"`
 	Linear  LinearConfig  `toml:"linear"`
+	Claude  ClaudeConfig  `toml:"claude"`
+}
+
+// ClaudeConfig contains Claude Code configuration.
+type ClaudeConfig struct {
+	// SkipPermissions controls whether to run Claude with --dangerously-skip-permissions.
+	// Defaults to true when not specified in config.
+	SkipPermissions *bool `toml:"skip_permissions"`
+}
+
+// ShouldSkipPermissions returns true if Claude should run with --dangerously-skip-permissions.
+// Defaults to true when not explicitly configured.
+func (c *ClaudeConfig) ShouldSkipPermissions() bool {
+	if c.SkipPermissions == nil {
+		return true // default to true
+	}
+	return *c.SkipPermissions
 }
 
 // ProjectConfig contains project metadata.
