@@ -161,6 +161,44 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Start GitHub comment resolution poller in a separate goroutine
+	// This checks every 5 minutes for feedback items where the bead is closed but not yet resolved on GitHub
+	go func() {
+		// Recover from any panics
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Error: comment resolution poller panicked: %v\n", r)
+			}
+		}()
+
+		// Only run if work has a PR URL
+		if work.PRURL == "" {
+			return
+		}
+
+		// Check every 5 minutes
+		resolutionTicker := time.NewTicker(5 * time.Minute)
+		defer resolutionTicker.Stop()
+
+		// Also check immediately on startup
+		checkAndResolveComments(ctx, proj, workID, work.PRURL)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-resolutionTicker.C:
+				// Refresh work to get latest PR URL
+				currentWork, err := proj.DB.GetWork(ctx, workID)
+				if err != nil || currentWork == nil || currentWork.PRURL == "" {
+					continue
+				}
+
+				checkAndResolveComments(ctx, proj, workID, currentWork.PRURL)
+			}
+		}
+	}()
+
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
 
@@ -224,7 +262,28 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			// No tasks at all or all completed - wait for new tasks with spinner
+			// No tasks at all or all completed - check for PR feedback before waiting
+			if completedCount > 0 && work.PRURL != "" {
+				// All tasks are done and we have a PR - check for feedback
+				fmt.Println("\nAll tasks completed. Checking for PR feedback...")
+
+				// Run the 'co work feedback' command with auto-add flag
+				cmd := exec.CommandContext(ctx, "co", "work", "feedback", workID, "--auto-add")
+				cmd.Dir = proj.Root
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+
+				if err := cmd.Run(); err != nil {
+					fmt.Printf("Warning: failed to check PR feedback: %v\n", err)
+				} else {
+					// Give the system a moment to process the new beads
+					time.Sleep(2 * time.Second)
+					// Continue the loop to check for new tasks from the feedback
+					continue
+				}
+			}
+
+			// Wait for new tasks with spinner
 			var msg string
 			if completedCount > 0 {
 				msg = fmt.Sprintf("All %d task(s) completed. Waiting for new tasks...", completedCount)
@@ -449,16 +508,21 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 		return createPRTask(proj, work, reviewTask.ID)
 	}
 
-	// Check if the review created any issue beads under the root issue
-	var beadsToFix []beads.Bead
+	// Create beads client - needed for checking beads
+	var beadsClient *beads.Client
 	if work.RootIssueID != "" {
-		// Create beads client
 		beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-		beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+		var err error
+		beadsClient, err = beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
 		if err != nil {
 			return fmt.Errorf("failed to create beads client: %w", err)
 		}
 		defer beadsClient.Close()
+	}
+
+	// Check if the review created any issue beads under the root issue
+	var beadsToFix []beads.Bead
+	if work.RootIssueID != "" && beadsClient != nil {
 
 		// Get all children of the root issue
 		rootChildrenIssues, err := beadsClient.GetBeadWithChildren(ctx, work.RootIssueID)
@@ -478,8 +542,40 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 		}
 	}
 
+	// If work has a PR URL, also check for PR feedback
+	if len(beadsToFix) == 0 && work.PRURL != "" {
+		fmt.Println("Review passed - checking for PR feedback...")
+
+		// Run the 'co work feedback' command with auto-add flag
+		cmd := exec.CommandContext(ctx, "co", "work", "feedback", work.ID, "--auto-add")
+		cmd.Dir = proj.Root
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Printf("Warning: failed to check PR feedback: %v\nOutput: %s\n", err, string(output))
+		} else {
+			// Re-check for new beads from PR feedback
+			if work.RootIssueID != "" {
+				// Re-fetch children of root issue to see if feedback created new beads
+				rootChildrenIssues, err := beadsClient.GetBeadWithChildren(ctx, work.RootIssueID)
+				if err == nil {
+					// Filter for any new open beads (not just review-created ones)
+					for _, issue := range rootChildrenIssues {
+						if issue.ID != work.RootIssueID &&
+							(issue.Status == "" || issue.Status == "ready" || issue.Status == "open") {
+							// Check if this bead is already in a task
+							inTask, _ := proj.DB.IsBeadInTask(ctx, work.ID, issue.ID)
+							if !inTask {
+								beadsToFix = append(beadsToFix, issue)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if len(beadsToFix) == 0 {
-		fmt.Println("Review passed - no issues found!")
+		fmt.Println("Review passed and no PR feedback issues found!")
 		return createPRTask(proj, work, reviewTask.ID)
 	}
 
@@ -616,4 +712,94 @@ func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workI
 	}
 
 	return nil
+}
+
+// checkAndResolveComments checks for feedback items where the bead is closed and posts resolution comments to GitHub
+func checkAndResolveComments(ctx context.Context, proj *project.Project, workID, prURL string) {
+	// Get unresolved feedback items for this work
+	feedbacks, err := proj.DB.GetUnresolvedFeedbackForClosedBeads(ctx, workID)
+	if err != nil {
+		fmt.Printf("Error getting unresolved feedback: %v\n", err)
+		return
+	}
+
+	if len(feedbacks) == 0 {
+		return
+	}
+
+	fmt.Printf("\nChecking %d feedback items for resolution...\n", len(feedbacks))
+
+	// Initialize beads client to check bead status
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(filepath.Join(proj.Root, "main", ".beads", "beads.db")))
+	if err != nil {
+		fmt.Printf("Error initializing beads client: %v\n", err)
+		return
+	}
+	defer beadsClient.Close()
+
+	for _, feedback := range feedbacks {
+		if feedback.BeadID == nil || feedback.SourceID == nil {
+			continue
+		}
+
+		// Check if the bead is actually closed
+		bead, err := beadsClient.GetBead(ctx, *feedback.BeadID)
+		if err != nil {
+			fmt.Printf("Error getting bead %s: %v\n", *feedback.BeadID, err)
+			continue
+		}
+
+		if bead == nil || bead.Status != "CLOSED" {
+			// Bead is not closed yet, skip
+			continue
+		}
+
+		// Post resolution comment to GitHub
+		fmt.Printf("Resolving GitHub comment for closed bead %s...\n", *feedback.BeadID)
+
+		resolutionMessage := fmt.Sprintf("✅ Resolved in work %s", workID)
+		if bead.CloseReason != "" {
+			resolutionMessage = fmt.Sprintf("✅ Resolved in work %s: %s", workID, bead.CloseReason)
+		}
+
+		// Parse PR URL to get owner/repo/pr_number
+		// Expected format: https://github.com/owner/repo/pull/123
+		parts := strings.Split(prURL, "/")
+		if len(parts) < 7 || parts[5] != "pull" {
+			fmt.Printf("Invalid PR URL format: %s\n", prURL)
+			continue
+		}
+
+		owner := parts[3]
+		repo := parts[4]
+		prNumber := parts[6]
+
+		// Post comment using gh CLI
+		cmd := exec.CommandContext(ctx, "gh", "api", "-X", "POST",
+			fmt.Sprintf("/repos/%s/%s/issues/%s/comments", owner, repo, prNumber),
+			"--field", fmt.Sprintf("body=%s", resolutionMessage),
+			"--header", "Accept: application/vnd.github.v3+json")
+
+		// If we have a source_id that looks like a review comment ID, reply to that specific thread
+		if strings.Contains(feedback.Source, "Review:") && *feedback.SourceID != "" {
+			// For review comments, reply to the specific comment thread
+			cmd = exec.CommandContext(ctx, "gh", "api", "-X", "POST",
+				fmt.Sprintf("/repos/%s/%s/pulls/%s/comments/%s/replies", owner, repo, prNumber, *feedback.SourceID),
+				"--field", fmt.Sprintf("body=%s", resolutionMessage),
+				"--header", "Accept: application/vnd.github.v3+json")
+		}
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Printf("Error posting resolution comment: %v\nOutput: %s\n", err, string(output))
+			continue
+		}
+
+		// Mark feedback as resolved in database
+		if err := proj.DB.MarkFeedbackResolved(ctx, feedback.ID); err != nil {
+			fmt.Printf("Error marking feedback %s as resolved: %v\n", feedback.ID, err)
+		} else {
+			fmt.Printf("Successfully resolved feedback for bead %s\n", *feedback.BeadID)
+		}
+	}
 }
