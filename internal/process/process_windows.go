@@ -88,7 +88,17 @@ func killProcessByPattern(ctx context.Context, pattern string) error {
 	if err != nil {
 		// Try alternative approach with taskkill
 		// This is less precise but works when PowerShell scripting is restricted
-		cmd = exec.CommandContext(ctx, "taskkill", "/F", "/IM", "*co*")
+		// Extract the executable name from the pattern (first word)
+		exeName := pattern
+		if idx := strings.IndexAny(pattern, " \t"); idx > 0 {
+			exeName = pattern[:idx]
+		}
+		// Add .exe extension if not present and add wildcards for taskkill
+		if !strings.HasSuffix(strings.ToLower(exeName), ".exe") {
+			exeName = exeName + ".exe"
+		}
+		// Use the actual executable name instead of hardcoded "*co*"
+		cmd = exec.CommandContext(ctx, "taskkill", "/F", "/IM", exeName)
 		if err2 := cmd.Run(); err2 != nil {
 			return fmt.Errorf("failed to kill process: %w, stderr: %s", err, stderr.String())
 		}
