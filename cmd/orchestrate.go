@@ -181,7 +181,13 @@ func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 	if err = claude.Run(ctx, proj.DB, t.ID, prompt, work.WorktreePath, proj.Config); err != nil {
 		// Check for context timeout
 		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("task timed out after %v", timeLimit)
+			// Mark task as failed in database to prevent infinite retry loop
+			// Use context.Background() since the original context is cancelled
+			errMsg := fmt.Sprintf("task timed out after %v", timeLimit)
+			if failErr := proj.DB.FailTask(context.Background(), t.ID, errMsg); failErr != nil {
+				fmt.Printf("Warning: failed to mark task as failed in database: %v\n", failErr)
+			}
+			return fmt.Errorf("%s", errMsg)
 		}
 		return err
 	}
