@@ -12,9 +12,8 @@ import (
 )
 
 var (
-	flagTaskStatus        string
-	flagTaskType          string
-	flagSetReviewEpicTask string
+	flagTaskStatus string
+	flagTaskType   string
 )
 
 var taskCmd = &cobra.Command{
@@ -57,39 +56,16 @@ var taskResetCmd = &cobra.Command{
 	RunE:  runTaskReset,
 }
 
-var taskSetReviewEpicCmd = &cobra.Command{
-	Use:   "set-review-epic <epic-id>",
-	Short: "Set the review epic ID for a review task",
-	Long: `Associate a review epic with a review task.
-
-This command sets the review_epic_id metadata on a review task, which is used
-by the automated workflow to identify which beads were created during review.
-
-The task is auto-detected from the CO_TASK_ID environment variable or the
-current processing review task for the work. Use --task flag for explicit
-specification.
-
-Example:
-  co task set-review-epic bead-123              # Set epic for current task
-  co task set-review-epic bead-123 --task w-1.review-1`,
-	Args: cobra.ExactArgs(1),
-	RunE: runTaskSetReviewEpic,
-}
-
 func init() {
 	rootCmd.AddCommand(taskCmd)
 	taskCmd.AddCommand(taskListCmd)
 	taskCmd.AddCommand(taskShowCmd)
 	taskCmd.AddCommand(taskDeleteCmd)
 	taskCmd.AddCommand(taskResetCmd)
-	taskCmd.AddCommand(taskSetReviewEpicCmd)
 
 	// List command flags
 	taskListCmd.Flags().StringVar(&flagTaskStatus, "status", "", "filter by status (pending, processing, completed, failed)")
 	taskListCmd.Flags().StringVar(&flagTaskType, "type", "", "filter by type (estimate, implement)")
-
-	// Set review epic command flags
-	taskSetReviewEpicCmd.Flags().StringVar(&flagSetReviewEpicTask, "task", "", "task ID (auto-detected if not specified)")
 }
 
 func runTaskList(cmd *cobra.Command, args []string) error {
@@ -370,50 +346,6 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runTaskSetReviewEpic(cmd *cobra.Command, args []string) error {
-	ctx := GetContext()
-	epicID := args[0]
-
-	// Find project
-	proj, err := project.Find(ctx, "")
-	if err != nil {
-		return fmt.Errorf("failed to find project: %w", err)
-	}
-	defer proj.Close()
-
-	var taskID string
-	if flagSetReviewEpicTask != "" {
-		taskID = flagSetReviewEpicTask
-	} else {
-		// Try to detect task from current context
-		taskID, err = getCurrentTask(ctx, proj)
-		if err != nil {
-			return fmt.Errorf("could not detect current task (use --task flag): %w", err)
-		}
-	}
-
-	// Verify task exists
-	task, err := proj.DB.GetTask(ctx, taskID)
-	if err != nil {
-		return fmt.Errorf("failed to get task: %w", err)
-	}
-	if task == nil {
-		return fmt.Errorf("task %s not found", taskID)
-	}
-
-	// Verify task is a review task
-	if task.TaskType != "review" {
-		return fmt.Errorf("task %s is not a review task (type: %s)", taskID, task.TaskType)
-	}
-
-	// Set the review epic ID
-	if err := proj.DB.SetReviewEpicID(ctx, taskID, epicID); err != nil {
-		return fmt.Errorf("failed to set review epic: %w", err)
-	}
-
-	fmt.Printf("Set review epic %s for task %s\n", epicID, taskID)
-	return nil
-}
 
 // getCurrentTask tries to detect the current task from the environment.
 // This looks for a CO_TASK_ID environment variable that would be set by the

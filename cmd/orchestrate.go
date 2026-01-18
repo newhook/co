@@ -392,14 +392,9 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 		return createPRTask(proj, work, reviewTask.ID)
 	}
 
-	// Check if the review created any issue beads via review_epic_id
-	epicID, err := proj.DB.GetReviewEpicID(ctx, reviewTask.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get review epic ID: %w", err)
-	}
-
+	// Check if the review created any issue beads under the root issue
 	var beadsToFix []beads.Bead
-	if epicID != "" {
+	if work.RootIssueID != "" {
 		// Create beads client
 		beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
 		beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
@@ -408,15 +403,19 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 		}
 		defer beadsClient.Close()
 
-		// Get all children of the review epic
-		epicChildrenIssues, err := beadsClient.GetBeadWithChildren(ctx, epicID)
+		// Get all children of the root issue
+		rootChildrenIssues, err := beadsClient.GetBeadWithChildren(ctx, work.RootIssueID)
 		if err != nil {
-			return fmt.Errorf("failed to get children of review epic %s: %w", epicID, err)
+			return fmt.Errorf("failed to get children of root issue %s: %w", work.RootIssueID, err)
 		}
 
-		// Filter to only ready beads (excluding the epic itself)
-		for _, issue := range epicChildrenIssues {
-			if issue.ID != epicID && (issue.Status == "" || issue.Status == "ready" || issue.Status == "open") {
+		// Filter to only ready beads that were created by this review task
+		// (excluding the root issue itself)
+		expectedExternalRef := fmt.Sprintf("review-%s", reviewTask.ID)
+		for _, issue := range rootChildrenIssues {
+			if issue.ID != work.RootIssueID &&
+				(issue.Status == "" || issue.Status == "ready" || issue.Status == "open") &&
+				issue.ExternalRef == expectedExternalRef {
 				beadsToFix = append(beadsToFix, issue)
 			}
 		}
