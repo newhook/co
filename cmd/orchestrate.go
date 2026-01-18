@@ -161,6 +161,57 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Start automatic PR feedback polling in a separate goroutine
+	// This checks every 5 minutes for new PR feedback and creates beads
+	go func() {
+		// Recover from any panics
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Error: automatic feedback poller panicked: %v\n", r)
+			}
+		}()
+
+		// Only run if work has a PR URL
+		if work.PRURL == "" {
+			return
+		}
+
+		// Check every 5 minutes
+		feedbackTicker := time.NewTicker(5 * time.Minute)
+		defer feedbackTicker.Stop()
+
+		// Wait a bit before the first check to let things stabilize
+		time.Sleep(30 * time.Second)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-feedbackTicker.C:
+				// Refresh work to get latest PR URL
+				currentWork, err := proj.DB.GetWork(ctx, workID)
+				if err != nil || currentWork == nil || currentWork.PRURL == "" {
+					continue
+				}
+
+				fmt.Printf("\n=== Automatic PR feedback poll ===\n")
+				fmt.Printf("Checking PR feedback for: %s\n", currentWork.PRURL)
+
+				// Run the 'co work feedback' command with auto-add flag
+				cmd := exec.CommandContext(ctx, "co", "work", "feedback", workID, "--auto-add")
+				cmd.Dir = proj.Root
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+
+				if err := cmd.Run(); err != nil {
+					fmt.Printf("Error checking PR feedback: %v\n", err)
+				} else {
+					fmt.Println("Automatic PR feedback check completed.")
+				}
+			}
+		}
+	}()
+
 	// Start GitHub comment resolution poller in a separate goroutine
 	// This checks every 5 minutes for feedback items where the bead is closed but not yet resolved on GitHub
 	go func() {
