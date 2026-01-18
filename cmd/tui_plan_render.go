@@ -913,6 +913,11 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 		return tuiDimStyle.Render(line)
 	}
 
+	// Style new beads with yellow text for animation
+	if _, isNew := m.newBeads[bead.id]; isNew {
+		return tuiNewBeadStyle.Render(line)
+	}
+
 	return line
 }
 

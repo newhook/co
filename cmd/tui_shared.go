@@ -117,6 +117,10 @@ var (
 
 	typeDefaultStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("247")) // Gray for others
+
+	// New bead animation style
+	tuiNewBeadStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("226")) // Yellow for newly created beads
 )
 
 // Panel represents which panel position is currently focused (relative to current depth)
