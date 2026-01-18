@@ -90,11 +90,6 @@ type workModel struct {
 	createBeadPriority int
 	createDialogFocus  int            // 0=title, 1=type, 2=priority, 3=description
 	createDescTextarea textarea.Model // Textarea for description
-
-	// Review limit dialog state
-	reviewLimitWorkID string
-	reviewLimitCount  int
-	reviewLimitMax    int
 }
 
 // workDataMsg is sent when data is refreshed
@@ -112,13 +107,6 @@ type workCommandMsg struct {
 
 // workTickMsg triggers periodic refresh
 type workTickMsg time.Time
-
-// workReviewLimitMsg is sent when review iteration limit is reached
-type workReviewLimitMsg struct {
-	workID        string
-	reviewCount   int
-	maxIterations int
-}
 
 // newWorkModel creates a new Work Mode model
 func newWorkModel(ctx context.Context, proj *project.Project) *workModel {
@@ -397,8 +385,6 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCreateBead(msg)
 		case ViewDestroyConfirm:
 			return m.updateDestroyConfirm(msg)
-		case ViewReviewLimitConfirm:
-			return m.updateReviewLimitConfirm(msg)
 		case ViewAssignBeads:
 			return m.updateAssignBeads(msg)
 		case ViewHelp:
@@ -429,15 +415,6 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.worksCursor < 0 {
 			m.worksCursor = 0
 		}
-
-	case workReviewLimitMsg:
-		// Show confirmation dialog for continuing past review limit
-		m.viewMode = ViewReviewLimitConfirm
-		m.reviewLimitWorkID = msg.workID
-		m.reviewLimitCount = msg.reviewCount
-		m.reviewLimitMax = msg.maxIterations
-		m.statusMessage = fmt.Sprintf("Review limit reached (%d/%d iterations)", msg.reviewCount, msg.maxIterations)
-		m.statusIsError = false
 
 	case workCommandMsg:
 		if msg.err != nil {
@@ -847,24 +824,6 @@ func (m *workModel) updateDestroyConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *workModel) updateReviewLimitConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "y", "Y":
-		// Continue with review past the limit
-		m.viewMode = ViewNormal
-		return m, m.createReviewTaskWithForce(true)
-	case "n", "N":
-		// Proceed to PR instead
-		m.viewMode = ViewNormal
-		return m, m.createPRTask()
-	case "esc":
-		// Cancel
-		m.viewMode = ViewNormal
-		m.statusMessage = ""
-	}
-	return m, nil
-}
-
 func (m *workModel) updateAssignBeads(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "j", "down":
@@ -1040,9 +999,6 @@ func (m *workModel) View() string {
 		// Fall through to normal rendering - details panel will show the form
 	case ViewDestroyConfirm:
 		dialog := m.renderDestroyConfirmDialog()
-		return m.renderWithDialog(dialog)
-	case ViewReviewLimitConfirm:
-		dialog := m.renderReviewLimitDialog()
 		return m.renderWithDialog(dialog)
 	case ViewAssignBeads:
 		// In zoomed mode, render inline in details panel (fall through)
@@ -2268,42 +2224,6 @@ func (m *workModel) renderDestroyConfirmDialog() string {
 	return tuiDialogStyle.Render(content)
 }
 
-func (m *workModel) renderReviewLimitDialog() string {
-	workID := m.reviewLimitWorkID
-	workerName := ""
-
-	// Find the work to get its name
-	for _, wp := range m.works {
-		if wp.work.ID == workID {
-			workerName = wp.work.Name
-			break
-		}
-	}
-
-	displayName := workID
-	if workerName != "" {
-		displayName = fmt.Sprintf("%s (%s)", workerName, workID)
-	}
-
-	content := fmt.Sprintf(`
-  Review Iteration Limit Reached
-
-  Work: %s
-
-  You have reached the configured review limit:
-  - Current iterations: %d
-  - Maximum configured: %d
-
-  Would you like to continue with additional review cycles?
-
-  [y] Yes, continue reviewing (create review task %d)
-  [n] No, proceed to PR
-  [esc] Cancel
-`, displayName, m.reviewLimitCount, m.reviewLimitMax, m.reviewLimitCount+1)
-
-	return tuiDialogStyle.Render(content)
-}
-
 func (m *workModel) renderCreateBeadDialogContent() string {
 	typeFocused := m.createDialogFocus == 1
 	priorityFocused := m.createDialogFocus == 2
@@ -2447,19 +2367,19 @@ func (m *workModel) renderHelp() string {
   Tab           Cycle panels
   Esc           Zoom out to overview
 
-  Work Management
+  Work Management (Zoomed Mode)
   ────────────────────────────
-  c             Create new work
   n             Create new issue (assign to work)
+  a             Assign existing issues to work
+  r             Run work with plan (LLM estimates)
+  s             Run work simple (no planning)
+  x             Remove selected unassigned issue
+  t             Open terminal/console tab
+  c             Open Claude Code session
+  v             Create review task
+  p             Create PR task
+  u             Update PR description
   d             Destroy selected work
-  p             Plan work (create tasks)
-  r             Run work (execute tasks)
-  a             Assign issues to work
-  t             Open console tab
-  C             Open Claude Code session
-  R             Create review task
-  P             Create PR task
-  U             Update PR description
 
   General
   ────────────────────────────
@@ -2556,10 +2476,6 @@ func (m *workModel) runWork(usePlan bool) tea.Cmd {
 }
 
 func (m *workModel) createReviewTask() tea.Cmd {
-	return m.createReviewTaskWithForce(false)
-}
-
-func (m *workModel) createReviewTaskWithForce(force bool) tea.Cmd {
 	return func() tea.Msg {
 		if m.worksCursor >= len(m.works) {
 			return workCommandMsg{action: "Create review", err: fmt.Errorf("no work selected")}
@@ -2583,17 +2499,6 @@ func (m *workModel) createReviewTaskWithForce(force bool) tea.Cmd {
 			}
 		}
 
-		// Check if we've reached the review iteration limit (unless forcing)
-		maxIterations := m.proj.Config.Workflow.GetMaxReviewIterations()
-		if !force && reviewCount >= maxIterations {
-			// Return a special message that triggers a confirmation dialog
-			return workReviewLimitMsg{
-				workID:         workID,
-				reviewCount:    reviewCount,
-				maxIterations:  maxIterations,
-			}
-		}
-
 		// Generate unique review task ID
 		reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
 
@@ -2604,12 +2509,16 @@ func (m *workModel) createReviewTaskWithForce(force bool) tea.Cmd {
 		}
 
 		// Include iteration count in success message
+		maxIterations := m.proj.Config.Workflow.GetMaxReviewIterations()
 		var actionMsg string
-		if force && reviewCount >= maxIterations {
-			actionMsg = fmt.Sprintf("Created review task %s (%d iterations, exceeded limit of %d)", reviewTaskID, reviewCount+1, maxIterations)
+		if reviewCount >= maxIterations {
+			// Already exceeded the limit, just note it
+			actionMsg = fmt.Sprintf("Created review task %s (iteration %d, exceeds limit of %d)", reviewTaskID, reviewCount+1, maxIterations)
 		} else if reviewCount+1 == maxIterations {
-			actionMsg = fmt.Sprintf("Created final review task %s (%d/%d iterations)", reviewTaskID, reviewCount+1, maxIterations)
+			// At the limit now
+			actionMsg = fmt.Sprintf("Created review task %s (%d/%d iterations - at limit)", reviewTaskID, reviewCount+1, maxIterations)
 		} else {
+			// Still under the limit
 			actionMsg = fmt.Sprintf("Created review task %s (%d/%d iterations)", reviewTaskID, reviewCount+1, maxIterations)
 		}
 

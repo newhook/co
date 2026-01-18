@@ -152,7 +152,6 @@ const (
 	ViewBeadSearch
 	ViewLabelFilter
 	ViewLinearImportInline // Import from Linear (inline in details panel)
-	ViewReviewLimitConfirm  // Confirm continuing past review iteration limit
 	ViewHelp
 )
 
