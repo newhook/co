@@ -12,6 +12,7 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/linear"
+	"github.com/newhook/co/internal/logging"
 )
 
 // refreshData creates a tea.Cmd that refreshes bead data
@@ -101,6 +102,8 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
 
+		logging.Debug("createBead: starting", "title", title, "type", beadType)
+
 		_, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
 			Title:       title,
 			Type:        beadType,
@@ -110,13 +113,19 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 			Parent:      parent,
 		})
 		if err != nil {
+			logging.Error("createBead: failed", "error", err)
 			return planDataMsg{err: fmt.Errorf("failed to create issue: %w", err)}
 		}
+
+		logging.Debug("createBead: created successfully")
 
 		// Refresh after creation
 		items, err := m.loadBeads()
 		session := m.sessionName()
 		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
+
+		logging.Debug("createBead: returning planDataMsg", "beadCount", len(items))
+
 		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
 	}
 }

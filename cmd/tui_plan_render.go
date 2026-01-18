@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
+	"github.com/newhook/co/internal/logging"
 )
 
 const detailsPanelPadding = 4
@@ -897,10 +898,27 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 		}
 
 		if i == m.beadsCursor {
+			// Use yellow background for newly created beads, regular blue for others
+			if _, isNew := m.newBeads[bead.id]; isNew {
+				logging.Debug("renderBeadLine: applying yellow selected style", "beadID", bead.id, "isCursor", true)
+				newSelectedStyle := lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("0")).   // Black text
+					Background(lipgloss.Color("226")) // Yellow background
+				return newSelectedStyle.Render(plainLine)
+			}
 			return tuiSelectedStyle.Render(plainLine)
 		}
 
-		// Hover style
+		// Hover style - also check for new beads
+		if _, isNew := m.newBeads[bead.id]; isNew {
+			logging.Debug("renderBeadLine: applying yellow hover style", "beadID", bead.id, "isHovered", true)
+			newHoverStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("0")).   // Black text
+				Background(lipgloss.Color("228")). // Lighter yellow
+				Bold(true)
+			return newHoverStyle.Render(plainLine)
+		}
 		hoverStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("255")).
 			Background(lipgloss.Color("240")).
@@ -913,9 +931,21 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 		return tuiDimStyle.Render(line)
 	}
 
-	// Style new beads with yellow text for animation
+	// Style new beads - apply yellow only to the title
 	if _, isNew := m.newBeads[bead.id]; isNew {
-		return tuiNewBeadStyle.Render(line)
+		logging.Debug("renderBeadLine: applying yellow title style", "beadID", bead.id)
+
+		// Style just the title yellow, keep everything else normal
+		yellowTitle := tuiNewBeadStyle.Render(title)
+
+		var newLine string
+		if m.beadsExpanded {
+			newLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.priority, bead.beadType, sessionIndicator, yellowTitle)
+		} else {
+			newLine = fmt.Sprintf("%s%s%s%s %s %s%s %s", selectionIndicator, treePrefix, workIndicator, icon, styledID, styledType, sessionIndicator, yellowTitle)
+		}
+
+		return newLine
 	}
 
 	return line
