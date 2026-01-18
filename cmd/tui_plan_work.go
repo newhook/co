@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -371,15 +370,10 @@ func (m *planModel) loadAvailableWorks() tea.Cmd {
 // addBeadToWork adds a bead to an existing work
 func (m *planModel) addBeadToWork(beadID, workID string) tea.Cmd {
 	return func() tea.Msg {
-		mainRepoPath := m.proj.MainRepoPath()
-
-		// Use co work add command
-		cmd := exec.Command("co", "work", "add", beadID, "--work="+workID)
-		cmd.Dir = mainRepoPath
-		if err := cmd.Run(); err != nil {
-			return beadAddedToWorkMsg{beadID: beadID, workID: workID, err: fmt.Errorf("failed to add issue to work: %w", err)}
+		_, err := AddBeadsToWork(m.ctx, m.proj, workID, []string{beadID})
+		if err != nil {
+			return beadAddedToWorkMsg{beadID: beadID, workID: workID, err: err}
 		}
-
 		return beadAddedToWorkMsg{beadID: beadID, workID: workID}
 	}
 }

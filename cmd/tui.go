@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
@@ -43,16 +44,15 @@ Key bindings:
 
   Bead Management (at Beads panel, depth 0):
     n           Create new bead
+    w           Create work from bead
     Space       Toggle selection (for multi-select)
     b           Toggle between ready/all beads
-    A           Automated workflow (create + plan + run + review + PR)
 
   Work Management (at Works panel):
-    c           Create new work (opens branch name dialog)
     d           Destroy selected work
     p           Plan work (create tasks from beads)
     r           Run work (execute pending tasks)
-    a           Assign beads to selected work
+    a/A         Assign beads to selected work
     R           Create review task for work
     P           Create PR task for work
 
@@ -129,6 +129,12 @@ type tuiModel struct {
 	createBeadType     int // 0=task, 1=bug, 2=feature
 	createBeadPriority int // 0-4, default 2
 
+	// Create work dialog state
+	createWorkBeadIDs   []string        // Bead IDs for work creation (supports multi-select)
+	createWorkBranch    textinput.Model // Editable branch name
+	createWorkField     int             // 0=branch, 1=buttons
+	createWorkButtonIdx int             // 0=Execute, 1=Auto, 2=Cancel
+
 	// Loading state
 	loading  bool
 	quitting bool
@@ -144,6 +150,11 @@ func newTUIModel(ctx context.Context, proj *project.Project) tuiModel {
 	ti.CharLimit = 100
 	ti.Width = 40
 
+	branchInput := textinput.New()
+	branchInput.Placeholder = "Branch name..."
+	branchInput.CharLimit = 100
+	branchInput.Width = 60
+
 	return tuiModel{
 		ctx:                ctx,
 		proj:               proj,
@@ -153,6 +164,7 @@ func newTUIModel(ctx context.Context, proj *project.Project) tuiModel {
 		depth:              0,
 		spinner:            s,
 		textInput:          ti,
+		createWorkBranch:   branchInput,
 		selectedBeads:      make(map[string]bool),
 		createBeadPriority: 2, // default priority
 		filters: beadFilters{
@@ -598,6 +610,28 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "w":
+		// Create work from cursor bead
+		if m.isBeadsPanelActive() && len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+			bead := m.beadItems[m.beadsCursor]
+			if bead.assignedWorkID != "" {
+				m.statusMessage = fmt.Sprintf("Cannot create work: %s already assigned to %s", bead.id, bead.assignedWorkID)
+				m.statusIsError = true
+				return m, nil
+			}
+			m.createWorkBeadIDs = []string{bead.id}
+			// Generate branch name from bead title
+			branchName := generateBranchNameFromBeads([]*beadsForBranch{{
+				ID:    bead.id,
+				Title: bead.title,
+			}})
+			m.createWorkBranch.SetValue(branchName)
+			m.createWorkBranch.Focus()
+			m.createWorkField = 0
+			m.createWorkButtonIdx = 0
+			m.viewMode = ViewCreateWork
+		}
+		return m, nil
 	case " ":
 		if m.isBeadsPanelActive() && len(m.beadItems) > 0 {
 			bead := &m.beadItems[m.beadsCursor]
@@ -642,9 +676,16 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// Advanced actions
+	// Assign beads to work (both 'a' and 'A')
 	case "A":
-		return m.runAutomatedWorkflow()
+		if m.isWorksPanelActive() && len(m.works) > 0 {
+			m.viewMode = ViewAssignBeads
+			m.selectedBeads = make(map[string]bool)
+			for i := range m.beadItems {
+				m.beadItems[i].selected = false
+			}
+		}
+		return m, nil
 	case "R":
 		return m.createReviewTask()
 	case "P":
@@ -837,37 +878,75 @@ func (m tuiModel) navigateUp() tuiModel {
 	return m
 }
 
+// updateCreateWork handles input for the create work dialog
 func (m tuiModel) updateCreateWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	if msg.Type == tea.KeyEsc {
 		m.viewMode = ViewNormal
-		return m, nil
-	case "enter":
-		branchName := strings.TrimSpace(m.textInput.Value())
-		if branchName != "" {
-			m.viewMode = ViewNormal
-			return m, m.createWork(branchName)
-		}
-		return m, nil
-	case "b":
-		// Use selected beads to auto-generate branch name
-		var selectedIDs []string
-		for id, selected := range m.selectedBeads {
-			if selected {
-				selectedIDs = append(selectedIDs, id)
-			}
-		}
-		if len(selectedIDs) > 0 {
-			m.viewMode = ViewNormal
-			return m, m.createWorkWithBeads(selectedIDs)
-		}
-		m.statusMessage = "No beads selected"
-		m.statusIsError = true
+		m.createWorkBranch.Blur()
 		return m, nil
 	}
 
+	// Tab cycles between branch(0), buttons(1)
+	if msg.Type == tea.KeyTab {
+		m.createWorkField = (m.createWorkField + 1) % 2
+		if m.createWorkField == 0 {
+			m.createWorkBranch.Focus()
+		} else {
+			m.createWorkBranch.Blur()
+		}
+		return m, nil
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		m.createWorkField = 1 - m.createWorkField
+		if m.createWorkField == 0 {
+			m.createWorkBranch.Focus()
+		} else {
+			m.createWorkBranch.Blur()
+		}
+		return m, nil
+	}
+
+	// Handle input based on focused field
 	var cmd tea.Cmd
-	m.textInput, cmd = m.textInput.Update(msg)
+	switch m.createWorkField {
+	case 0: // Branch name input
+		m.createWorkBranch, cmd = m.createWorkBranch.Update(msg)
+	case 1: // Buttons
+		switch msg.String() {
+		case "k", "up":
+			m.createWorkButtonIdx--
+			if m.createWorkButtonIdx < 0 {
+				m.createWorkButtonIdx = 2
+			}
+		case "j", "down":
+			m.createWorkButtonIdx = (m.createWorkButtonIdx + 1) % 3
+		case "enter":
+			branchName := strings.TrimSpace(m.createWorkBranch.Value())
+			if branchName == "" {
+				m.statusMessage = "Branch name cannot be empty"
+				m.statusIsError = true
+				return m, nil
+			}
+			switch m.createWorkButtonIdx {
+			case 0: // Execute
+				m.viewMode = ViewNormal
+				// Clear selections after work creation
+				m.selectedBeads = make(map[string]bool)
+				return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, false)
+			case 1: // Auto
+				m.viewMode = ViewNormal
+				// Clear selections after work creation
+				m.selectedBeads = make(map[string]bool)
+				return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, true)
+			case 2: // Cancel
+				m.viewMode = ViewNormal
+				m.createWorkBranch.Blur()
+			}
+			return m, nil
+		}
+	}
 	return m, cmd
 }
 
@@ -1076,28 +1155,59 @@ func (m tuiModel) updateLabelFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // Command functions
-func (m tuiModel) createWork(branchName string) tea.Cmd {
-	return func() tea.Msg {
-		cmd := exec.Command("co", "work", "create", branchName)
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return tuiCommandMsg{action: "Create work", err: fmt.Errorf("%w: %s", err, output)}
-		}
-		return tuiCommandMsg{action: "Create work"}
-	}
-}
 
-func (m tuiModel) createWorkWithBeads(beadIDs []string) tea.Cmd {
+// executeCreateWork creates a work unit with the given branch name and bead IDs.
+// This is called from the create work dialog after user confirms the branch name.
+func (m tuiModel) executeCreateWork(beadIDs []string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
-		// Use --bead flag to auto-generate branch name (without --auto for full automation)
-		cmd := exec.Command("co", "work", "create", "--bead="+strings.Join(beadIDs, ","))
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return tuiCommandMsg{action: "Create work", err: fmt.Errorf("%w: %s", err, output)}
+		mainRepoPath := m.proj.MainRepoPath()
+		firstBeadID := beadIDs[0]
+
+		// Expand all beads (handles epics and transitive deps)
+		var allIssueIDs []string
+		for _, beadID := range beadIDs {
+			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, mainRepoPath)
+			if err != nil {
+				return tuiCommandMsg{action: "Create work", err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
+			}
+			allIssueIDs = append(allIssueIDs, expandedIDs...)
 		}
-		return tuiCommandMsg{action: "Create work (from beads)"}
+
+		if len(allIssueIDs) == 0 {
+			return tuiCommandMsg{action: "Create work", err: fmt.Errorf("no beads found for %v", beadIDs)}
+		}
+
+		// All selected beads go into one group (like comma-separated on CLI)
+		beadGroups := []beadGroup{{issueIDs: allIssueIDs}}
+
+		// Create work with branch name (silent to avoid console output in TUI)
+		// The first bead becomes the root issue ID
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", firstBeadID, WorkCreateOptions{Silent: true})
+		if err != nil {
+			return tuiCommandMsg{action: "Create work", err: fmt.Errorf("failed to create work: %w", err)}
+		}
+
+		// Add beads to the work
+		if err := addBeadGroupsToWork(m.ctx, m.proj, result.WorkID, beadGroups); err != nil {
+			// Work was created but beads couldn't be added - don't fail completely
+			return tuiCommandMsg{action: "Create work", err: fmt.Errorf("work created but failed to add beads: %w", err)}
+		}
+
+		// Spawn the orchestrator for this work (or run automated workflow if auto)
+		if auto {
+			// Run automated workflow in a separate goroutine since it's long-running
+			go func() {
+				_ = runAutomatedWorkflowForWork(m.proj, result.WorkID, result.WorktreePath, io.Discard)
+			}()
+		} else {
+			// Spawn the orchestrator
+			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
+				// Non-fatal: work was created but orchestrator failed to spawn
+				return tuiCommandMsg{action: "Create work", err: fmt.Errorf("work created but orchestrator failed: %w", err)}
+			}
+		}
+
+		return tuiCommandMsg{action: fmt.Sprintf("Created work %s", result.WorkID)}
 	}
 }
 
@@ -1165,16 +1275,11 @@ func (m tuiModel) planWork(workID string, autoGroup bool) tea.Cmd {
 
 func (m tuiModel) assignBeadsToWork(workID string, beadIDs []string) tea.Cmd {
 	return func() tea.Msg {
-		// Plan with specific beads
-		args := []string{"plan", "--work", workID}
-		args = append(args, strings.Join(beadIDs, ","))
-		cmd := exec.Command("co", args...)
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
+		result, err := AddBeadsToWork(m.ctx, m.proj, workID, beadIDs)
 		if err != nil {
-			return tuiCommandMsg{action: "Assign beads", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Assign beads", err: err}
 		}
-		return tuiCommandMsg{action: "Assign beads"}
+		return tuiCommandMsg{action: fmt.Sprintf("Added %d bead(s) to work", result.BeadsAdded)}
 	}
 }
 
@@ -1192,31 +1297,6 @@ func (m tuiModel) runSelectedWork() (tea.Model, tea.Cmd) {
 			return tuiCommandMsg{action: "Run work", err: fmt.Errorf("%w: %s", err, output)}
 		}
 		return tuiCommandMsg{action: "Run work"}
-	}
-}
-
-func (m tuiModel) runAutomatedWorkflow() (tea.Model, tea.Cmd) {
-	// Get selected beads
-	var selectedIDs []string
-	for id, selected := range m.selectedBeads {
-		if selected {
-			selectedIDs = append(selectedIDs, id)
-		}
-	}
-	if len(selectedIDs) == 0 {
-		m.statusMessage = "No beads selected for automated workflow"
-		m.statusIsError = true
-		return m, nil
-	}
-
-	return m, func() tea.Msg {
-		cmd := exec.Command("co", "work", "create", "--bead="+strings.Join(selectedIDs, ","))
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return tuiCommandMsg{action: "Automated workflow", err: fmt.Errorf("%w: %s", err, output)}
-		}
-		return tuiCommandMsg{action: "Automated workflow started"}
 	}
 }
 
@@ -2083,9 +2163,28 @@ func (m tuiModel) renderWorkDetails(wp *workProgress, width int) string {
 	b.WriteString(tuiValueStyle.Render(wp.work.BranchName))
 	b.WriteString("\n")
 
-	if wp.work.RootIssueID != "" {
+	if wp.rootIssue != nil {
 		b.WriteString(tuiLabelStyle.Render("Root Issue: "))
-		b.WriteString(tuiValueStyle.Render(wp.work.RootIssueID))
+		b.WriteString(tuiValueStyle.Render(wp.rootIssue.id))
+		b.WriteString("\n")
+
+		if wp.rootIssue.title != "" {
+			b.WriteString(tuiLabelStyle.Render("Title: "))
+			b.WriteString(tuiValueStyle.Render(wp.rootIssue.title))
+			b.WriteString("\n")
+		}
+
+		if wp.rootIssue.description != "" {
+			b.WriteString("\n")
+			b.WriteString(tuiLabelStyle.Render("Description:"))
+			b.WriteString("\n")
+			desc := wp.rootIssue.description
+			if len(desc) > 500 {
+				desc = desc[:497] + "..."
+			}
+			b.WriteString(tuiDimStyle.Render(desc))
+			b.WriteString("\n")
+		}
 		b.WriteString("\n")
 	}
 

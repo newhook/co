@@ -16,32 +16,70 @@ func (m tuiModel) renderWithDialog(dialog string) string {
 }
 
 func (m tuiModel) renderCreateWorkDialog() string {
-	// Count selected beads
-	selectedCount := 0
-	for _, selected := range m.selectedBeads {
-		if selected {
-			selectedCount++
-		}
-	}
+	var content strings.Builder
 
-	var beadOption string
-	if selectedCount > 0 {
-		beadOption = fmt.Sprintf("\n  [b] Use %d selected bead(s) to auto-generate branch", selectedCount)
+	content.WriteString(tuiTitleStyle.Render("Create Work"))
+	content.WriteString("\n\n")
+
+	// Show bead info (always single bead)
+	if len(m.createWorkBeadIDs) > 0 {
+		content.WriteString("Root issue: " + issueIDStyle.Render(m.createWorkBeadIDs[0]))
+	}
+	content.WriteString("\n\n")
+
+	// Branch name input
+	branchLabel := "Branch name:"
+	if m.createWorkField == 0 {
+		branchLabel = tuiSuccessStyle.Render("Branch name:") + " " + tuiDimStyle.Render("(editing)")
 	} else {
-		beadOption = "\n  (Select beads in Beads panel to use auto-generate)"
+		branchLabel = tuiLabelStyle.Render("Branch name:")
 	}
+	content.WriteString(branchLabel)
+	content.WriteString("\n")
+	content.WriteString(m.createWorkBranch.View())
+	content.WriteString("\n\n")
 
-	content := fmt.Sprintf(`
-  Create New Work
+	// Action buttons
+	content.WriteString("Actions:\n")
 
-  Enter branch name:
-  %s
-%s
+	// Execute button
+	executeStyle := tuiDimStyle
+	executePrefix := "  "
+	if m.createWorkField == 1 && m.createWorkButtonIdx == 0 {
+		executeStyle = tuiSelectedStyle
+		executePrefix = "► "
+	}
+	executeButtonText := executePrefix + "Execute"
+	content.WriteString("  " + executeStyle.Render(executeButtonText))
+	content.WriteString(" - Create work and spawn orchestrator\n")
 
-  [Enter] Create  [Esc] Cancel
-`, m.textInput.View(), beadOption)
+	// Auto button
+	autoStyle := tuiDimStyle
+	autoPrefix := "  "
+	if m.createWorkField == 1 && m.createWorkButtonIdx == 1 {
+		autoStyle = tuiSelectedStyle
+		autoPrefix = "► "
+	}
+	autoButtonText := autoPrefix + "Auto"
+	content.WriteString("  " + autoStyle.Render(autoButtonText))
+	content.WriteString(" - Full automation (implement, review, PR)\n")
 
-	return tuiDialogStyle.Render(content)
+	// Cancel button
+	cancelStyle := tuiDimStyle
+	cancelPrefix := "  "
+	if m.createWorkField == 1 && m.createWorkButtonIdx == 2 {
+		cancelStyle = tuiSelectedStyle
+		cancelPrefix = "► "
+	}
+	cancelButtonText := cancelPrefix + "Cancel"
+	content.WriteString("  " + cancelStyle.Render(cancelButtonText))
+	content.WriteString(" - Cancel work creation\n")
+
+	// Navigation help
+	content.WriteString("\n")
+	content.WriteString(tuiDimStyle.Render("Navigation: [Tab/Shift+Tab] Switch field  [↑↓/jk] Select button  [Enter] Confirm  [Esc] Cancel"))
+
+	return tuiDialogStyle.Render(content.String())
 }
 
 func (m tuiModel) renderCreateBeadDialog() string {
@@ -248,10 +286,10 @@ func (m tuiModel) renderHelp() string {
   ────────────────────────────
   n             Create new bead
   e             Create new epic (feature)
+  w             Create work from bead
   x             Close selected bead
   X             Reopen selected bead
   Space         Toggle bead selection
-  A             Automated workflow (full automation)
 
   Bead Filtering
   ────────────────────────────
@@ -270,7 +308,7 @@ func (m tuiModel) renderHelp() string {
   d             Destroy selected work
   p             Plan work (create tasks)
   r             Run work
-  a             Assign beads to work
+  a/A           Assign beads to work
   R             Create review task
   P             Create PR task
 
