@@ -200,6 +200,7 @@ Tasks within a work are executed sequentially in the work's worktree.
 | `co work show [<id>]` | Show detailed work information (current directory or specified) |
 | `co work pr [<id>]` | Create a PR task for Claude to generate pull request |
 | `co work review [<id>]` | Create a review task to examine code changes |
+| `co work feedback [<id>]` | Process PR feedback and create beads from actionable items |
 | `co work destroy <id>` | Delete work unit and all associated data |
 
 ### Work Create Options
@@ -260,6 +261,48 @@ This mode:
 3. Runs review/fix loop until code is clean (default max 2 iterations, configurable)
 4. Creates PR automatically
 5. Returns PR URL when complete
+
+### PR Feedback Integration
+
+Claude Orchestrator automatically monitors and integrates feedback from GitHub Pull Requests:
+
+#### Automatic Feedback Polling
+
+During orchestration, the system automatically:
+- Polls PR feedback every 5 minutes when a work has an associated PR
+- Creates beads from actionable feedback items (failed checks, test failures, review comments)
+- Adds new beads to the work for immediate execution
+- Resolves GitHub comments when feedback beads are closed
+
+#### Manual Feedback Trigger
+
+You can manually trigger PR feedback polling:
+
+```bash
+# From work directory (auto-detects work)
+co work feedback
+
+# With explicit work ID
+co work feedback w-8xa
+
+# Options
+co work feedback --dry-run       # Preview what beads would be created
+co work feedback --auto-add      # Automatically add beads to work
+co work feedback --min-priority 2 # Set minimum priority (0-4)
+```
+
+The feedback system processes:
+- **CI/Build Failures**: Failed status checks and workflow runs
+- **Test Failures**: Extracts specific test failures from logs
+- **Lint Errors**: Code style and quality issues
+- **Review Comments**: Actionable feedback from code reviews
+- **Security Issues**: Vulnerabilities and security concerns
+
+Each feedback item creates a bead under the work's root issue, allowing Claude to address the feedback in subsequent tasks.
+
+#### TUI Feedback Polling
+
+The TUI (`co tui`) provides a manual trigger button (F5) to poll PR feedback on-demand, with visual feedback showing the polling status.
 
 ### Task Dependencies
 

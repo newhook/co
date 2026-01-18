@@ -24,6 +24,7 @@ go test ./...
 - `cmd/task.go` - Task management (list/show/delete/reset/set-review-epic)
 - `cmd/work.go` - Work management (create/list/show/destroy/pr/review)
 - `cmd/work_automated.go` - Automated bead-to-PR workflow
+- `cmd/work_feedback.go` - PR feedback processing (fetch feedback, create beads)
 - `cmd/linear.go` - Linear integration commands (import issues from Linear)
 - `internal/beads/` - Beads database client (bd CLI wrapper)
 - `internal/linear/` - Linear MCP client and import logic
@@ -117,6 +118,96 @@ mise run sqlc-generate
 ```
 
 This regenerates the Go code in `internal/db/sqlc/` from the SQL query definitions.
+
+## PR Feedback Integration
+
+The system integrates with GitHub to automatically process PR feedback and create actionable beads.
+
+### Architecture
+
+#### Database Schema
+
+The `pr_feedback` table stores feedback items from GitHub:
+
+```sql
+CREATE TABLE pr_feedback (
+    id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL,
+    pr_url TEXT NOT NULL,
+    source TEXT NOT NULL,      -- e.g., "CI: Test Suite", "Review: User123"
+    source_id TEXT,             -- GitHub comment ID for resolution
+    title TEXT NOT NULL,
+    description TEXT,
+    feedback_type TEXT NOT NULL, -- test, build, lint, review, security
+    priority INTEGER NOT NULL,   -- 0-4 (0=critical, 4=backlog)
+    bead_id TEXT,               -- Created bead ID
+    processed BOOLEAN DEFAULT FALSE,
+    resolved BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### GitHub API Client
+
+Located in `internal/github/`, the integration provides:
+
+- `FetchAndStoreFeedback()`: Fetches PR status checks, workflow runs, comments
+- `CreateBeadFromFeedback()`: Creates beads using the bd CLI
+- `FeedbackRules`: Configurable rules for what feedback to process
+
+Feedback types processed:
+- **CI/Build failures**: Failed status checks and workflow runs
+- **Test failures**: Extracted from CI logs using pattern matching
+- **Lint errors**: Code style and quality issues
+- **Review comments**: Actionable feedback from code reviews
+- **Security issues**: Vulnerabilities and dependency issues
+
+#### Orchestrator Integration
+
+The orchestrator (`cmd/orchestrate.go`) includes three feedback-related goroutines:
+
+1. **Manual Poll Watcher**: Watches for signal files to trigger on-demand polling
+2. **Automatic Feedback Poller**: Polls every 5 minutes for new PR feedback
+3. **Comment Resolution Poller**: Posts resolution comments when beads are closed
+
+#### Feedback Processing Flow
+
+1. GitHub PR has new feedback (comments, CI failures, etc.)
+2. Orchestrator polls feedback (automatic or manual trigger)
+3. `co work feedback` command fetches and processes feedback:
+   - Queries GitHub API for PR data
+   - Filters actionable items based on rules
+   - Stores in pr_feedback table
+   - Creates beads under work's root issue
+   - Optionally adds beads to work for immediate execution
+4. Claude addresses feedback beads in subsequent tasks
+5. When bead is closed, resolution comment is posted to GitHub
+
+### Commands
+
+#### `co work feedback [<work-id>]`
+
+Processes PR feedback for a work unit:
+
+Options:
+- `--dry-run`: Preview without creating beads
+- `--auto-add`: Automatically add created beads to work
+- `--min-priority N`: Set minimum priority for created beads (0-4)
+
+The command:
+1. Fetches PR status, comments, and workflow runs from GitHub
+2. Filters for actionable feedback based on configured rules
+3. Creates beads for each feedback item
+4. Stores feedback in database for tracking
+5. Optionally adds beads to work for immediate execution
+
+### TUI Integration
+
+The TUI (`co tui`) provides:
+- F5 key binding for manual feedback polling
+- Visual feedback indicator showing polling status
+- Automatic refresh when new beads are created from feedback
 
 ## PR Requirements
 
