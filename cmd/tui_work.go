@@ -1605,7 +1605,9 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 
 			for i := startIdx; i < endIdx; i++ {
 				bp := wp.unassignedBeads[i]
-				isSelected := m.tasksCursor == len(wp.tasks)+i && m.activePanel == PanelMiddle
+				itemIdx := len(wp.tasks) + i
+				isSelected := m.tasksCursor == itemIdx && m.activePanel == PanelMiddle
+				isHovered := m.hoveredTaskIdx == itemIdx
 
 				// Type indicator
 				var typeIndicator string
@@ -1639,6 +1641,9 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 						line += strings.Repeat(" ", width-4-visWidth)
 					}
 					content.WriteString(tuiSelectedStyle.Render(line))
+				} else if isHovered {
+					line := fmt.Sprintf("→ %s %s %s", typeIndicator, bp.id, title)
+					content.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("51")).Render(line))
 				} else {
 					line := fmt.Sprintf("  %s %s %s", typeIndicator, issueIDStyle.Render(bp.id), title)
 					content.WriteString(line)
@@ -1651,7 +1656,7 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 				content.WriteString("\n")
 			}
 
-			content.WriteString(tuiDimStyle.Render("[r]un [x]remove"))
+			content.WriteString(tuiDimStyle.Render("[r]un [s]imple [x]remove"))
 		}
 	}
 
@@ -2125,11 +2130,38 @@ func (m *workModel) renderStatusBar() string {
 		keysPlain = fmt.Sprintf("[Esc]cancel  [Space]toggle  [a]select all  [Enter]assign  %d selected", selected)
 	} else {
 		// Normal zoomed view - task-specific actions
+		// Check what's available based on current state
+		hasUnassigned := false
+		isUnassignedSelected := false
+		if len(m.works) > 0 && m.worksCursor < len(m.works) {
+			wp := m.works[m.worksCursor]
+			hasUnassigned = len(wp.unassignedBeads) > 0
+			isUnassignedSelected = m.tasksCursor >= len(wp.tasks) && m.tasksCursor < len(wp.tasks)+len(wp.unassignedBeads)
+		}
+
 		escButton := "[Esc]overview"
-		rButton := styleButtonWithHover("[r]un", m.hoveredButton == "r")
-		sButton := styleButtonWithHover("[s]imple", m.hoveredButton == "s")
+
+		// Run buttons - only enabled if there are unassigned issues
+		var rButton, sButton string
+		if hasUnassigned {
+			rButton = styleButtonWithHover("[r]un", m.hoveredButton == "r")
+			sButton = styleButtonWithHover("[s]imple", m.hoveredButton == "s")
+		} else {
+			rButton = tuiDimStyle.Render("[r]un")
+			sButton = tuiDimStyle.Render("[s]imple")
+		}
+
 		aButton := styleButtonWithHover("[a]ssign", m.hoveredButton == "a")
 		nButton := styleButtonWithHover("[n]ew", m.hoveredButton == "n")
+
+		// Remove button - only enabled if an unassigned issue is selected
+		var xButton string
+		if isUnassignedSelected {
+			xButton = styleButtonWithHover("[x]remove", m.hoveredButton == "x")
+		} else {
+			xButton = tuiDimStyle.Render("[x]remove")
+		}
+
 		tButton := styleButtonWithHover("[t]erminal", m.hoveredButton == "t")
 		cButton := styleButtonWithHover("[c]laude", m.hoveredButton == "c")
 		vButton := styleButtonWithHover("[v]review", m.hoveredButton == "v")
@@ -2137,8 +2169,8 @@ func (m *workModel) renderStatusBar() string {
 		uButton := styleButtonWithHover("[u]pdate", m.hoveredButton == "u")
 		helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + tButton + " " + cButton + " " + vButton + " " + pButton + " " + uButton + " " + helpButton
-		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
+		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + xButton + " " + tButton + " " + cButton + " " + vButton + " " + pButton + " " + uButton + " " + helpButton
+		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
 	}
 
 	// Build bar with commands left, status right
@@ -2617,7 +2649,7 @@ func (m *workModel) openClaude() tea.Cmd {
 
 // handleOverviewClick handles mouse clicks in the overview grid area
 // detectOverviewHover detects which worker/bead is being hovered in overview mode
-// detectZoomedHover detects which task is being hovered in zoomed mode
+// detectZoomedHover detects which task or unassigned issue is being hovered in zoomed mode
 func (m *workModel) detectZoomedHover(x, y int) {
 	m.hoveredTaskIdx = -1
 
@@ -2626,7 +2658,8 @@ func (m *workModel) detectZoomedHover(x, y int) {
 	}
 
 	wp := m.works[m.worksCursor]
-	if len(wp.tasks) == 0 {
+	totalItems := len(wp.tasks) + len(wp.unassignedBeads)
+	if totalItems == 0 {
 		return
 	}
 
@@ -2639,31 +2672,40 @@ func (m *workModel) detectZoomedHover(x, y int) {
 		return // Hover is in the details panel
 	}
 
-	visibleLines := panelHeight - 3
-	if visibleLines < 1 {
-		visibleLines = 1
+	// Title is at y=1 (after border at y=0), content starts at y=2
+	contentLine := y - 2
+	if contentLine < 0 {
+		return
 	}
 
-	// Calculate scroll offset (same as renderTasksPanel)
-	startIdx := 0
-	if m.tasksCursor >= visibleLines {
-		startIdx = m.tasksCursor - visibleLines + 1
+	// Calculate lines used by tasks section
+	tasksVisibleLines := panelHeight - 3
+	if len(wp.unassignedBeads) > 0 {
+		// Reserve space for unassigned section
+		unassignedLines := 3 + min(len(wp.unassignedBeads), 5)
+		tasksVisibleLines = panelHeight - 3 - unassignedLines
 	}
-	endIdx := startIdx + visibleLines
-	if endIdx > len(wp.tasks) {
-		endIdx = len(wp.tasks)
-		startIdx = endIdx - visibleLines
-		if startIdx < 0 {
-			startIdx = 0
+	if tasksVisibleLines < 3 {
+		tasksVisibleLines = 3
+	}
+
+	// Check if in tasks section
+	if len(wp.tasks) > 0 && contentLine < len(wp.tasks) && contentLine < tasksVisibleLines {
+		m.hoveredTaskIdx = contentLine
+		return
+	}
+
+	// Check if in unassigned section
+	if len(wp.unassignedBeads) > 0 {
+		// Calculate where unassigned section starts
+		// After tasks + blank + divider + header = tasks shown + 3
+		tasksShown := min(len(wp.tasks), tasksVisibleLines)
+		unassignedStart := tasksShown + 3 // blank line + divider + header
+
+		unassignedLine := contentLine - unassignedStart
+		if unassignedLine >= 0 && unassignedLine < len(wp.unassignedBeads) && unassignedLine < 5 {
+			m.hoveredTaskIdx = len(wp.tasks) + unassignedLine
 		}
-	}
-
-	// Title is at y=1 (after border at y=0), tasks start at y=2
-	taskLine := y - 2
-
-	// Convert visual line to actual task index
-	if taskLine >= 0 && taskLine < (endIdx-startIdx) {
-		m.hoveredTaskIdx = startIdx + taskLine
 	}
 }
 
@@ -2674,25 +2716,53 @@ func (m *workModel) handleZoomedClick(x, y int) {
 	}
 
 	wp := m.works[m.worksCursor]
-	if len(wp.tasks) == 0 {
+	totalItems := len(wp.tasks) + len(wp.unassignedBeads)
+	if totalItems == 0 {
 		return
 	}
 
 	// Calculate panel dimensions (matching View layout)
 	panelWidth := m.width / 2
+	panelHeight := m.height - 1 - 2
 
 	// Check if click is in the tasks panel (left side)
 	if x >= panelWidth {
 		return // Click was in the details panel
 	}
 
-	// Simple approach: just use y directly to find task
-	// Title is at y=1 (after border at y=0), tasks start at y=2
-	taskLine := y - 2
+	// Title is at y=1 (after border at y=0), content starts at y=2
+	contentLine := y - 2
+	if contentLine < 0 {
+		return
+	}
 
-	if taskLine >= 0 && taskLine < len(wp.tasks) {
-		m.tasksCursor = taskLine
-		m.activePanel = PanelMiddle // Switch to tasks panel
+	// Calculate lines used by tasks section
+	tasksVisibleLines := panelHeight - 3
+	if len(wp.unassignedBeads) > 0 {
+		unassignedLines := 3 + min(len(wp.unassignedBeads), 5)
+		tasksVisibleLines = panelHeight - 3 - unassignedLines
+	}
+	if tasksVisibleLines < 3 {
+		tasksVisibleLines = 3
+	}
+
+	// Check if clicking in tasks section
+	if len(wp.tasks) > 0 && contentLine < len(wp.tasks) && contentLine < tasksVisibleLines {
+		m.tasksCursor = contentLine
+		m.activePanel = PanelMiddle
+		return
+	}
+
+	// Check if clicking in unassigned section
+	if len(wp.unassignedBeads) > 0 {
+		tasksShown := min(len(wp.tasks), tasksVisibleLines)
+		unassignedStart := tasksShown + 3
+
+		unassignedLine := contentLine - unassignedStart
+		if unassignedLine >= 0 && unassignedLine < len(wp.unassignedBeads) && unassignedLine < 5 {
+			m.tasksCursor = len(wp.tasks) + unassignedLine
+			m.activePanel = PanelMiddle
+		}
 	}
 }
 
@@ -2884,24 +2954,26 @@ func (m *workModel) detectStatusBarButton(x int) string {
 			return "?"
 		}
 	} else {
-		// Zoomed mode: "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
-		keysPlain := "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
+		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
+		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
 
 		rIdx := strings.Index(keysPlain, "[r]un")
-		pIdx := strings.Index(keysPlain, "[p]lan")
+		sIdx := strings.Index(keysPlain, "[s]imple")
 		aIdx := strings.Index(keysPlain, "[a]ssign")
 		nIdx := strings.Index(keysPlain, "[n]ew")
+		xIdx := strings.Index(keysPlain, "[x]remove")
 		tIdx := strings.Index(keysPlain, "[t]erminal")
-		CIdx := strings.Index(keysPlain, "[C]laude")
-		RIdx := strings.Index(keysPlain, "[R]eview")
-		PIdx := strings.Index(keysPlain, "[P]R")
+		cIdx := strings.Index(keysPlain, "[c]laude")
+		vIdx := strings.Index(keysPlain, "[v]review")
+		pIdx := strings.Index(keysPlain, "[p]r")
+		uIdx := strings.Index(keysPlain, "[u]pdate")
 		helpIdx := strings.Index(keysPlain, "[?]help")
 
 		if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]un") {
 			return "r"
 		}
-		if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]lan") {
-			return "p"
+		if sIdx >= 0 && x >= sIdx && x < sIdx+len("[s]imple") {
+			return "s"
 		}
 		if aIdx >= 0 && x >= aIdx && x < aIdx+len("[a]ssign") {
 			return "a"
@@ -2909,17 +2981,23 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		if nIdx >= 0 && x >= nIdx && x < nIdx+len("[n]ew") {
 			return "n"
 		}
+		if xIdx >= 0 && x >= xIdx && x < xIdx+len("[x]remove") {
+			return "x"
+		}
 		if tIdx >= 0 && x >= tIdx && x < tIdx+len("[t]erminal") {
 			return "t"
 		}
-		if CIdx >= 0 && x >= CIdx && x < CIdx+len("[C]laude") {
-			return "C"
+		if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]laude") {
+			return "c"
 		}
-		if RIdx >= 0 && x >= RIdx && x < RIdx+len("[R]eview") {
-			return "R"
+		if vIdx >= 0 && x >= vIdx && x < vIdx+len("[v]review") {
+			return "v"
 		}
-		if PIdx >= 0 && x >= PIdx && x < PIdx+len("[P]R") {
-			return "P"
+		if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]r") {
+			return "p"
+		}
+		if uIdx >= 0 && x >= uIdx && x < uIdx+len("[u]pdate") {
+			return "u"
 		}
 		if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]help") {
 			return "?"
