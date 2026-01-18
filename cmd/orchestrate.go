@@ -409,12 +409,13 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 			return fmt.Errorf("failed to get children of root issue %s: %w", work.RootIssueID, err)
 		}
 
-		// Filter to only ready beads that were created after the review task started
+		// Filter to only ready beads that were created by this review task
 		// (excluding the root issue itself)
+		expectedExternalRef := fmt.Sprintf("review-%s", reviewTask.ID)
 		for _, issue := range rootChildrenIssues {
 			if issue.ID != work.RootIssueID &&
 				(issue.Status == "" || issue.Status == "ready" || issue.Status == "open") &&
-				issue.CreatedAt.After(reviewTask.CreatedAt) {
+				issue.ExternalRef == expectedExternalRef {
 				beadsToFix = append(beadsToFix, issue)
 			}
 		}
