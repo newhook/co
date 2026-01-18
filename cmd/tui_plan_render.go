@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
-	"github.com/newhook/co/internal/logging"
 )
 
 const detailsPanelPadding = 4
@@ -900,7 +899,6 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 		if i == m.beadsCursor {
 			// Use yellow background for newly created beads, regular blue for others
 			if _, isNew := m.newBeads[bead.id]; isNew {
-				logging.Debug("renderBeadLine: applying yellow selected style", "beadID", bead.id, "isCursor", true)
 				newSelectedStyle := lipgloss.NewStyle().
 					Bold(true).
 					Foreground(lipgloss.Color("0")).   // Black text
@@ -912,7 +910,6 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 
 		// Hover style - also check for new beads
 		if _, isNew := m.newBeads[bead.id]; isNew {
-			logging.Debug("renderBeadLine: applying yellow hover style", "beadID", bead.id, "isHovered", true)
 			newHoverStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("0")).   // Black text
 				Background(lipgloss.Color("228")). // Lighter yellow
@@ -933,9 +930,6 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 
 	// Style new beads - apply yellow only to the title
 	if _, isNew := m.newBeads[bead.id]; isNew {
-		logging.Debug("renderBeadLine: applying yellow title style", "beadID", bead.id)
-
-		// Style just the title yellow, keep everything else normal
 		yellowTitle := tuiNewBeadStyle.Render(title)
 
 		var newLine string

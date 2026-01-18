@@ -15,7 +15,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/beads/watcher"
-	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
@@ -418,11 +417,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case planDataMsg:
-		logging.Debug("planDataMsg received", "beadCount", len(msg.beads), "existingCount", len(m.beadItems), "searchSeq", msg.searchSeq)
-
 		// Ignore stale search results from older requests
 		if msg.searchSeq < m.searchSeq {
-			logging.Debug("planDataMsg: ignoring stale result")
 			return m, nil
 		}
 
@@ -438,7 +434,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, bead := range msg.beads {
 				// Mark as new if not in existing list and not already animated
 				if !existingIDs[bead.id] && m.newBeads[bead.id].IsZero() {
-					logging.Debug("planDataMsg: marking bead as new", "beadID", bead.id)
 					m.newBeads[bead.id] = now
 					expireCmds = append(expireCmds, scheduleNewBeadExpire(bead.id))
 				}
@@ -455,8 +450,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = msg.err.Error()
 			m.statusIsError = true
 		}
-
-		logging.Debug("planDataMsg: done", "newBeadsCount", len(m.newBeads))
 
 		// Don't clear status message on success - let it persist until next action
 		if len(expireCmds) > 0 {
