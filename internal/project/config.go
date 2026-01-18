@@ -10,11 +10,12 @@ import (
 
 // Config represents the project configuration stored in .co/config.toml.
 type Config struct {
-	Project ProjectConfig `toml:"project"`
-	Repo    RepoConfig    `toml:"repo"`
-	Hooks   HooksConfig   `toml:"hooks"`
-	Linear  LinearConfig  `toml:"linear"`
-	Claude  ClaudeConfig  `toml:"claude"`
+	Project  ProjectConfig  `toml:"project"`
+	Repo     RepoConfig     `toml:"repo"`
+	Hooks    HooksConfig    `toml:"hooks"`
+	Linear   LinearConfig   `toml:"linear"`
+	Claude   ClaudeConfig   `toml:"claude"`
+	Workflow WorkflowConfig `toml:"workflow"`
 }
 
 // ClaudeConfig contains Claude Code configuration.
@@ -59,6 +60,21 @@ type LinearConfig struct {
 	// APIKey is the Linear API key for authentication.
 	// Can also be set via LINEAR_API_KEY environment variable.
 	APIKey string `toml:"api_key"`
+}
+
+// WorkflowConfig contains workflow configuration.
+type WorkflowConfig struct {
+	// MaxReviewIterations limits the number of review/fix cycles.
+	// Defaults to 2 when not specified.
+	MaxReviewIterations *int `toml:"max_review_iterations"`
+}
+
+// GetMaxReviewIterations returns the configured max review iterations or 2 if not specified.
+func (w *WorkflowConfig) GetMaxReviewIterations() int {
+	if w.MaxReviewIterations == nil {
+		return 2
+	}
+	return *w.MaxReviewIterations
 }
 
 // LoadConfig reads and parses a config.toml file.

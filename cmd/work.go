@@ -1047,8 +1047,6 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 }
 
 func runWorkReview(cmd *cobra.Command, args []string) error {
-	const maxReviewIterations = 3
-
 	// Find project
 	ctx := GetContext()
 	proj, err := project.Find(ctx, "")
@@ -1080,10 +1078,11 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 	mainRepoPath := proj.MainRepoPath()
 
 	// Run review-fix loop if --auto is set
+	maxIterations := proj.Config.Workflow.GetMaxReviewIterations()
 	for iteration := 0; ; iteration++ {
 		// Check max iterations
-		if flagReviewAuto && iteration >= maxReviewIterations {
-			fmt.Printf("Warning: Maximum review iterations (%d) reached\n", maxReviewIterations)
+		if flagReviewAuto && iteration >= maxIterations {
+			fmt.Printf("Warning: Maximum review iterations (%d) reached\n", maxIterations)
 			break
 		}
 

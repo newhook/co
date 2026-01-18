@@ -113,6 +113,11 @@ The `.co/config.toml` file stores project settings:
   # Whether to run Claude with --dangerously-skip-permissions flag.
   # Defaults to true when not specified.
   skip_permissions = true
+
+[workflow]
+  # Maximum number of review/fix cycles before proceeding to PR.
+  # Defaults to 2 when not specified.
+  max_review_iterations = 2
 ```
 
 The `hooks.env` setting is useful for:
@@ -121,6 +126,8 @@ The `hooks.env` setting is useful for:
 - Any environment variables Claude needs
 
 The `claude.skip_permissions` setting controls whether Claude runs with `--dangerously-skip-permissions`. This flag allows Claude to execute commands without prompting for confirmation. Set to `false` if you want Claude to prompt for permission before running commands.
+
+The `workflow.max_review_iterations` setting limits the number of review/fix cycles in automated workflows. The default is 2 iterations. Increase this value if you want Claude to perform more review passes, or decrease it to limit iteration time.
 
 ## Usage
 
@@ -244,7 +251,7 @@ co work create bead-1 bead-2 --auto
 This mode:
 1. Creates work unit and tasks from beads
 2. Executes all implementation tasks
-3. Runs review/fix loop until code is clean (max 3 iterations)
+3. Runs review/fix loop until code is clean (default max 2 iterations, configurable)
 4. Creates PR automatically
 5. Returns PR URL when complete
 

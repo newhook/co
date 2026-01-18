@@ -16,8 +16,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const maxReviewIterations = 5
-
 // Spinner frames for animated waiting display
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -315,8 +313,9 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 
 	// Count how many review iterations we've had
 	reviewCount := countReviewIterations(proj, work.ID)
-	if reviewCount >= maxReviewIterations {
-		fmt.Printf("Warning: Maximum review iterations (%d) reached, proceeding to PR\n", maxReviewIterations)
+	maxIterations := proj.Config.Workflow.GetMaxReviewIterations()
+	if reviewCount >= maxIterations {
+		fmt.Printf("Warning: Maximum review iterations (%d) reached, proceeding to PR\n", maxIterations)
 		return createPRTask(proj, work, reviewTask.ID)
 	}
 
