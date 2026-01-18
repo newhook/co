@@ -37,7 +37,7 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 		return claude.BuildTaskPrompt(task.ID, issues, work.BranchName, baseBranch), nil
 
 	case "review":
-		return claude.BuildReviewPrompt(task.ID, work.ID, work.BranchName, baseBranch), nil
+		return claude.BuildReviewPrompt(task.ID, work.ID, work.BranchName, baseBranch, work.RootIssueID), nil
 
 	case "pr":
 		return claude.BuildPRPrompt(task.ID, work.ID, work.BranchName, baseBranch), nil

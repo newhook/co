@@ -294,15 +294,6 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Trigger the corresponding action by simulating a key press
 				switch clickedButton {
-				case "c":
-					// Create work - available in overview or zoomed with left panel
-					if canActOnWork {
-						m.textInput.Reset()
-						m.textInput.Placeholder = "feature/my-branch"
-						m.textInput.Focus()
-						m.viewMode = ViewCreateWork
-					}
-					return m, nil
 				case "n":
 					// Create new bead and assign to current work
 					if canActOnWork && len(m.works) > 0 {
@@ -322,16 +313,16 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.viewMode = ViewDestroyConfirm
 					}
 					return m, nil
-				case "p":
-					// Plan work
+				case "r":
+					// Run work with LLM estimation
 					if canActOnWork && len(m.works) > 0 {
-						m.viewMode = ViewPlanDialog
+						return m, m.runWork(true)
 					}
 					return m, nil
-				case "r":
-					// Run work
+				case "s":
+					// Run work simple (one task per issue)
 					if canActOnWork && len(m.works) > 0 {
-						return m, m.runWork()
+						return m, m.runWork(false)
 					}
 					return m, nil
 				case "a":
@@ -348,22 +339,28 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.openConsole()
 					}
 					return m, nil
-				case "C":
+				case "c":
 					// Open Claude Code session tab for selected work
 					if canActOnWork && len(m.works) > 0 {
 						return m, m.openClaude()
 					}
 					return m, nil
-				case "R":
+				case "v":
 					// Create review task
 					if canActOnWork && len(m.works) > 0 {
 						return m, m.createReviewTask()
 					}
 					return m, nil
-				case "P":
+				case "p":
 					// Create PR task
 					if canActOnWork && len(m.works) > 0 {
 						return m, m.createPRTask()
+					}
+					return m, nil
+				case "u":
+					// Update PR description
+					if canActOnWork && len(m.works) > 0 {
+						return m, m.updatePRDescriptionTask()
 					}
 					return m, nil
 				case "?":
@@ -384,14 +381,10 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Handle view-specific keys first
 		switch m.viewMode {
-		case ViewCreateWork:
-			return m.updateCreateWork(msg)
 		case ViewCreateBead:
 			return m.updateCreateBead(msg)
 		case ViewDestroyConfirm:
 			return m.updateDestroyConfirm(msg)
-		case ViewPlanDialog:
-			return m.updatePlanDialog(msg)
 		case ViewAssignBeads:
 			return m.updateAssignBeads(msg)
 		case ViewHelp:
@@ -550,13 +543,6 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.tasksCursor = 0
 			}
 			return m, nil
-		case "c":
-			// Create work
-			m.textInput.Reset()
-			m.textInput.Placeholder = "feature/my-branch"
-			m.textInput.Focus()
-			m.viewMode = ViewCreateWork
-			return m, nil
 		case "d":
 			// Destroy selected work
 			if len(m.works) > 0 {
@@ -564,15 +550,15 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "r":
-			// Run selected work
+			// Run selected work with LLM estimation
 			if len(m.works) > 0 {
-				return m, m.runWork()
+				return m, m.runWork(true)
 			}
 			return m, nil
-		case "p":
-			// Plan selected work
+		case "s":
+			// Run selected work simple (one task per issue)
 			if len(m.works) > 0 {
-				m.viewMode = ViewPlanDialog
+				return m, m.runWork(false)
 			}
 			return m, nil
 		case "a":
@@ -583,16 +569,22 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.loadBeadsForAssign()
 			}
 			return m, nil
-		case "R":
+		case "v":
 			// Create review task
 			if len(m.works) > 0 {
 				return m, m.createReviewTask()
 			}
 			return m, nil
-		case "P":
+		case "p":
 			// Create PR task
 			if len(m.works) > 0 {
 				return m, m.createPRTask()
+			}
+			return m, nil
+		case "u":
+			// Update PR description
+			if len(m.works) > 0 {
+				return m, m.updatePRDescriptionTask()
 			}
 			return m, nil
 		case "t":
@@ -601,7 +593,7 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.openConsole()
 			}
 			return m, nil
-		case "C":
+		case "c":
 			// Open Claude Code session tab for selected work
 			if len(m.works) > 0 {
 				return m, m.openClaude()
@@ -623,7 +615,9 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.activePanel == PanelMiddle {
 			if len(m.works) > 0 && m.worksCursor < len(m.works) {
 				wp := m.works[m.worksCursor]
-				if m.tasksCursor < len(wp.tasks)-1 {
+				// Total items = tasks + unassigned issues
+				totalItems := len(wp.tasks) + len(wp.unassignedBeads)
+				if m.tasksCursor < totalItems-1 {
 					m.tasksCursor++
 				}
 			}
@@ -680,16 +674,6 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.activePanel = PanelRight // 2 = Details panel
 		}
 
-	case "c":
-		// Create work (PanelLeft in overview, or PanelMiddle in zoomed mode)
-		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
-		if canActOnWork {
-			m.textInput.Reset()
-			m.textInput.Placeholder = "feature/my-branch"
-			m.textInput.Focus()
-			m.viewMode = ViewCreateWork
-		}
-
 	case "d":
 		// Destroy work (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
@@ -697,18 +681,18 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewDestroyConfirm
 		}
 
-	case "p":
-		// Plan work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+	case "r":
+		// Run work with LLM estimation (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
-			m.viewMode = ViewPlanDialog
+			return m, m.runWork(true)
 		}
 
-	case "r":
-		// Run work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+	case "s":
+		// Run work simple - one task per issue (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
-			return m, m.runWork()
+			return m, m.runWork(false)
 		}
 
 	case "a":
@@ -721,25 +705,43 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadBeadsForAssign()
 		}
 
-	case "R":
+	case "v":
 		// Create review task
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.createReviewTask()
 		}
 
-	case "P":
+	case "p":
 		// Create PR task
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.createPRTask()
 		}
 
-	case "U":
+	case "u":
 		// Update PR description task
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.updatePRDescriptionTask()
+		}
+
+	case "c":
+		// Open Claude Code session tab for selected work
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
+			return m, m.openClaude()
+		}
+
+	case "x":
+		// Remove unassigned issue from work
+		if m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle && len(m.works) > 0 {
+			wp := m.works[m.worksCursor]
+			unassignedIdx := m.tasksCursor - len(wp.tasks)
+			if unassignedIdx >= 0 && unassignedIdx < len(wp.unassignedBeads) {
+				beadID := wp.unassignedBeads[unassignedIdx].id
+				return m, m.removeBeadFromWork(beadID)
+			}
 		}
 
 	case "n":
@@ -809,26 +811,6 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *workModel) updateCreateWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
-		branchName := m.textInput.Value()
-		if branchName == "" {
-			m.viewMode = ViewNormal
-			return m, nil
-		}
-		m.viewMode = ViewNormal
-		return m, m.createWork(branchName)
-	case "esc":
-		m.viewMode = ViewNormal
-	default:
-		var cmd tea.Cmd
-		m.textInput, cmd = m.textInput.Update(msg)
-		return m, cmd
-	}
-	return m, nil
-}
-
 func (m *workModel) updateDestroyConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
@@ -837,22 +819,6 @@ func (m *workModel) updateDestroyConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.destroyWork()
 		}
 	case "n", "N", "esc":
-		m.viewMode = ViewNormal
-	}
-	return m, nil
-}
-
-func (m *workModel) updatePlanDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "a":
-		// Auto-group planning
-		m.viewMode = ViewNormal
-		return m, m.planWork(true)
-	case "s":
-		// Single-bead planning
-		m.viewMode = ViewNormal
-		return m, m.planWork(false)
-	case "esc":
 		m.viewMode = ViewNormal
 	}
 	return m, nil
@@ -1023,9 +989,6 @@ func (m *workModel) View() string {
 
 	// Handle dialogs first
 	switch m.viewMode {
-	case ViewCreateWork:
-		dialog := m.renderCreateWorkDialog()
-		return m.renderWithDialog(dialog)
 	case ViewCreateBead:
 		// In zoomed mode, render inline in details panel (fall through)
 		// In overview mode, use dialog
@@ -1036,9 +999,6 @@ func (m *workModel) View() string {
 		// Fall through to normal rendering - details panel will show the form
 	case ViewDestroyConfirm:
 		dialog := m.renderDestroyConfirmDialog()
-		return m.renderWithDialog(dialog)
-	case ViewPlanDialog:
-		dialog := m.renderPlanDialogContent()
 		return m.renderWithDialog(dialog)
 	case ViewAssignBeads:
 		// In zoomed mode, render inline in details panel (fall through)
@@ -1195,6 +1155,12 @@ func (m *workModel) renderOverviewDetailsPanel(width, height int) string {
 	content.WriteString(tuiLabelStyle.Render("Branch: "))
 	content.WriteString(tuiValueStyle.Render(wp.work.BranchName))
 	content.WriteString("\n")
+
+	if wp.work.RootIssueID != "" {
+		content.WriteString(tuiLabelStyle.Render("Root Issue: "))
+		content.WriteString(tuiValueStyle.Render(wp.work.RootIssueID))
+		content.WriteString("\n")
+	}
 
 	content.WriteString(tuiLabelStyle.Render("Status: "))
 	content.WriteString(statusStyled(wp.work.Status))
@@ -1532,19 +1498,27 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 		content.WriteString(tuiDimStyle.Render("No work selected"))
 	} else {
 		wp := m.works[m.worksCursor]
+
+		// Calculate space: reserve lines for unassigned issues section if any
+		unassignedLines := 0
+		if len(wp.unassignedBeads) > 0 {
+			// Reserve: 1 for divider, 1 for header, up to 5 for issues, 1 for "more" indicator
+			unassignedLines = 3 + min(len(wp.unassignedBeads), 5)
+		}
+
+		tasksHeight := height - 3 - unassignedLines // -3 for panel border and title
+		if tasksHeight < 3 {
+			tasksHeight = 3
+		}
+
 		if len(wp.tasks) == 0 {
-			// Show warning if there are unassigned beads
-			if wp.unassignedBeadCount > 0 {
-				content.WriteString(tuiErrorStyle.Render(fmt.Sprintf("⚠ %d pending issue(s)", wp.unassignedBeadCount)))
-				content.WriteString("\n")
-				content.WriteString(tuiDimStyle.Render("Press 'r' to run or 'p' to plan"))
-			} else {
-				content.WriteString(tuiDimStyle.Render("No tasks"))
-				content.WriteString("\n")
+			content.WriteString(tuiDimStyle.Render("No tasks yet"))
+			content.WriteString("\n")
+			if len(wp.unassignedBeads) == 0 {
 				content.WriteString(tuiDimStyle.Render("Press 'a' to assign issues"))
 			}
 		} else {
-			visibleLines := height - 3
+			visibleLines := tasksHeight
 			if visibleLines < 1 {
 				visibleLines = 1
 			}
@@ -1606,6 +1580,84 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 				content.WriteString("\n")
 			}
 		}
+
+		// Show unassigned issues section if any
+		if len(wp.unassignedBeads) > 0 {
+			content.WriteString("\n")
+			content.WriteString(tuiDimStyle.Render("─────────────────────"))
+			content.WriteString("\n")
+			content.WriteString(tuiLabelStyle.Render(fmt.Sprintf("Unassigned (%d)", len(wp.unassignedBeads))))
+			content.WriteString("\n")
+
+			// Calculate which unassigned issues to show based on cursor position
+			unassignedCursor := m.tasksCursor - len(wp.tasks) // -1 if in tasks, 0+ if in unassigned
+			maxShow := 5
+			startIdx := 0
+			if unassignedCursor >= maxShow {
+				startIdx = unassignedCursor - maxShow + 1
+			}
+			endIdx := min(startIdx+maxShow, len(wp.unassignedBeads))
+
+			if startIdx > 0 {
+				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ↑ %d more", startIdx)))
+				content.WriteString("\n")
+			}
+
+			for i := startIdx; i < endIdx; i++ {
+				bp := wp.unassignedBeads[i]
+				itemIdx := len(wp.tasks) + i
+				isSelected := m.tasksCursor == itemIdx && m.activePanel == PanelMiddle
+				isHovered := m.hoveredTaskIdx == itemIdx
+
+				// Type indicator
+				var typeIndicator string
+				switch bp.issueType {
+				case "task":
+					typeIndicator = typeTaskStyle.Render("T")
+				case "bug":
+					typeIndicator = typeBugStyle.Render("B")
+				case "feature":
+					typeIndicator = typeFeatureStyle.Render("F")
+				case "epic":
+					typeIndicator = typeEpicStyle.Render("E")
+				default:
+					typeIndicator = tuiDimStyle.Render("?")
+				}
+
+				// Truncate title to fit
+				title := bp.title
+				maxTitleLen := width - 18 // account for prefix and padding
+				if maxTitleLen < 10 {
+					maxTitleLen = 10
+				}
+				if len(title) > maxTitleLen {
+					title = title[:maxTitleLen-3] + "..."
+				}
+
+				if isSelected {
+					line := fmt.Sprintf("> %s %s %s", typeIndicator, bp.id, title)
+					visWidth := lipgloss.Width(line)
+					if visWidth < width-4 {
+						line += strings.Repeat(" ", width-4-visWidth)
+					}
+					content.WriteString(tuiSelectedStyle.Render(line))
+				} else if isHovered {
+					line := fmt.Sprintf("→ %s %s %s", typeIndicator, bp.id, title)
+					content.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("51")).Render(line))
+				} else {
+					line := fmt.Sprintf("  %s %s %s", typeIndicator, issueIDStyle.Render(bp.id), title)
+					content.WriteString(line)
+				}
+				content.WriteString("\n")
+			}
+
+			if endIdx < len(wp.unassignedBeads) {
+				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ↓ %d more", len(wp.unassignedBeads)-endIdx)))
+				content.WriteString("\n")
+			}
+
+			content.WriteString(tuiDimStyle.Render("[r]un [s]imple [x]remove"))
+		}
 	}
 
 	style := tuiPanelStyle
@@ -1654,6 +1706,12 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 		content.WriteString(tuiLabelStyle.Render("Branch: "))
 		content.WriteString(tuiValueStyle.Render(wp.work.BranchName))
 		content.WriteString("\n")
+
+		if wp.work.RootIssueID != "" {
+			content.WriteString(tuiLabelStyle.Render("Root Issue: "))
+			content.WriteString(tuiValueStyle.Render(wp.work.RootIssueID))
+			content.WriteString("\n")
+		}
 
 		if wp.work.PRURL != "" {
 			content.WriteString(tuiLabelStyle.Render("PR: "))
@@ -1733,6 +1791,51 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 					content.WriteString(fmt.Sprintf("  %s %s\n", statusIcon(bp.status), bp.id))
 				}
 			}
+		}
+
+		// If unassigned issue is selected, show issue details
+		unassignedIdx := m.tasksCursor - len(wp.tasks)
+		if m.activePanel == PanelMiddle && unassignedIdx >= 0 && unassignedIdx < len(wp.unassignedBeads) {
+			bp := wp.unassignedBeads[unassignedIdx]
+			content.WriteString("\n")
+			content.WriteString(tuiTitleStyle.Render("Selected Issue"))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("ID: "))
+			content.WriteString(issueIDStyle.Render(bp.id))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("Title: "))
+			content.WriteString(tuiValueStyle.Render(bp.title))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("Type: "))
+			content.WriteString(tuiValueStyle.Render(bp.issueType))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("Priority: "))
+			content.WriteString(tuiValueStyle.Render(fmt.Sprintf("P%d", bp.priority)))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("Status: "))
+			content.WriteString(tuiValueStyle.Render(bp.beadStatus))
+			content.WriteString("\n")
+
+			if bp.description != "" {
+				content.WriteString("\n")
+				content.WriteString(tuiLabelStyle.Render("Description:"))
+				content.WriteString("\n")
+				desc := bp.description
+				// Truncate if too long
+				maxDescLen := (width - 6) * 3 // ~3 lines worth
+				if len(desc) > maxDescLen {
+					desc = desc[:maxDescLen-3] + "..."
+				}
+				content.WriteString("  " + tuiDimStyle.Render(desc) + "\n")
+			}
+
+			content.WriteString("\n")
+			content.WriteString(tuiDimStyle.Render("Press [x] to remove from work"))
 		}
 	}
 
@@ -2027,50 +2130,52 @@ func (m *workModel) renderStatusBar() string {
 		keysPlain = fmt.Sprintf("[Esc]cancel  [Space]toggle  [a]select all  [Enter]assign  %d selected", selected)
 	} else {
 		// Normal zoomed view - task-specific actions
+		// Check what's available based on current state
+		hasUnassigned := false
+		isUnassignedSelected := false
+		if len(m.works) > 0 && m.worksCursor < len(m.works) {
+			wp := m.works[m.worksCursor]
+			hasUnassigned = len(wp.unassignedBeads) > 0
+			isUnassignedSelected = m.tasksCursor >= len(wp.tasks) && m.tasksCursor < len(wp.tasks)+len(wp.unassignedBeads)
+		}
+
 		escButton := "[Esc]overview"
-		rButton := styleButtonWithHover("[r]un", m.hoveredButton == "r")
-		pButton := styleButtonWithHover("[p]lan", m.hoveredButton == "p")
+
+		// Run buttons - only enabled if there are unassigned issues
+		var rButton, sButton string
+		if hasUnassigned {
+			rButton = styleButtonWithHover("[r]un", m.hoveredButton == "r")
+			sButton = styleButtonWithHover("[s]imple", m.hoveredButton == "s")
+		} else {
+			rButton = tuiDimStyle.Render("[r]un")
+			sButton = tuiDimStyle.Render("[s]imple")
+		}
+
 		aButton := styleButtonWithHover("[a]ssign", m.hoveredButton == "a")
 		nButton := styleButtonWithHover("[n]ew", m.hoveredButton == "n")
+
+		// Remove button - only enabled if an unassigned issue is selected
+		var xButton string
+		if isUnassignedSelected {
+			xButton = styleButtonWithHover("[x]remove", m.hoveredButton == "x")
+		} else {
+			xButton = tuiDimStyle.Render("[x]remove")
+		}
+
 		tButton := styleButtonWithHover("[t]erminal", m.hoveredButton == "t")
-		CButton := styleButtonWithHover("[C]laude", m.hoveredButton == "C")
-		RButton := styleButtonWithHover("[R]eview", m.hoveredButton == "R")
-		PButton := styleButtonWithHover("[P]R", m.hoveredButton == "P")
+		cButton := styleButtonWithHover("[c]laude", m.hoveredButton == "c")
+		vButton := styleButtonWithHover("[v]review", m.hoveredButton == "v")
+		pButton := styleButtonWithHover("[p]r", m.hoveredButton == "p")
+		uButton := styleButtonWithHover("[u]pdate", m.hoveredButton == "u")
 		helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-		keys = escButton + " " + rButton + " " + pButton + " " + aButton + " " + nButton + " " + tButton + " " + CButton + " " + RButton + " " + PButton + " " + helpButton
-		keysPlain = "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
+		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + xButton + " " + tButton + " " + cButton + " " + vButton + " " + pButton + " " + uButton + " " + helpButton
+		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
 	}
 
 	// Build bar with commands left, status right
 	padding := max(m.width-len(keysPlain)-len(statusPlain)-4, 2)
 	return tuiStatusBarStyle.Width(m.width).Render(keys + strings.Repeat(" ", padding) + status)
-}
-
-func (m *workModel) renderCreateWorkDialog() string {
-	selectedCount := 0
-	for _, selected := range m.selectedBeads {
-		if selected {
-			selectedCount++
-		}
-	}
-
-	var beadOption string
-	if selectedCount > 0 {
-		beadOption = fmt.Sprintf("\n  [b] Use %d selected issue(s) to auto-generate branch", selectedCount)
-	}
-
-	content := fmt.Sprintf(`
-  Create New Work
-
-  Enter branch name:
-  %s
-%s
-
-  [Enter] Create  [Esc] Cancel
-`, m.textInput.View(), beadOption)
-
-	return tuiDialogStyle.Render(content)
 }
 
 func (m *workModel) renderDestroyConfirmDialog() string {
@@ -2095,20 +2200,6 @@ func (m *workModel) renderDestroyConfirmDialog() string {
   [y] Yes  [n] No
 `, displayName)
 
-	return tuiDialogStyle.Render(content)
-}
-
-func (m *workModel) renderPlanDialogContent() string {
-	content := `
-  Plan Work
-
-  Choose planning mode:
-
-  [a] Auto-group - LLM estimates complexity
-  [s] Single-bead - One task per bead
-
-  [Esc] Cancel
-`
 	return tuiDialogStyle.Render(content)
 }
 
@@ -2303,23 +2394,6 @@ func (m *workModel) loadBeadsForAssign() tea.Cmd {
 	}
 }
 
-func (m *workModel) createWork(branchName string) tea.Cmd {
-	return func() tea.Msg {
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", WorkCreateOptions{Silent: true})
-		if err != nil {
-			return workCommandMsg{action: "Create work", err: err}
-		}
-
-		// Spawn the orchestrator for this work
-		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
-			// Non-fatal: work was created but orchestrator failed to spawn
-			return workCommandMsg{action: fmt.Sprintf("Created work %s (orchestrator failed: %v)", result.WorkID, err)}
-		}
-
-		return workCommandMsg{action: fmt.Sprintf("Created work %s", result.WorkID)}
-	}
-}
-
 func (m *workModel) destroyWork() tea.Cmd {
 	return func() tea.Msg {
 		if m.worksCursor >= len(m.works) {
@@ -2334,33 +2408,29 @@ func (m *workModel) destroyWork() tea.Cmd {
 	}
 }
 
-func (m *workModel) planWork(autoGroup bool) tea.Cmd {
+func (m *workModel) removeBeadFromWork(beadID string) tea.Cmd {
 	return func() tea.Msg {
 		if m.worksCursor >= len(m.works) {
-			return workCommandMsg{action: "Plan work", err: fmt.Errorf("no work selected")}
+			return workCommandMsg{action: "Remove issue", err: fmt.Errorf("no work selected")}
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		result, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup, io.Discard)
-		if err != nil {
-			return workCommandMsg{action: "Plan work", err: err}
+		// Remove the bead from the work using the database
+		if err := m.proj.DB.RemoveWorkBead(m.ctx, workID, beadID); err != nil {
+			return workCommandMsg{action: "Remove issue", err: err}
 		}
-
-		if result.TasksCreated == 0 {
-			return workCommandMsg{action: "Plan work (no unassigned beads)"}
-		}
-		return workCommandMsg{action: fmt.Sprintf("Planned %d task(s)", result.TasksCreated)}
+		return workCommandMsg{action: fmt.Sprintf("Removed %s from work", beadID)}
 	}
 }
 
-func (m *workModel) runWork() tea.Cmd {
+func (m *workModel) runWork(usePlan bool) tea.Cmd {
 	return func() tea.Msg {
 		if m.worksCursor >= len(m.works) {
 			return workCommandMsg{action: "Run work", err: fmt.Errorf("no work selected")}
 		}
 		workID := m.works[m.worksCursor].work.ID
 
-		result, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
+		result, err := RunWork(m.ctx, m.proj, workID, usePlan, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Run work", err: err}
 		}
@@ -2371,8 +2441,12 @@ func (m *workModel) runWork() tea.Cmd {
 		}
 
 		var msg string
+		modeStr := ""
+		if usePlan {
+			modeStr = " (with estimation)"
+		}
 		if result.TasksCreated > 0 {
-			msg = fmt.Sprintf("Created %d task(s), orchestrator %s", result.TasksCreated, orchestratorStatus)
+			msg = fmt.Sprintf("Created %d task(s)%s, orchestrator %s", result.TasksCreated, modeStr, orchestratorStatus)
 		} else {
 			msg = fmt.Sprintf("Orchestrator %s", orchestratorStatus)
 		}
@@ -2575,7 +2649,7 @@ func (m *workModel) openClaude() tea.Cmd {
 
 // handleOverviewClick handles mouse clicks in the overview grid area
 // detectOverviewHover detects which worker/bead is being hovered in overview mode
-// detectZoomedHover detects which task is being hovered in zoomed mode
+// detectZoomedHover detects which task or unassigned issue is being hovered in zoomed mode
 func (m *workModel) detectZoomedHover(x, y int) {
 	m.hoveredTaskIdx = -1
 
@@ -2584,7 +2658,8 @@ func (m *workModel) detectZoomedHover(x, y int) {
 	}
 
 	wp := m.works[m.worksCursor]
-	if len(wp.tasks) == 0 {
+	totalItems := len(wp.tasks) + len(wp.unassignedBeads)
+	if totalItems == 0 {
 		return
 	}
 
@@ -2597,31 +2672,40 @@ func (m *workModel) detectZoomedHover(x, y int) {
 		return // Hover is in the details panel
 	}
 
-	visibleLines := panelHeight - 3
-	if visibleLines < 1 {
-		visibleLines = 1
+	// Title is at y=1 (after border at y=0), content starts at y=2
+	contentLine := y - 2
+	if contentLine < 0 {
+		return
 	}
 
-	// Calculate scroll offset (same as renderTasksPanel)
-	startIdx := 0
-	if m.tasksCursor >= visibleLines {
-		startIdx = m.tasksCursor - visibleLines + 1
+	// Calculate lines used by tasks section
+	tasksVisibleLines := panelHeight - 3
+	if len(wp.unassignedBeads) > 0 {
+		// Reserve space for unassigned section
+		unassignedLines := 3 + min(len(wp.unassignedBeads), 5)
+		tasksVisibleLines = panelHeight - 3 - unassignedLines
 	}
-	endIdx := startIdx + visibleLines
-	if endIdx > len(wp.tasks) {
-		endIdx = len(wp.tasks)
-		startIdx = endIdx - visibleLines
-		if startIdx < 0 {
-			startIdx = 0
+	if tasksVisibleLines < 3 {
+		tasksVisibleLines = 3
+	}
+
+	// Check if in tasks section
+	if len(wp.tasks) > 0 && contentLine < len(wp.tasks) && contentLine < tasksVisibleLines {
+		m.hoveredTaskIdx = contentLine
+		return
+	}
+
+	// Check if in unassigned section
+	if len(wp.unassignedBeads) > 0 {
+		// Calculate where unassigned section starts
+		// After tasks + blank + divider + header = tasks shown + 3
+		tasksShown := min(len(wp.tasks), tasksVisibleLines)
+		unassignedStart := tasksShown + 3 // blank line + divider + header
+
+		unassignedLine := contentLine - unassignedStart
+		if unassignedLine >= 0 && unassignedLine < len(wp.unassignedBeads) && unassignedLine < 5 {
+			m.hoveredTaskIdx = len(wp.tasks) + unassignedLine
 		}
-	}
-
-	// Title is at y=1 (after border at y=0), tasks start at y=2
-	taskLine := y - 2
-
-	// Convert visual line to actual task index
-	if taskLine >= 0 && taskLine < (endIdx-startIdx) {
-		m.hoveredTaskIdx = startIdx + taskLine
 	}
 }
 
@@ -2632,25 +2716,53 @@ func (m *workModel) handleZoomedClick(x, y int) {
 	}
 
 	wp := m.works[m.worksCursor]
-	if len(wp.tasks) == 0 {
+	totalItems := len(wp.tasks) + len(wp.unassignedBeads)
+	if totalItems == 0 {
 		return
 	}
 
 	// Calculate panel dimensions (matching View layout)
 	panelWidth := m.width / 2
+	panelHeight := m.height - 1 - 2
 
 	// Check if click is in the tasks panel (left side)
 	if x >= panelWidth {
 		return // Click was in the details panel
 	}
 
-	// Simple approach: just use y directly to find task
-	// Title is at y=1 (after border at y=0), tasks start at y=2
-	taskLine := y - 2
+	// Title is at y=1 (after border at y=0), content starts at y=2
+	contentLine := y - 2
+	if contentLine < 0 {
+		return
+	}
 
-	if taskLine >= 0 && taskLine < len(wp.tasks) {
-		m.tasksCursor = taskLine
-		m.activePanel = PanelMiddle // Switch to tasks panel
+	// Calculate lines used by tasks section
+	tasksVisibleLines := panelHeight - 3
+	if len(wp.unassignedBeads) > 0 {
+		unassignedLines := 3 + min(len(wp.unassignedBeads), 5)
+		tasksVisibleLines = panelHeight - 3 - unassignedLines
+	}
+	if tasksVisibleLines < 3 {
+		tasksVisibleLines = 3
+	}
+
+	// Check if clicking in tasks section
+	if len(wp.tasks) > 0 && contentLine < len(wp.tasks) && contentLine < tasksVisibleLines {
+		m.tasksCursor = contentLine
+		m.activePanel = PanelMiddle
+		return
+	}
+
+	// Check if clicking in unassigned section
+	if len(wp.unassignedBeads) > 0 {
+		tasksShown := min(len(wp.tasks), tasksVisibleLines)
+		unassignedStart := tasksShown + 3
+
+		unassignedLine := contentLine - unassignedStart
+		if unassignedLine >= 0 && unassignedLine < len(wp.unassignedBeads) && unassignedLine < 5 {
+			m.tasksCursor = len(wp.tasks) + unassignedLine
+			m.activePanel = PanelMiddle
+		}
 	}
 }
 
@@ -2842,24 +2954,26 @@ func (m *workModel) detectStatusBarButton(x int) string {
 			return "?"
 		}
 	} else {
-		// Zoomed mode: "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
-		keysPlain := "[Esc]overview [r]un [p]lan [a]ssign [n]ew [t]erminal [C]laude [R]eview [P]R [?]help"
+		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
+		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
 
 		rIdx := strings.Index(keysPlain, "[r]un")
-		pIdx := strings.Index(keysPlain, "[p]lan")
+		sIdx := strings.Index(keysPlain, "[s]imple")
 		aIdx := strings.Index(keysPlain, "[a]ssign")
 		nIdx := strings.Index(keysPlain, "[n]ew")
+		xIdx := strings.Index(keysPlain, "[x]remove")
 		tIdx := strings.Index(keysPlain, "[t]erminal")
-		CIdx := strings.Index(keysPlain, "[C]laude")
-		RIdx := strings.Index(keysPlain, "[R]eview")
-		PIdx := strings.Index(keysPlain, "[P]R")
+		cIdx := strings.Index(keysPlain, "[c]laude")
+		vIdx := strings.Index(keysPlain, "[v]review")
+		pIdx := strings.Index(keysPlain, "[p]r")
+		uIdx := strings.Index(keysPlain, "[u]pdate")
 		helpIdx := strings.Index(keysPlain, "[?]help")
 
 		if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]un") {
 			return "r"
 		}
-		if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]lan") {
-			return "p"
+		if sIdx >= 0 && x >= sIdx && x < sIdx+len("[s]imple") {
+			return "s"
 		}
 		if aIdx >= 0 && x >= aIdx && x < aIdx+len("[a]ssign") {
 			return "a"
@@ -2867,17 +2981,23 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		if nIdx >= 0 && x >= nIdx && x < nIdx+len("[n]ew") {
 			return "n"
 		}
+		if xIdx >= 0 && x >= xIdx && x < xIdx+len("[x]remove") {
+			return "x"
+		}
 		if tIdx >= 0 && x >= tIdx && x < tIdx+len("[t]erminal") {
 			return "t"
 		}
-		if CIdx >= 0 && x >= CIdx && x < CIdx+len("[C]laude") {
-			return "C"
+		if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]laude") {
+			return "c"
 		}
-		if RIdx >= 0 && x >= RIdx && x < RIdx+len("[R]eview") {
-			return "R"
+		if vIdx >= 0 && x >= vIdx && x < vIdx+len("[v]review") {
+			return "v"
 		}
-		if PIdx >= 0 && x >= PIdx && x < PIdx+len("[P]R") {
-			return "P"
+		if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]r") {
+			return "p"
+		}
+		if uIdx >= 0 && x >= uIdx && x < uIdx+len("[u]pdate") {
+			return "u"
 		}
 		if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]help") {
 			return "?"

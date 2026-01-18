@@ -547,12 +547,10 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.beadsCursor = 0
 			return m, m.fetchData()
 		}
-		// "c" on works panel creates work
+		// "c" on works panel - work creation disabled (requires bead ID)
 		if m.isWorksPanelActive() {
-			m.viewMode = ViewCreateWork
-			m.textInput.Reset()
-			m.textInput.Focus()
-			return m, textinput.Blink
+			m.statusMessage = "Work creation requires a root issue. Use: co work create <bead-id>"
+			return m, nil
 		}
 		return m, nil
 	case "d":
@@ -2084,6 +2082,12 @@ func (m tuiModel) renderWorkDetails(wp *workProgress, width int) string {
 	b.WriteString(tuiLabelStyle.Render("Branch: "))
 	b.WriteString(tuiValueStyle.Render(wp.work.BranchName))
 	b.WriteString("\n")
+
+	if wp.work.RootIssueID != "" {
+		b.WriteString(tuiLabelStyle.Render("Root Issue: "))
+		b.WriteString(tuiValueStyle.Render(wp.work.RootIssueID))
+		b.WriteString("\n")
+	}
 
 	b.WriteString(tuiLabelStyle.Render("Status: "))
 	b.WriteString(m.statusStyled(wp.work.Status))

@@ -157,9 +157,11 @@ const (
 
 // workItem represents a work unit for selection
 type workItem struct {
-	id     string
-	status string
-	branch string
+	id             string
+	status         string
+	branch         string
+	rootIssueID    string
+	rootIssueTitle string
 }
 
 // beadItem represents a bead in the beads panel

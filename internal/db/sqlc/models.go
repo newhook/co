@@ -92,6 +92,7 @@ type Work struct {
 	WorktreePath  string       `json:"worktree_path"`
 	BranchName    string       `json:"branch_name"`
 	BaseBranch    string       `json:"base_branch"`
+	RootIssueID   string       `json:"root_issue_id"`
 	PrUrl         string       `json:"pr_url"`
 	ErrorMessage  string       `json:"error_message"`
 	StartedAt     sql.NullTime `json:"started_at"`

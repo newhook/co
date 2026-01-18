@@ -314,7 +314,8 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 		beadGroups := []beadGroup{{issueIDs: allIssueIDs}}
 
 		// Create work with branch name (silent to avoid console output in TUI)
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", WorkCreateOptions{Silent: true})
+		// The first bead becomes the root issue ID
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", firstBeadID, WorkCreateOptions{Silent: true})
 		if err != nil {
 			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
@@ -343,7 +344,7 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 	}
 }
 
-// loadAvailableWorks loads the list of available works
+// loadAvailableWorks loads the list of available works with root issue info
 func (m *planModel) loadAvailableWorks() tea.Cmd {
 	return func() tea.Msg {
 		// Empty string means no filter (all statuses)
@@ -356,11 +357,19 @@ func (m *planModel) loadAvailableWorks() tea.Cmd {
 		for _, w := range works {
 			// Only show pending/processing works (not completed/failed)
 			if w.Status == "pending" || w.Status == "processing" {
-				items = append(items, workItem{
-					id:     w.ID,
-					status: w.Status,
-					branch: w.BranchName,
-				})
+				item := workItem{
+					id:          w.ID,
+					status:      w.Status,
+					branch:      w.BranchName,
+					rootIssueID: w.RootIssueID,
+				}
+				// Try to get the root issue title from beads cache
+				if w.RootIssueID != "" && m.beadsClient != nil {
+					if bead, err := m.beadsClient.GetBead(m.ctx, w.RootIssueID); err == nil {
+						item.rootIssueTitle = bead.Title
+					}
+				}
+				items = append(items, item)
 			}
 		}
 		return worksLoadedMsg{works: items}
