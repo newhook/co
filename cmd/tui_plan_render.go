@@ -109,7 +109,7 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 	// If in any bead form mode, render the unified form
 	if m.viewMode == ViewCreateBead || m.viewMode == ViewCreateBeadInline ||
 		m.viewMode == ViewAddChildBead || m.viewMode == ViewEditBead {
-		return m.renderBeadFormContent(width)
+		return m.renderBeadFormContent(visibleLines, width)
 	}
 
 	// If in inline Linear import mode, render the import form instead of issue details
@@ -228,7 +228,7 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 //   - editBeadID set → edit mode
 //   - parentBeadID set → add child mode
 //   - neither set → create mode
-func (m *planModel) renderBeadFormContent(width int) string {
+func (m *planModel) renderBeadFormContent(visibleLines int, width int) string {
 	var content strings.Builder
 
 	// Adapt input widths to available space (account for panel padding)
@@ -238,6 +238,12 @@ func (m *planModel) renderBeadFormContent(width int) string {
 	}
 	m.textInput.Width = inputWidth
 	m.createDescTextarea.SetWidth(inputWidth)
+
+	// Calculate dynamic height for description textarea
+	// 12 accounts for: header (1), parent info (0-1), blank lines (4), title label+input (2),
+	// type+priority lines (2), desc label (1), buttons+hints (2)
+	descHeight := max(visibleLines-12, 4)
+	m.createDescTextarea.SetHeight(descHeight)
 
 	typeFocused := m.createDialogFocus == 1
 	priorityFocused := m.createDialogFocus == 2
