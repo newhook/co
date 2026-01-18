@@ -63,7 +63,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	mainRepoPath := proj.MainRepoPath()
 
 	// Launch Claude with the plan prompt
-	if err := claude.RunPlanSession(ctx, beadID, mainRepoPath, os.Stdin, os.Stdout, os.Stderr); err != nil {
+	if err := claude.RunPlanSession(ctx, beadID, mainRepoPath, os.Stdin, os.Stdout, os.Stderr, proj.Config); err != nil {
 		return err
 	}
 

@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/project"
 )
 
 // Run executes Claude directly in the current terminal (fork/exec).
 // This blocks until Claude exits or the task is marked complete in the database.
-func Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string) error {
+// The config parameter controls Claude settings like --dangerously-skip-permissions.
+func Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string, cfg *project.Config) error {
 	// Get task to verify it exists
 	task, err := database.GetTask(ctx, taskID)
 	if err != nil {
@@ -33,7 +35,11 @@ func Run(ctx context.Context, database *db.DB, taskID string, prompt string, wor
 	fmt.Printf("\n=== Starting Claude for task %s at %s ===\n", taskID, startTime.Format("15:04:05"))
 
 	// Set up Claude command with prompt as argument
-	claudeArgs := []string{"--dangerously-skip-permissions", prompt}
+	var claudeArgs []string
+	if cfg != nil && cfg.Claude.ShouldSkipPermissions() {
+		claudeArgs = append(claudeArgs, "--dangerously-skip-permissions")
+	}
+	claudeArgs = append(claudeArgs, prompt)
 	claudeCmd := exec.CommandContext(ctx, "claude", claudeArgs...)
 	claudeCmd.Dir = workDir
 	claudeCmd.Stdin = os.Stdin

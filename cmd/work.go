@@ -1270,5 +1270,5 @@ func runWorkClaude(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open Claude Code session in the work's worktree
-	return claude.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, os.Stdout)
+	return claude.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, proj.Config, os.Stdout)
 }

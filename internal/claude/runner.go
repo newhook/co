@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
 
@@ -261,11 +262,17 @@ func BuildPlanPrompt(beadID string) string {
 
 // RunPlanSession runs an interactive Claude session for planning an issue.
 // This launches Claude with the plan prompt and connects stdin/stdout/stderr
-// for interactive use.
-func RunPlanSession(ctx context.Context, beadID string, workDir string, stdin io.Reader, stdout, stderr io.Writer) error {
+// for interactive use. The config parameter controls Claude settings like --dangerously-skip-permissions.
+func RunPlanSession(ctx context.Context, beadID string, workDir string, stdin io.Reader, stdout, stderr io.Writer, cfg *project.Config) error {
 	prompt := BuildPlanPrompt(beadID)
 
-	cmd := exec.CommandContext(ctx, "claude", "--dangerously-skip-permissions", prompt)
+	var args []string
+	if cfg != nil && cfg.Claude.ShouldSkipPermissions() {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	args = append(args, prompt)
+
+	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = workDir
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
@@ -397,8 +404,9 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 // OpenClaudeSession creates a zellij tab with an interactive Claude Code session in the work's worktree.
 // The tab is named "claude-<work-id>" or "claude-<work-id> (friendlyName)" for easy identification.
 // The hooksEnv parameter contains environment variables to export (format: "KEY=value").
+// The config parameter controls Claude settings like --dangerously-skip-permissions.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
+func OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, cfg *project.Config, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
 	tabName := FormatTabName("claude", workID, friendlyName)
 	zc := zellij.New()
@@ -406,6 +414,12 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 	// Ensure session exists
 	if err := zc.EnsureSession(ctx, sessionName); err != nil {
 		return err
+	}
+
+	// Build the claude command based on config
+	claudeCmd := "claude"
+	if cfg != nil && cfg.Claude.ShouldSkipPermissions() {
+		claudeCmd = "claude --dangerously-skip-permissions"
 	}
 
 	// Check if tab already exists
@@ -432,9 +446,9 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 		}
 		var cmd string
 		if len(exports) > 0 {
-			cmd = fmt.Sprintf("cd %q && %s && claude --dangerously-skip-permissions", workDir, strings.Join(exports, " && "))
+			cmd = fmt.Sprintf("cd %q && %s && %s", workDir, strings.Join(exports, " && "), claudeCmd)
 		} else {
-			cmd = fmt.Sprintf("cd %q && claude --dangerously-skip-permissions", workDir)
+			cmd = fmt.Sprintf("cd %q && %s", workDir, claudeCmd)
 		}
 		if err := zc.ExecuteCommand(ctx, sessionName, cmd); err != nil {
 			fmt.Fprintf(w, "Warning: failed to initialize Claude session: %v\n", err)
