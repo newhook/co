@@ -171,6 +171,7 @@ func init() {
 	workCmd.AddCommand(workRemoveCmd)
 	workCmd.AddCommand(workConsoleCmd)
 	workCmd.AddCommand(workClaudeCmd)
+	workCmd.AddCommand(workFeedbackCmd)
 }
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
