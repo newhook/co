@@ -76,22 +76,29 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to reset stuck tasks: %w", err)
 	}
 
-	// Start activity tracker for health monitoring
+	// Start activity tracker for health monitoring in a separate goroutine
+	// This avoids the busy loop issue from having a select with default in the main loop
 	activityTicker := time.NewTicker(30 * time.Second)
 	defer activityTicker.Stop()
 
+	// Run activity updates in background
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-activityTicker.C:
+				// Update last_activity for all processing tasks of this work
+				if err := updateWorkTaskActivity(ctx, proj.DB, workID); err != nil {
+					// Log but don't fail - this is just health monitoring
+					fmt.Printf("Warning: failed to update task activity: %v\n", err)
+				}
+			}
+		}
+	}()
+
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
-		select {
-		case <-activityTicker.C:
-			// Update last_activity for all processing tasks of this work
-			if err := updateWorkTaskActivity(ctx, proj.DB, workID); err != nil {
-				// Log but don't fail - this is just health monitoring
-				fmt.Printf("Warning: failed to update task activity: %v\n", err)
-			}
-		default:
-			// Continue with normal processing
-		}
 
 		// Check if work still exists (may have been destroyed)
 		work, err = proj.DB.GetWork(ctx, workID)
