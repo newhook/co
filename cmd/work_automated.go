@@ -239,9 +239,13 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string
 			return nil, fmt.Errorf("failed to get dependencies for epic children: %w", err)
 		}
 
-		// Filter to only include non-epic issues
+		// Filter to only include non-epic, non-closed issues
 		var result []string
 		for _, issue := range allIssues {
+			// Skip closed issues
+			if issue.Status == "closed" {
+				continue
+			}
 			// Check if this is an epic (has children in dependents)
 			isEpic := false
 			for _, dep := range depsResult.Dependents[issue.ID] {
@@ -263,10 +267,12 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string
 		return nil, err
 	}
 
-	// Extract issue IDs
-	issueIDs := make([]string, len(transitiveIssues))
-	for i, issue := range transitiveIssues {
-		issueIDs[i] = issue.ID
+	// Extract issue IDs, filtering out closed issues
+	var issueIDs []string
+	for _, issue := range transitiveIssues {
+		if issue.Status != "closed" {
+			issueIDs = append(issueIDs, issue.ID)
+		}
 	}
 
 	return issueIDs, nil
