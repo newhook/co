@@ -21,40 +21,27 @@ Instructions:
    - Any security concerns
 
 5. **Creating Issues for Review Findings**:
-   If you find issues that need to be addressed, create beads for them:
+   If you find issues that need to be addressed, create beads for them{{if .RootIssueID}} as subtasks under the root issue{{end}}:
 
-   a. First, create a review epic to group all issues{{if .RootIssueID}} (as a child of the root issue){{end}}:
-      ```
-      EPIC_ID=$(bd create "Review: {{.WorkID}}" --type epic{{if .RootIssueID}} --parent {{.RootIssueID}}{{end}} --silent)
-      co task set-review-epic $EPIC_ID
-      ```
-      This creates the epic and registers it with the task so the fix loop knows which issues to address.
-
-   b. For each issue found, create a child bead under the review epic:
-      ```
-      bd create "<issue title>" --parent $EPIC_ID --type <bug|task> \
-        --description "<description with file path and line numbers>"
-      ```
-      Use --type bug for defects, --type task for improvements.
+   For each issue found, create a bead{{if .RootIssueID}} under the root issue{{end}}:
+   ```
+   bd create "<issue title>"{{if .RootIssueID}} --parent {{.RootIssueID}}{{end}} --type <bug|task> \
+     --description "<description with file path and line numbers>"
+   ```
+   Use --type bug for defects, --type task for improvements.
 
    Example:
    ```
-   # Create review epic{{if .RootIssueID}} as child of root issue {{.RootIssueID}}{{end}}
-   EPIC_ID=$(bd create "Review: {{.WorkID}}" --type epic{{if .RootIssueID}} --parent {{.RootIssueID}}{{end}} --silent)
-
-   # Register the epic with the current review task (REQUIRED for fix loop)
-   co task set-review-epic $EPIC_ID
-
-   # Create issues as children of the review epic
-   bd create "Fix SQL injection in user handler" --parent $EPIC_ID --type bug \
+   # Create issues{{if .RootIssueID}} as children of root issue {{.RootIssueID}}{{end}}
+   bd create "Fix SQL injection in user handler"{{if .RootIssueID}} --parent {{.RootIssueID}}{{end}} --type bug \
      --description "SQL injection vulnerability in internal/handlers/user.go:45"
 
-   bd create "Add input validation for email field" --parent $EPIC_ID --type task \
+   bd create "Add input validation for email field"{{if .RootIssueID}} --parent {{.RootIssueID}}{{end}} --type task \
      --description "Email field accepts invalid formats in cmd/register.go:78"
    ```
 
 6. After completing the review, mark the task complete: co complete {{.TaskID}}
 
 If you find critical issues that should block merging, clearly indicate them.
-If no issues are found, skip step 5 (no epic needed).
+If no issues are found, skip step 5 (no issues to create).
 Begin by checking the work details and examining the diff.
