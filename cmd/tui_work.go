@@ -615,7 +615,9 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.activePanel == PanelMiddle {
 			if len(m.works) > 0 && m.worksCursor < len(m.works) {
 				wp := m.works[m.worksCursor]
-				if m.tasksCursor < len(wp.tasks)-1 {
+				// Total items = tasks + unassigned issues
+				totalItems := len(wp.tasks) + len(wp.unassignedBeads)
+				if m.tasksCursor < totalItems-1 {
 					m.tasksCursor++
 				}
 			}
@@ -729,6 +731,17 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.openClaude()
+		}
+
+	case "x":
+		// Remove unassigned issue from work
+		if m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle && len(m.works) > 0 {
+			wp := m.works[m.worksCursor]
+			unassignedIdx := m.tasksCursor - len(wp.tasks)
+			if unassignedIdx >= 0 && unassignedIdx < len(wp.unassignedBeads) {
+				beadID := wp.unassignedBeads[unassignedIdx].id
+				return m, m.removeBeadFromWork(beadID)
+			}
 		}
 
 	case "n":
@@ -1576,10 +1589,24 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 			content.WriteString(tuiLabelStyle.Render(fmt.Sprintf("Unassigned (%d)", len(wp.unassignedBeads))))
 			content.WriteString("\n")
 
-			// Show up to 5 unassigned issues
-			maxShow := min(len(wp.unassignedBeads), 5)
-			for i := 0; i < maxShow; i++ {
+			// Calculate which unassigned issues to show based on cursor position
+			unassignedCursor := m.tasksCursor - len(wp.tasks) // -1 if in tasks, 0+ if in unassigned
+			maxShow := 5
+			startIdx := 0
+			if unassignedCursor >= maxShow {
+				startIdx = unassignedCursor - maxShow + 1
+			}
+			endIdx := min(startIdx+maxShow, len(wp.unassignedBeads))
+
+			if startIdx > 0 {
+				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ↑ %d more", startIdx)))
+				content.WriteString("\n")
+			}
+
+			for i := startIdx; i < endIdx; i++ {
 				bp := wp.unassignedBeads[i]
+				isSelected := m.tasksCursor == len(wp.tasks)+i && m.activePanel == PanelMiddle
+
 				// Type indicator
 				var typeIndicator string
 				switch bp.issueType {
@@ -1597,7 +1624,7 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 
 				// Truncate title to fit
 				title := bp.title
-				maxTitleLen := width - 15 // account for prefix and padding
+				maxTitleLen := width - 18 // account for prefix and padding
 				if maxTitleLen < 10 {
 					maxTitleLen = 10
 				}
@@ -1605,17 +1632,26 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 					title = title[:maxTitleLen-3] + "..."
 				}
 
-				line := fmt.Sprintf("  %s %s %s", typeIndicator, issueIDStyle.Render(bp.id), title)
-				content.WriteString(line)
+				if isSelected {
+					line := fmt.Sprintf("> %s %s %s", typeIndicator, bp.id, title)
+					visWidth := lipgloss.Width(line)
+					if visWidth < width-4 {
+						line += strings.Repeat(" ", width-4-visWidth)
+					}
+					content.WriteString(tuiSelectedStyle.Render(line))
+				} else {
+					line := fmt.Sprintf("  %s %s %s", typeIndicator, issueIDStyle.Render(bp.id), title)
+					content.WriteString(line)
+				}
 				content.WriteString("\n")
 			}
 
-			if len(wp.unassignedBeads) > maxShow {
-				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ... %d more", len(wp.unassignedBeads)-maxShow)))
+			if endIdx < len(wp.unassignedBeads) {
+				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ↓ %d more", len(wp.unassignedBeads)-endIdx)))
 				content.WriteString("\n")
 			}
 
-			content.WriteString(tuiDimStyle.Render("Press 'r' to run"))
+			content.WriteString(tuiDimStyle.Render("[r]un [x]remove"))
 		}
 	}
 
@@ -1750,6 +1786,51 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 					content.WriteString(fmt.Sprintf("  %s %s\n", statusIcon(bp.status), bp.id))
 				}
 			}
+		}
+
+		// If unassigned issue is selected, show issue details
+		unassignedIdx := m.tasksCursor - len(wp.tasks)
+		if m.activePanel == PanelMiddle && unassignedIdx >= 0 && unassignedIdx < len(wp.unassignedBeads) {
+			bp := wp.unassignedBeads[unassignedIdx]
+			content.WriteString("\n")
+			content.WriteString(tuiTitleStyle.Render("Selected Issue"))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("ID: "))
+			content.WriteString(issueIDStyle.Render(bp.id))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("Title: "))
+			content.WriteString(tuiValueStyle.Render(bp.title))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("Type: "))
+			content.WriteString(tuiValueStyle.Render(bp.issueType))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("Priority: "))
+			content.WriteString(tuiValueStyle.Render(fmt.Sprintf("P%d", bp.priority)))
+			content.WriteString("\n")
+
+			content.WriteString(tuiLabelStyle.Render("Status: "))
+			content.WriteString(tuiValueStyle.Render(bp.beadStatus))
+			content.WriteString("\n")
+
+			if bp.description != "" {
+				content.WriteString("\n")
+				content.WriteString(tuiLabelStyle.Render("Description:"))
+				content.WriteString("\n")
+				desc := bp.description
+				// Truncate if too long
+				maxDescLen := (width - 6) * 3 // ~3 lines worth
+				if len(desc) > maxDescLen {
+					desc = desc[:maxDescLen-3] + "..."
+				}
+				content.WriteString("  " + tuiDimStyle.Render(desc) + "\n")
+			}
+
+			content.WriteString("\n")
+			content.WriteString(tuiDimStyle.Render("Press [x] to remove from work"))
 		}
 	}
 
@@ -2292,6 +2373,21 @@ func (m *workModel) destroyWork() tea.Cmd {
 			return workCommandMsg{action: "Destroy work", err: err}
 		}
 		return workCommandMsg{action: "Destroy work"}
+	}
+}
+
+func (m *workModel) removeBeadFromWork(beadID string) tea.Cmd {
+	return func() tea.Msg {
+		if m.worksCursor >= len(m.works) {
+			return workCommandMsg{action: "Remove issue", err: fmt.Errorf("no work selected")}
+		}
+		workID := m.works[m.worksCursor].work.ID
+
+		// Remove the bead from the work using the database
+		if err := m.proj.DB.RemoveWorkBead(m.ctx, workID, beadID); err != nil {
+			return workCommandMsg{action: "Remove issue", err: err}
+		}
+		return workCommandMsg{action: fmt.Sprintf("Removed %s from work", beadID)}
 	}
 }
 
