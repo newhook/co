@@ -346,6 +346,12 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.openClaude()
 					}
 					return m, nil
+				case "o":
+					// Restart orchestrator for selected work
+					if canActOnWork && len(m.works) > 0 {
+						return m, m.restartOrchestrator()
+					}
+					return m, nil
 				case "v":
 					// Create review task
 					if canActOnWork && len(m.works) > 0 {
@@ -689,7 +695,7 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.runWork(true)
 		}
 
-	case "O":
+	case "o":
 		// Restart orchestrator for selected work (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
@@ -2194,13 +2200,14 @@ func (m *workModel) renderStatusBar() string {
 
 		tButton := styleButtonWithHover("[t]erminal", m.hoveredButton == "t")
 		cButton := styleButtonWithHover("[c]laude", m.hoveredButton == "c")
+		oButton := styleButtonWithHover("[o]rchestrator", m.hoveredButton == "o")
 		vButton := styleButtonWithHover("[v]review", m.hoveredButton == "v")
 		pButton := styleButtonWithHover("[p]r", m.hoveredButton == "p")
 		uButton := styleButtonWithHover("[u]pdate", m.hoveredButton == "u")
 		helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + xButton + " " + tButton + " " + cButton + " " + vButton + " " + pButton + " " + uButton + " " + helpButton
-		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
+		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + xButton + " " + tButton + " " + cButton + " " + oButton + " " + vButton + " " + pButton + " " + uButton + " " + helpButton
+		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
 	}
 
 	// Build bar with commands left, status right
@@ -2386,7 +2393,7 @@ func (m *workModel) renderHelp() string {
   a             Assign issues to work
   t             Open console tab
   C             Open Claude Code session
-  O             Restart orchestrator
+  o             Restart orchestrator
   R             Create review task
   P             Create PR task
   U             Update PR description
@@ -3031,8 +3038,8 @@ func (m *workModel) detectStatusBarButton(x int) string {
 			return "?"
 		}
 	} else {
-		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
-		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [v]review [p]r [u]pdate [?]help"
+		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
+		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
 
 		rIdx := strings.Index(keysPlain, "[r]un")
 		sIdx := strings.Index(keysPlain, "[s]imple")
@@ -3041,6 +3048,7 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		xIdx := strings.Index(keysPlain, "[x]remove")
 		tIdx := strings.Index(keysPlain, "[t]erminal")
 		cIdx := strings.Index(keysPlain, "[c]laude")
+		oIdx := strings.Index(keysPlain, "[o]rchestrator")
 		vIdx := strings.Index(keysPlain, "[v]review")
 		pIdx := strings.Index(keysPlain, "[p]r")
 		uIdx := strings.Index(keysPlain, "[u]pdate")
@@ -3066,6 +3074,9 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		}
 		if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]laude") {
 			return "c"
+		}
+		if oIdx >= 0 && x >= oIdx && x < oIdx+len("[o]rchestrator") {
+			return "o"
 		}
 		if vIdx >= 0 && x >= vIdx && x < vIdx+len("[v]review") {
 			return "v"
