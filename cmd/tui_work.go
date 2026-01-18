@@ -404,16 +404,11 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = fmt.Sprintf("Error: %v", msg.err)
 			m.statusIsError = true
 		} else {
-			// Only update fields that are set in the message
-			if msg.works != nil {
-				m.works = msg.works
-				m.recalculateGrid()
-			}
-			if msg.beads != nil {
-				m.beadItems = msg.beads
-			}
+			m.works = msg.works
+			m.beadItems = msg.beads
 			m.statusMessage = ""
 			m.statusIsError = false
+			m.recalculateGrid()
 		}
 
 		// Ensure cursor is valid
@@ -1028,34 +1023,18 @@ func (m *workModel) View() string {
 		return m.renderOverviewGrid()
 	}
 
-	// Zoomed in view: 2-column layout with left column split vertically
-	// Left column: Tasks (top) | Root Issue (bottom)
-	// Right column: Details
-	// Calculate panel dimensions (40/60 ratio for columns)
+	// Zoomed in view: 2-panel layout (Tasks | Details)
+	// Calculate panel dimensions (40/60 ratio)
 	panelWidth1 := m.width * 40 / 100
 	panelWidth2 := m.width - panelWidth1
-	// Reserve 1 line for status bar
-	fullHeight := m.height - 1
+	// Reserve 1 line for status bar, and account for panel borders (2 lines per panel)
+	panelHeight := m.height - 1 - 2 // -1 for status bar, -2 for border
 
-	// Left column has 2 stacked panels, each with 2-line border (top+bottom)
-	// So we need to subtract 4 for left column borders total
-	leftColumnContent := fullHeight - 4
-	// Split left column: 60% tasks, 40% root issue
-	tasksHeight := leftColumnContent * 60 / 100
-	rootIssueHeight := leftColumnContent - tasksHeight
+	// Render two panels: Tasks | Details
+	tasksPanel := m.renderTasksPanel(panelWidth1, panelHeight)
+	detailsPanel := m.renderDetailsPanel(panelWidth2, panelHeight)
 
-	// Right column has 1 panel with 2-line border
-	rightColumnHeight := fullHeight - 2
-
-	// Render left column panels
-	tasksPanel := m.renderTasksPanel(panelWidth1, tasksHeight)
-	rootIssuePanel := m.renderRootIssuePanel(panelWidth1, rootIssueHeight)
-	leftColumn := lipgloss.JoinVertical(lipgloss.Left, tasksPanel, rootIssuePanel)
-
-	// Render right column
-	detailsPanel := m.renderDetailsPanel(panelWidth2, rightColumnHeight)
-
-	content := lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, detailsPanel)
+	content := lipgloss.JoinHorizontal(lipgloss.Top, tasksPanel, detailsPanel)
 
 	// Render status bar
 	statusBar := m.renderStatusBar()
@@ -1186,31 +1165,12 @@ func (m *workModel) renderOverviewDetailsPanel(width, height int) string {
 	content.WriteString(tuiValueStyle.Render(wp.work.BranchName))
 	content.WriteString("\n")
 
-	if wp.rootIssue != nil {
+	if wp.work.RootIssueID != "" {
 		content.WriteString(tuiLabelStyle.Render("Root Issue: "))
-		content.WriteString(tuiValueStyle.Render(wp.rootIssue.id))
+		content.WriteString(tuiValueStyle.Render(wp.work.RootIssueID))
 		content.WriteString("\n")
-
-		if wp.rootIssue.title != "" {
-			content.WriteString(tuiLabelStyle.Render("Title: "))
-			content.WriteString(tuiValueStyle.Render(wp.rootIssue.title))
-			content.WriteString("\n")
-		}
-
-		if wp.rootIssue.description != "" {
-			content.WriteString("\n")
-			content.WriteString(tuiLabelStyle.Render("Description:"))
-			content.WriteString("\n")
-			desc := wp.rootIssue.description
-			if len(desc) > 500 {
-				desc = desc[:497] + "..."
-			}
-			content.WriteString(tuiDimStyle.Render(desc))
-			content.WriteString("\n")
-		}
 	}
 
-	content.WriteString("\n")
 	content.WriteString(tuiLabelStyle.Render("Status: "))
 	content.WriteString(statusStyled(wp.work.Status))
 	content.WriteString("\n\n")
@@ -1630,66 +1590,6 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 	return style.Width(width - 2).Height(height).Render(content.String())
 }
 
-func (m *workModel) renderRootIssuePanel(width, height int) string {
-	title := tuiTitleStyle.Render("Root Issue")
-
-	var content strings.Builder
-	content.WriteString(title)
-	content.WriteString("\n\n")
-
-	if len(m.works) == 0 || m.worksCursor >= len(m.works) {
-		content.WriteString(tuiDimStyle.Render("No work selected"))
-	} else {
-		wp := m.works[m.worksCursor]
-		if wp.rootIssue == nil {
-			content.WriteString(tuiDimStyle.Render("No root issue"))
-		} else {
-			content.WriteString(tuiLabelStyle.Render("ID: "))
-			content.WriteString(tuiValueStyle.Render(wp.rootIssue.id))
-			content.WriteString("\n")
-
-			if wp.rootIssue.title != "" {
-				content.WriteString(tuiLabelStyle.Render("Title: "))
-				content.WriteString(tuiValueStyle.Render(wp.rootIssue.title))
-				content.WriteString("\n")
-			}
-
-			if wp.rootIssue.issueType != "" {
-				content.WriteString(tuiLabelStyle.Render("Type: "))
-				content.WriteString(tuiValueStyle.Render(wp.rootIssue.issueType))
-				content.WriteString("\n")
-			}
-
-			content.WriteString(tuiLabelStyle.Render("Priority: "))
-			content.WriteString(tuiValueStyle.Render(fmt.Sprintf("P%d", wp.rootIssue.priority)))
-			content.WriteString("\n")
-
-			content.WriteString(tuiLabelStyle.Render("Status: "))
-			if wp.rootIssue.beadStatus == "closed" {
-				content.WriteString(statusCompleted.Render("closed"))
-			} else {
-				content.WriteString(statusPending.Render("open"))
-			}
-			content.WriteString("\n")
-
-			if wp.rootIssue.description != "" {
-				content.WriteString("\n")
-				content.WriteString(tuiLabelStyle.Render("Description:"))
-				content.WriteString("\n")
-				desc := wp.rootIssue.description
-				maxDescLen := (width - 6) * (height - 10)
-				if len(desc) > maxDescLen && maxDescLen > 3 {
-					desc = desc[:maxDescLen-3] + "..."
-				}
-				content.WriteString(tuiDimStyle.Render(desc))
-				content.WriteString("\n")
-			}
-		}
-	}
-
-	return tuiPanelStyle.Width(width - 2).Height(height).Render(content.String())
-}
-
 func (m *workModel) renderDetailsPanel(width, height int) string {
 	// If in create bead mode, render the bead form inline
 	if m.viewMode == ViewCreateBead {
@@ -1730,15 +1630,10 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 		content.WriteString(tuiValueStyle.Render(wp.work.BranchName))
 		content.WriteString("\n")
 
-		if wp.rootIssue != nil {
+		if wp.work.RootIssueID != "" {
 			content.WriteString(tuiLabelStyle.Render("Root Issue: "))
-			content.WriteString(tuiValueStyle.Render(wp.rootIssue.id))
+			content.WriteString(tuiValueStyle.Render(wp.work.RootIssueID))
 			content.WriteString("\n")
-			if wp.rootIssue.title != "" {
-				content.WriteString(tuiLabelStyle.Render("Title: "))
-				content.WriteString(tuiValueStyle.Render(wp.rootIssue.title))
-				content.WriteString("\n")
-			}
 		}
 
 		if wp.work.PRURL != "" {

@@ -56,7 +56,6 @@ type workProgress struct {
 	tasks               []*taskProgress
 	workBeads           []beadProgress // all beads assigned to this work
 	unassignedBeadCount int
-	rootIssue           *beadProgress // root issue details if RootIssueID is set
 }
 
 // taskProgress holds progress info for a task (used by tui.go)
@@ -169,20 +168,6 @@ func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID st
 
 func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work, beadsClient *beads.Client) (*workProgress, error) {
 	wp := &workProgress{work: work}
-
-	// Fetch root issue details if set
-	if work.RootIssueID != "" && beadsClient != nil {
-		if bead, err := beadsClient.GetBead(ctx, work.RootIssueID); err == nil && bead != nil {
-			wp.rootIssue = &beadProgress{
-				id:          bead.ID,
-				title:       bead.Title,
-				description: bead.Description,
-				beadStatus:  bead.Status,
-				priority:    bead.Priority,
-				issueType:   bead.Type,
-			}
-		}
-	}
 
 	tasks, err := proj.DB.GetWorkTasks(ctx, work.ID)
 	if err != nil {

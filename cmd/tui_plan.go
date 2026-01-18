@@ -851,7 +851,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.createWorkBeadIDs = selectedIDs
 			// Generate proposed branch name from all selected beads
-			branchName := generateBranchNameFromBeads(branchBeads)
+			branchName := generateBranchNameFromBeadsForBranch(branchBeads)
 			m.createWorkBranch.SetValue(branchName)
 			m.createWorkBranch.Focus()
 			m.createWorkField = 0
@@ -990,4 +990,41 @@ func (m *planModel) View() string {
 
 	// Combine content and status bar
 	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+}
+
+// beadsForBranch is a minimal struct for branch name generation
+type beadsForBranch struct {
+	ID    string
+	Title string
+}
+
+// generateBranchNameFromBeadsForBranch generates a branch name from beads
+func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
+	if len(beads) == 0 {
+		return ""
+	}
+	// Use the same logic as generateBranchNameFromBeads but with local struct
+	var titles []string
+	for _, b := range beads {
+		titles = append(titles, b.Title)
+	}
+	combined := strings.Join(titles, " ")
+	// Sanitize for branch name
+	combined = strings.ToLower(combined)
+	combined = strings.ReplaceAll(combined, " ", "-")
+	// Remove special characters
+	var result strings.Builder
+	for _, c := range combined {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			result.WriteRune(c)
+		}
+	}
+	branchName := result.String()
+	// Limit length
+	if len(branchName) > 50 {
+		branchName = branchName[:50]
+	}
+	// Remove trailing dashes
+	branchName = strings.TrimRight(branchName, "-")
+	return "feat/" + branchName
 }
