@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/process"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
@@ -478,8 +479,8 @@ func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName stri
 	if TabExists(ctx, sessionName, tabName) {
 		// Tab exists, but we need to check if the orchestrator is actually running
 		// Check for running orchestrator process
-		cmd := exec.CommandContext(ctx, "pgrep", "-f", fmt.Sprintf("co orchestrate --work %s", workID))
-		if err := cmd.Run(); err == nil {
+		pattern := fmt.Sprintf("co orchestrate --work %s", workID)
+		if running, err := process.IsProcessRunning(ctx, pattern); err == nil && running {
 			// Process is running
 			fmt.Fprintf(w, "Work orchestrator tab %s already exists and process is running\n", tabName)
 			return false, nil

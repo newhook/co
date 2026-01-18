@@ -18,6 +18,7 @@ import (
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
+	"github.com/newhook/co/internal/process"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/tracking/watcher"
 )
@@ -2502,11 +2503,10 @@ func (m *workModel) restartOrchestrator() tea.Cmd {
 		projectName := m.proj.Config.Project.Name
 
 		// Check if process is running and kill it
-		cmd := exec.CommandContext(m.ctx, "pgrep", "-f", fmt.Sprintf("co orchestrate --work %s", workID))
-		if err := cmd.Run(); err == nil {
+		pattern := fmt.Sprintf("co orchestrate --work %s", workID)
+		if running, _ := process.IsProcessRunning(m.ctx, pattern); running {
 			// Process is running, kill it
-			killCmd := exec.CommandContext(m.ctx, "pkill", "-f", fmt.Sprintf("co orchestrate --work %s", workID))
-			killCmd.Run() // Ignore error as process might have already exited
+			process.KillProcess(m.ctx, pattern) // Ignore error as process might have already exited
 			time.Sleep(500 * time.Millisecond)
 		}
 
@@ -3087,10 +3087,12 @@ func (m *workModel) detectStatusBarButton(x int) string {
 // checkOrchestratorHealth checks if the orchestrator process is running for a work
 func checkOrchestratorHealth(ctx context.Context, workID string) bool {
 	// Check if orchestrator process is running
-	cmd := exec.CommandContext(ctx, "pgrep", "-f", fmt.Sprintf("co orchestrate --work %s", workID))
-	if err := cmd.Run(); err != nil {
-		// Process not found
+	pattern := fmt.Sprintf("co orchestrate --work %s", workID)
+	running, err := process.IsProcessRunning(ctx, pattern)
+	if err != nil {
+		// Log error but treat as not running
+		logging.Debug("Failed to check orchestrator health", "error", err, "workID", workID)
 		return false
 	}
-	return true
+	return running
 }
