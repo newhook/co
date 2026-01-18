@@ -11,7 +11,7 @@ import (
 
 // Metadata key constants
 const (
-	MetadataKeyReviewEpicID = "review_epic_id"
+	// Add metadata keys here as needed
 )
 
 // SetTaskMetadata sets a metadata key-value pair on a task.
@@ -58,25 +58,3 @@ func (db *DB) GetAllTaskMetadata(ctx context.Context, taskID string) (map[string
 	return result, nil
 }
 
-// GetLatestReviewTaskWithEpic returns the most recent review task for a work
-// that has a review_epic_id set.
-func (db *DB) GetLatestReviewTaskWithEpic(ctx context.Context, workID string) (string, error) {
-	taskID, err := db.queries.GetLatestReviewTaskWithMetadata(ctx, workID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to get latest review task with epic for work %s: %w", workID, err)
-	}
-	return taskID, nil
-}
-
-// GetReviewEpicID is a convenience method to get the review_epic_id for a task.
-func (db *DB) GetReviewEpicID(ctx context.Context, taskID string) (string, error) {
-	return db.GetTaskMetadata(ctx, taskID, MetadataKeyReviewEpicID)
-}
-
-// SetReviewEpicID is a convenience method to set the review_epic_id for a task.
-func (db *DB) SetReviewEpicID(ctx context.Context, taskID, epicID string) error {
-	return db.SetTaskMetadata(ctx, taskID, MetadataKeyReviewEpicID, epicID)
-}

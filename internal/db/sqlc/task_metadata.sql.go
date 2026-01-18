@@ -58,20 +58,6 @@ func (q *Queries) GetAllTaskMetadata(ctx context.Context, taskID string) ([]GetA
 	return items, nil
 }
 
-const getLatestReviewTaskWithMetadata = `-- name: GetLatestReviewTaskWithMetadata :one
-SELECT t.id FROM tasks t
-JOIN task_metadata tm ON t.id = tm.task_id
-WHERE t.work_id = ? AND t.task_type = 'review' AND tm.key = 'review_epic_id'
-ORDER BY t.created_at DESC LIMIT 1
-`
-
-func (q *Queries) GetLatestReviewTaskWithMetadata(ctx context.Context, workID string) (string, error) {
-	row := q.db.QueryRowContext(ctx, getLatestReviewTaskWithMetadata, workID)
-	var id string
-	err := row.Scan(&id)
-	return id, err
-}
-
 const getTaskMetadata = `-- name: GetTaskMetadata :one
 SELECT value FROM task_metadata WHERE task_id = ? AND key = ?
 `

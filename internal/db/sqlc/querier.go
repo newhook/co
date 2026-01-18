@@ -54,7 +54,6 @@ type Querier interface {
 	GetCachedComplexity(ctx context.Context, arg GetCachedComplexityParams) (GetCachedComplexityRow, error)
 	GetLastMigration(ctx context.Context) (string, error)
 	GetLastWorkID(ctx context.Context) (string, error)
-	GetLatestReviewTaskWithMetadata(ctx context.Context, workID string) (string, error)
 	GetMaxWorkBeadPosition(ctx context.Context, workID string) (int64, error)
 	GetMigrationDownSQL(ctx context.Context, version string) (GetMigrationDownSQLRow, error)
 	GetReadyTasksForWork(ctx context.Context, workID string) ([]GetReadyTasksForWorkRow, error)
