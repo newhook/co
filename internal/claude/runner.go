@@ -195,17 +195,19 @@ func BuildPRPrompt(taskID string, workID string, branchName string, baseBranch s
 }
 
 // BuildReviewPrompt builds a prompt for code review.
-func BuildReviewPrompt(taskID string, workID string, branchName string, baseBranch string) string {
+func BuildReviewPrompt(taskID string, workID string, branchName string, baseBranch string, rootIssueID string) string {
 	data := struct {
-		TaskID     string
-		WorkID     string
-		BranchName string
-		BaseBranch string
+		TaskID      string
+		WorkID      string
+		BranchName  string
+		BaseBranch  string
+		RootIssueID string
 	}{
-		TaskID:     taskID,
-		WorkID:     workID,
-		BranchName: branchName,
-		BaseBranch: baseBranch,
+		TaskID:      taskID,
+		WorkID:      workID,
+		BranchName:  branchName,
+		BaseBranch:  baseBranch,
+		RootIssueID: rootIssueID,
 	}
 
 	var buf bytes.Buffer

@@ -20,7 +20,7 @@ func TestDeleteWork(t *testing.T) {
 	baseBranch := "main"
 	worktreePath := "/tmp/test-work/tree"
 
-	err := db.CreateWork(ctx, workID, "", worktreePath, branchName, baseBranch)
+	err := db.CreateWork(ctx, workID, "", worktreePath, branchName, baseBranch, "root-issue-1")
 	require.NoError(t, err, "Failed to create work")
 
 	// Create tasks for the work
@@ -87,7 +87,7 @@ func TestAddWorkBeads(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1")
 	require.NoError(t, err)
 
 	// Add beads to work
@@ -106,7 +106,7 @@ func TestAddWorkBeadsDuplicateError(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1")
 	require.NoError(t, err)
 
 	// Add initial beads
@@ -126,7 +126,7 @@ func TestAddWorkBeadsEmptyList(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1")
 	require.NoError(t, err)
 
 	// Add empty list - should succeed with no effect
@@ -144,7 +144,7 @@ func TestAddWorkBeadsWithGroup(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1")
 	require.NoError(t, err)
 
 	// Add beads with different groups
@@ -166,4 +166,61 @@ func TestAddWorkBeadsWithGroup(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 2, groupedCount)
+}
+
+func TestWorkRootIssueID(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a work with a root issue ID
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-bead-123")
+	require.NoError(t, err)
+
+	// Verify root issue ID was stored
+	work, err := db.GetWork(ctx, "w-test")
+	require.NoError(t, err)
+	require.NotNil(t, work)
+	assert.Equal(t, "root-bead-123", work.RootIssueID)
+}
+
+func TestWorkRootIssueIDEmpty(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a work without a root issue ID (empty string)
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "")
+	require.NoError(t, err)
+
+	// Verify empty root issue ID
+	work, err := db.GetWork(ctx, "w-test")
+	require.NoError(t, err)
+	require.NotNil(t, work)
+	assert.Equal(t, "", work.RootIssueID)
+}
+
+func TestListWorksWithRootIssueID(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create works with different root issue IDs
+	err := db.CreateWork(ctx, "w-test1", "", "/tmp/tree1", "feature/test1", "main", "bead-1")
+	require.NoError(t, err)
+	err = db.CreateWork(ctx, "w-test2", "", "/tmp/tree2", "feature/test2", "main", "bead-2")
+	require.NoError(t, err)
+
+	// List all works
+	works, err := db.ListWorks(ctx, "")
+	require.NoError(t, err)
+	assert.Len(t, works, 2)
+
+	// Verify root issue IDs are preserved
+	rootIssues := make(map[string]string)
+	for _, w := range works {
+		rootIssues[w.ID] = w.RootIssueID
+	}
+	assert.Equal(t, "bead-1", rootIssues["w-test1"])
+	assert.Equal(t, "bead-2", rootIssues["w-test2"])
 }

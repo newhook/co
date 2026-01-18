@@ -2085,6 +2085,12 @@ func (m tuiModel) renderWorkDetails(wp *workProgress, width int) string {
 	b.WriteString(tuiValueStyle.Render(wp.work.BranchName))
 	b.WriteString("\n")
 
+	if wp.work.RootIssueID != "" {
+		b.WriteString(tuiLabelStyle.Render("Root Issue: "))
+		b.WriteString(tuiValueStyle.Render(wp.work.RootIssueID))
+		b.WriteString("\n")
+	}
+
 	b.WriteString(tuiLabelStyle.Render("Status: "))
 	b.WriteString(m.statusStyled(wp.work.Status))
 	b.WriteString("\n")

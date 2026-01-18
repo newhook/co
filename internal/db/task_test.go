@@ -293,7 +293,7 @@ func TestAddTaskDependency(t *testing.T) {
 	ctx := context.Background()
 
 	// Create work and tasks
-	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main")
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main", "root-issue-1")
 	require.NoError(t, err, "CreateWork failed")
 
 	err = db.CreateTask(ctx, "task-1", "implement", []string{"bead-1"}, 0, "work-1")
@@ -325,7 +325,7 @@ func TestGetReadyTasksForWork(t *testing.T) {
 	ctx := context.Background()
 
 	// Create work
-	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main")
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main", "root-issue-1")
 	require.NoError(t, err, "CreateWork failed")
 
 	// Create tasks: task-1 has no deps, task-2 depends on task-1, task-3 depends on task-2
@@ -381,7 +381,7 @@ func TestGetReadyTasksForWorkMultipleDependencies(t *testing.T) {
 	ctx := context.Background()
 
 	// Create work
-	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main")
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main", "root-issue-1")
 	require.NoError(t, err, "CreateWork failed")
 
 	// task-3 depends on both task-1 AND task-2
@@ -429,7 +429,7 @@ func TestHasPendingDependencies(t *testing.T) {
 	ctx := context.Background()
 
 	// Create work and tasks
-	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main")
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main", "root-issue-1")
 	require.NoError(t, err)
 
 	err = db.CreateTask(ctx, "task-1", "implement", nil, 0, "work-1")
@@ -467,7 +467,7 @@ func TestDeleteTaskDependency(t *testing.T) {
 	ctx := context.Background()
 
 	// Create work and tasks
-	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main")
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main", "root-issue-1")
 	require.NoError(t, err)
 
 	err = db.CreateTask(ctx, "task-1", "implement", nil, 0, "work-1")
@@ -500,7 +500,7 @@ func TestBlockedTasksNotReady(t *testing.T) {
 	ctx := context.Background()
 
 	// Create work
-	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main")
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main", "root-issue-1")
 	require.NoError(t, err)
 
 	// Create a chain: task-1 -> task-2 -> task-3
@@ -536,7 +536,7 @@ func TestFailedTaskBlocksDependents(t *testing.T) {
 	ctx := context.Background()
 
 	// Create work
-	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main")
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main", "root-issue-1")
 	require.NoError(t, err)
 
 	// Create: task-2 depends on task-1

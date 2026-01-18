@@ -272,26 +272,21 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string
 	return issueIDs, nil
 }
 
-// runWorkCreateWithBeads creates a work unit with an auto-generated branch name from beads.
+// runWorkCreateWithBeads creates a work unit with an auto-generated branch name from a single root bead.
 // Unlike runAutomatedWorkflow, this does NOT plan tasks or spawn the orchestrator.
 // The user is expected to manually run 'co plan' and 'co run' afterward.
 //
-// The beadIDs parameter can be a single bead ID or comma-delimited list of bead IDs.
-func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch string) error {
+// The beadID parameter should be a single bead ID which becomes the root issue.
+// If the bead is an epic, child beads will be expanded.
+func runWorkCreateWithBeads(proj *project.Project, beadID string, baseBranch string) error {
 	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
-	// Parse comma-delimited bead IDs
-	beadIDList := parseBeadIDs(beadIDs)
-	if len(beadIDList) == 0 {
-		return fmt.Errorf("no bead IDs provided")
+	if beadID == "" {
+		return fmt.Errorf("no bead ID provided")
 	}
 
-	if len(beadIDList) == 1 {
-		fmt.Printf("Creating work for bead: %s\n", beadIDList[0])
-	} else {
-		fmt.Printf("Creating work for beads: %s\n", strings.Join(beadIDList, ", "))
-	}
+	fmt.Printf("Creating work for bead: %s\n", beadID)
 
 	// Create beads client
 	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
@@ -301,20 +296,16 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 	}
 	defer beadsClient.Close()
 
-	// Get the issues and generate branch name
-	var mainIssues []*beads.Bead
-	for _, beadID := range beadIDList {
-		issue, err2 := beadsClient.GetBead(ctx, beadID)
-		if err2 != nil {
-			return fmt.Errorf("failed to get bead %s: %w", beadID, err2)
-		}
-		if issue == nil {
-			return fmt.Errorf("bead %s not found", beadID)
-		}
-		mainIssues = append(mainIssues, issue.Bead)
+	// Get the root issue and generate branch name
+	rootIssue, err := beadsClient.GetBead(ctx, beadID)
+	if err != nil {
+		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+	}
+	if rootIssue == nil {
+		return fmt.Errorf("bead %s not found", beadID)
 	}
 
-	branchName := generateBranchNameFromIssues(mainIssues)
+	branchName := generateBranchNameFromIssue(rootIssue.Bead)
 	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to find unique branch name: %w", err)
@@ -364,8 +355,8 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 		fmt.Printf("Warning: failed to get worker name: %v\n", err)
 	}
 
-	// Create work record in database
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch); err != nil {
+	// Create work record in database with the root issue ID
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
@@ -396,31 +387,26 @@ func runWorkCreateWithBeads(proj *project.Project, beadIDs string, baseBranch st
 	return nil
 }
 
-// runAutomatedWorkflow creates a work unit from beads and spawns the orchestrator.
+// runAutomatedWorkflow creates a work unit from a single root bead and spawns the orchestrator.
 // The workflow:
-// 1. Creates work unit with worktree and branch (auto-generated from bead title(s))
+// 1. Creates work unit with worktree and branch (auto-generated from bead title)
 // 2. Collects all beads to include (transitive dependencies or epic children)
 // 3. Creates tasks with explicit dependencies: estimate -> implement -> review -> pr
 // 4. Spawns orchestrator which polls for ready tasks and executes them
 //
-// The beadIDs parameter can be a single bead ID or comma-delimited list of bead IDs.
-func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch string) error {
+// The beadID parameter should be a single bead ID which becomes the root issue.
+// If the bead is an epic, child beads will be expanded.
+func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch string) error {
 	ctx := GetContext()
 	mainRepoPath := proj.MainRepoPath()
 
-	// Parse comma-delimited bead IDs
-	beadIDList := parseBeadIDs(beadIDs)
-	if len(beadIDList) == 0 {
-		return fmt.Errorf("no bead IDs provided")
+	if beadID == "" {
+		return fmt.Errorf("no bead ID provided")
 	}
 
-	if len(beadIDList) == 1 {
-		fmt.Printf("Starting automated workflow for bead: %s\n", beadIDList[0])
-	} else {
-		fmt.Printf("Starting automated workflow for beads: %s\n", strings.Join(beadIDList, ", "))
-	}
+	fmt.Printf("Starting automated workflow for bead: %s\n", beadID)
 
-	// Step 1: Get the main beads and generate branch name
+	// Step 1: Get the root bead and generate branch name
 	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
 	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
 	if err != nil {
@@ -428,19 +414,15 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 	}
 	defer beadsClient.Close()
 
-	var mainIssues []*beads.Bead
-	for _, beadID := range beadIDList {
-		issue, err2 := beadsClient.GetBead(ctx, beadID)
-		if err2 != nil {
-			return fmt.Errorf("failed to get bead %s: %w", beadID, err2)
-		}
-		if issue == nil {
-			return fmt.Errorf("bead %s not found", beadID)
-		}
-		mainIssues = append(mainIssues, issue.Bead)
+	rootIssue, err := beadsClient.GetBead(ctx, beadID)
+	if err != nil {
+		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
+	}
+	if rootIssue == nil {
+		return fmt.Errorf("bead %s not found", beadID)
 	}
 
-	branchName := generateBranchNameFromIssues(mainIssues)
+	branchName := generateBranchNameFromIssue(rootIssue.Bead)
 	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to find unique branch name: %w", err)
@@ -490,8 +472,8 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 		fmt.Printf("Warning: failed to get worker name: %v\n", err)
 	}
 
-	// Create work record in database
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch); err != nil {
+	// Create work record in database with the root issue ID
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
@@ -503,15 +485,15 @@ func runAutomatedWorkflow(proj *project.Project, beadIDs string, baseBranch stri
 	}
 	fmt.Printf("Worktree: %s\n", worktreePath)
 
-	// Step 3: Collect issues
+	// Step 3: Collect issues (expand epic children and transitive dependencies)
 	fmt.Println("Collecting beads...")
-	issuesResult, err := collectIssuesForMultipleIDs(ctx, beadIDList, mainRepoPath)
+	issuesResult, err := collectIssuesForMultipleIDs(ctx, []string{beadID}, mainRepoPath)
 	if err != nil {
 		return fmt.Errorf("failed to collect beads: %w", err)
 	}
 
 	if len(issuesResult.Beads) == 0 {
-		return fmt.Errorf("no beads to process for %s", strings.Join(beadIDList, ", "))
+		return fmt.Errorf("no beads to process for %s", beadID)
 	}
 
 	fmt.Printf("Collected %d bead(s):\n", len(issuesResult.Beads))

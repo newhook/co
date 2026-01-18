@@ -12,6 +12,7 @@ CREATE TABLE works (
     worktree_path TEXT NOT NULL DEFAULT '',
     branch_name TEXT NOT NULL DEFAULT '',
     base_branch TEXT NOT NULL DEFAULT 'main',
+    root_issue_id TEXT NOT NULL DEFAULT '',
     pr_url TEXT NOT NULL DEFAULT '',
     error_message TEXT NOT NULL DEFAULT '',
     started_at DATETIME,
@@ -20,6 +21,7 @@ CREATE TABLE works (
 );
 
 CREATE INDEX idx_works_status ON works(status);
+CREATE INDEX idx_works_root_issue_id ON works(root_issue_id);
 
 -- Beads table: tracks individual beads
 CREATE TABLE beads (

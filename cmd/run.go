@@ -112,6 +112,11 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Branch: %s\n", work.BranchName)
 	fmt.Printf("Worktree: %s\n", work.WorktreePath)
 
+	// Validate that work has a root issue
+	if work.RootIssueID == "" {
+		return fmt.Errorf("work %s has no root issue associated. Create work with a bead ID using 'co work create <bead-id>'", work.ID)
+	}
+
 	// Check if worktree exists
 	if work.WorktreePath == "" {
 		return fmt.Errorf("work %s has no worktree path configured", work.ID)

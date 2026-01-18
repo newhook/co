@@ -314,6 +314,9 @@ func printWorkProgress(wp *workProgress) {
 
 	fmt.Printf("%s Work: %s (%s)\n", statusSymbol, wp.work.ID, wp.work.Status)
 	fmt.Printf("  Branch: %s\n", wp.work.BranchName)
+	if wp.work.RootIssueID != "" {
+		fmt.Printf("  Root Issue: %s\n", wp.work.RootIssueID)
+	}
 
 	if wp.work.PRURL != "" {
 		fmt.Printf("  PR: %s\n", wp.work.PRURL)

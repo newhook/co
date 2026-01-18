@@ -24,6 +24,7 @@ func workToLocal(w *sqlc.Work) *Work {
 		WorktreePath:  w.WorktreePath,
 		BranchName:    w.BranchName,
 		BaseBranch:    w.BaseBranch,
+		RootIssueID:   w.RootIssueID,
 		PRURL:         w.PrUrl,
 		ErrorMessage:  w.ErrorMessage,
 		CreatedAt:     w.CreatedAt,
@@ -47,6 +48,7 @@ type Work struct {
 	WorktreePath  string
 	BranchName    string
 	BaseBranch    string
+	RootIssueID   string
 	PRURL         string
 	ErrorMessage  string
 	StartedAt     *time.Time
@@ -55,7 +57,7 @@ type Work struct {
 }
 
 // CreateWork creates a new work unit.
-func (db *DB) CreateWork(ctx context.Context, id, name, worktreePath, branchName, baseBranch string) error {
+func (db *DB) CreateWork(ctx context.Context, id, name, worktreePath, branchName, baseBranch, rootIssueID string) error {
 	// Use transaction to create work and initialize counter atomically
 	tx, err := db.Begin()
 	if err != nil {
@@ -71,6 +73,7 @@ func (db *DB) CreateWork(ctx context.Context, id, name, worktreePath, branchName
 		WorktreePath: worktreePath,
 		BranchName:   branchName,
 		BaseBranch:   baseBranch,
+		RootIssueID:  rootIssueID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create work %s: %w", id, err)

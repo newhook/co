@@ -49,8 +49,8 @@ func (q *Queries) CompleteWork(ctx context.Context, arg CompleteWorkParams) (int
 }
 
 const createWork = `-- name: CreateWork :exec
-INSERT INTO works (id, status, name, worktree_path, branch_name, base_branch)
-VALUES (?, 'pending', ?, ?, ?, ?)
+INSERT INTO works (id, status, name, worktree_path, branch_name, base_branch, root_issue_id)
+VALUES (?, 'pending', ?, ?, ?, ?, ?)
 `
 
 type CreateWorkParams struct {
@@ -59,6 +59,7 @@ type CreateWorkParams struct {
 	WorktreePath string `json:"worktree_path"`
 	BranchName   string `json:"branch_name"`
 	BaseBranch   string `json:"base_branch"`
+	RootIssueID  string `json:"root_issue_id"`
 }
 
 func (q *Queries) CreateWork(ctx context.Context, arg CreateWorkParams) error {
@@ -68,6 +69,7 @@ func (q *Queries) CreateWork(ctx context.Context, arg CreateWorkParams) error {
 		arg.WorktreePath,
 		arg.BranchName,
 		arg.BaseBranch,
+		arg.RootIssueID,
 	)
 	return err
 }
@@ -155,6 +157,7 @@ SELECT id, status,
        worktree_path,
        branch_name,
        base_branch,
+       root_issue_id,
        pr_url,
        error_message,
        started_at,
@@ -176,6 +179,7 @@ func (q *Queries) GetWork(ctx context.Context, id string) (Work, error) {
 		&i.WorktreePath,
 		&i.BranchName,
 		&i.BaseBranch,
+		&i.RootIssueID,
 		&i.PrUrl,
 		&i.ErrorMessage,
 		&i.StartedAt,
@@ -193,6 +197,7 @@ SELECT id, status,
        worktree_path,
        branch_name,
        base_branch,
+       root_issue_id,
        pr_url,
        error_message,
        started_at,
@@ -215,6 +220,7 @@ func (q *Queries) GetWorkByDirectory(ctx context.Context, worktreePath string) (
 		&i.WorktreePath,
 		&i.BranchName,
 		&i.BaseBranch,
+		&i.RootIssueID,
 		&i.PrUrl,
 		&i.ErrorMessage,
 		&i.StartedAt,
@@ -301,6 +307,7 @@ SELECT id, status,
        worktree_path,
        branch_name,
        base_branch,
+       root_issue_id,
        pr_url,
        error_message,
        started_at,
@@ -328,6 +335,7 @@ func (q *Queries) ListWorks(ctx context.Context) ([]Work, error) {
 			&i.WorktreePath,
 			&i.BranchName,
 			&i.BaseBranch,
+			&i.RootIssueID,
 			&i.PrUrl,
 			&i.ErrorMessage,
 			&i.StartedAt,
@@ -355,6 +363,7 @@ SELECT id, status,
        worktree_path,
        branch_name,
        base_branch,
+       root_issue_id,
        pr_url,
        error_message,
        started_at,
@@ -383,6 +392,7 @@ func (q *Queries) ListWorksByStatus(ctx context.Context, status string) ([]Work,
 			&i.WorktreePath,
 			&i.BranchName,
 			&i.BaseBranch,
+			&i.RootIssueID,
 			&i.PrUrl,
 			&i.ErrorMessage,
 			&i.StartedAt,

@@ -286,8 +286,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Warning: failed to get worker name: %v\n", err)
 	}
 
-	// Create work record in database
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch); err != nil {
+	// Create work record in database with the root issue ID (the original bead that was expanded)
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
@@ -493,12 +493,13 @@ func AddBeadsToWork(ctx context.Context, proj *project.Project, workID string, b
 
 // WorkCreateResult contains the result of creating a work unit.
 type WorkCreateResult struct {
-	WorkID      string
-	WorkerName  string
-	WorkDir     string
+	WorkID       string
+	WorkerName   string
+	WorkDir      string
 	WorktreePath string
-	BranchName  string
-	BaseBranch  string
+	BranchName   string
+	BaseBranch   string
+	RootIssueID  string
 }
 
 // WorkCreateOptions contains options for work creation.
@@ -507,10 +508,10 @@ type WorkCreateOptions struct {
 	Silent bool
 }
 
-// CreateWorkWithBranch creates a new work unit with the given branch name.
+// CreateWorkWithBranch creates a new work unit with the given branch name and root issue.
 // This is the core work creation logic that can be called from both the CLI and TUI.
-// Unlike runWorkCreate, this does not require beads - beads can be added later.
-func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName, baseBranch string, opts ...WorkCreateOptions) (*WorkCreateResult, error) {
+// The rootIssueID is required and represents the single root issue this work is associated with.
+func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName, baseBranch, rootIssueID string, opts ...WorkCreateOptions) (*WorkCreateResult, error) {
 	// Apply options
 	var opt WorkCreateOptions
 	if len(opts) > 0 {
@@ -582,7 +583,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	}
 
 	// Create work record in database
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch); err != nil {
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return nil, fmt.Errorf("failed to create work record: %w", err)
@@ -601,6 +602,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 		WorktreePath: worktreePath,
 		BranchName:   branchName,
 		BaseBranch:   baseBranch,
+		RootIssueID:  rootIssueID,
 	}, nil
 }
 
@@ -616,6 +618,15 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 	}
 	if work == nil {
 		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Close the root issue if it exists
+	if work.RootIssueID != "" {
+		fmt.Fprintf(w, "Closing root issue %s...\n", work.RootIssueID)
+		if err := beads.Close(ctx, work.RootIssueID, proj.MainRepoPath()); err != nil {
+			// Warn but continue - issue might already be closed or deleted
+			fmt.Fprintf(w, "Warning: failed to close root issue %s: %v\n", work.RootIssueID, err)
+		}
 	}
 
 	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
@@ -802,15 +813,19 @@ func runWorkList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Display works
-	fmt.Printf("%-10s %-12s %-20s %s\n", "ID", "Status", "Branch", "PR URL")
-	fmt.Printf("%-10s %-12s %-20s %s\n", strings.Repeat("-", 10), strings.Repeat("-", 12), strings.Repeat("-", 20), strings.Repeat("-", 30))
+	fmt.Printf("%-10s %-12s %-15s %-20s %s\n", "ID", "Status", "Root Issue", "Branch", "PR URL")
+	fmt.Printf("%-10s %-12s %-15s %-20s %s\n", strings.Repeat("-", 10), strings.Repeat("-", 12), strings.Repeat("-", 15), strings.Repeat("-", 20), strings.Repeat("-", 30))
 
 	for _, work := range works {
 		prURL := work.PRURL
 		if prURL == "" {
 			prURL = "-"
 		}
-		fmt.Printf("%-10s %-12s %-20s %s\n", work.ID, work.Status, work.BranchName, prURL)
+		rootIssue := work.RootIssueID
+		if rootIssue == "" {
+			rootIssue = "-"
+		}
+		fmt.Printf("%-10s %-12s %-15s %-20s %s\n", work.ID, work.Status, rootIssue, work.BranchName, prURL)
 	}
 
 	// Show summary
@@ -869,6 +884,9 @@ func runWorkShow(cmd *cobra.Command, args []string) error {
 	// Display work details
 	fmt.Printf("Work: %s\n", work.ID)
 	fmt.Printf("Status: %s\n", work.Status)
+	if work.RootIssueID != "" {
+		fmt.Printf("Root Issue: %s\n", work.RootIssueID)
+	}
 	fmt.Printf("Branch: %s\n", work.BranchName)
 	fmt.Printf("Base Branch: %s\n", work.BaseBranch)
 	fmt.Printf("Worktree: %s\n", work.WorktreePath)
@@ -1013,7 +1031,19 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 
 	// Auto-run the PR task
 	fmt.Printf("Running PR task...\n")
-	return processTask(proj, prTaskID)
+	if err := processTask(proj, prTaskID); err != nil {
+		return err
+	}
+
+	// Close the root issue now that PR has been created
+	if work.RootIssueID != "" {
+		fmt.Printf("Closing root issue %s...\n", work.RootIssueID)
+		if err := beads.Close(ctx, work.RootIssueID, proj.MainRepoPath()); err != nil {
+			fmt.Printf("Warning: failed to close root issue %s: %v\n", work.RootIssueID, err)
+		}
+	}
+
+	return nil
 }
 
 func runWorkReview(cmd *cobra.Command, args []string) error {

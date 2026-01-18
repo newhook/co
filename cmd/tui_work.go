@@ -295,12 +295,10 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Trigger the corresponding action by simulating a key press
 				switch clickedButton {
 				case "c":
-					// Create work - available in overview or zoomed with left panel
+					// Create work - disabled in TUI, must use CLI with root issue
 					if canActOnWork {
-						m.textInput.Reset()
-						m.textInput.Placeholder = "feature/my-branch"
-						m.textInput.Focus()
-						m.viewMode = ViewCreateWork
+						m.statusMessage = "Work creation requires a root issue. Use: co work create <bead-id>"
+						m.statusIsError = true
 					}
 					return m, nil
 				case "n":
@@ -551,11 +549,9 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "c":
-			// Create work
-			m.textInput.Reset()
-			m.textInput.Placeholder = "feature/my-branch"
-			m.textInput.Focus()
-			m.viewMode = ViewCreateWork
+			// Create work - disabled in TUI, must use CLI with root issue
+			m.statusMessage = "Work creation requires a root issue. Use: co work create <bead-id>"
+			m.statusIsError = true
 			return m, nil
 		case "d":
 			// Destroy selected work
@@ -681,13 +677,11 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "c":
-		// Create work (PanelLeft in overview, or PanelMiddle in zoomed mode)
+		// Create work - disabled in TUI, must use CLI with root issue
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork {
-			m.textInput.Reset()
-			m.textInput.Placeholder = "feature/my-branch"
-			m.textInput.Focus()
-			m.viewMode = ViewCreateWork
+			m.statusMessage = "Work creation requires a root issue. Use: co work create <bead-id>"
+			m.statusIsError = true
 		}
 
 	case "d":
@@ -1196,6 +1190,12 @@ func (m *workModel) renderOverviewDetailsPanel(width, height int) string {
 	content.WriteString(tuiValueStyle.Render(wp.work.BranchName))
 	content.WriteString("\n")
 
+	if wp.work.RootIssueID != "" {
+		content.WriteString(tuiLabelStyle.Render("Root Issue: "))
+		content.WriteString(tuiValueStyle.Render(wp.work.RootIssueID))
+		content.WriteString("\n")
+	}
+
 	content.WriteString(tuiLabelStyle.Render("Status: "))
 	content.WriteString(statusStyled(wp.work.Status))
 	content.WriteString("\n\n")
@@ -1654,6 +1654,12 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 		content.WriteString(tuiLabelStyle.Render("Branch: "))
 		content.WriteString(tuiValueStyle.Render(wp.work.BranchName))
 		content.WriteString("\n")
+
+		if wp.work.RootIssueID != "" {
+			content.WriteString(tuiLabelStyle.Render("Root Issue: "))
+			content.WriteString(tuiValueStyle.Render(wp.work.RootIssueID))
+			content.WriteString("\n")
+		}
 
 		if wp.work.PRURL != "" {
 			content.WriteString(tuiLabelStyle.Render("PR: "))
@@ -2305,7 +2311,10 @@ func (m *workModel) loadBeadsForAssign() tea.Cmd {
 
 func (m *workModel) createWork(branchName string) tea.Cmd {
 	return func() tea.Msg {
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", WorkCreateOptions{Silent: true})
+		// TODO: TUI work creation should require selecting a root issue first.
+		// For now, we pass empty string and the work will need a root issue set before running tasks.
+		// The proper fix requires changing the TUI flow to select a root issue before creating work.
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", "", WorkCreateOptions{Silent: true})
 		if err != nil {
 			return workCommandMsg{action: "Create work", err: err}
 		}
