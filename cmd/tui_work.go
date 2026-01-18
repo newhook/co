@@ -382,8 +382,6 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Handle view-specific keys first
 		switch m.viewMode {
-		case ViewCreateWork:
-			return m.updateCreateWork(msg)
 		case ViewCreateBead:
 			return m.updateCreateBead(msg)
 		case ViewDestroyConfirm:
@@ -803,26 +801,6 @@ func (m *workModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *workModel) updateCreateWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
-		branchName := m.textInput.Value()
-		if branchName == "" {
-			m.viewMode = ViewNormal
-			return m, nil
-		}
-		m.viewMode = ViewNormal
-		return m, m.createWork(branchName)
-	case "esc":
-		m.viewMode = ViewNormal
-	default:
-		var cmd tea.Cmd
-		m.textInput, cmd = m.textInput.Update(msg)
-		return m, cmd
-	}
-	return m, nil
-}
-
 func (m *workModel) updateDestroyConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
@@ -1017,9 +995,6 @@ func (m *workModel) View() string {
 
 	// Handle dialogs first
 	switch m.viewMode {
-	case ViewCreateWork:
-		dialog := m.renderCreateWorkDialog()
-		return m.renderWithDialog(dialog)
 	case ViewCreateBead:
 		// In zoomed mode, render inline in details panel (fall through)
 		// In overview mode, use dialog
@@ -2053,32 +2028,6 @@ func (m *workModel) renderStatusBar() string {
 	return tuiStatusBarStyle.Width(m.width).Render(keys + strings.Repeat(" ", padding) + status)
 }
 
-func (m *workModel) renderCreateWorkDialog() string {
-	selectedCount := 0
-	for _, selected := range m.selectedBeads {
-		if selected {
-			selectedCount++
-		}
-	}
-
-	var beadOption string
-	if selectedCount > 0 {
-		beadOption = fmt.Sprintf("\n  [b] Use %d selected issue(s) to auto-generate branch", selectedCount)
-	}
-
-	content := fmt.Sprintf(`
-  Create New Work
-
-  Enter branch name:
-  %s
-%s
-
-  [Enter] Create  [Esc] Cancel
-`, m.textInput.View(), beadOption)
-
-	return tuiDialogStyle.Render(content)
-}
-
 func (m *workModel) renderDestroyConfirmDialog() string {
 	workID := ""
 	workerName := ""
@@ -2306,26 +2255,6 @@ func (m *workModel) loadBeadsForAssign() tea.Cmd {
 			return workDataMsg{err: err}
 		}
 		return workDataMsg{beads: beads}
-	}
-}
-
-func (m *workModel) createWork(branchName string) tea.Cmd {
-	return func() tea.Msg {
-		// TODO: TUI work creation should require selecting a root issue first.
-		// For now, we pass empty string and the work will need a root issue set before running tasks.
-		// The proper fix requires changing the TUI flow to select a root issue before creating work.
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", "", WorkCreateOptions{Silent: true})
-		if err != nil {
-			return workCommandMsg{action: "Create work", err: err}
-		}
-
-		// Spawn the orchestrator for this work
-		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
-			// Non-fatal: work was created but orchestrator failed to spawn
-			return workCommandMsg{action: fmt.Sprintf("Created work %s (orchestrator failed: %v)", result.WorkID, err)}
-		}
-
-		return workCommandMsg{action: fmt.Sprintf("Created work %s", result.WorkID)}
 	}
 }
 
