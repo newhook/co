@@ -1794,6 +1794,27 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 		}
 		content.WriteString("\n")
 
+		// Review iterations count
+		reviewCount := 0
+		for _, t := range wp.tasks {
+			if strings.HasPrefix(t.task.ID, wp.work.ID+".review") {
+				reviewCount++
+			}
+		}
+		if reviewCount > 0 {
+			maxIterations := m.proj.Config.Workflow.GetMaxReviewIterations()
+			content.WriteString(tuiLabelStyle.Render("Review Iterations: "))
+			iterStatus := fmt.Sprintf("%d/%d", reviewCount, maxIterations)
+			if reviewCount >= maxIterations {
+				// Show in warning color if at or over limit
+				content.WriteString(tuiErrorStyle.Render(iterStatus))
+				content.WriteString(tuiDimStyle.Render(" (limit reached)"))
+			} else {
+				content.WriteString(tuiValueStyle.Render(iterStatus))
+			}
+			content.WriteString("\n")
+		}
+
 		// Pending issues count
 		if wp.unassignedBeadCount > 0 {
 			content.WriteString(tuiLabelStyle.Render("Pending Issues: "))
@@ -2383,20 +2404,20 @@ func (m *workModel) renderHelp() string {
   Tab           Cycle panels
   Esc           Zoom out to overview
 
-  Work Management
+  Work Management (Zoomed Mode)
   ────────────────────────────
-  c             Create new work
   n             Create new issue (assign to work)
-  d             Destroy selected work
-  p             Plan work (create tasks)
-  r             Run work (execute tasks)
-  a             Assign issues to work
-  t             Open console tab
-  C             Open Claude Code session
+  a             Assign existing issues to work
+  r             Run work with plan (LLM estimates)
+  s             Run work simple (no planning)
+  x             Remove selected unassigned issue
+  t             Open terminal/console tab
+  c             Open Claude Code session
   o             Restart orchestrator
-  R             Create review task
-  P             Create PR task
-  U             Update PR description
+  v             Create review task
+  p             Create PR task
+  u             Update PR description
+  d             Destroy selected work
 
   General
   ────────────────────────────
@@ -2571,7 +2592,21 @@ func (m *workModel) createReviewTask() tea.Cmd {
 			return workCommandMsg{action: "Create review", err: fmt.Errorf("failed to create task: %w", err)}
 		}
 
-		return workCommandMsg{action: fmt.Sprintf("Created review task %s", reviewTaskID)}
+		// Include iteration count in success message
+		maxIterations := m.proj.Config.Workflow.GetMaxReviewIterations()
+		var actionMsg string
+		if reviewCount >= maxIterations {
+			// Already exceeded the limit, just note it
+			actionMsg = fmt.Sprintf("Created review task %s (iteration %d, exceeds limit of %d)", reviewTaskID, reviewCount+1, maxIterations)
+		} else if reviewCount+1 == maxIterations {
+			// At the limit now
+			actionMsg = fmt.Sprintf("Created review task %s (%d/%d iterations - at limit)", reviewTaskID, reviewCount+1, maxIterations)
+		} else {
+			// Still under the limit
+			actionMsg = fmt.Sprintf("Created review task %s (%d/%d iterations)", reviewTaskID, reviewCount+1, maxIterations)
+		}
+
+		return workCommandMsg{action: actionMsg}
 	}
 }
 
