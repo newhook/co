@@ -357,13 +357,16 @@ func (p *FeedbackProcessor) isActionableComment(body string) bool {
 		"update",
 		"add",
 		"remove",
-		"TODO",
-		"FIXME",
-		"BUG",
-		"ERROR",
-		"WARNING",
+		"todo",
+		"fixme",
+		"bug",
+		"error",
+		"warning",
 		"failed",
 		"failure",
+		"detected",
+		"vulnerability",
+		"risk",
 	}
 
 	lower := strings.ToLower(body)
@@ -398,10 +401,12 @@ func (p *FeedbackProcessor) extractTitleFromComment(body string) string {
 	lines := strings.Split(body, "\n")
 	if len(lines) > 0 {
 		firstLine := strings.TrimSpace(lines[0])
-		if len(firstLine) > 100 {
-			return firstLine[:100] + "..."
+		if firstLine != "" {
+			if len(firstLine) > 100 {
+				return firstLine[:100] + "..."
+			}
+			return firstLine
 		}
-		return firstLine
 	}
 	return "Address comment feedback"
 }
