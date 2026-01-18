@@ -37,6 +37,16 @@ func getProcessList(ctx context.Context) ([]string, error) {
 	return processes, nil
 }
 
+// escapePattern safely escapes a pattern for use in shell commands.
+// It uses single quotes to prevent shell expansion and handles embedded single quotes.
+func escapePattern(pattern string) string {
+	// Replace single quotes with '\'' (end quote, escaped quote, start quote)
+	// This is the standard way to include a single quote within a single-quoted string
+	escaped := strings.ReplaceAll(pattern, "'", "'\\''")
+	// Wrap the entire pattern in single quotes
+	return "'" + escaped + "'"
+}
+
 // killProcessByPattern kills all processes matching the given pattern.
 func killProcessByPattern(ctx context.Context, pattern string) error {
 	// First, find the processes that match the pattern
@@ -59,9 +69,13 @@ func killProcessByPattern(ctx context.Context, pattern string) error {
 		return nil
 	}
 
+	// Escape the pattern to prevent command injection
+	escapedPattern := escapePattern(pattern)
+
 	// Use pkill to kill processes matching the pattern
 	// -f flag matches against the full command line
-	cmd := exec.CommandContext(ctx, "pkill", "-f", pattern)
+	// We use sh -c to properly handle the escaped pattern
+	cmd := exec.CommandContext(ctx, "sh", "-c", fmt.Sprintf("pkill -f %s", escapedPattern))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
