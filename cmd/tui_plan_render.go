@@ -122,6 +122,11 @@ func (m *planModel) renderDetailsPanel(visibleLines int, width int) string {
 		return m.renderCreateWorkInlineContent(visibleLines, width)
 	}
 
+	// If in add to work mode, render the works list inline
+	if m.viewMode == ViewAddToWork {
+		return m.renderAddToWorkInlineContent(visibleLines, width)
+	}
+
 	if len(m.beadItems) == 0 || m.beadsCursor >= len(m.beadItems) {
 		content.WriteString(tuiDimStyle.Render("No issue selected"))
 	} else {
@@ -415,6 +420,132 @@ func (m *planModel) renderLinearImportInlineContent(visibleLines int, width int)
 	} else {
 		content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Enter] Activate"))
 	}
+
+	return content.String()
+}
+
+// renderAddToWorkInlineContent renders the add-to-work selection inline in the details panel
+func (m *planModel) renderAddToWorkInlineContent(visibleLines int, width int) string {
+	var content strings.Builder
+
+	// Get the bead we're adding
+	beadID := ""
+	beadTitle := ""
+	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		beadID = m.beadItems[m.beadsCursor].id
+		beadTitle = m.beadItems[m.beadsCursor].title
+	}
+
+	// Header
+	content.WriteString(tuiLabelStyle.Render("Add Issue to Work"))
+	content.WriteString("\n\n")
+
+	// Show which issue we're adding
+	content.WriteString(tuiDimStyle.Render("Issue: "))
+	content.WriteString(issueIDStyle.Render(beadID))
+	content.WriteString("\n")
+	if beadTitle != "" {
+		titleStyle := tuiValueStyle.Width(width - detailsPanelPadding)
+		content.WriteString(titleStyle.Render(beadTitle))
+		content.WriteString("\n")
+	}
+	content.WriteString("\n")
+
+	// Works list header
+	content.WriteString(tuiLabelStyle.Render("Select a work:"))
+	content.WriteString("\n")
+
+	if len(m.availableWorks) == 0 {
+		content.WriteString(tuiDimStyle.Render("  No available works found."))
+		content.WriteString("\n")
+		content.WriteString(tuiDimStyle.Render("  Create a work first with 'w'."))
+	} else {
+		// Calculate how many works we can show
+		linesUsed := 7 // header + issue info + select header + nav hint
+		maxWorks := visibleLines - linesUsed
+		if maxWorks < 3 {
+			maxWorks = 3
+		}
+
+		// Show works with scrolling if needed
+		start := 0
+		if m.worksCursor >= maxWorks {
+			start = m.worksCursor - maxWorks + 1
+		}
+		end := min(start+maxWorks, len(m.availableWorks))
+
+		for i := start; i < end; i++ {
+			work := m.availableWorks[i]
+
+			// Selection indicator
+			var lineStyle lipgloss.Style
+			prefix := "  "
+			if i == m.worksCursor {
+				prefix = "► "
+				lineStyle = tuiSelectedStyle
+			} else {
+				lineStyle = tuiDimStyle
+			}
+
+			// Build work line with root issue info
+			var workLine strings.Builder
+			workLine.WriteString(prefix)
+			workLine.WriteString(work.id)
+			workLine.WriteString(" (")
+			workLine.WriteString(work.status)
+			workLine.WriteString(")")
+
+			// Show root issue if available
+			if work.rootIssueID != "" {
+				workLine.WriteString("\n    ")
+				workLine.WriteString("Root: ")
+				workLine.WriteString(work.rootIssueID)
+				if work.rootIssueTitle != "" {
+					// Truncate title if too long
+					title := work.rootIssueTitle
+					maxTitleLen := width - detailsPanelPadding - 12 // account for "Root: " + ID
+					if len(title) > maxTitleLen && maxTitleLen > 10 {
+						title = title[:maxTitleLen-3] + "..."
+					}
+					workLine.WriteString(" - ")
+					workLine.WriteString(title)
+				}
+			}
+
+			// Show branch
+			workLine.WriteString("\n    ")
+			workLine.WriteString("Branch: ")
+			branch := work.branch
+			maxBranchLen := width - detailsPanelPadding - 12
+			if len(branch) > maxBranchLen && maxBranchLen > 10 {
+				branch = branch[:maxBranchLen-3] + "..."
+			}
+			workLine.WriteString(branch)
+
+			if i == m.worksCursor {
+				content.WriteString(lineStyle.Render(workLine.String()))
+			} else {
+				content.WriteString(workLine.String())
+			}
+			content.WriteString("\n")
+		}
+
+		// Show scroll indicator if needed
+		if len(m.availableWorks) > maxWorks {
+			if start > 0 {
+				content.WriteString(tuiDimStyle.Render("  ↑ more above"))
+				content.WriteString("\n")
+			}
+			if end < len(m.availableWorks) {
+				content.WriteString(tuiDimStyle.Render("  ↓ more below"))
+				content.WriteString("\n")
+			}
+		}
+	}
+
+	// Navigation help
+	content.WriteString("\n")
+	content.WriteString(tuiDimStyle.Render("[↑↓/jk] Navigate  [Enter] Add to work  [Esc] Cancel"))
 
 	return content.String()
 }

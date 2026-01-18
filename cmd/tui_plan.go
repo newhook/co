@@ -969,7 +969,8 @@ func (m *planModel) View() string {
 		// Create work now renders inline in the details panel
 		// Fall through to normal rendering
 	case ViewAddToWork:
-		return m.renderWithDialog(m.renderAddToWorkDialogContent())
+		// Add to work now renders inline in the details panel
+		// Fall through to normal rendering
 	case ViewBeadSearch:
 		// Inline search mode - render normal view with search bar in status area
 		// Fall through to normal rendering
