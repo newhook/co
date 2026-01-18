@@ -1507,19 +1507,27 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 		content.WriteString(tuiDimStyle.Render("No work selected"))
 	} else {
 		wp := m.works[m.worksCursor]
+
+		// Calculate space: reserve lines for unassigned issues section if any
+		unassignedLines := 0
+		if len(wp.unassignedBeads) > 0 {
+			// Reserve: 1 for divider, 1 for header, up to 5 for issues, 1 for "more" indicator
+			unassignedLines = 3 + min(len(wp.unassignedBeads), 5)
+		}
+
+		tasksHeight := height - 3 - unassignedLines // -3 for panel border and title
+		if tasksHeight < 3 {
+			tasksHeight = 3
+		}
+
 		if len(wp.tasks) == 0 {
-			// Show warning if there are unassigned beads
-			if wp.unassignedBeadCount > 0 {
-				content.WriteString(tuiErrorStyle.Render(fmt.Sprintf("⚠ %d pending issue(s)", wp.unassignedBeadCount)))
-				content.WriteString("\n")
-				content.WriteString(tuiDimStyle.Render("Press 'r' to run or 'p' to plan"))
-			} else {
-				content.WriteString(tuiDimStyle.Render("No tasks"))
-				content.WriteString("\n")
+			content.WriteString(tuiDimStyle.Render("No tasks yet"))
+			content.WriteString("\n")
+			if len(wp.unassignedBeads) == 0 {
 				content.WriteString(tuiDimStyle.Render("Press 'a' to assign issues"))
 			}
 		} else {
-			visibleLines := height - 3
+			visibleLines := tasksHeight
 			if visibleLines < 1 {
 				visibleLines = 1
 			}
@@ -1580,6 +1588,56 @@ func (m *workModel) renderTasksPanel(width, height int) string {
 				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ↓ %d more", len(wp.tasks)-endIdx)))
 				content.WriteString("\n")
 			}
+		}
+
+		// Show unassigned issues section if any
+		if len(wp.unassignedBeads) > 0 {
+			content.WriteString("\n")
+			content.WriteString(tuiDimStyle.Render("─────────────────────"))
+			content.WriteString("\n")
+			content.WriteString(tuiLabelStyle.Render(fmt.Sprintf("Unassigned (%d)", len(wp.unassignedBeads))))
+			content.WriteString("\n")
+
+			// Show up to 5 unassigned issues
+			maxShow := min(len(wp.unassignedBeads), 5)
+			for i := 0; i < maxShow; i++ {
+				bp := wp.unassignedBeads[i]
+				// Type indicator
+				var typeIndicator string
+				switch bp.issueType {
+				case "task":
+					typeIndicator = typeTaskStyle.Render("T")
+				case "bug":
+					typeIndicator = typeBugStyle.Render("B")
+				case "feature":
+					typeIndicator = typeFeatureStyle.Render("F")
+				case "epic":
+					typeIndicator = typeEpicStyle.Render("E")
+				default:
+					typeIndicator = tuiDimStyle.Render("?")
+				}
+
+				// Truncate title to fit
+				title := bp.title
+				maxTitleLen := width - 15 // account for prefix and padding
+				if maxTitleLen < 10 {
+					maxTitleLen = 10
+				}
+				if len(title) > maxTitleLen {
+					title = title[:maxTitleLen-3] + "..."
+				}
+
+				line := fmt.Sprintf("  %s %s %s", typeIndicator, issueIDStyle.Render(bp.id), title)
+				content.WriteString(line)
+				content.WriteString("\n")
+			}
+
+			if len(wp.unassignedBeads) > maxShow {
+				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ... %d more", len(wp.unassignedBeads)-maxShow)))
+				content.WriteString("\n")
+			}
+
+			content.WriteString(tuiDimStyle.Render("Press 'r' to run"))
 		}
 	}
 

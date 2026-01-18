@@ -55,6 +55,7 @@ type workProgress struct {
 	work                *db.Work
 	tasks               []*taskProgress
 	workBeads           []beadProgress // all beads assigned to this work
+	unassignedBeads     []beadProgress // beads in work but not assigned to any task
 	unassignedBeadCount int
 }
 
@@ -211,10 +212,24 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 		}
 	}
 
-	// Get count of unassigned beads for this work
-	unassignedBeads, err := proj.DB.GetUnassignedWorkBeads(ctx, work.ID)
+	// Get unassigned beads for this work (beads not yet assigned to any task)
+	unassignedWorkBeads, err := proj.DB.GetUnassignedWorkBeads(ctx, work.ID)
 	if err == nil {
-		wp.unassignedBeadCount = len(unassignedBeads)
+		wp.unassignedBeadCount = len(unassignedWorkBeads)
+		// Populate full bead info for unassigned beads
+		for _, wb := range unassignedWorkBeads {
+			bp := beadProgress{id: wb.BeadID}
+			if beadsClient != nil {
+				if bead, err := beadsClient.GetBead(ctx, wb.BeadID); err == nil && bead != nil {
+					bp.title = bead.Title
+					bp.description = bead.Description
+					bp.beadStatus = bead.Status
+					bp.priority = bead.Priority
+					bp.issueType = bead.Type
+				}
+			}
+			wp.unassignedBeads = append(wp.unassignedBeads, bp)
+		}
 	}
 
 	return wp, nil
