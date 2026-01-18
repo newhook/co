@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -110,56 +109,6 @@ func (m *workModel) renderCreateBeadDialogContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
-// renderAssignBeadsView renders the assign beads to work view
-func (m *workModel) renderAssignBeadsView() string {
-	var b strings.Builder
-
-	b.WriteString(tuiTitleStyle.Render("Assign Issues to Work"))
-	b.WriteString("\n\n")
-
-	if len(m.works) > 0 && m.worksCursor < len(m.works) {
-		wp := m.works[m.worksCursor]
-		b.WriteString(tuiLabelStyle.Render("Target: "))
-		if wp.work.Name != "" {
-			b.WriteString(tuiValueStyle.Render(fmt.Sprintf("%s (%s)", wp.work.Name, wp.work.ID)))
-		} else {
-			b.WriteString(tuiValueStyle.Render(wp.work.ID))
-		}
-		b.WriteString("\n\n")
-	}
-
-	b.WriteString("Select issues (Space to toggle, Enter to confirm, Esc to cancel):\n\n")
-
-	for i, bead := range m.beadItems {
-		var checkbox string
-		if m.selectedBeads[bead.id] {
-			checkbox = "[●]"
-		} else {
-			checkbox = "[ ]"
-		}
-
-		line := fmt.Sprintf("%s %s - %s", checkbox, bead.id, bead.title)
-
-		if i == m.beadsCursor {
-			line = tuiSelectedStyle.Render("> " + line)
-		} else {
-			line = "  " + line
-		}
-
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-
-	selected := 0
-	for _, s := range m.selectedBeads {
-		if s {
-			selected++
-		}
-	}
-	b.WriteString(fmt.Sprintf("\n%d issue(s) selected", selected))
-
-	return tuiAssignStyle.Width(m.width).Height(m.height).Render(b.String())
-}
 
 // renderHelp renders the help dialog
 func (m *workModel) renderHelp() string {

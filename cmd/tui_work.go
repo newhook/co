@@ -325,6 +325,7 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if canActOnWork && len(m.works) > 0 {
 						m.viewMode = ViewAssignBeads
 						m.beadsCursor = 0
+						m.selectedBeads = make(map[string]bool) // Initialize selection map
 						return m, m.loadBeadsForAssign()
 					}
 					return m, nil
@@ -402,11 +403,20 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = fmt.Sprintf("Error: %v", msg.err)
 			m.statusIsError = true
 		} else {
-			m.works = msg.works
-			m.beadItems = msg.beads
+			// Only update works if provided (not nil)
+			if msg.works != nil {
+				m.works = msg.works
+			}
+			// Only update beads if provided (not nil)
+			if msg.beads != nil {
+				m.beadItems = msg.beads
+			}
 			m.statusMessage = ""
 			m.statusIsError = false
-			m.recalculateGrid()
+			// Only recalculate grid if works were updated
+			if msg.works != nil {
+				m.recalculateGrid()
+			}
 		}
 
 		// Ensure cursor is valid
@@ -569,14 +579,6 @@ func (m *workModel) updateOverviewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.runWork(false)
 			}
 			return m, nil
-		case "a":
-			// Assign beads to selected work
-			if len(m.works) > 0 {
-				m.viewMode = ViewAssignBeads
-				m.beadsCursor = 0
-				return m, m.loadBeadsForAssign()
-			}
-			return m, nil
 		case "v":
 			// Create review task
 			if len(m.works) > 0 {
@@ -699,6 +701,7 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.runWork(true)
 		}
+		return m, nil
 
 	case "o":
 		// Restart orchestrator for selected work (PanelLeft in overview, or PanelMiddle in zoomed mode)
@@ -706,6 +709,7 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.restartOrchestrator()
 		}
+		return m, nil
 
 	case "s":
 		// Run work simple - one task per issue (PanelLeft in overview, or PanelMiddle in zoomed mode)
@@ -713,6 +717,7 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.runWork(false)
 		}
+		return m, nil
 
 	case "a":
 		// Assign beads to work (PanelLeft in overview, or PanelMiddle in zoomed mode)
@@ -720,9 +725,11 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if canActOnWork && len(m.works) > 0 {
 			m.viewMode = ViewAssignBeads
 			m.beadsCursor = 0
+			m.selectedBeads = make(map[string]bool) // Initialize selection map
 			// Load beads for selection
 			return m, m.loadBeadsForAssign()
 		}
+		return m, nil
 
 	case "v":
 		// Create review task
@@ -730,6 +737,7 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.createReviewTask()
 		}
+		return m, nil
 
 	case "p":
 		// Create PR task
@@ -737,6 +745,7 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.createPRTask()
 		}
+		return m, nil
 
 	case "u":
 		// Update PR description task
@@ -878,8 +887,21 @@ func (m *workModel) updateAssignBeads(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "enter":
-		m.viewMode = ViewNormal
-		return m, m.assignSelectedBeads()
+		// Count selected beads
+		selectedCount := 0
+		for _, selected := range m.selectedBeads {
+			if selected {
+				selectedCount++
+			}
+		}
+
+		// Only proceed if beads are selected
+		if selectedCount > 0 {
+			m.viewMode = ViewNormal
+			return m, m.assignSelectedBeads()
+		}
+		// Stay in assign mode if no beads selected
+		return m, nil
 	case "esc":
 		m.viewMode = ViewNormal
 		m.selectedBeads = make(map[string]bool)
@@ -1020,12 +1042,13 @@ func (m *workModel) View() string {
 		dialog := m.renderDestroyConfirmDialog()
 		return m.renderWithDialog(dialog)
 	case ViewAssignBeads:
-		// In zoomed mode, render inline in details panel (fall through)
-		// In overview mode, use full-screen view
+		// Assignment only works in zoomed mode
 		if m.zoomLevel == ZoomOverview {
-			return m.renderAssignBeadsView()
+			// Should not happen - reset to normal view
+			m.viewMode = ViewNormal
+			// Fall through to normal rendering
 		}
-		// Fall through to normal rendering - details panel will show the assign beads form
+		// In zoomed mode, details panel will show the assign beads form inline
 	}
 
 	// Render based on zoom level
