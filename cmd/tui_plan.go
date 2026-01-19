@@ -89,6 +89,12 @@ type planModel struct {
 	availableWorks []workItem // List of works to choose from
 	worksCursor    int        // Cursor position in works list
 
+	// Work overlay state
+	workTiles          []*workProgress // Works displayed in overlay
+	selectedWorkTileID string          // ID of selected work tile
+	focusedWorkID      string          // ID of focused work (splits screen)
+	focusFilterActive  bool            // Whether focus filter is active
+
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
 
@@ -497,6 +503,18 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case workTilesLoadedMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Failed to load works: %v", msg.err)
+			m.statusIsError = true
+			m.viewMode = ViewNormal
+			m.loading = false
+			return m, nil
+		}
+		m.workTiles = msg.works
+		m.loading = false
+		return m, nil
+
 	case editorFinishedMsg:
 		// Refresh data after external editor closes
 		m.statusMessage = "Editor closed, refreshing..."
@@ -714,6 +732,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateCloseBeadConfirm(msg)
 	case ViewLinearImportInline:
 		return m.updateLinearImportInline(msg)
+	case ViewWorkOverlay:
+		return m.updateWorkOverlay(msg)
 	case ViewHelp:
 		m.viewMode = ViewNormal
 		return m, nil
@@ -847,6 +867,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.spawnPlanSession(beadID)
 		}
 		return m, nil
+
+	case "W":
+		// Show work overlay
+		m.viewMode = ViewWorkOverlay
+		m.loading = true
+		return m, m.loadWorkTiles()
 
 	case "w":
 		// Create work from selected bead(s) - show dialog
@@ -1033,6 +1059,9 @@ func (m *planModel) View() string {
 	case ViewLinearImportInline:
 		// Inline import mode - render normal view with import form in details area
 		// Fall through to normal rendering
+	case ViewWorkOverlay:
+		// Work overlay mode - show work tiles overlay
+		return m.renderWorkOverlay()
 	case ViewHelp:
 		return m.renderHelp()
 	}

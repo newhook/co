@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 )
@@ -394,5 +395,216 @@ func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
 		beadIDsStr := strings.Join(beadIDs, ", ")
 		return beadAddedToWorkMsg{beadID: beadIDsStr, workID: workID}
 	}
+}
+
+// workTilesLoadedMsg indicates work tiles have been loaded for overlay
+type workTilesLoadedMsg struct {
+	works []*workProgress
+	err   error
+}
+
+// loadWorkTiles loads work data for the overlay display
+func (m *planModel) loadWorkTiles() tea.Cmd {
+	return func() tea.Msg {
+		works, err := fetchPollData(m.ctx, m.proj, "", "")
+		if err != nil {
+			return workTilesLoadedMsg{err: err}
+		}
+		return workTilesLoadedMsg{works: works}
+	}
+}
+
+// updateWorkOverlay handles input when in work overlay mode
+func (m *planModel) updateWorkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		// Exit work overlay without selection
+		m.viewMode = ViewNormal
+		m.selectedWorkTileID = ""
+		return m, nil
+	case tea.KeyEnter:
+		// Select a work tile if one is hovered/selected
+		if m.selectedWorkTileID != "" {
+			// Set the focused work and return to normal view with split screen
+			m.focusedWorkID = m.selectedWorkTileID
+			m.viewMode = ViewNormal
+			m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
+			m.statusIsError = false
+			// Reset focus filter when selecting a new work
+			m.focusFilterActive = false
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// Navigation through work tiles
+	switch msg.String() {
+	case "j", "down":
+		// Move to next work tile
+		if len(m.workTiles) > 0 {
+			currentIdx := -1
+			for i, work := range m.workTiles {
+				if work.work.ID == m.selectedWorkTileID {
+					currentIdx = i
+					break
+				}
+			}
+			if currentIdx < len(m.workTiles)-1 {
+				if currentIdx == -1 {
+					m.selectedWorkTileID = m.workTiles[0].work.ID
+				} else {
+					m.selectedWorkTileID = m.workTiles[currentIdx+1].work.ID
+				}
+			}
+		}
+		return m, nil
+	case "k", "up":
+		// Move to previous work tile
+		if len(m.workTiles) > 0 {
+			currentIdx := -1
+			for i, work := range m.workTiles {
+				if work.work.ID == m.selectedWorkTileID {
+					currentIdx = i
+					break
+				}
+			}
+			if currentIdx > 0 {
+				m.selectedWorkTileID = m.workTiles[currentIdx-1].work.ID
+			} else if currentIdx == -1 && len(m.workTiles) > 0 {
+				m.selectedWorkTileID = m.workTiles[len(m.workTiles)-1].work.ID
+			}
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// renderWorkOverlay renders the work tiles overlay
+func (m *planModel) renderWorkOverlay() string {
+	if m.loading {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("214")).
+			Bold(true).
+			Align(lipgloss.Center, lipgloss.Center)
+
+		return loadingStyle.
+			Width(m.width).
+			Height(m.height).
+			Render("Loading works...")
+	}
+
+	// Create work tiles grid
+	var tiles []string
+	tileWidth := 30
+	tileHeight := 8
+	tilesPerRow := m.width / (tileWidth + 2)
+	if tilesPerRow < 1 {
+		tilesPerRow = 1
+	}
+
+	// Style for tiles
+	normalTileStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		Width(tileWidth).
+		Height(tileHeight).
+		Padding(1)
+
+	selectedTileStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("214")).
+		Width(tileWidth).
+		Height(tileHeight).
+		Padding(1).
+		Bold(true)
+
+	for _, work := range m.workTiles {
+		// Build tile content
+		var content strings.Builder
+		content.WriteString(fmt.Sprintf("%s %s\n", statusIcon(work.work.Status), work.work.ID))
+		content.WriteString(fmt.Sprintf("Branch: %s\n", truncateString(work.work.BranchName, tileWidth-4)))
+
+		// Show task and bead counts
+		completedTasks := 0
+		totalTasks := len(work.tasks)
+		for _, task := range work.tasks {
+			if task.task.Status == db.StatusCompleted {
+				completedTasks++
+			}
+		}
+		content.WriteString(fmt.Sprintf("Tasks: %d/%d\n", completedTasks, totalTasks))
+
+		// Show unassigned beads count if any
+		if work.unassignedBeadCount > 0 {
+			content.WriteString(fmt.Sprintf("Unassigned: %d\n", work.unassignedBeadCount))
+		}
+
+		// Show feedback count if any
+		if work.feedbackCount > 0 {
+			content.WriteString(fmt.Sprintf("Feedback: %d\n", work.feedbackCount))
+		}
+
+		// Apply appropriate style
+		var tileStyle lipgloss.Style
+		if work.work.ID == m.selectedWorkTileID {
+			tileStyle = selectedTileStyle
+		} else {
+			tileStyle = normalTileStyle
+		}
+
+		tiles = append(tiles, tileStyle.Render(content.String()))
+	}
+
+	// Arrange tiles in grid
+	var rows []string
+	for i := 0; i < len(tiles); i += tilesPerRow {
+		end := i + tilesPerRow
+		if end > len(tiles) {
+			end = len(tiles)
+		}
+		row := lipgloss.JoinHorizontal(lipgloss.Top, tiles[i:end]...)
+		rows = append(rows, row)
+	}
+
+	// Add header
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("214")).
+		MarginBottom(1)
+	header := headerStyle.Render("Work Overlay - Press Enter to select, Esc to cancel")
+
+	// Add instructions if no works
+	if len(m.workTiles) == 0 {
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Align(lipgloss.Center, lipgloss.Center).
+			Width(m.width).
+			Height(m.height - 3)
+		return lipgloss.JoinVertical(lipgloss.Left, header, emptyStyle.Render("No works found"))
+	}
+
+	// Combine everything
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	fullContent := lipgloss.JoinVertical(lipgloss.Left, header, content)
+
+	// Center the content
+	centeredStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height).
+		Align(lipgloss.Center, lipgloss.Center)
+
+	return centeredStyle.Render(fullContent)
+}
+
+// truncateString truncates a string to the specified length
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }
 
