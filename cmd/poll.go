@@ -77,7 +77,7 @@ type beadProgress struct {
 
 // fetchPollData fetches progress data for works/tasks (used by tui.go)
 func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID string) ([]*workProgress, error) {
-	var works []*workProgress
+	works := []*workProgress{}
 
 	if taskID != "" {
 		// Single task mode
