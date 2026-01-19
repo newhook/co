@@ -434,26 +434,49 @@ func (m *planModel) renderLinearImportInlineContent(visibleLines int, width int)
 func (m *planModel) renderAddToWorkInlineContent(visibleLines int, width int) string {
 	var content strings.Builder
 
-	// Get the bead we're adding
-	beadID := ""
-	beadTitle := ""
-	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-		beadID = m.beadItems[m.beadsCursor].id
-		beadTitle = m.beadItems[m.beadsCursor].title
+	// Collect selected beads
+	var selectedBeads []beadItem
+	for _, item := range m.beadItems {
+		if m.selectedBeads[item.id] {
+			selectedBeads = append(selectedBeads, item)
+		}
+	}
+
+	// If no selected beads, use cursor bead
+	if len(selectedBeads) == 0 && len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		selectedBeads = append(selectedBeads, m.beadItems[m.beadsCursor])
 	}
 
 	// Header
-	content.WriteString(tuiLabelStyle.Render("Add Issue to Work"))
+	if len(selectedBeads) == 1 {
+		content.WriteString(tuiLabelStyle.Render("Add Issue to Work"))
+	} else {
+		content.WriteString(tuiLabelStyle.Render(fmt.Sprintf("Add %d Issues to Work", len(selectedBeads))))
+	}
 	content.WriteString("\n\n")
 
-	// Show which issue we're adding
-	content.WriteString(tuiDimStyle.Render("Issue: "))
-	content.WriteString(issueIDStyle.Render(beadID))
-	content.WriteString("\n")
-	if beadTitle != "" {
-		titleStyle := tuiValueStyle.Width(width - detailsPanelPadding)
-		content.WriteString(titleStyle.Render(beadTitle))
+	// Show which issues we're adding
+	if len(selectedBeads) == 1 {
+		content.WriteString(tuiDimStyle.Render("Issue: "))
+		content.WriteString(issueIDStyle.Render(selectedBeads[0].id))
 		content.WriteString("\n")
+		titleStyle := tuiValueStyle.Width(width - detailsPanelPadding)
+		content.WriteString(titleStyle.Render(selectedBeads[0].title))
+		content.WriteString("\n")
+	} else if len(selectedBeads) > 1 {
+		content.WriteString(tuiDimStyle.Render("Issues:\n"))
+		for i, bead := range selectedBeads {
+			if i >= 5 { // Show max 5 beads
+				content.WriteString(tuiDimStyle.Render(fmt.Sprintf("  ... and %d more\n", len(selectedBeads)-5)))
+				break
+			}
+			content.WriteString("  ")
+			content.WriteString(issueIDStyle.Render(bead.id))
+			content.WriteString(": ")
+			titleStyle := tuiValueStyle.Width(width - detailsPanelPadding - len(bead.id) - 4)
+			content.WriteString(titleStyle.Render(bead.title))
+			content.WriteString("\n")
+		}
 	}
 	content.WriteString("\n")
 

@@ -388,3 +388,22 @@ func (m *planModel) addBeadToWork(beadID, workID string) tea.Cmd {
 	}
 }
 
+func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
+	return func() tea.Msg {
+		mainRepoPath := m.proj.MainRepoPath()
+
+		// Use co work add command with multiple bead IDs
+		args := append([]string{"work", "add"}, beadIDs...)
+		args = append(args, "--work="+workID)
+		cmd := exec.Command("co", args...)
+		cmd.Dir = mainRepoPath
+		if err := cmd.Run(); err != nil {
+			beadIDsStr := strings.Join(beadIDs, ", ")
+			return beadAddedToWorkMsg{beadID: beadIDsStr, workID: workID, err: fmt.Errorf("failed to add issues to work: %w", err)}
+		}
+
+		beadIDsStr := strings.Join(beadIDs, ", ")
+		return beadAddedToWorkMsg{beadID: beadIDsStr, workID: workID}
+	}
+}
+

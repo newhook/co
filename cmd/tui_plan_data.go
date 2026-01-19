@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -137,6 +138,38 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 		// Close the bead
 		if err := beads.Close(m.ctx, beadID, mainRepoPath); err != nil {
 			return planDataMsg{err: fmt.Errorf("failed to close issue: %w", err)}
+		}
+
+		// Refresh after close
+		items, err := m.loadBeads()
+		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
+		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
+	}
+}
+
+func (m *planModel) closeBeads(beadIDs []string) tea.Cmd {
+	return func() tea.Msg {
+		mainRepoPath := m.proj.MainRepoPath()
+		session := m.sessionName()
+
+		// First, close any active sessions for these beads
+		for _, beadID := range beadIDs {
+			if m.activeBeadSessions[beadID] {
+				tabName := db.TabNameForBead(beadID)
+				// Terminate and close the tab
+				_ = m.zj.TerminateAndCloseTab(m.ctx, session, tabName)
+				// Unregister from database
+				_ = m.proj.DB.UnregisterPlanSession(m.ctx, beadID)
+			}
+		}
+
+		// Close all beads at once using bd close with multiple IDs
+		cmd := exec.CommandContext(m.ctx, "bd", append([]string{"close"}, beadIDs...)...)
+		if mainRepoPath != "" {
+			cmd.Dir = mainRepoPath
+		}
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return planDataMsg{err: fmt.Errorf("failed to close issues: %w (output: %s)", err, string(output))}
 		}
 
 		// Refresh after close
