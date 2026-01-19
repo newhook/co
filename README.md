@@ -109,6 +109,11 @@ The `.co/config.toml` file stores project settings:
     "MY_VAR=value"
   ]
 
+[linear]
+  # Linear API key for importing issues
+  # Can also be set via LINEAR_API_KEY environment variable
+  api_key = "lin_api_..."
+
 [claude]
   # Whether to run Claude with --dangerously-skip-permissions flag.
   # Defaults to true when not specified.
@@ -118,22 +123,73 @@ The `.co/config.toml` file stores project settings:
   # When set, tasks that exceed this limit will be marked as failed.
   time_limit = 30
 
+  # Maximum execution time for a task in minutes.
+  # Defaults to 60 minutes when not specified.
+  # If time_limit is set and is less than task_timeout_minutes, time_limit takes precedence.
+  task_timeout_minutes = 60
+
 [workflow]
   # Maximum number of review/fix cycles before proceeding to PR.
   # Defaults to 2 when not specified.
   max_review_iterations = 2
+
+[scheduler]
+  # Interval between PR feedback checks in minutes.
+  # Can also be set via CO_PR_FEEDBACK_INTERVAL_MINUTES environment variable.
+  # Defaults to 5 minutes when not specified.
+  pr_feedback_interval_minutes = 5
+
+  # Interval between comment resolution checks in minutes.
+  # Can also be set via CO_COMMENT_RESOLUTION_INTERVAL_MINUTES environment variable.
+  # Defaults to 5 minutes when not specified.
+  comment_resolution_interval_minutes = 5
+
+  # Scheduler polling interval in seconds.
+  # Can also be set via CO_SCHEDULER_POLL_SECONDS environment variable.
+  # Defaults to 1 second when not specified.
+  scheduler_poll_seconds = 1
+
+  # Interval for updating task activity timestamps in seconds.
+  # Can also be set via CO_ACTIVITY_UPDATE_SECONDS environment variable.
+  # Defaults to 30 seconds when not specified.
+  activity_update_seconds = 30
 ```
+
+#### Configuration Details
+
+**`[hooks]`**
 
 The `hooks.env` setting is useful for:
 - Configuring Claude Code to use Vertex AI
 - Setting custom PATH for tools
 - Any environment variables Claude needs
 
-The `claude.skip_permissions` setting controls whether Claude runs with `--dangerously-skip-permissions`. This flag allows Claude to execute commands without prompting for confirmation. Set to `false` if you want Claude to prompt for permission before running commands.
+**`[linear]`**
 
-The `claude.time_limit` setting specifies the maximum duration in minutes for a Claude session. When a task exceeds this limit, it is automatically terminated and marked as failed with a timeout error. This is useful for preventing runaway sessions. Set to `0` or omit to disable the time limit.
+The `linear.api_key` setting provides authentication for Linear integration. This is used by `co linear import` to fetch issues from Linear. The API key can alternatively be set via the `LINEAR_API_KEY` environment variable.
 
-The `workflow.max_review_iterations` setting limits the number of review/fix cycles in automated workflows. The default is 2 iterations. Increase this value if you want Claude to perform more review passes, or decrease it to limit iteration time.
+**`[claude]`**
+
+- `skip_permissions`: Controls whether Claude runs with `--dangerously-skip-permissions`. This flag allows Claude to execute commands without prompting for confirmation. Set to `false` if you want Claude to prompt for permission before running commands. Defaults to `true`.
+
+- `time_limit`: The maximum duration in minutes for a Claude session. When a task exceeds this limit, it is automatically terminated and marked as failed with a timeout error. This is useful for preventing runaway sessions. Set to `0` or omit to disable the time limit.
+
+- `task_timeout_minutes`: The maximum execution time for a task in minutes. Defaults to 60 minutes. If `time_limit` is set and is less than `task_timeout_minutes`, `time_limit` takes precedence.
+
+**`[workflow]`**
+
+The `max_review_iterations` setting limits the number of review/fix cycles in automated workflows. The default is 2 iterations. Increase this value if you want Claude to perform more review passes, or decrease it to limit iteration time.
+
+**`[scheduler]`**
+
+The scheduler section controls timing for background operations during orchestration:
+
+- `pr_feedback_interval_minutes`: How often to check for new PR feedback (CI failures, review comments). Defaults to 5 minutes.
+- `comment_resolution_interval_minutes`: How often to check for resolved feedback that needs GitHub comment updates. Defaults to 5 minutes.
+- `scheduler_poll_seconds`: Internal scheduler polling frequency. Defaults to 1 second.
+- `activity_update_seconds`: How often to update task activity timestamps. Defaults to 30 seconds.
+
+All scheduler settings can be overridden via environment variables (e.g., `CO_PR_FEEDBACK_INTERVAL_MINUTES`).
 
 ## Usage
 
