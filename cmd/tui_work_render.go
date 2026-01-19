@@ -713,6 +713,22 @@ func (m *workModel) renderDetailsPanel(width, height int) string {
 		if wp.work.PRURL != "" {
 			content.WriteString(tuiLabelStyle.Render("PR: "))
 			content.WriteString(tuiValueStyle.Render(wp.work.PRURL))
+
+			// Show feedback count if available
+			if wp.feedbackCount > 0 {
+				content.WriteString("  ")
+				feedbackText := fmt.Sprintf("(%d unresolved)", wp.feedbackCount)
+				content.WriteString(tuiErrorStyle.Render(feedbackText))
+			}
+
+			// Add clickable [Poll Feedback] button
+			content.WriteString("  ")
+			pollButton := "[Poll Feedback]"
+			if m.hoveredButton == "poll-feedback-detail" {
+				content.WriteString(tuiHotkeyStyle.Render(pollButton))
+			} else {
+				content.WriteString(tuiDimStyle.Render(pollButton))
+			}
 			content.WriteString("\n")
 		}
 
@@ -1186,10 +1202,24 @@ func (m *workModel) renderStatusBar() string {
 		vButton := styleButtonWithHover("[v]review", m.hoveredButton == "v")
 		pButton := styleButtonWithHover("[p]r", m.hoveredButton == "p")
 		uButton := styleButtonWithHover("[u]pdate", m.hoveredButton == "u")
+
+		// Add [f]eedback button - only enabled if work has a PR
+		var fButton string
+		hasPR := false
+		if len(m.works) > 0 && m.worksCursor < len(m.works) {
+			wp := m.works[m.worksCursor]
+			hasPR = wp.work.PRURL != ""
+		}
+		if hasPR {
+			fButton = styleButtonWithHover("[f]eedback", m.hoveredButton == "f")
+		} else {
+			fButton = tuiDimStyle.Render("[f]eedback")
+		}
+
 		helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + xButton + " " + tButton + " " + cButton + " " + oButton + " " + vButton + " " + pButton + " " + uButton + " " + helpButton
-		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
+		keys = escButton + " " + rButton + " " + sButton + " " + aButton + " " + nButton + " " + xButton + " " + tButton + " " + cButton + " " + oButton + " " + vButton + " " + pButton + " " + uButton + " " + fButton + " " + helpButton
+		keysPlain = "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [f]eedback [?]help"
 	}
 
 	// Build bar with commands left, status right

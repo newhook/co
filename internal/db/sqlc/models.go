@@ -40,6 +40,37 @@ type PlanSession struct {
 	StartedAt     time.Time `json:"started_at"`
 }
 
+type PrFeedback struct {
+	ID           string         `json:"id"`
+	WorkID       string         `json:"work_id"`
+	PrUrl        string         `json:"pr_url"`
+	FeedbackType string         `json:"feedback_type"`
+	Title        string         `json:"title"`
+	Description  string         `json:"description"`
+	Source       string         `json:"source"`
+	SourceUrl    sql.NullString `json:"source_url"`
+	SourceID     sql.NullString `json:"source_id"`
+	Priority     int64          `json:"priority"`
+	BeadID       sql.NullString `json:"bead_id"`
+	Metadata     string         `json:"metadata"`
+	CreatedAt    time.Time      `json:"created_at"`
+	ProcessedAt  sql.NullTime   `json:"processed_at"`
+	ResolvedAt   sql.NullTime   `json:"resolved_at"`
+}
+
+type Scheduler struct {
+	ID           string         `json:"id"`
+	WorkID       string         `json:"work_id"`
+	TaskType     string         `json:"task_type"`
+	ScheduledAt  time.Time      `json:"scheduled_at"`
+	ExecutedAt   sql.NullTime   `json:"executed_at"`
+	Status       string         `json:"status"`
+	ErrorMessage sql.NullString `json:"error_message"`
+	Metadata     string         `json:"metadata"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+}
+
 type SchemaMigration struct {
 	Version   string       `json:"version"`
 	AppliedAt sql.NullTime `json:"applied_at"`

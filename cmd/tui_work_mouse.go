@@ -10,6 +10,50 @@ import (
 
 // Mouse handling functions
 
+// handleDetailsPanelClick handles clicks in the details panel
+func (m *workModel) handleDetailsPanelClick(x, y int) {
+	if len(m.works) == 0 || m.worksCursor >= len(m.works) {
+		return
+	}
+
+	wp := m.works[m.worksCursor]
+
+	// Check if work has a PR URL to show the Poll Feedback button
+	if wp.work.PRURL == "" {
+		return
+	}
+
+	// The PR line is typically around line 10-15 in the details panel
+	// Check if click is on the [Poll Feedback] button
+	// The button appears after "PR: <url>  " so we check if x position is reasonable
+	if y >= 10 && y <= 20 && x >= 10 && x <= 30 {
+		// Trigger PR feedback polling
+		_ = m.pollPRFeedback()
+	}
+}
+
+// detectDetailsPanelHover detects hover on buttons in the details panel
+func (m *workModel) detectDetailsPanelHover(x, y int) {
+	m.hoveredButton = "" // Reset hover state
+
+	if len(m.works) == 0 || m.worksCursor >= len(m.works) {
+		return
+	}
+
+	wp := m.works[m.worksCursor]
+
+	// Check if work has a PR URL to show the Poll Feedback button
+	if wp.work.PRURL == "" {
+		return
+	}
+
+	// The PR line is typically around line 10-15 in the details panel
+	// Check if hovering over the [Poll Feedback] button area
+	if y >= 10 && y <= 20 && x >= 10 && x <= 30 {
+		m.hoveredButton = "poll-feedback-detail"
+	}
+}
+
 // detectZoomedHover detects which task or unassigned issue is being hovered in zoomed mode
 func (m *workModel) detectZoomedHover(x, y int) {
 	m.hoveredTaskIdx = -1
@@ -86,9 +130,11 @@ func (m *workModel) handleZoomedClick(x, y int) {
 	panelWidth := m.width / 2
 	panelHeight := m.height - 1 - 2
 
-	// Check if click is in the tasks panel (left side)
+	// Check if click is in the tasks panel (left side) or details panel
 	if x >= panelWidth {
-		return // Click was in the details panel
+		// Click was in the details panel - check for Poll Feedback button
+		m.handleDetailsPanelClick(x - panelWidth, y)
+		return
 	}
 
 	// Title is at y=1 (after border at y=0), content starts at y=2
@@ -317,9 +363,9 @@ func (m *workModel) detectStatusBarButton(x int) string {
 			return "?"
 		}
 	} else {
-		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
+		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [f]eedback [?]help"
 
-		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
+		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [f]eedback [?]help"
 
 		rIdx := strings.Index(keysPlain, "[r]un")
 		sIdx := strings.Index(keysPlain, "[s]imple")
@@ -332,6 +378,7 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		vIdx := strings.Index(keysPlain, "[v]review")
 		pIdx := strings.Index(keysPlain, "[p]r")
 		uIdx := strings.Index(keysPlain, "[u]pdate")
+		fIdx := strings.Index(keysPlain, "[f]eedback")
 		helpIdx := strings.Index(keysPlain, "[?]help")
 
 		if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]un") {
@@ -366,6 +413,9 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		}
 		if uIdx >= 0 && x >= uIdx && x < uIdx+len("[u]pdate") {
 			return "u"
+		}
+		if fIdx >= 0 && x >= fIdx && x < fIdx+len("[f]eedback") {
+			return "f"
 		}
 		if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]help") {
 			return "?"

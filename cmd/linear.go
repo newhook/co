@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -83,7 +82,7 @@ func init() {
 }
 
 func runLinearImport(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := GetContext()
 
 	// Get API key from flag, environment, or config
 	apiKey := linearAPIKey

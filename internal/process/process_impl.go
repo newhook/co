@@ -3,6 +3,7 @@ package process
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -82,7 +83,8 @@ func killProcessByPattern(ctx context.Context, pattern string) error {
 	err = cmd.Run()
 	if err != nil {
 		// Check if the error is because no processes were found (exit code 1)
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			if exitErr.ExitCode() == 1 {
 				// No processes matched, this is not an error
 				return nil

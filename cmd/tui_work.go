@@ -274,7 +274,15 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.hoveredWorkerIdx = -1
 					m.hoveredBeadIdx = -1
-					m.detectZoomedHover(msg.X, msg.Y)
+					// Check which panel we're hovering over
+					panelWidth1 := m.width * 40 / 100 // Tasks panel is 40% width
+					if msg.X >= panelWidth1 {
+						// Hovering over details panel
+						m.detectDetailsPanelHover(msg.X - panelWidth1, msg.Y)
+					} else {
+						// Hovering over tasks panel
+						m.detectZoomedHover(msg.X, msg.Y)
+					}
 				}
 			}
 			return m, nil
@@ -363,6 +371,12 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Update PR description
 					if canActOnWork && len(m.works) > 0 {
 						return m, m.updatePRDescriptionTask()
+					}
+					return m, nil
+				case "f":
+					// Poll PR feedback
+					if canActOnWork && len(m.works) > 0 {
+						return m, m.pollPRFeedback()
 					}
 					return m, nil
 				case "?":
@@ -597,6 +611,12 @@ func (m *workModel) updateOverviewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.updatePRDescriptionTask()
 			}
 			return m, nil
+		case "f":
+			// Poll PR feedback
+			if len(m.works) > 0 {
+				return m, m.pollPRFeedback()
+			}
+			return m, nil
 		case "t":
 			// Open console tab for selected work
 			if len(m.works) > 0 {
@@ -703,6 +723,13 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "R":
+		// Reset failed task (Shift+R) - only in task panel in zoomed mode
+		if m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle {
+			return m, m.resetTask()
+		}
+		return m, nil
+
 	case "o":
 		// Restart orchestrator for selected work (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
@@ -752,6 +779,13 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
 		if canActOnWork && len(m.works) > 0 {
 			return m, m.updatePRDescriptionTask()
+		}
+
+	case "f":
+		// Poll PR feedback
+		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)
+		if canActOnWork && len(m.works) > 0 {
+			return m, m.pollPRFeedback()
 		}
 
 	case "c":

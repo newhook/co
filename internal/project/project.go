@@ -237,15 +237,6 @@ func (p *Project) WorktreePath(taskID string) string {
 	return filepath.Join(p.Root, taskID)
 }
 
-// OpenDB returns the project's tracking database.
-// Deprecated: Use proj.DB directly instead. The database is opened automatically by Find().
-func (p *Project) OpenDB() (*db.DB, error) {
-	if p.DB == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-	return p.DB, nil
-}
-
 // Close closes any open resources (like the database).
 func (p *Project) Close() error {
 	if p.DB != nil {

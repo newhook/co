@@ -171,3 +171,48 @@ CREATE TABLE plan_sessions (
 );
 
 CREATE INDEX idx_plan_sessions_zellij_session ON plan_sessions(zellij_session);
+
+-- PR Feedback table: tracks feedback from PRs (comments, CI failures, etc.)
+CREATE TABLE pr_feedback (
+    id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL,
+    pr_url TEXT NOT NULL,
+    feedback_type TEXT NOT NULL, -- ci_failure, test_failure, lint_error, build_error, review_comment, security_issue, general
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    source TEXT NOT NULL, -- e.g., "CI: test-suite", "Review: johndoe"
+    source_url TEXT,
+    source_id TEXT, -- GitHub comment/check ID for resolution tracking
+    priority INTEGER NOT NULL DEFAULT 2, -- 0-4 (0=critical, 4=backlog)
+    bead_id TEXT, -- ID of the bead created from this feedback (null if not created yet)
+    metadata TEXT NOT NULL DEFAULT '{}', -- JSON metadata
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processed_at DATETIME, -- When the feedback was processed to create a bead
+    resolved_at DATETIME, -- When the feedback was resolved on GitHub
+    FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_pr_feedback_work_id ON pr_feedback(work_id);
+CREATE INDEX idx_pr_feedback_bead_id ON pr_feedback(bead_id);
+CREATE INDEX idx_pr_feedback_processed ON pr_feedback(processed_at);
+CREATE INDEX idx_pr_feedback_resolution ON pr_feedback(bead_id, resolved_at);
+
+-- Scheduler table: manages scheduled tasks like PR feedback checks
+CREATE TABLE scheduler (
+    id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL,
+    task_type TEXT NOT NULL, -- 'pr_feedback', 'comment_resolution', etc.
+    scheduled_at DATETIME NOT NULL,
+    executed_at DATETIME,
+    status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'executing', 'completed', 'failed'
+    error_message TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}', -- JSON metadata
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_scheduler_work_id ON scheduler(work_id);
+CREATE INDEX idx_scheduler_status ON scheduler(status);
+CREATE INDEX idx_scheduler_scheduled_at ON scheduler(scheduled_at);
+CREATE INDEX idx_scheduler_task_type ON scheduler(work_id, task_type);

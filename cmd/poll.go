@@ -57,6 +57,7 @@ type workProgress struct {
 	workBeads           []beadProgress // all beads assigned to this work
 	unassignedBeads     []beadProgress // beads in work but not assigned to any task
 	unassignedBeadCount int
+	feedbackCount       int // count of unresolved PR feedback items
 }
 
 // taskProgress holds progress info for a task (used by tui.go)
@@ -230,6 +231,12 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 			}
 			wp.unassignedBeads = append(wp.unassignedBeads, bp)
 		}
+	}
+
+	// Get feedback count for this work
+	feedbackCount, err := proj.DB.CountUnresolvedFeedbackForWork(ctx, work.ID)
+	if err == nil {
+		wp.feedbackCount = feedbackCount
 	}
 
 	return wp, nil
