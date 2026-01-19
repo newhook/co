@@ -599,6 +599,10 @@ func (m *planModel) renderWorkOverlay() string {
 
 // truncateString truncates a string to the specified length
 func truncateString(s string, maxLen int) string {
+	// Handle negative maxLen values
+	if maxLen < 0 {
+		return ""
+	}
 	if len(s) <= maxLen {
 		return s
 	}
