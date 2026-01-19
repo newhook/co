@@ -9,7 +9,6 @@ import (
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
-	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
 	"github.com/newhook/co/internal/worktree"
@@ -251,8 +250,10 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 			return 0, fmt.Errorf("failed to plan beads: %w", err)
 		}
 	} else {
-		// Use existing group assignments from work_beads
-		taskGroups = groupBeadsByWorkBeadGroup(unassigned)
+		// Each bead becomes its own task
+		for _, wb := range unassigned {
+			taskGroups = append(taskGroups, []string{wb.BeadID})
+		}
 	}
 
 	// Create tasks from groups
@@ -278,17 +279,6 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 	}
 
 	return tasksCreated, nil
-}
-
-// groupBeadsByWorkBeadGroup returns each bead as its own task group.
-// Grouping support has been removed - use --plan to let the LLM group beads
-// intelligently based on complexity.
-func groupBeadsByWorkBeadGroup(workBeads []*db.WorkBead) [][]string {
-	var result [][]string
-	for _, wb := range workBeads {
-		result = append(result, []string{wb.BeadID})
-	}
-	return result
 }
 
 // planBeadsWithComplexity uses LLM complexity estimation to group beads.
