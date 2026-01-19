@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -163,13 +162,11 @@ func (m *planModel) closeBeads(beadIDs []string) tea.Cmd {
 			}
 		}
 
-		// Close all beads at once using bd close with multiple IDs
-		cmd := exec.CommandContext(m.ctx, "bd", append([]string{"close"}, beadIDs...)...)
-		if mainRepoPath != "" {
-			cmd.Dir = mainRepoPath
-		}
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return planDataMsg{err: fmt.Errorf("failed to close issues: %w (output: %s)", err, string(output))}
+		// Close all beads using the beads package
+		for _, beadID := range beadIDs {
+			if err := beads.Close(m.ctx, beadID, mainRepoPath); err != nil {
+				return planDataMsg{err: fmt.Errorf("failed to close issue %s: %w", beadID, err)}
+			}
 		}
 
 		// Refresh after close
