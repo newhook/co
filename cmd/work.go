@@ -211,7 +211,6 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 			groupIssues = append(groupIssues, &issueCopy)
 		}
 	}
-	beadGroups := []beadGroup{{issueIDs: expandedIssueIDs}}
 
 	// Determine branch name
 	var branchName string
@@ -287,7 +286,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add beads to work_beads
-	if err := addBeadsToWork(ctx, proj, workID, beadGroups); err != nil {
+	if err := addBeadsToWork(ctx, proj, workID, expandedIssueIDs); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to add beads to work: %w", err)
@@ -330,18 +329,11 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// beadGroup represents a collection of bead IDs.
-// Grouping semantics have been removed - all beads in a group
-// are added to the work individually.
-type beadGroup struct {
-	issueIDs []string
-}
-
-// parseBeadGroups parses positional args into beads.
+// parseBeadArgs parses positional args into bead IDs.
 // Both commas and spaces are treated as separators.
 // Epics are expanded to their child beads.
 // Returns an error if duplicate bead IDs are found.
-func parseBeadGroups(ctx context.Context, args []string, beadsClient *beads.Client) ([]beadGroup, error) {
+func parseBeadArgs(ctx context.Context, args []string, beadsClient *beads.Client) ([]string, error) {
 	seenBeads := make(map[string]bool)
 	var allIssueIDs []string
 
@@ -369,12 +361,7 @@ func parseBeadGroups(ctx context.Context, args []string, beadsClient *beads.Clie
 		}
 	}
 
-	if len(allIssueIDs) == 0 {
-		return nil, nil
-	}
-
-	// Return all beads in a single group (grouping is no longer meaningful)
-	return []beadGroup{{issueIDs: allIssueIDs}}, nil
+	return allIssueIDs, nil
 }
 
 // promptForBranchName prompts the user to accept or customize the branch name.
@@ -405,23 +392,14 @@ func promptForBranchName(proposed string) (string, error) {
 }
 
 // addBeadsToWork adds beads to work_beads table.
-func addBeadsToWork(ctx context.Context, proj *project.Project, workID string, groups []beadGroup) error {
-	for _, group := range groups {
-		// Add beads to work
-		if err := proj.DB.AddWorkBeads(ctx, workID, group.issueIDs); err != nil {
-			return fmt.Errorf("failed to add beads: %w", err)
-		}
+func addBeadsToWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) error {
+	if len(beadIDs) == 0 {
+		return nil
+	}
+	if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs); err != nil {
+		return fmt.Errorf("failed to add beads: %w", err)
 	}
 	return nil
-}
-
-// countBeadsInGroups counts total beads across all groups.
-func countBeadsInGroups(groups []beadGroup) int {
-	count := 0
-	for _, g := range groups {
-		count += len(g.issueIDs)
-	}
-	return count
 }
 
 // AddBeadsToWorkResult contains the result of adding beads to a work.
@@ -671,35 +649,33 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("work %s not found", workID)
 	}
 
-	// Parse bead groups
-	beadGroups, err := parseBeadGroups(ctx, args, proj.Beads)
+	// Parse bead IDs from args
+	beadIDs, err := parseBeadArgs(ctx, args, proj.Beads)
 	if err != nil {
 		return err
 	}
 
-	if len(beadGroups) == 0 {
+	if len(beadIDs) == 0 {
 		return fmt.Errorf("no beads specified")
 	}
 
 	// Check if any bead is already in a task
-	for _, group := range beadGroups {
-		for _, beadID := range group.issueIDs {
-			inTask, err := proj.DB.IsBeadInTask(ctx, workID, beadID)
-			if err != nil {
-				return fmt.Errorf("failed to check bead %s: %w", beadID, err)
-			}
-			if inTask {
-				return fmt.Errorf("bead %s is already assigned to a task", beadID)
-			}
+	for _, beadID := range beadIDs {
+		inTask, err := proj.DB.IsBeadInTask(ctx, workID, beadID)
+		if err != nil {
+			return fmt.Errorf("failed to check bead %s: %w", beadID, err)
+		}
+		if inTask {
+			return fmt.Errorf("bead %s is already assigned to a task", beadID)
 		}
 	}
 
 	// Add beads to work
-	if err := addBeadsToWork(ctx, proj, workID, beadGroups); err != nil {
+	if err := addBeadsToWork(ctx, proj, workID, beadIDs); err != nil {
 		return fmt.Errorf("failed to add beads: %w", err)
 	}
 
-	fmt.Printf("Added %d bead(s) to work %s\n", countBeadsInGroups(beadGroups), workID)
+	fmt.Printf("Added %d bead(s) to work %s\n", len(beadIDs), workID)
 	return nil
 }
 

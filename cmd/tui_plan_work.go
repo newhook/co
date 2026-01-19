@@ -309,9 +309,6 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("no beads found for %v", beadIDs)}
 		}
 
-		// All selected beads go into one group (like comma-separated on CLI)
-		beadGroups := []beadGroup{{issueIDs: allIssueIDs}}
-
 		// Create work with branch name (silent to avoid console output in TUI)
 		// The first bead becomes the root issue ID
 		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", firstBeadID, WorkCreateOptions{Silent: true})
@@ -320,7 +317,7 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 		}
 
 		// Add beads to the work
-		if err := addBeadsToWork(m.ctx, m.proj, result.WorkID, beadGroups); err != nil {
+		if err := addBeadsToWork(m.ctx, m.proj, result.WorkID, allIssueIDs); err != nil {
 			// Work was created but beads couldn't be added - don't fail completely
 			return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
 		}
