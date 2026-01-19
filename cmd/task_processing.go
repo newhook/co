@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
@@ -15,7 +14,6 @@ import (
 // buildPromptForTask builds the appropriate prompt for a task based on its type.
 // This centralizes prompt building logic for different task types.
 func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Task, work *db.Work) (string, error) {
-	mainRepoPath := proj.MainRepoPath()
 	baseBranch := work.BaseBranch
 	if baseBranch == "" {
 		baseBranch = "main"
@@ -23,14 +21,14 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 
 	switch task.TaskType {
 	case "estimate":
-		issues, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
+		issues, err := getBeadsForTask(ctx, proj, task.ID)
 		if err != nil {
 			return "", err
 		}
 		return claude.BuildEstimatePrompt(task.ID, issues), nil
 
 	case "implement":
-		issues, err := getBeadsForTask(ctx, proj, task.ID, mainRepoPath)
+		issues, err := getBeadsForTask(ctx, proj, task.ID)
 		if err != nil {
 			return "", err
 		}
@@ -54,22 +52,14 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 }
 
 // getBeadsForTask retrieves the beads associated with a task.
-func getBeadsForTask(ctx context.Context, proj *project.Project, taskID, mainRepoPath string) ([]beads.Bead, error) {
+func getBeadsForTask(ctx context.Context, proj *project.Project, taskID string) ([]beads.Bead, error) {
 	beadIDs, err := proj.DB.GetTaskBeads(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task beads: %w", err)
 	}
 
-	// Create beads client
-	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer beadsClient.Close()
-
 	// Get beads with dependencies
-	result, err := beadsClient.GetBeadsWithDeps(ctx, beadIDs)
+	result, err := proj.Beads.GetBeadsWithDeps(ctx, beadIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get beads: %w", err)
 	}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -185,7 +184,7 @@ func (m tuiModel) fetchData() tea.Cmd {
 		}
 
 		// Fetch beads with filters
-		beadItems, err := fetchBeadsWithFilters(m.ctx, m.proj.MainRepoPath(), m.filters)
+		beadItems, err := fetchBeadsWithFilters(m.ctx, m.proj.Beads, m.proj.MainRepoPath(), m.filters)
 		if err != nil {
 			return tuiDataMsg{works: works, err: err}
 		}
@@ -194,19 +193,11 @@ func (m tuiModel) fetchData() tea.Cmd {
 	}
 }
 
-func fetchBeadsWithFilters(ctx context.Context, dir string, filters beadFilters) ([]beadItem, error) {
+func fetchBeadsWithFilters(ctx context.Context, beadsClient *beads.Client, mainRepoPath string, filters beadFilters) ([]beadItem, error) {
 	// For "ready" status, use bd ready command
 	if filters.status == "ready" {
-		return fetchReadyBeads(ctx, dir, filters)
+		return fetchReadyBeads(ctx, beadsClient, filters)
 	}
-
-	// Create beads client
-	beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
-	client, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer client.Close()
 
 	// List issues with optional status filter
 	// "open" means all non-closed statuses (open, in_progress, blocked, deferred)
@@ -221,7 +212,7 @@ func fetchBeadsWithFilters(ctx context.Context, dir string, filters beadFilters)
 	} else if filters.status != "" && filters.status != "all" {
 		statusFilter = filters.status
 	}
-	issuesList, err := client.ListBeads(ctx, statusFilter)
+	issuesList, err := beadsClient.ListBeads(ctx, statusFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +231,7 @@ func fetchBeadsWithFilters(ctx context.Context, dir string, filters beadFilters)
 	// TODO: Apply label filter if needed (requires additional query support)
 
 	// Get ready issues to mark which ones are ready
-	readyIssues, _ := client.GetReadyBeads(ctx)
+	readyIssues, _ := beadsClient.GetReadyBeads(ctx)
 	readySet := make(map[string]bool)
 	for _, issue := range readyIssues {
 		readySet[issue.ID] = true
@@ -251,7 +242,7 @@ func fetchBeadsWithFilters(ctx context.Context, dir string, filters beadFilters)
 	for _, issue := range issuesList {
 		issueIDs = append(issueIDs, issue.ID)
 	}
-	depsResult, err := client.GetBeadsWithDeps(ctx, issueIDs)
+	depsResult, err := beadsClient.GetBeadsWithDeps(ctx, issueIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -287,17 +278,9 @@ func fetchBeadsWithFilters(ctx context.Context, dir string, filters beadFilters)
 	return items, nil
 }
 
-func fetchReadyBeads(ctx context.Context, dir string, filters beadFilters) ([]beadItem, error) {
-	// Create beads client
-	beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
-	client, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer client.Close()
-
+func fetchReadyBeads(ctx context.Context, beadsClient *beads.Client, filters beadFilters) ([]beadItem, error) {
 	// Get ready issues
-	readyIssues, err := client.GetReadyBeads(ctx)
+	readyIssues, err := beadsClient.GetReadyBeads(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +290,7 @@ func fetchReadyBeads(ctx context.Context, dir string, filters beadFilters) ([]be
 	for _, issue := range readyIssues {
 		issueIDs = append(issueIDs, issue.ID)
 	}
-	depsResult, err := client.GetBeadsWithDeps(ctx, issueIDs)
+	depsResult, err := beadsClient.GetBeadsWithDeps(ctx, issueIDs)
 	if err != nil {
 		return nil, err
 	}

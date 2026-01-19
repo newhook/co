@@ -24,7 +24,7 @@ func (m *workModel) refreshData() tea.Cmd {
 		}
 
 		// Also fetch beads for potential assignment
-		beads, _ := fetchBeadsWithFilters(m.ctx, m.proj.MainRepoPath(), beadFilters{status: "ready"})
+		beads, _ := fetchBeadsWithFilters(m.ctx, m.proj.Beads, m.proj.MainRepoPath(), beadFilters{status: "ready"})
 
 		return workDataMsg{works: works, beads: beads}
 	}
@@ -32,7 +32,7 @@ func (m *workModel) refreshData() tea.Cmd {
 
 func (m *workModel) loadBeadsForAssign() tea.Cmd {
 	return func() tea.Msg {
-		beads, err := fetchBeadsWithFilters(m.ctx, m.proj.MainRepoPath(), beadFilters{status: "ready"})
+		beads, err := fetchBeadsWithFilters(m.ctx, m.proj.Beads, m.proj.MainRepoPath(), beadFilters{status: "ready"})
 		if err != nil {
 			return workDataMsg{err: err}
 		}

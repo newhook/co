@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
@@ -222,14 +221,6 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 
 	fmt.Fprintf(w, "\nFound %d unassigned bead(s)\n", len(unassigned))
 
-	// Create beads client
-	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return 0, fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer beadsClient.Close()
-
 	// Collect bead IDs from unassigned work_beads
 	beadIDs := make([]string, len(unassigned))
 	for i, wb := range unassigned {
@@ -237,7 +228,7 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 	}
 
 	// Get all issues with dependencies in one call
-	issuesResult, err := beadsClient.GetBeadsWithDeps(ctx, beadIDs)
+	issuesResult, err := proj.Beads.GetBeadsWithDeps(ctx, beadIDs)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get bead details: %w", err)
 	}

@@ -293,13 +293,12 @@ func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) s
 // This calls internal logic directly instead of shelling out to the CLI.
 func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
-		mainRepoPath := m.proj.MainRepoPath()
 		firstBeadID := beadIDs[0]
 
 		// Expand all beads (handles epics and transitive deps)
 		var allIssueIDs []string
 		for _, beadID := range beadIDs {
-			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, mainRepoPath)
+			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
 			if err != nil {
 				return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
 			}
@@ -364,8 +363,8 @@ func (m *planModel) loadAvailableWorks() tea.Cmd {
 					rootIssueID: w.RootIssueID,
 				}
 				// Try to get the root issue title from beads cache
-				if w.RootIssueID != "" && m.beadsClient != nil {
-					if bead, err := m.beadsClient.GetBead(m.ctx, w.RootIssueID); err == nil {
+				if w.RootIssueID != "" && m.proj.Beads != nil {
+					if bead, err := m.proj.Beads.GetBead(m.ctx, w.RootIssueID); err == nil {
 						item.rootIssueTitle = bead.Title
 					}
 				}
