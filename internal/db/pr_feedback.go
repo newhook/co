@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/newhook/co/internal/github"
 )
 
 // PRFeedback represents a piece of feedback from a PR.
@@ -31,18 +30,18 @@ type PRFeedback struct {
 }
 
 // CreatePRFeedback creates a new PR feedback record.
-func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL string, item github.FeedbackItem) (*PRFeedback, error) {
+func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL, feedbackType, title, description, source, sourceURL string, priority int, metadata map[string]string) (*PRFeedback, error) {
 	id := uuid.New().String()
 
 	// Convert metadata to JSON
-	metadataJSON, err := json.Marshal(item.Context)
+	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
 	// Get source_id from metadata if present
 	var sourceID *string
-	if sid, ok := item.Context["source_id"]; ok && sid != "" {
+	if sid, ok := metadata["source_id"]; ok && sid != "" {
 		sourceID = &sid
 	}
 
@@ -54,8 +53,8 @@ func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL string, item g
 	`
 
 	_, err = db.DB.ExecContext(ctx, query,
-		id, workID, prURL, string(item.Type), item.Title, item.Description,
-		item.Source, item.SourceURL, sourceID, item.Priority, string(metadataJSON),
+		id, workID, prURL, feedbackType, title, description,
+		source, sourceURL, sourceID, priority, string(metadataJSON),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PR feedback: %w", err)
@@ -65,13 +64,14 @@ func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL string, item g
 		ID:           id,
 		WorkID:       workID,
 		PRURL:        prURL,
-		FeedbackType: string(item.Type),
-		Title:        item.Title,
-		Description:  item.Description,
-		Source:       item.Source,
-		SourceURL:    item.SourceURL,
-		Priority:     item.Priority,
-		Metadata:     item.Context,
+		FeedbackType: feedbackType,
+		Title:        title,
+		Description:  description,
+		Source:       source,
+		SourceURL:    sourceURL,
+		SourceID:     sourceID,
+		Priority:     priority,
+		Metadata:     metadata,
 		CreatedAt:    time.Now(),
 	}, nil
 }
@@ -288,26 +288,72 @@ func (db *DB) GetUnresolvedFeedbackForClosedBeads(ctx context.Context, workID st
 	return feedbacks, rows.Err()
 }
 
+// GetUnresolvedFeedbackForBeads returns feedback items for specific beads that are not yet resolved on GitHub.
+func (db *DB) GetUnresolvedFeedbackForBeads(ctx context.Context, beadIDs []string) ([]PRFeedback, error) {
+	if len(beadIDs) == 0 {
+		return nil, nil
+	}
+
+	// Convert string slice to sql.NullString slice for sqlc
+	nullBeadIDs := make([]sql.NullString, len(beadIDs))
+	for i, beadID := range beadIDs {
+		nullBeadIDs[i] = sql.NullString{String: beadID, Valid: true}
+	}
+
+	// Use sqlc generated query
+	feedbacks, err := db.queries.GetUnresolvedFeedbackForBeads(ctx, nullBeadIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unresolved feedback for beads: %w", err)
+	}
+
+	// Convert sqlc PrFeedback to our PRFeedback struct
+	result := make([]PRFeedback, len(feedbacks))
+	for i, f := range feedbacks {
+		result[i] = PRFeedback{
+			ID:           f.ID,
+			WorkID:       f.WorkID,
+			PRURL:        f.PrUrl,
+			FeedbackType: f.FeedbackType,
+			Title:        f.Title,
+			Description:  f.Description,
+			Source:       f.Source,
+			SourceURL:    f.SourceUrl.String,
+			Priority:     int(f.Priority),
+			CreatedAt:    f.CreatedAt,
+		}
+
+		if f.SourceID.Valid {
+			result[i].SourceID = &f.SourceID.String
+		}
+		if f.BeadID.Valid {
+			result[i].BeadID = &f.BeadID.String
+		}
+		if f.ProcessedAt.Valid {
+			result[i].ProcessedAt = &f.ProcessedAt.Time
+		}
+		if f.ResolvedAt.Valid {
+			result[i].ResolvedAt = &f.ResolvedAt.Time
+		}
+
+		// Parse metadata JSON
+		if f.Metadata != "" && f.Metadata != "{}" {
+			if err := json.Unmarshal([]byte(f.Metadata), &result[i].Metadata); err != nil {
+				result[i].Metadata = make(map[string]string)
+			}
+		} else {
+			result[i].Metadata = make(map[string]string)
+		}
+	}
+
+	return result, nil
+}
+
 // MarkFeedbackResolved marks feedback as resolved on GitHub.
 func (db *DB) MarkFeedbackResolved(ctx context.Context, feedbackID string) error {
-	query := `
-		UPDATE pr_feedback
-		SET resolved_at = ?
-		WHERE id = ?
-	`
-
-	result, err := db.DB.ExecContext(ctx, query, time.Now(), feedbackID)
+	// Use sqlc generated method
+	err := db.queries.MarkPRFeedbackResolved(ctx, feedbackID)
 	if err != nil {
 		return fmt.Errorf("failed to mark feedback as resolved: %w", err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rows == 0 {
-		return fmt.Errorf("feedback %s not found", feedbackID)
 	}
 
 	return nil

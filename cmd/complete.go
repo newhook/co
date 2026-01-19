@@ -69,6 +69,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 		}
 		defer beadsClient.Close()
 
+		var closedBeadIDs []string
 		for _, beadID := range beadIDs {
 			// Check actual bead status in the beads system
 			bead, err := beadsClient.GetBead(ctx, beadID)
@@ -85,6 +86,8 @@ func runComplete(cmd *cobra.Command, args []string) error {
 			if bead.Status == "closed" {
 				if err := proj.DB.CompleteTaskBead(ctx, id, beadID); err != nil {
 					fmt.Printf("Warning: failed to mark bead %s as completed: %v\n", beadID, err)
+				} else {
+					closedBeadIDs = append(closedBeadIDs, beadID)
 				}
 			}
 		}
@@ -98,6 +101,19 @@ func runComplete(cmd *cobra.Command, args []string) error {
 			fmt.Printf(" (PR: %s)", flagCompletePRURL)
 		}
 		fmt.Println()
+
+		// Resolve GitHub comments for closed beads
+		if len(closedBeadIDs) > 0 {
+			// Extract work ID from task ID (e.g., "w-xxx.1" -> "w-xxx")
+			parts := strings.Split(id, ".")
+			if len(parts) >= 1 {
+				workID := parts[0]
+				// Resolve feedback comments immediately
+				if err := ResolveFeedbackForBeads(ctx, proj.DB, beadsClient, workID, closedBeadIDs); err != nil {
+					fmt.Printf("Warning: failed to resolve GitHub comments: %v\n", err)
+				}
+			}
+		}
 
 		// Close any epics whose children are all complete
 		if err := beads.CloseEligibleEpicsInDir(ctx, mainRepoPath); err != nil {
@@ -133,6 +149,26 @@ func runComplete(cmd *cobra.Command, args []string) error {
 				fmt.Printf(" (PR: %s)", flagCompletePRURL)
 			}
 			fmt.Println()
+
+			// Resolve GitHub comments for all beads in the task
+			taskBeadIDs, err := proj.DB.GetTaskBeads(ctx, taskID)
+			if err == nil && len(taskBeadIDs) > 0 {
+				// Extract work ID from task ID (e.g., "w-xxx.1" -> "w-xxx")
+				parts := strings.Split(taskID, ".")
+				if len(parts) >= 1 {
+					workID := parts[0]
+					// Initialize beads client if not already done
+					mainRepoPath := proj.MainRepoPath()
+					beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
+					beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+					if err == nil {
+						defer beadsClient.Close()
+						if err := ResolveFeedbackForBeads(ctx, proj.DB, beadsClient, workID, taskBeadIDs); err != nil {
+							fmt.Printf("Warning: failed to resolve GitHub comments: %v\n", err)
+						}
+					}
+				}
+			}
 
 			// Close any epics whose children are all complete
 			if err := beads.CloseEligibleEpicsInDir(ctx, proj.MainRepoPath()); err != nil {

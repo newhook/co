@@ -6,6 +6,7 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 type Querier interface {
@@ -21,10 +22,13 @@ type Querier interface {
 	CountEstimatedBeads(ctx context.Context, beadIds []string) (int64, error)
 	CountTaskBeadStatuses(ctx context.Context, taskID string) (CountTaskBeadStatusesRow, error)
 	CreateMigrationsTable(ctx context.Context) error
+	CreatePRFeedback(ctx context.Context, arg CreatePRFeedbackParams) error
 	CreateTask(ctx context.Context, arg CreateTaskParams) error
 	CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error
 	CreateWork(ctx context.Context, arg CreateWorkParams) error
 	DeleteMigration(ctx context.Context, version string) error
+	DeletePRFeedback(ctx context.Context, id string) error
+	DeletePRFeedbackForWork(ctx context.Context, workID string) error
 	DeleteTask(ctx context.Context, id string) (int64, error)
 	DeleteTaskBeadsByTask(ctx context.Context, taskID string) (int64, error)
 	DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error)
@@ -56,6 +60,8 @@ type Querier interface {
 	GetLastWorkID(ctx context.Context) (string, error)
 	GetMaxWorkBeadPosition(ctx context.Context, workID string) (int64, error)
 	GetMigrationDownSQL(ctx context.Context, version string) (GetMigrationDownSQLRow, error)
+	GetPRFeedback(ctx context.Context, id string) (PrFeedback, error)
+	GetPRFeedbackByBead(ctx context.Context, beadID sql.NullString) (PrFeedback, error)
 	GetReadyTasksForWork(ctx context.Context, workID string) ([]GetReadyTasksForWorkRow, error)
 	GetTask(ctx context.Context, id string) (GetTaskRow, error)
 	GetTaskBeadStatus(ctx context.Context, arg GetTaskBeadStatusParams) (string, error)
@@ -66,12 +72,15 @@ type Querier interface {
 	GetTaskMetadata(ctx context.Context, arg GetTaskMetadataParams) (string, error)
 	GetTasksWithActivity(ctx context.Context) ([]Task, error)
 	GetUnassignedWorkBeads(ctx context.Context, workID string) ([]WorkBead, error)
+	GetUnresolvedFeedbackForBeads(ctx context.Context, beadIds []sql.NullString) ([]PrFeedback, error)
+	GetUnresolvedFeedbackForWork(ctx context.Context, workID string) ([]PrFeedback, error)
 	GetWork(ctx context.Context, id string) (Work, error)
 	GetWorkBeadGroups(ctx context.Context, workID string) ([]int64, error)
 	GetWorkBeads(ctx context.Context, workID string) ([]WorkBead, error)
 	GetWorkBeadsByGroup(ctx context.Context, arg GetWorkBeadsByGroupParams) ([]WorkBead, error)
 	GetWorkByDirectory(ctx context.Context, worktreePath string) (Work, error)
 	GetWorkTasks(ctx context.Context, workID string) ([]GetWorkTasksRow, error)
+	HasExistingFeedback(ctx context.Context, arg HasExistingFeedbackParams) (int64, error)
 	HasPendingDependencies(ctx context.Context, taskID string) (bool, error)
 	InitializeBeadGroupCounter(ctx context.Context, workID string) error
 	InitializeTaskCounter(ctx context.Context, workID string) error
@@ -80,10 +89,14 @@ type Querier interface {
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)
 	ListMigrationVersions(ctx context.Context) ([]string, error)
 	ListMigrationsWithDetails(ctx context.Context) ([]ListMigrationsWithDetailsRow, error)
+	ListPRFeedback(ctx context.Context, workID string) ([]PrFeedback, error)
 	ListTasks(ctx context.Context) ([]ListTasksRow, error)
 	ListTasksByStatus(ctx context.Context, status string) ([]ListTasksByStatusRow, error)
+	ListUnprocessedPRFeedback(ctx context.Context, workID string) ([]PrFeedback, error)
 	ListWorks(ctx context.Context) ([]Work, error)
 	ListWorksByStatus(ctx context.Context, status string) ([]Work, error)
+	MarkPRFeedbackProcessed(ctx context.Context, arg MarkPRFeedbackProcessedParams) error
+	MarkPRFeedbackResolved(ctx context.Context, id string) error
 	RecordMigration(ctx context.Context, version string) error
 	RecordMigrationWithDown(ctx context.Context, arg RecordMigrationWithDownParams) error
 	RemoveWorkBead(ctx context.Context, arg RemoveWorkBeadParams) (int64, error)

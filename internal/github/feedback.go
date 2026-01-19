@@ -214,28 +214,31 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 			items = append(items, item)
 		}
 
-		// Process specific review comments
+		// Process specific review comments - ALL review comments are considered actionable
 		for _, comment := range review.Comments {
-			if p.isActionableComment(comment.Body) {
-				item := FeedbackItem{
-					Type:        FeedbackTypeReview,
-					Title:       fmt.Sprintf("Fix issue in %s (line %d)", p.getFileName(comment.Path), comment.Line),
-					Description: p.truncateText(comment.Body, 300),
-					Source:      fmt.Sprintf("Review: %s", comment.Author),
-					SourceURL:   status.URL,
-					Priority:    2, // Medium priority for line comments
-					Actionable:  true,
-					Context: map[string]string{
-						"file":       comment.Path,
-						"line":       fmt.Sprintf("%d", comment.Line),
-						"reviewer":   comment.Author,
-						"comment_id": fmt.Sprintf("%d", comment.ID),
-						"source_id":  fmt.Sprintf("%d", comment.ID), // Store comment ID as source_id for resolution tracking
-					},
-				}
-
-				items = append(items, item)
+			// Skip only trivial comments like "LGTM", "looks good", etc.
+			if p.isTrivialComment(comment.Body) {
+				continue
 			}
+
+			item := FeedbackItem{
+				Type:        FeedbackTypeReview,
+				Title:       fmt.Sprintf("Fix issue in %s (line %d)", p.getFileName(comment.Path), comment.Line),
+				Description: p.truncateText(comment.Body, 300),
+				Source:      fmt.Sprintf("Review: %s", comment.Author),
+				SourceURL:   status.URL,
+				Priority:    2, // Medium priority for line comments
+				Actionable:  true,
+				Context: map[string]string{
+					"file":       comment.Path,
+					"line":       fmt.Sprintf("%d", comment.Line),
+					"reviewer":   comment.Author,
+					"comment_id": fmt.Sprintf("%d", comment.ID),
+					"source_id":  fmt.Sprintf("%d", comment.ID), // Store comment ID as source_id for resolution tracking
+				},
+			}
+
+			items = append(items, item)
 		}
 	}
 
@@ -377,6 +380,39 @@ func (p *FeedbackProcessor) isActionableComment(body string) bool {
 		if strings.Contains(lower, pattern) {
 			return true
 		}
+	}
+
+	return false
+}
+
+func (p *FeedbackProcessor) isTrivialComment(body string) bool {
+	// Filter out only truly trivial comments
+	trivialPatterns := []string{
+		"lgtm",
+		"looks good to me",
+		"looks good",
+		"nice",
+		"great",
+		"thanks",
+		"thank you",
+		"+1",
+		"👍",
+		"approved",
+		"ship it",
+	}
+
+	trimmed := strings.TrimSpace(strings.ToLower(body))
+
+	// Check if the entire comment is just a trivial phrase
+	for _, pattern := range trivialPatterns {
+		if trimmed == pattern || trimmed == pattern + "!" || trimmed == pattern + "." {
+			return true
+		}
+	}
+
+	// Very short comments (less than 10 chars) that don't contain actionable content
+	if len(trimmed) < 10 && !strings.Contains(trimmed, "fix") && !strings.Contains(trimmed, "bug") {
+		return true
 	}
 
 	return false

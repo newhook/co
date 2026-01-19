@@ -40,19 +40,20 @@ func init() {
 
 // ProcessPRFeedback processes PR feedback for a work and creates beads
 // This is an internal function that can be called directly
-func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string, autoAdd bool, minPriority int) error {
+// Returns the number of beads created and any error
+func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string, autoAdd bool, minPriority int) (int, error) {
 	// Get work details
 	work, err := database.GetWork(ctx, workID)
 	if err != nil {
-		return fmt.Errorf("failed to get work %s: %w", workID, err)
+		return 0, fmt.Errorf("failed to get work %s: %w", workID, err)
 	}
 
 	if work.PRURL == "" {
-		return fmt.Errorf("work %s does not have an associated PR URL", workID)
+		return 0, fmt.Errorf("work %s does not have an associated PR URL", workID)
 	}
 
 	if work.RootIssueID == "" {
-		return fmt.Errorf("work %s does not have a root issue ID", workID)
+		return 0, fmt.Errorf("work %s does not have a root issue ID", workID)
 	}
 
 	fmt.Printf("Processing PR feedback for work %s\n", workID)
@@ -75,12 +76,12 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 	fmt.Println("\nFetching PR feedback...")
 	feedbackItems, err := integration.FetchAndStoreFeedback(ctx, work.PRURL)
 	if err != nil {
-		return fmt.Errorf("failed to fetch PR feedback: %w", err)
+		return 0, fmt.Errorf("failed to fetch PR feedback: %w", err)
 	}
 
 	if len(feedbackItems) == 0 {
 		fmt.Println("No actionable feedback found.")
-		return nil
+		return 0, nil
 	}
 
 	fmt.Printf("Found %d actionable feedback items:\n\n", len(feedbackItems))
@@ -105,7 +106,8 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 		fmt.Printf("   Type: %s | Priority: P%d | Source: %s\n", item.Type, item.Priority, item.Source)
 
 		// Store feedback in database
-		prFeedback, err := database.CreatePRFeedback(ctx, workID, work.PRURL, item)
+		prFeedback, err := database.CreatePRFeedback(ctx, workID, work.PRURL, string(item.Type), item.Title,
+			item.Description, item.Source, item.SourceURL, item.Priority, item.Context)
 		if err != nil {
 			fmt.Printf("   Error storing feedback: %v\n", err)
 			continue
@@ -186,7 +188,7 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 		fmt.Printf("  co run --work %s\n", workID)
 	}
 
-	return nil
+	return len(createdBeads), nil
 }
 
 func runWorkFeedback(cmd *cobra.Command, args []string) error {
@@ -225,7 +227,8 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 	}
 
 	// Call the internal function
-	return ProcessPRFeedback(ctx, proj, database, workID, feedbackAutoAdd, feedbackMinPriority)
+	_, err = ProcessPRFeedback(ctx, proj, database, workID, feedbackAutoAdd, feedbackMinPriority)
+	return err
 }
 
 func getBeadType(feedbackType github.FeedbackType) string {
