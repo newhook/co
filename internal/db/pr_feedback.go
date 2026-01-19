@@ -211,7 +211,12 @@ func (db *DB) GetFeedbackByBeadID(ctx context.Context, beadID string) (*PRFeedba
 }
 
 // HasExistingFeedback checks if feedback already exists for a specific source.
+// If sourceID is provided, it uses that as the unique identifier (e.g., GitHub comment ID).
+// Otherwise falls back to checking by title and source.
 func (db *DB) HasExistingFeedback(ctx context.Context, workID, title, source string) (bool, error) {
+	// This method signature is kept for backward compatibility,
+	// but we should check if the source_id already exists in the database
+	// by looking at the metadata or source_id column
 	query := `
 		SELECT COUNT(*) FROM pr_feedback
 		WHERE work_id = ? AND title = ? AND source = ?
@@ -221,6 +226,23 @@ func (db *DB) HasExistingFeedback(ctx context.Context, workID, title, source str
 	err := db.DB.QueryRowContext(ctx, query, workID, title, source).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("failed to check existing feedback: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+// HasExistingFeedbackBySourceID checks if feedback already exists for a specific source ID.
+// This is the preferred method for checking duplicates when a unique source ID is available.
+func (db *DB) HasExistingFeedbackBySourceID(ctx context.Context, workID, sourceID string) (bool, error) {
+	query := `
+		SELECT COUNT(*) FROM pr_feedback
+		WHERE work_id = ? AND source_id = ?
+	`
+
+	var count int
+	err := db.DB.QueryRowContext(ctx, query, workID, sourceID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check existing feedback by source ID: %w", err)
 	}
 
 	return count > 0, nil

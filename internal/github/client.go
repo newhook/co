@@ -496,6 +496,98 @@ func (c *Client) fetchWorkflowJobs(ctx context.Context, repo string, runID int64
 	return nil
 }
 
+// PostPRComment posts a comment on a PR issue.
+func (c *Client) PostPRComment(ctx context.Context, prURL string, body string) error {
+	logging.Debug("posting PR comment", "prURL", prURL, "bodyLen", len(body))
+
+	// Extract PR number and repo from URL
+	prNumber, repo, err := parsePRURL(prURL)
+	if err != nil {
+		logging.Error("invalid PR URL for posting comment", "error", err, "prURL", prURL)
+		return fmt.Errorf("invalid PR URL: %w", err)
+	}
+
+	// Use gh CLI to post the comment
+	cmd := exec.CommandContext(ctx, "gh", "pr", "comment", prNumber,
+		"--repo", repo,
+		"--body", body)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logging.Error("failed to post PR comment", "error", err, "output", string(output))
+		return fmt.Errorf("failed to post PR comment: %w\nOutput: %s", err, output)
+	}
+
+	logging.Info("successfully posted PR comment", "prURL", prURL)
+	return nil
+}
+
+// PostReplyToComment posts a reply to a specific comment on a PR.
+// This is used to acknowledge when we've created a bead from feedback.
+func (c *Client) PostReplyToComment(ctx context.Context, prURL string, commentID int, body string) error {
+	logging.Debug("posting reply to comment", "prURL", prURL, "commentID", commentID, "bodyLen", len(body))
+
+	// Extract PR number and repo from URL
+	prNumber, repo, err := parsePRURL(prURL)
+	if err != nil {
+		logging.Error("invalid PR URL for reply", "error", err, "prURL", prURL)
+		return fmt.Errorf("invalid PR URL: %w", err)
+	}
+
+	// GitHub doesn't support direct replies to specific comments via gh CLI,
+	// but we can post a new comment that references the original
+	// Format: "@username, regarding your comment: [message]"
+	// For now, we'll just post a regular comment mentioning the issue was created
+	formattedBody := fmt.Sprintf("Re: Comment #%d\n\n%s", commentID, body)
+
+	// Use gh CLI to post the comment
+	cmd := exec.CommandContext(ctx, "gh", "pr", "comment", prNumber,
+		"--repo", repo,
+		"--body", formattedBody)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logging.Error("failed to post reply", "error", err, "output", string(output))
+		return fmt.Errorf("failed to post reply: %w\nOutput: %s", err, output)
+	}
+
+	logging.Info("successfully posted reply to comment", "prURL", prURL, "commentID", commentID)
+	return nil
+}
+
+// PostReviewReply posts a reply to a review comment.
+// Since review comments are different from issue comments, this uses the review API.
+func (c *Client) PostReviewReply(ctx context.Context, prURL string, reviewCommentID int, body string) error {
+	logging.Debug("posting reply to review comment", "prURL", prURL, "reviewCommentID", reviewCommentID, "bodyLen", len(body))
+
+	// Extract PR number and repo from URL
+	prNumber, repo, err := parsePRURL(prURL)
+	if err != nil {
+		logging.Error("invalid PR URL for review reply", "error", err, "prURL", prURL)
+		return fmt.Errorf("invalid PR URL: %w", err)
+	}
+
+	// Use the GitHub API to post a reply to the review comment
+	// We need to create the reply using the API directly
+	replyBody := fmt.Sprintf(`{"body": %q, "in_reply_to": %d}`, body, reviewCommentID)
+
+	cmd := exec.CommandContext(ctx, "gh", "api",
+		fmt.Sprintf("repos/%s/pulls/%s/comments", repo, prNumber),
+		"--method", "POST",
+		"--input", "-")
+
+	cmd.Stdin = strings.NewReader(replyBody)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logging.Error("failed to post review reply", "error", err, "output", string(output))
+		return fmt.Errorf("failed to post review reply: %w\nOutput: %s", err, output)
+	}
+
+	logging.Info("successfully posted reply to review comment", "prURL", prURL, "reviewCommentID", reviewCommentID)
+	return nil
+}
+
 // parsePRURL extracts the repo and PR number from a GitHub PR URL.
 func parsePRURL(prURL string) (prNumber, repo string, err error) {
 	// Expected format: https://github.com/owner/repo/pull/123

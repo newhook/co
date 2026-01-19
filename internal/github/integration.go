@@ -39,8 +39,16 @@ func (i *Integration) ProcessPRFeedback(ctx context.Context, prURL, rootIssueID 
 // extractGitHubID extracts a GitHub identifier from a URL
 // For example: from "https://github.com/owner/repo/pull/123#issuecomment-456789"
 // returns "comment-456789"
+// For review comments: "https://github.com/owner/repo/pull/123#discussion_r789"
+// returns "review-comment-789"
 func extractGitHubID(url string) string {
-	// Try to extract comment ID
+	// Try to extract review comment ID (e.g., #discussion_r123456)
+	reviewCommentRe := regexp.MustCompile(`#discussion_r(\d+)`)
+	if matches := reviewCommentRe.FindStringSubmatch(url); len(matches) > 1 {
+		return "review-comment-" + matches[1]
+	}
+
+	// Try to extract regular comment ID (e.g., #issuecomment-456789)
 	commentRe := regexp.MustCompile(`#issuecomment-(\d+)`)
 	if matches := commentRe.FindStringSubmatch(url); len(matches) > 1 {
 		return "comment-" + matches[1]

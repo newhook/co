@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/newhook/co/internal/db"
@@ -111,7 +112,18 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 	for i, item := range feedbackItems {
 		// Check if feedback already exists
-		exists, err := database.HasExistingFeedback(ctx, workID, item.Title, item.Source)
+		// Prefer checking by source_id (unique comment ID) if available
+		var exists bool
+		var err error
+
+		if sourceID, ok := item.Context["source_id"]; ok && sourceID != "" {
+			// Use the unique source ID for deduplication
+			exists, err = database.HasExistingFeedbackBySourceID(ctx, workID, sourceID)
+		} else {
+			// Fallback to title + source check (less reliable)
+			exists, err = database.HasExistingFeedback(ctx, workID, item.Title, item.Source)
+		}
+
 		if err != nil {
 			if !quiet {
 				fmt.Printf("Error checking existing feedback: %v\n", err)
@@ -177,6 +189,44 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			fmt.Printf("   Created bead: %s\n", beadID)
 		}
 		createdBeads = append(createdBeads, beadID)
+
+		// Post back to GitHub comment if this feedback came from a comment
+		if sourceID, ok := metadata["source_id"]; ok && sourceID != "" {
+			// Check if it's from a review comment or regular comment
+			isReviewComment := false
+			if _, ok := metadata["reviewer"]; ok {
+				// This is from a review comment
+				isReviewComment = true
+			}
+
+			// Create the acknowledgment message
+			ackMessage := fmt.Sprintf("✅ Created tracking issue **%s** for this feedback.\n\nTitle: %s\nPriority: P%d",
+				beadID, item.Title, item.Priority)
+
+			// Post the acknowledgment
+			if commentIDStr, ok := metadata["comment_id"]; ok && commentIDStr != "" {
+				commentID, parseErr := strconv.Atoi(commentIDStr)
+				if parseErr == nil {
+					client := github.NewClient()
+					var postErr error
+					if isReviewComment {
+						postErr = client.PostReviewReply(ctx, work.PRURL, commentID, ackMessage)
+					} else {
+						postErr = client.PostReplyToComment(ctx, work.PRURL, commentID, ackMessage)
+					}
+
+					if postErr != nil {
+						if !quiet {
+							fmt.Printf("   Warning: Failed to post acknowledgment to GitHub: %v\n", postErr)
+						}
+					} else {
+						if !quiet {
+							fmt.Printf("   Posted acknowledgment to GitHub comment\n")
+						}
+					}
+				}
+			}
+		}
 
 		// Mark feedback as processed
 		if err := database.MarkFeedbackProcessed(ctx, prFeedback.ID, beadID); err != nil {

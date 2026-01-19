@@ -221,12 +221,16 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 				continue
 			}
 
+			// Create a unique URL for this review comment
+			// GitHub review comments have a different URL structure than issue comments
+			commentURL := fmt.Sprintf("%s#discussion_r%d", status.URL, comment.ID)
+
 			item := FeedbackItem{
 				Type:        FeedbackTypeReview,
 				Title:       fmt.Sprintf("Fix issue in %s (line %d)", p.getFileName(comment.Path), comment.Line),
 				Description: p.truncateText(comment.Body, 300),
 				Source:      fmt.Sprintf("Review: %s", comment.Author),
-				SourceURL:   status.URL,
+				SourceURL:   commentURL,
 				Priority:    2, // Medium priority for line comments
 				Actionable:  true,
 				Context: map[string]string{
@@ -255,12 +259,15 @@ func (p *FeedbackProcessor) processComments(status *PRStatus) []FeedbackItem {
 			feedbackType := p.categorizeComment(comment)
 
 			if feedbackType != FeedbackTypeGeneral {
+				// Create a unique URL for this issue comment
+				commentURL := fmt.Sprintf("%s#issuecomment-%d", status.URL, comment.ID)
+
 				item := FeedbackItem{
 					Type:        feedbackType,
 					Title:       p.extractTitleFromComment(comment.Body),
 					Description: p.truncateText(comment.Body, 500),
 					Source:      fmt.Sprintf("Comment: %s", comment.Author),
-					SourceURL:   status.URL,
+					SourceURL:   commentURL,
 					Priority:    p.getPriorityForType(feedbackType),
 					Actionable:  true,
 					Context: map[string]string{
