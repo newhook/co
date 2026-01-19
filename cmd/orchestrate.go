@@ -142,16 +142,11 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 						continue
 					}
 
-					// Run the feedback check using the co work feedback command
+					// Run the feedback check using internal function
 					fmt.Printf("Checking PR feedback for: %s\n", work.PRURL)
 
-					// Run the 'co work feedback' command with auto-add flag
-					cmd := exec.CommandContext(ctx, "co", "work", "feedback", workID, "--auto-add")
-					cmd.Dir = proj.Root
-					cmd.Stdout = os.Stdout
-					cmd.Stderr = os.Stderr
-
-					if err := cmd.Run(); err != nil {
+					// Process PR feedback internally with auto-add flag
+					if err := ProcessPRFeedback(ctx, proj, proj.DB, workID, true, 2); err != nil {
 						fmt.Printf("Error checking PR feedback: %v\n", err)
 					} else {
 						fmt.Println("PR feedback check completed.")
@@ -197,13 +192,8 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				fmt.Printf("\n=== Automatic PR feedback poll ===\n")
 				fmt.Printf("Checking PR feedback for: %s\n", currentWork.PRURL)
 
-				// Run the 'co work feedback' command with auto-add flag
-				cmd := exec.CommandContext(ctx, "co", "work", "feedback", workID, "--auto-add")
-				cmd.Dir = proj.Root
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-
-				if err := cmd.Run(); err != nil {
+				// Process PR feedback internally with auto-add flag
+				if err := ProcessPRFeedback(ctx, proj, proj.DB, workID, true, 2); err != nil {
 					fmt.Printf("Error checking PR feedback: %v\n", err)
 				} else {
 					fmt.Println("Automatic PR feedback check completed.")
@@ -318,13 +308,8 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				// All tasks are done and we have a PR - check for feedback
 				fmt.Println("\nAll tasks completed. Checking for PR feedback...")
 
-				// Run the 'co work feedback' command with auto-add flag
-				cmd := exec.CommandContext(ctx, "co", "work", "feedback", workID, "--auto-add")
-				cmd.Dir = proj.Root
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-
-				if err := cmd.Run(); err != nil {
+				// Process PR feedback internally with auto-add flag
+				if err := ProcessPRFeedback(ctx, proj, proj.DB, workID, true, 2); err != nil {
 					fmt.Printf("Warning: failed to check PR feedback: %v\n", err)
 				} else {
 					// Give the system a moment to process the new beads
@@ -597,12 +582,10 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 	if len(beadsToFix) == 0 && work.PRURL != "" {
 		fmt.Println("Review passed - checking for PR feedback...")
 
-		// Run the 'co work feedback' command with auto-add flag
-		cmd := exec.CommandContext(ctx, "co", "work", "feedback", work.ID, "--auto-add")
-		cmd.Dir = proj.Root
-		output, err := cmd.CombinedOutput()
+		// Process PR feedback internally with auto-add flag
+		err := ProcessPRFeedback(ctx, proj, proj.DB, work.ID, true, 2)
 		if err != nil {
-			fmt.Printf("Warning: failed to check PR feedback: %v\nOutput: %s\n", err, string(output))
+			fmt.Printf("Warning: failed to check PR feedback: %v\n", err)
 		} else {
 			// Re-check for new beads from PR feedback
 			if work.RootIssueID != "" {

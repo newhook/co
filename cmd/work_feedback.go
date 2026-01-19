@@ -38,36 +38,9 @@ func init() {
 	workFeedbackCmd.Flags().IntVar(&feedbackMinPriority, "min-priority", 2, "Minimum priority for created beads (0-4, 0=critical)")
 }
 
-func runWorkFeedback(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
-
-	// Find project
-	proj, err := project.Find(ctx, "")
-	if err != nil {
-		return fmt.Errorf("failed to find project: %w", err)
-	}
-	defer proj.Close()
-
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-	defer database.Close()
-
-	// Get work ID
-	var workID string
-	if len(args) > 0 {
-		workID = args[0]
-	} else {
-		// Try to detect from current directory
-		work, err := detectWork(proj, database)
-		if err != nil {
-			return fmt.Errorf("failed to detect work from current directory: %w", err)
-		}
-		workID = work.ID
-	}
-
+// ProcessPRFeedback processes PR feedback for a work and creates beads
+// This is an internal function that can be called directly
+func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string, autoAdd bool, minPriority int) error {
 	// Get work details
 	work, err := database.GetWork(ctx, workID)
 	if err != nil {
@@ -93,7 +66,7 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 		CreateBeadForLintErrors:      true,
 		CreateBeadForReviewComments:  true,
 		IgnoreDraftPRs:               false,
-		MinimumPriority:              feedbackMinPriority,
+		MinimumPriority:              minPriority,
 	}
 
 	integration := github.NewIntegration(rules)
@@ -131,11 +104,6 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%d. %s\n", i+1, item.Title)
 		fmt.Printf("   Type: %s | Priority: P%d | Source: %s\n", item.Type, item.Priority, item.Source)
 
-		if feedbackDryRun {
-			fmt.Println("   [DRY RUN - Would create bead]")
-			continue
-		}
-
 		// Store feedback in database
 		prFeedback, err := database.CreatePRFeedback(ctx, workID, work.PRURL, item)
 		if err != nil {
@@ -168,7 +136,7 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 		}
 
 		// Add bead to work if auto-add is enabled
-		if feedbackAutoAdd {
+		if autoAdd {
 			// Add to work_beads table - need to get next group ID
 			groups, err := database.GetWorkBeadGroups(ctx, workID)
 			if err != nil {
@@ -194,17 +162,56 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Total feedback items: %d\n", len(feedbackItems))
 	fmt.Printf("Beads created: %d\n", len(createdBeads))
 
-	if len(createdBeads) > 0 && !feedbackAutoAdd {
+	if len(createdBeads) > 0 && !autoAdd {
 		fmt.Println("\nTo add these beads to the work, run:")
 		fmt.Printf("  co work add %s\n", strings.Join(createdBeads, " "))
 	}
 
-	if len(createdBeads) > 0 && feedbackAutoAdd {
+	if len(createdBeads) > 0 && autoAdd {
 		fmt.Println("\nBeads have been added to the work. Run the following to execute them:")
 		fmt.Printf("  co run --work %s\n", workID)
 	}
 
 	return nil
+}
+
+func runWorkFeedback(cmd *cobra.Command, args []string) error {
+	ctx := context.Background()
+
+	// Find project
+	proj, err := project.Find(ctx, "")
+	if err != nil {
+		return fmt.Errorf("failed to find project: %w", err)
+	}
+	defer proj.Close()
+
+	// Open database
+	database, err := proj.OpenDB()
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer database.Close()
+
+	// Get work ID
+	var workID string
+	if len(args) > 0 {
+		workID = args[0]
+	} else {
+		// Try to detect from current directory
+		work, err := detectWork(proj, database)
+		if err != nil {
+			return fmt.Errorf("failed to detect work from current directory: %w", err)
+		}
+		workID = work.ID
+	}
+
+	// Skip dry-run as it's not needed for internal calls
+	if feedbackDryRun {
+		fmt.Println("[DRY RUN MODE - Not creating beads]")
+	}
+
+	// Call the internal function
+	return ProcessPRFeedback(ctx, proj, database, workID, feedbackAutoAdd, feedbackMinPriority)
 }
 
 func getBeadType(feedbackType github.FeedbackType) string {
