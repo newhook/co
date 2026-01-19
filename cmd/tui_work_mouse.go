@@ -363,9 +363,9 @@ func (m *workModel) detectStatusBarButton(x int) string {
 			return "?"
 		}
 	} else {
-		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
+		// Zoomed mode: "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [f]eedback [?]help"
 
-		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [?]help"
+		keysPlain := "[Esc]overview [r]un [s]imple [a]ssign [n]ew [x]remove [t]erminal [c]laude [o]rchestrator [v]review [p]r [u]pdate [f]eedback [?]help"
 
 		rIdx := strings.Index(keysPlain, "[r]un")
 		sIdx := strings.Index(keysPlain, "[s]imple")
@@ -378,6 +378,7 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		vIdx := strings.Index(keysPlain, "[v]review")
 		pIdx := strings.Index(keysPlain, "[p]r")
 		uIdx := strings.Index(keysPlain, "[u]pdate")
+		fIdx := strings.Index(keysPlain, "[f]eedback")
 		helpIdx := strings.Index(keysPlain, "[?]help")
 
 		if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]un") {
@@ -412,6 +413,9 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		}
 		if uIdx >= 0 && x >= uIdx && x < uIdx+len("[u]pdate") {
 			return "u"
+		}
+		if fIdx >= 0 && x >= fIdx && x < fIdx+len("[f]eedback") {
+			return "f"
 		}
 		if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]help") {
 			return "?"
