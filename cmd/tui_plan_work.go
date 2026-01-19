@@ -351,22 +351,20 @@ func (m *planModel) loadAvailableWorks() tea.Cmd {
 
 		var items []workItem
 		for _, w := range works {
-			// Only show pending/processing works (not completed/failed)
-			if w.Status == "pending" || w.Status == "processing" {
-				item := workItem{
-					id:          w.ID,
-					status:      w.Status,
-					branch:      w.BranchName,
-					rootIssueID: w.RootIssueID,
-				}
-				// Try to get the root issue title from beads cache
-				if w.RootIssueID != "" && m.proj.Beads != nil {
-					if bead, err := m.proj.Beads.GetBead(m.ctx, w.RootIssueID); err == nil {
-						item.rootIssueTitle = bead.Title
-					}
-				}
-				items = append(items, item)
+			// Show all works (users might want to add to completed works)
+			item := workItem{
+				id:          w.ID,
+				status:      w.Status,
+				branch:      w.BranchName,
+				rootIssueID: w.RootIssueID,
 			}
+			// Try to get the root issue title from beads cache
+			if w.RootIssueID != "" && m.proj.Beads != nil {
+				if bead, err := m.proj.Beads.GetBead(m.ctx, w.RootIssueID); err == nil {
+					item.rootIssueTitle = bead.Title
+				}
+			}
+			items = append(items, item)
 		}
 		return worksLoadedMsg{works: items}
 	}
