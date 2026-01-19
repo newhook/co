@@ -384,6 +384,14 @@ func spinnerWait(msg string, duration time.Duration) {
 func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Work) error {
 	ctx := GetContext()
 
+	// Check if this is a manual review task (auto_workflow=false)
+	// Manual review tasks should not trigger automated workflow (fix tasks or PR creation)
+	autoWorkflow, err := proj.DB.GetTaskMetadata(ctx, reviewTask.ID, "auto_workflow")
+	if err == nil && autoWorkflow == "false" {
+		fmt.Println("Manual review task completed - skipping automated workflow")
+		return nil
+	}
+
 	// Count how many review iterations we've had
 	reviewCount := countReviewIterations(proj, work.ID)
 	maxIterations := proj.Config.Workflow.GetMaxReviewIterations()
