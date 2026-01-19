@@ -984,10 +984,8 @@ func (m *planModel) cleanup() {
 	if m.beadsWatcher != nil {
 		_ = m.beadsWatcher.Stop()
 	}
-	// Close the beads client to release database connections
-	if m.proj.Beads != nil {
-		_ = m.proj.Beads.Close()
-	}
+	// Note: m.proj.Beads is owned by the Project and closed by proj.Close()
+	// which is deferred in runTUI. Do not close it here to avoid double-close.
 }
 
 // View implements tea.Model
