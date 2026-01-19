@@ -109,6 +109,8 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 	// Store feedback in database and create beads
 	createdBeads := []string{}
+	addedBeads := []string{}
+	notAddedBeads := []string{} // Review comments that weren't auto-added
 
 	for i, item := range feedbackItems {
 		// Check if feedback already exists
@@ -237,7 +239,8 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		}
 
 		// Add bead to work if auto-add is enabled
-		if autoAdd {
+		// Note: Review comments are NOT auto-added - they require manual triage
+		if autoAdd && item.Type != github.FeedbackTypeReview {
 			// Add to work_beads table - need to get next group ID
 			groups, err := database.GetWorkBeadGroups(ctx, workID)
 			if err != nil {
@@ -257,9 +260,15 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 					fmt.Printf("   Warning: Failed to add bead to work: %v\n", err)
 				}
 			} else {
+				addedBeads = append(addedBeads, beadID)
 				if !quiet {
 					fmt.Printf("   Added bead to work\n")
 				}
+			}
+		} else if autoAdd && item.Type == github.FeedbackTypeReview {
+			notAddedBeads = append(notAddedBeads, beadID)
+			if !quiet {
+				fmt.Printf("   Bead not auto-added (review comments require manual triage)\n")
 			}
 		}
 	}
@@ -275,9 +284,16 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			fmt.Printf("  co work add %s\n", strings.Join(createdBeads, " "))
 		}
 
-		if len(createdBeads) > 0 && autoAdd {
-			fmt.Println("\nBeads have been added to the work. Run the following to execute them:")
+		if autoAdd && len(addedBeads) > 0 {
+			fmt.Printf("Beads added to work: %d\n", len(addedBeads))
+			fmt.Println("\nCI/Build failure beads have been added to the work. Run the following to execute them:")
 			fmt.Printf("  co run --work %s\n", workID)
+		}
+
+		if len(notAddedBeads) > 0 {
+			fmt.Printf("Review comments (not auto-added): %d\n", len(notAddedBeads))
+			fmt.Println("\nTo add review comment beads to the work, run:")
+			fmt.Printf("  co work add %s\n", strings.Join(notAddedBeads, " "))
 		}
 	}
 
