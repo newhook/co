@@ -29,32 +29,30 @@ If no work ID is provided, detects from current directory.`,
 
 var (
 	feedbackDryRun      bool
-	feedbackAutoAdd     bool
 	feedbackMinPriority int
 )
 
 func init() {
 	workFeedbackCmd.Flags().BoolVar(&feedbackDryRun, "dry-run", false, "Show what beads would be created without creating them")
-	workFeedbackCmd.Flags().BoolVar(&feedbackAutoAdd, "auto-add", false, "Automatically add created beads to the work")
 	workFeedbackCmd.Flags().IntVar(&feedbackMinPriority, "min-priority", 2, "Minimum priority for created beads (0-4, 0=critical)")
 }
 
 // ProcessPRFeedbackQuiet processes PR feedback without outputting to stdout
 // This is used by the scheduler to avoid interfering with the TUI
 // Returns the number of beads created and any error
-func ProcessPRFeedbackQuiet(ctx context.Context, proj *project.Project, database *db.DB, workID string, autoAdd bool, minPriority int) (int, error) {
-	return processPRFeedbackInternal(ctx, proj, database, workID, autoAdd, minPriority, true)
+func ProcessPRFeedbackQuiet(ctx context.Context, proj *project.Project, database *db.DB, workID string, minPriority int) (int, error) {
+	return processPRFeedbackInternal(ctx, proj, database, workID, minPriority, true)
 }
 
 // ProcessPRFeedback processes PR feedback for a work and creates beads
 // This is an internal function that can be called directly
 // Returns the number of beads created and any error
-func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string, autoAdd bool, minPriority int) (int, error) {
-	return processPRFeedbackInternal(ctx, proj, database, workID, autoAdd, minPriority, false)
+func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string, minPriority int) (int, error) {
+	return processPRFeedbackInternal(ctx, proj, database, workID, minPriority, false)
 }
 
 // processPRFeedbackInternal is the actual implementation with output control
-func processPRFeedbackInternal(ctx context.Context, proj *project.Project, database *db.DB, workID string, autoAdd bool, minPriority int, quiet bool) (int, error) {
+func processPRFeedbackInternal(ctx context.Context, proj *project.Project, database *db.DB, workID string, minPriority int, quiet bool) (int, error) {
 	// Get work details
 	work, err := database.GetWork(ctx, workID)
 	if err != nil {
@@ -235,33 +233,6 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 				fmt.Printf("   Warning: Failed to mark feedback as processed: %v\n", err)
 			}
 		}
-
-		// Add bead to work if auto-add is enabled
-		if autoAdd {
-			// Add to work_beads table - need to get next group ID
-			groups, err := database.GetWorkBeadGroups(ctx, workID)
-			if err != nil {
-				if !quiet {
-					fmt.Printf("   Warning: Failed to get work groups: %v\n", err)
-				}
-				continue
-			}
-
-			nextGroupID := int64(1)
-			if len(groups) > 0 {
-				nextGroupID = groups[len(groups)-1] + 1
-			}
-
-			if err := database.AddWorkBead(ctx, workID, beadID, nextGroupID, 0); err != nil {
-				if !quiet {
-					fmt.Printf("   Warning: Failed to add bead to work: %v\n", err)
-				}
-			} else {
-				if !quiet {
-					fmt.Printf("   Added bead to work\n")
-				}
-			}
-		}
 	}
 
 	// Summary
@@ -270,14 +241,9 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		fmt.Printf("Total feedback items: %d\n", len(feedbackItems))
 		fmt.Printf("Beads created: %d\n", len(createdBeads))
 
-		if len(createdBeads) > 0 && !autoAdd {
+		if len(createdBeads) > 0 {
 			fmt.Println("\nTo add these beads to the work, run:")
 			fmt.Printf("  co work add %s\n", strings.Join(createdBeads, " "))
-		}
-
-		if len(createdBeads) > 0 && autoAdd {
-			fmt.Println("\nBeads have been added to the work. Run the following to execute them:")
-			fmt.Printf("  co run --work %s\n", workID)
 		}
 	}
 
@@ -313,7 +279,7 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 	}
 
 	// Call the internal function
-	_, err = ProcessPRFeedback(ctx, proj, proj.DB, workID, feedbackAutoAdd, feedbackMinPriority)
+	_, err = ProcessPRFeedback(ctx, proj, proj.DB, workID, feedbackMinPriority)
 	return err
 }
 

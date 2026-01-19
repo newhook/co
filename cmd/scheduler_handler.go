@@ -128,8 +128,8 @@ func handlePRFeedbackTask(ctx context.Context, proj *project.Project, workID str
 
 	logging.Debug("Checking PR feedback", "pr_url", work.PRURL, "work_id", workID)
 
-	// Process PR feedback - suppress output when called from scheduler
-	createdCount, err := ProcessPRFeedbackQuiet(ctx, proj, proj.DB, workID, true, 2)
+	// Process PR feedback - creates beads but doesn't add them to work
+	createdCount, err := ProcessPRFeedbackQuiet(ctx, proj, proj.DB, workID, 2)
 	if err != nil {
 		logging.Error("Failed to check PR feedback", "error", err, "work_id", workID)
 		proj.DB.MarkTaskFailed(ctx, task.ID, err.Error())
