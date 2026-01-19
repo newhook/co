@@ -231,6 +231,19 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 				lineNum = comment.OriginalLine
 			}
 
+			context := map[string]string{
+				"file":       comment.Path,
+				"line":       fmt.Sprintf("%d", lineNum),
+				"reviewer":   comment.Author,
+				"comment_id": fmt.Sprintf("%d", comment.ID),
+				"source_id":  fmt.Sprintf("%d", comment.ID), // Store comment ID as source_id for resolution tracking
+			}
+
+			// If this is a reply, include the parent comment ID
+			if comment.InReplyToID != 0 {
+				context["in_reply_to_id"] = fmt.Sprintf("%d", comment.InReplyToID)
+			}
+
 			item := FeedbackItem{
 				Type:        FeedbackTypeReview,
 				Title:       fmt.Sprintf("Fix issue in %s (line %d)", comment.Path, lineNum),
@@ -239,13 +252,7 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 				SourceURL:   commentURL,
 				Priority:    2, // Medium priority for line comments
 				Actionable:  true,
-				Context: map[string]string{
-					"file":       comment.Path,
-					"line":       fmt.Sprintf("%d", lineNum),
-					"reviewer":   comment.Author,
-					"comment_id": fmt.Sprintf("%d", comment.ID),
-					"source_id":  fmt.Sprintf("%d", comment.ID), // Store comment ID as source_id for resolution tracking
-				},
+				Context:     context,
 			}
 
 			items = append(items, item)

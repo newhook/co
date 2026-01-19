@@ -52,3 +52,8 @@ DELETE FROM pr_feedback WHERE id = ?;
 
 -- name: DeletePRFeedbackForWork :exec
 DELETE FROM pr_feedback WHERE work_id = ?;
+
+-- name: GetPRFeedbackBySourceID :one
+SELECT * FROM pr_feedback
+WHERE work_id = ? AND source_id = ?
+LIMIT 1;

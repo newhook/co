@@ -68,6 +68,7 @@ type Querier interface {
 	GetOverdueTasks(ctx context.Context) ([]Scheduler, error)
 	GetPRFeedback(ctx context.Context, id string) (PrFeedback, error)
 	GetPRFeedbackByBead(ctx context.Context, beadID sql.NullString) (PrFeedback, error)
+	GetPRFeedbackBySourceID(ctx context.Context, arg GetPRFeedbackBySourceIDParams) (PrFeedback, error)
 	GetPendingTaskByType(ctx context.Context, arg GetPendingTaskByTypeParams) (Scheduler, error)
 	GetReadyTasksForWork(ctx context.Context, workID string) ([]GetReadyTasksForWorkRow, error)
 	GetScheduledTaskByID(ctx context.Context, id string) (Scheduler, error)

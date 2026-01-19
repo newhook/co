@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/newhook/co/internal/db/sqlc"
 )
 
 // PRFeedback represents a piece of feedback from a PR.
@@ -246,6 +247,55 @@ func (db *DB) HasExistingFeedbackBySourceID(ctx context.Context, workID, sourceI
 	}
 
 	return count > 0, nil
+}
+
+// GetFeedbackBySourceID returns the feedback associated with a source ID (e.g., GitHub comment ID).
+// Returns nil if no feedback exists for this source ID.
+func (db *DB) GetFeedbackBySourceID(ctx context.Context, workID, sourceID string) (*PRFeedback, error) {
+	f, err := db.queries.GetPRFeedbackBySourceID(ctx, sqlc.GetPRFeedbackBySourceIDParams{
+		WorkID:   workID,
+		SourceID: sql.NullString{String: sourceID, Valid: true},
+	})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query feedback by source ID: %w", err)
+	}
+
+	result := &PRFeedback{
+		ID:           f.ID,
+		WorkID:       f.WorkID,
+		PRURL:        f.PrUrl,
+		FeedbackType: f.FeedbackType,
+		Title:        f.Title,
+		Description:  f.Description,
+		Source:       f.Source,
+		SourceURL:    f.SourceUrl.String,
+		Priority:     int(f.Priority),
+		CreatedAt:    f.CreatedAt,
+	}
+
+	if f.SourceID.Valid {
+		result.SourceID = &f.SourceID.String
+	}
+	if f.BeadID.Valid {
+		result.BeadID = &f.BeadID.String
+	}
+	if f.ProcessedAt.Valid {
+		result.ProcessedAt = &f.ProcessedAt.Time
+	}
+
+	// Parse metadata JSON
+	if f.Metadata != "" && f.Metadata != "{}" {
+		if err := json.Unmarshal([]byte(f.Metadata), &result.Metadata); err != nil {
+			result.Metadata = make(map[string]string)
+		}
+	} else {
+		result.Metadata = make(map[string]string)
+	}
+
+	return result, nil
 }
 
 // GetUnresolvedFeedbackForClosedBeads returns feedback items where the associated bead is closed but not resolved on GitHub.
