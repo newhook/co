@@ -3,6 +3,7 @@ package beads
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -86,7 +87,8 @@ func Create(ctx context.Context, dir string, opts CreateOptions) (string, error)
 	}
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			logging.Error("bd create failed", "error", err, "stderr", string(exitErr.Stderr), "args", args)
 			return "", fmt.Errorf("failed to create bead: %w\n%s", err, exitErr.Stderr)
 		}

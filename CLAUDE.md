@@ -50,6 +50,31 @@ Functions that execute external commands or perform I/O should accept `context.C
 - Pass context through the call chain from CLI commands down to helper functions
 - This enables proper cancellation and timeout handling
 
+## Error Handling Best Practices
+
+When handling errors in Go, use the standard `errors` package properly:
+
+- Use `errors.Is(err, targetErr)` to check if an error matches a specific sentinel error
+- Use `errors.As(err, &targetType)` to check and extract specific error types
+- Never use type assertions like `err.(*exec.ExitError)` - use `errors.As` instead
+
+Example:
+```go
+// Good - using errors.As
+var exitErr *exec.ExitError
+if errors.As(err, &exitErr) {
+    // Handle exec.ExitError
+    if exitErr.ExitCode() == 1 {
+        // ...
+    }
+}
+
+// Bad - using type assertion
+if exitErr, ok := err.(*exec.ExitError); ok {  // Don't do this
+    // ...
+}
+```
+
 ## Debug Logging
 
 The project uses Go's `slog` for structured debug logging via `internal/logging`.

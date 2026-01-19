@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/newhook/co/internal/logging"
 )
 
 // Client wraps the gh CLI for GitHub API operations.
@@ -99,11 +101,16 @@ type Step struct {
 
 // GetPRStatus fetches comprehensive PR status information.
 func (c *Client) GetPRStatus(ctx context.Context, prURL string) (*PRStatus, error) {
+	logging.Info("fetching PR status", "prURL", prURL)
+
 	// Extract PR number from URL
 	prNumber, repo, err := parsePRURL(prURL)
 	if err != nil {
+		logging.Error("invalid PR URL", "error", err, "prURL", prURL)
 		return nil, fmt.Errorf("invalid PR URL: %w", err)
 	}
+
+	logging.Debug("parsed PR URL", "prNumber", prNumber, "repo", repo)
 
 	status := &PRStatus{
 		URL: prURL,
@@ -111,84 +118,119 @@ func (c *Client) GetPRStatus(ctx context.Context, prURL string) (*PRStatus, erro
 
 	// Fetch basic PR info
 	if err := c.fetchPRInfo(ctx, repo, prNumber, status); err != nil {
+		logging.Error("failed to fetch PR info", "error", err)
 		return nil, fmt.Errorf("failed to fetch PR info: %w", err)
 	}
 
 	// Fetch status checks
 	if err := c.fetchStatusChecks(ctx, repo, prNumber, status); err != nil {
+		logging.Error("failed to fetch status checks", "error", err)
 		return nil, fmt.Errorf("failed to fetch status checks: %w", err)
 	}
 
 	// Fetch comments
 	if err := c.fetchComments(ctx, repo, prNumber, status); err != nil {
+		logging.Error("failed to fetch comments", "error", err)
 		return nil, fmt.Errorf("failed to fetch comments: %w", err)
 	}
 
 	// Fetch reviews
 	if err := c.fetchReviews(ctx, repo, prNumber, status); err != nil {
+		logging.Error("failed to fetch reviews", "error", err)
 		return nil, fmt.Errorf("failed to fetch reviews: %w", err)
 	}
 
 	// Fetch workflow runs
 	if err := c.fetchWorkflowRuns(ctx, repo, prNumber, status); err != nil {
+		logging.Error("failed to fetch workflow runs", "error", err)
 		return nil, fmt.Errorf("failed to fetch workflow runs: %w", err)
 	}
+
+	logging.Info("successfully fetched PR status",
+		"prURL", prURL,
+		"state", status.State,
+		"mergeable", status.Mergeable,
+		"numChecks", len(status.StatusChecks),
+		"numComments", len(status.Comments),
+		"numReviews", len(status.Reviews),
+		"numWorkflows", len(status.Workflows))
 
 	return status, nil
 }
 
 // fetchPRInfo fetches basic PR information.
 func (c *Client) fetchPRInfo(ctx context.Context, repo, prNumber string, status *PRStatus) error {
+	logging.Debug("fetching PR info", "repo", repo, "prNumber", prNumber)
+
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber,
 		"--repo", repo,
 		"--json", "state,mergeable,mergeStateStatus")
 
 	output, err := cmd.Output()
 	if err != nil {
+		logging.Error("gh pr view failed", "error", err, "repo", repo, "prNumber", prNumber)
 		return fmt.Errorf("gh pr view failed: %w", err)
 	}
 
+	// Log the raw output for debugging
+	logging.Debug("gh pr view response", "output", string(output))
+
 	var prInfo struct {
 		State          string `json:"state"`
-		Mergeable      bool   `json:"mergeable"`
+		Mergeable      string `json:"mergeable"`     // Changed from bool to string
 		MergeStateStatus string `json:"mergeStateStatus"`
 	}
 
 	if err := json.Unmarshal(output, &prInfo); err != nil {
+		logging.Error("failed to parse PR info", "error", err, "output", string(output))
 		return fmt.Errorf("failed to parse PR info: %w", err)
 	}
 
 	status.State = prInfo.State
-	status.Mergeable = prInfo.Mergeable
+	// Convert string mergeable to bool
+	status.Mergeable = prInfo.Mergeable == "MERGEABLE"
 	status.MergeableState = prInfo.MergeStateStatus
+
+	logging.Debug("parsed PR info",
+		"state", status.State,
+		"mergeable", status.Mergeable,
+		"mergeableState", status.MergeableState)
 
 	return nil
 }
 
 // fetchStatusChecks fetches PR status checks.
 func (c *Client) fetchStatusChecks(ctx context.Context, repo, prNumber string, status *PRStatus) error {
+	logging.Debug("fetching status checks", "repo", repo, "prNumber", prNumber)
+
 	cmd := exec.CommandContext(ctx, "gh", "pr", "checks", prNumber,
 		"--repo", repo,
-		"--json", "name,state,description,link,createdAt")
+		"--json", "name,state,description,link,startedAt")
 
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
+		outputStr := string(output)
 		// Status checks might not exist
-		if strings.Contains(err.Error(), "no checks") {
+		if strings.Contains(outputStr, "no checks reported") || strings.Contains(outputStr, "no checks") {
+			logging.Debug("no status checks found", "output", outputStr)
 			return nil
 		}
+		logging.Error("gh pr checks failed", "error", err, "output", outputStr, "repo", repo, "prNumber", prNumber)
 		return fmt.Errorf("gh pr checks failed: %w", err)
 	}
+
+	logging.Debug("gh pr checks response", "output", string(output))
 
 	var checks []struct {
 		Name        string    `json:"name"`
 		State       string    `json:"state"`
 		Description string    `json:"description"`
 		Link        string    `json:"link"`
-		CreatedAt   time.Time `json:"createdAt"`
+		StartedAt   time.Time `json:"startedAt"`
 	}
 
 	if err := json.Unmarshal(output, &checks); err != nil {
+		logging.Error("failed to parse status checks", "error", err, "output", string(output))
 		return fmt.Errorf("failed to parse status checks: %w", err)
 	}
 
@@ -198,9 +240,11 @@ func (c *Client) fetchStatusChecks(ctx context.Context, repo, prNumber string, s
 			State:       check.State,
 			Description: check.Description,
 			TargetURL:   check.Link,
-			CreatedAt:   check.CreatedAt,
+			CreatedAt:   check.StartedAt, // Use startedAt for CreatedAt
 		})
 	}
+
+	logging.Debug("fetched status checks", "count", len(status.StatusChecks))
 
 	return nil
 }
