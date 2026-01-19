@@ -153,15 +153,17 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				}
 			}
 
-			// If there are failures, abort
-			if failedCount > 0 {
-				return fmt.Errorf("work has %d failed task(s), aborting", failedCount)
-			}
-
 			// If tasks are processing, wait and retry
 			if processingCount > 0 {
 				msg := fmt.Sprintf("Waiting for %d processing task(s)...", processingCount)
 				spinnerWait(msg, 5*time.Second)
+				continue
+			}
+
+			// If there are failures, wait for manual intervention or new tasks
+			if failedCount > 0 {
+				msg := fmt.Sprintf("Work has %d failed task(s). Waiting for manual intervention or new tasks...", failedCount)
+				spinnerWait(msg, 10*time.Second)
 				continue
 			}
 
