@@ -63,12 +63,13 @@ type Review struct {
 
 // ReviewComment represents a comment on a specific line in a PR.
 type ReviewComment struct {
-	ID        int       `json:"id"`
-	Path      string    `json:"path"`
-	Line      int       `json:"line"`
-	Body      string    `json:"body"`
-	Author    string    `json:"author"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID           int       `json:"id"`
+	Path         string    `json:"path"`
+	Line         int       `json:"line"`
+	OriginalLine int       `json:"originalLine"` // Fallback when Line is null
+	Body         string    `json:"body"`
+	Author       string    `json:"author"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // WorkflowRun represents a GitHub Actions workflow run.
@@ -344,11 +345,12 @@ func (c *Client) fetchReviewComments(ctx context.Context, repo, prNumber string,
 	}
 
 	var comments []struct {
-		ID        int       `json:"id"`
-		Path      string    `json:"path"`
-		Line      int       `json:"line"`
-		Body      string    `json:"body"`
-		User      struct {
+		ID           int       `json:"id"`
+		Path         string    `json:"path"`
+		Line         *int      `json:"line"`          // Can be null
+		OriginalLine *int      `json:"original_line"` // Fallback when line is null
+		Body         string    `json:"body"`
+		User         struct {
 			Login string `json:"login"`
 		} `json:"user"`
 		CreatedAt time.Time `json:"created_at"`
@@ -359,13 +361,22 @@ func (c *Client) fetchReviewComments(ctx context.Context, repo, prNumber string,
 	}
 
 	for _, comment := range comments {
+		line := 0
+		if comment.Line != nil {
+			line = *comment.Line
+		}
+		originalLine := 0
+		if comment.OriginalLine != nil {
+			originalLine = *comment.OriginalLine
+		}
 		review.Comments = append(review.Comments, ReviewComment{
-			ID:        comment.ID,
-			Path:      comment.Path,
-			Line:      comment.Line,
-			Body:      comment.Body,
-			Author:    comment.User.Login,
-			CreatedAt: comment.CreatedAt,
+			ID:           comment.ID,
+			Path:         comment.Path,
+			Line:         line,
+			OriginalLine: originalLine,
+			Body:         comment.Body,
+			Author:       comment.User.Login,
+			CreatedAt:    comment.CreatedAt,
 		})
 	}
 

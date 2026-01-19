@@ -225,9 +225,15 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 			// GitHub review comments have a different URL structure than issue comments
 			commentURL := fmt.Sprintf("%s#discussion_r%d", status.URL, comment.ID)
 
+			// Use Line if available, otherwise fall back to OriginalLine
+			lineNum := comment.Line
+			if lineNum == 0 {
+				lineNum = comment.OriginalLine
+			}
+
 			item := FeedbackItem{
 				Type:        FeedbackTypeReview,
-				Title:       fmt.Sprintf("Fix issue in %s (line %d)", p.getFileName(comment.Path), comment.Line),
+				Title:       fmt.Sprintf("Fix issue in %s (line %d)", comment.Path, lineNum),
 				Description: p.truncateText(comment.Body, 300),
 				Source:      fmt.Sprintf("Review: %s", comment.Author),
 				SourceURL:   commentURL,
@@ -235,7 +241,7 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 				Actionable:  true,
 				Context: map[string]string{
 					"file":       comment.Path,
-					"line":       fmt.Sprintf("%d", comment.Line),
+					"line":       fmt.Sprintf("%d", lineNum),
 					"reviewer":   comment.Author,
 					"comment_id": fmt.Sprintf("%d", comment.ID),
 					"source_id":  fmt.Sprintf("%d", comment.ID), // Store comment ID as source_id for resolution tracking
