@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -33,9 +34,10 @@ const (
 
 // Project represents an orchestrator project.
 type Project struct {
-	Root   string  // Project directory path
-	Config *Config // Parsed config.toml
-	DB     *db.DB  // Tracking database (lazy loaded)
+	Root   string        // Project directory path
+	Config *Config       // Parsed config.toml
+	DB     *db.DB        // Tracking database (lazy loaded)
+	Beads  *beads.Client // Beads database client (for issue tracking)
 }
 
 // Find finds a project from a flag value or current directory.
@@ -94,6 +96,15 @@ func load(ctx context.Context, root string) (*Project, error) {
 		return nil, fmt.Errorf("failed to open tracking database: %w", err)
 	}
 	proj.DB = database
+
+	// Open the beads client automatically
+	beadsDBPath := filepath.Join(root, MainDir, ".beads", "beads.db")
+	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
+	if err != nil {
+		database.Close() // Clean up the already-opened DB
+		return nil, fmt.Errorf("failed to open beads database: %w", err)
+	}
+	proj.Beads = beadsClient
 
 	// Initialize logging to .co/debug.log
 	if err := logging.Init(root); err != nil {
@@ -237,10 +248,21 @@ func (p *Project) WorktreePath(taskID string) string {
 	return filepath.Join(p.Root, taskID)
 }
 
-// Close closes any open resources (like the database).
+// Close closes any open resources (database and beads client).
 func (p *Project) Close() error {
+	var errs []error
+	if p.Beads != nil {
+		if err := p.Beads.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("closing beads client: %w", err))
+		}
+	}
 	if p.DB != nil {
-		return p.DB.Close()
+		if err := p.DB.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("closing database: %w", err))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	return nil
 }
