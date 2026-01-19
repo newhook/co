@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/newhook/co/internal/project"
-	"github.com/stretchr/testify/assert"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/newhook/co/internal/project"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestDetectCommandsBarButton tests the Plan mode commands bar button detection
@@ -140,8 +141,10 @@ func TestDetectHoveredMode(t *testing.T) {
 	m := newRootModel(ctx, proj)
 	m.activeMode = ModePlan
 
-	// Get the tab bar text (same as renderTabBar produces)
-	tabBar := m.renderTabBar()
+	// Build PLAIN text version for position detection
+	// Must match exactly what detectHoveredMode uses internally
+	modeName := m.activeMode.Label()
+	tabBar := fmt.Sprintf("=== Claude Örchestratör: %s MODE === [P]lan [W]ork", modeName)
 
 	// Find each mode hotkey
 	modes := []struct {

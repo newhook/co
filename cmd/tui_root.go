@@ -319,13 +319,14 @@ func (m *rootModel) getActiveModel() SubModel {
 
 // detectHoveredMode determines which mode tab is hovered based on mouse X position
 func (m *rootModel) detectHoveredMode(x int) Mode {
-	// Tab bar format: "=== PLAN MODE === [P]lan [W]ork"
+	// Tab bar format: "=== Claude Örchestratör: PLAN MODE === [P]lan [W]ork"
 	// The hotkeys portion shows which keys to press
 	// We need to detect hover over the hotkey portions
 
 	// Build PLAIN text version (no styling) for position detection
+	// Must match exactly what renderTabBar produces (minus ANSI codes)
 	modeName := m.activeMode.Label()
-	tabBarPlain := fmt.Sprintf("=== %s MODE === [P]lan [W]ork", modeName)
+	tabBarPlain := fmt.Sprintf("=== Claude Örchestratör: %s MODE === [P]lan [W]ork", modeName)
 
 	// Find positions of [P], [W] in the plain tab bar
 	planIdx := strings.Index(tabBarPlain, "[P]lan")
