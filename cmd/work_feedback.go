@@ -111,13 +111,27 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 			continue
 		}
 
-		// Create bead info
+		// Create bead info with metadata for external-ref
+		metadata := map[string]string{
+			"source_url": item.SourceURL,
+		}
+		// Add source_id if available
+		if prFeedback.SourceID != nil && *prFeedback.SourceID != "" {
+			metadata["source_id"] = *prFeedback.SourceID
+		}
+		// Add other context from item
+		for k, v := range item.Context {
+			metadata[k] = v
+		}
+
 		beadInfo := github.BeadInfo{
 			Title:       item.Title,
 			Description: item.Description,
 			Type:        getBeadType(item.Type),
 			Priority:    item.Priority,
 			ParentID:    work.RootIssueID,
+			Labels:      []string{"from-pr-feedback"},
+			Metadata:    metadata,
 		}
 
 		// Create bead using bd CLI

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -33,6 +34,37 @@ func (i *Integration) ProcessPRFeedback(ctx context.Context, prURL, rootIssueID 
 	return i.creator.ProcessPRAndCreateBeadInfo(ctx, prURL, rootIssueID)
 }
 
+// extractGitHubID extracts a GitHub identifier from a URL
+// For example: from "https://github.com/owner/repo/pull/123#issuecomment-456789"
+// returns "comment-456789"
+func extractGitHubID(url string) string {
+	// Try to extract comment ID
+	commentRe := regexp.MustCompile(`#issuecomment-(\d+)`)
+	if matches := commentRe.FindStringSubmatch(url); len(matches) > 1 {
+		return "comment-" + matches[1]
+	}
+
+	// Try to extract PR number
+	prRe := regexp.MustCompile(`/pull/(\d+)`)
+	if matches := prRe.FindStringSubmatch(url); len(matches) > 1 {
+		return "pr-" + matches[1]
+	}
+
+	// Try to extract issue number
+	issueRe := regexp.MustCompile(`/issues/(\d+)`)
+	if matches := issueRe.FindStringSubmatch(url); len(matches) > 1 {
+		return "issue-" + matches[1]
+	}
+
+	// Default to using the last part of the URL path
+	parts := strings.Split(strings.TrimSuffix(url, "/"), "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+
+	return "github"
+}
+
 // CreateBeadFromFeedback creates a bead using the bd CLI.
 func (i *Integration) CreateBeadFromFeedback(ctx context.Context, beadInfo BeadInfo) (string, error) {
 	// Build the bd create command
@@ -42,6 +74,14 @@ func (i *Integration) CreateBeadFromFeedback(ctx context.Context, beadInfo BeadI
 		"--priority", fmt.Sprintf("%d", beadInfo.Priority),
 		"--parent", beadInfo.ParentID,
 		"--description", beadInfo.Description,
+	}
+
+	// Add external reference if we have a source URL
+	if sourceURL, ok := beadInfo.Metadata["source_url"]; ok && sourceURL != "" {
+		// Create a short reference for the external-ref field
+		// For example, "gh-comment-123456" or "gh-pr-123"
+		externalRef := fmt.Sprintf("gh-%s", extractGitHubID(sourceURL))
+		args = append(args, "--external-ref", externalRef)
 	}
 
 	// Add labels

@@ -127,8 +127,9 @@ func (bc *BeadCreator) formatDescription(item FeedbackItem) string {
 	sb.WriteString(fmt.Sprintf("- Type: %s\n", item.Type))
 	sb.WriteString(fmt.Sprintf("- From: %s\n", item.Source))
 	if item.SourceURL != "" {
-		sb.WriteString(fmt.Sprintf("- Link: %s\n", item.SourceURL))
+		sb.WriteString(fmt.Sprintf("- **GitHub Link**: %s\n", item.SourceURL))
 	}
+	sb.WriteString("\n_This issue was automatically created from GitHub PR feedback._")
 
 	// Add context if available
 	if len(item.Context) > 0 {

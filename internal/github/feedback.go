@@ -207,6 +207,7 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 				Context: map[string]string{
 					"reviewer":   review.Author,
 					"review_id":  fmt.Sprintf("%d", review.ID),
+					"source_id":  fmt.Sprintf("%d", review.ID), // Store review ID as source_id for resolution tracking
 				},
 			}
 
@@ -229,6 +230,7 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 						"line":       fmt.Sprintf("%d", comment.Line),
 						"reviewer":   comment.Author,
 						"comment_id": fmt.Sprintf("%d", comment.ID),
+						"source_id":  fmt.Sprintf("%d", comment.ID), // Store comment ID as source_id for resolution tracking
 					},
 				}
 
@@ -261,6 +263,7 @@ func (p *FeedbackProcessor) processComments(status *PRStatus) []FeedbackItem {
 					Context: map[string]string{
 						"author":     comment.Author,
 						"comment_id": fmt.Sprintf("%d", comment.ID),
+						"source_id":  fmt.Sprintf("%d", comment.ID), // Store comment ID as source_id for resolution tracking
 					},
 				}
 
