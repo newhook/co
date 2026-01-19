@@ -174,8 +174,28 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			// All tasks completed - the scheduler will handle PR feedback checks
-			// No need to check here every 5 seconds
+			// All tasks completed - transition work to completed status if not already
+			if completedCount > 0 && work.Status != db.StatusCompleted {
+				// Find PR URL from the PR task (if one exists)
+				prURL := ""
+				for _, t := range allTasks {
+					if t.TaskType == "pr" && t.Status == db.StatusCompleted && t.PRURL != "" {
+						prURL = t.PRURL
+						break
+					}
+				}
+
+				if err := proj.DB.CompleteWork(ctx, workID, prURL); err != nil {
+					fmt.Printf("Warning: failed to mark work as completed: %v\n", err)
+				} else {
+					fmt.Printf("\n=== Work %s completed ===\n", workID)
+					if prURL != "" {
+						fmt.Printf("PR: %s\n", prURL)
+					}
+					// Refresh work status
+					work, _ = proj.DB.GetWork(ctx, workID)
+				}
+			}
 
 			// Wait for new tasks with spinner
 			var msg string

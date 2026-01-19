@@ -224,3 +224,162 @@ func TestListWorksWithRootIssueID(t *testing.T) {
 	assert.Equal(t, "bead-1", rootIssues["w-test1"])
 	assert.Equal(t, "bead-2", rootIssues["w-test2"])
 }
+
+func TestWorkStatusTransitionToCompleted(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a work
+	workID := "w-test"
+	err := db.CreateWork(ctx, workID, "", "/tmp/tree", "feature/test", "main", "root-issue-1")
+	require.NoError(t, err)
+
+	// Verify initial status is pending
+	work, err := db.GetWork(ctx, workID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusPending, work.Status)
+
+	// Start the work (transitions to processing)
+	err = db.StartWork(ctx, workID, "test-session", "test-tab")
+	require.NoError(t, err)
+
+	work, err = db.GetWork(ctx, workID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusProcessing, work.Status)
+
+	// Create tasks for the work
+	task1ID := workID + ".1"
+	task2ID := workID + ".2"
+	err = db.CreateTask(ctx, task1ID, "implement", []string{"bead-1"}, 10, workID)
+	require.NoError(t, err)
+	err = db.CreateTask(ctx, task2ID, "implement", []string{"bead-2"}, 10, workID)
+	require.NoError(t, err)
+
+	// Verify work is not completed yet
+	isCompleted, err := db.IsWorkCompleted(workID)
+	require.NoError(t, err)
+	assert.False(t, isCompleted)
+
+	// Complete the first task
+	err = db.CompleteTask(ctx, task1ID, "")
+	require.NoError(t, err)
+
+	// Verify work is still not completed (one task remaining)
+	isCompleted, err = db.IsWorkCompleted(workID)
+	require.NoError(t, err)
+	assert.False(t, isCompleted)
+
+	// Complete the second task
+	err = db.CompleteTask(ctx, task2ID, "")
+	require.NoError(t, err)
+
+	// Now all tasks are completed
+	isCompleted, err = db.IsWorkCompleted(workID)
+	require.NoError(t, err)
+	assert.True(t, isCompleted)
+
+	// Complete the work (this is what the orchestrator does when all tasks complete)
+	prURL := "https://github.com/example/repo/pull/123"
+	err = db.CompleteWork(ctx, workID, prURL)
+	require.NoError(t, err)
+
+	// Verify work status is completed
+	work, err = db.GetWork(ctx, workID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusCompleted, work.Status)
+	assert.Equal(t, prURL, work.PRURL)
+	assert.NotNil(t, work.CompletedAt)
+}
+
+func TestWorkStatusTransitionToCompletedWithoutPR(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create and start a work
+	workID := "w-test"
+	err := db.CreateWork(ctx, workID, "", "/tmp/tree", "feature/test", "main", "")
+	require.NoError(t, err)
+	err = db.StartWork(ctx, workID, "test-session", "test-tab")
+	require.NoError(t, err)
+
+	// Create and complete a task
+	taskID := workID + ".1"
+	err = db.CreateTask(ctx, taskID, "implement", []string{"bead-1"}, 10, workID)
+	require.NoError(t, err)
+	err = db.CompleteTask(ctx, taskID, "")
+	require.NoError(t, err)
+
+	// Complete work without a PR URL (empty string)
+	err = db.CompleteWork(ctx, workID, "")
+	require.NoError(t, err)
+
+	// Verify work status is completed even without PR URL
+	work, err := db.GetWork(ctx, workID)
+	require.NoError(t, err)
+	assert.Equal(t, StatusCompleted, work.Status)
+	assert.Equal(t, "", work.PRURL)
+	assert.NotNil(t, work.CompletedAt)
+}
+
+func TestIsWorkCompletedWithNoTasks(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Create a work without any tasks
+	workID := "w-test"
+	err := db.CreateWork(context.Background(), workID, "", "/tmp/tree", "feature/test", "main", "")
+	require.NoError(t, err)
+
+	// Work with no tasks should not be considered completed
+	isCompleted, err := db.IsWorkCompleted(workID)
+	require.NoError(t, err)
+	assert.False(t, isCompleted)
+}
+
+func TestIsWorkCompletedWithPartialCompletion(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create a work with multiple tasks
+	workID := "w-test"
+	err := db.CreateWork(ctx, workID, "", "/tmp/tree", "feature/test", "main", "")
+	require.NoError(t, err)
+
+	// Create three tasks
+	err = db.CreateTask(ctx, workID+".1", "implement", []string{"bead-1"}, 10, workID)
+	require.NoError(t, err)
+	err = db.CreateTask(ctx, workID+".2", "implement", []string{"bead-2"}, 10, workID)
+	require.NoError(t, err)
+	err = db.CreateTask(ctx, workID+".3", "implement", []string{"bead-3"}, 10, workID)
+	require.NoError(t, err)
+
+	// Complete only one task
+	err = db.CompleteTask(ctx, workID+".1", "")
+	require.NoError(t, err)
+
+	// Work should not be completed
+	isCompleted, err := db.IsWorkCompleted(workID)
+	require.NoError(t, err)
+	assert.False(t, isCompleted)
+
+	// Complete second task
+	err = db.CompleteTask(ctx, workID+".2", "")
+	require.NoError(t, err)
+
+	// Still not completed (one task remaining)
+	isCompleted, err = db.IsWorkCompleted(workID)
+	require.NoError(t, err)
+	assert.False(t, isCompleted)
+
+	// Complete final task
+	err = db.CompleteTask(ctx, workID+".3", "")
+	require.NoError(t, err)
+
+	// Now work should be completed
+	isCompleted, err = db.IsWorkCompleted(workID)
+	require.NoError(t, err)
+	assert.True(t, isCompleted)
+}
