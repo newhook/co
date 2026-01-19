@@ -179,6 +179,12 @@ func (m *workModel) createReviewTask() tea.Cmd {
 			return workCommandMsg{action: "Create review", err: fmt.Errorf("failed to create task: %w", err)}
 		}
 
+		// Set auto_workflow=false to indicate this is a manual review task
+		// that should not trigger automated workflow (fix tasks or PR creation)
+		if err := m.proj.DB.SetTaskMetadata(ctx, reviewTaskID, "auto_workflow", "false"); err != nil {
+			return workCommandMsg{action: "Create review", err: fmt.Errorf("failed to set task metadata: %w", err)}
+		}
+
 		// Include iteration count in success message
 		maxIterations := m.proj.Config.Workflow.GetMaxReviewIterations()
 		var actionMsg string
