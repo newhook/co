@@ -1020,17 +1020,43 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "A":
 		// Add selected issue(s) to existing work
 		if len(m.beadItems) > 0 {
-			// Check if we have any selected beads
+			// Collect selected beads or use cursor bead
+			var beadsToAdd []string
 			hasSelection := false
 			for _, item := range m.beadItems {
 				if m.selectedBeads[item.id] {
 					hasSelection = true
-					break
+					// Check if already assigned
+					if item.assignedWorkID != "" {
+						m.statusMessage = fmt.Sprintf("Issue %s already assigned to %s", item.id, item.assignedWorkID)
+						m.statusIsError = true
+						return m, nil
+					}
+					beadsToAdd = append(beadsToAdd, item.id)
 				}
 			}
-			// If we have selected beads or a cursor bead, load available works
-			if hasSelection || m.beadsCursor < len(m.beadItems) {
-				return m, m.loadAvailableWorks()
+
+			// If no selection, use cursor bead
+			if !hasSelection && m.beadsCursor < len(m.beadItems) {
+				bead := m.beadItems[m.beadsCursor]
+				if bead.assignedWorkID != "" {
+					m.statusMessage = fmt.Sprintf("Issue %s already assigned to %s", bead.id, bead.assignedWorkID)
+					m.statusIsError = true
+					return m, nil
+				}
+				beadsToAdd = append(beadsToAdd, bead.id)
+			}
+
+			if len(beadsToAdd) > 0 {
+				// If a work is focused, add directly to it
+				if m.focusedWorkID != "" {
+					// Add issues directly to the focused work
+					m.selectedBeads = make(map[string]bool) // Clear selection after adding
+					return m, m.addBeadsToWork(beadsToAdd, m.focusedWorkID)
+				} else {
+					// Show work selection dialog
+					return m, m.loadAvailableWorks()
+				}
 			}
 		}
 		return m, nil
