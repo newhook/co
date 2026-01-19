@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/newhook/co/internal/project"
 	cosignal "github.com/newhook/co/internal/signal"
 	"github.com/spf13/cobra"
 )
@@ -26,6 +28,20 @@ var rootCmd = &cobra.Command{
 		if rootCancel != nil {
 			rootCancel()
 		}
+	},
+	// Default to TUI when no subcommand is provided
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := GetContext()
+		proj, err := project.Find(ctx, "")
+		if err != nil {
+			return fmt.Errorf("not in a project directory: %w", err)
+		}
+		defer proj.Close()
+
+		if err := runRootTUI(ctx, proj, true); err != nil {
+			return fmt.Errorf("error running TUI: %w", err)
+		}
+		return nil
 	},
 }
 

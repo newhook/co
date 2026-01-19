@@ -21,6 +21,7 @@ import (
 
 var (
 	flagTUIProject string
+	flagTUINoMouse bool
 )
 
 var tuiCmd = &cobra.Command{
@@ -65,6 +66,7 @@ Key bindings:
 func init() {
 	rootCmd.AddCommand(tuiCmd)
 	tuiCmd.Flags().StringVar(&flagTUIProject, "project", "", "project directory (default: auto-detect)")
+	tuiCmd.Flags().BoolVar(&flagTUINoMouse, "no-mouse", false, "disable mouse support")
 }
 
 // Panel and ViewMode types are defined in tui_shared.go
@@ -2225,7 +2227,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Use the new root model with mode switching
-	if err := runRootTUI(ctx, proj); err != nil {
+	if err := runRootTUI(ctx, proj, !flagTUINoMouse); err != nil {
 		return fmt.Errorf("error running TUI: %w", err)
 	}
 

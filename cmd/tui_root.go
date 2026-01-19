@@ -407,18 +407,27 @@ func (m rootModel) renderTabBar() string {
 	// Style the current mode name
 	modeName := tuiTitleStyle.Render(m.activeMode.Label())
 
+	// Style "Claude Örchestratör" in orange
+	orangeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	appName := orangeStyle.Render("Claude Örchestratör")
+
 	// Style the mode switching keys with hover effects
 	planKey := styleButtonWithHover("[P]lan", m.hoveredMode == ModePlan)
 	workKey := styleButtonWithHover("[W]ork", m.hoveredMode == ModeWork)
 	modeKeys := planKey + " " + workKey
 
-	return fmt.Sprintf("=== %s MODE === %s", modeName, modeKeys)
+	return fmt.Sprintf("=== %s: %s MODE === %s", appName, modeName, modeKeys)
 }
 
 // runRootTUI starts the TUI with the new root model
-func runRootTUI(ctx context.Context, proj *project.Project) error {
+func runRootTUI(ctx context.Context, proj *project.Project, enableMouse bool) error {
 	model := newRootModel(ctx, proj)
-	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseAllMotion())
+
+	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	if enableMouse {
+		opts = append(opts, tea.WithMouseAllMotion())
+	}
+	p := tea.NewProgram(model, opts...)
 
 	if _, err := p.Run(); err != nil {
 		return err

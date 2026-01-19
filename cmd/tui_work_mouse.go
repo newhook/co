@@ -346,16 +346,11 @@ func (m *workModel) detectStatusBarButton(x int) string {
 		prefix := "[Tab]workers [←→]workers [↑↓]issues [Enter]zoom "
 		prefixWidth := lipgloss.Width(prefix)
 
-		cStart := prefixWidth
-		cEnd := cStart + len("[c]reate")
-		dStart := cEnd + 1 // +1 for space
+		dStart := prefixWidth
 		dEnd := dStart + len("[d]estroy")
 		helpStart := dEnd + 1
 		helpEnd := helpStart + len("[?]help")
 
-		if x >= cStart && x < cEnd {
-			return "c"
-		}
 		if x >= dStart && x < dEnd {
 			return "d"
 		}
