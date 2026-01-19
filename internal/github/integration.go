@@ -2,11 +2,13 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Integration handles the integration between GitHub PR feedback and beads.
@@ -65,28 +67,133 @@ func extractGitHubID(url string) string {
 	return "github"
 }
 
-// CreateBeadFromFeedback creates a bead using the bd CLI.
+// validateAndSanitizeInput validates and sanitizes user input to prevent injection attacks.
+// It ensures the input is safe to pass to shell commands.
+func validateAndSanitizeInput(input string, maxLength int, fieldName string) (string, error) {
+	// Check for null bytes which could cause issues in command execution
+	if strings.Contains(input, "\x00") {
+		return "", fmt.Errorf("%s contains null bytes", fieldName)
+	}
+
+	// Trim whitespace
+	input = strings.TrimSpace(input)
+
+	// Check length
+	if len(input) == 0 {
+		return "", fmt.Errorf("%s cannot be empty", fieldName)
+	}
+	if maxLength > 0 && len(input) > maxLength {
+		return "", fmt.Errorf("%s exceeds maximum length of %d characters", fieldName, maxLength)
+	}
+
+	// Remove any control characters except newlines and tabs
+	var sanitized strings.Builder
+	for _, r := range input {
+		if r == '\n' || r == '\t' || (r >= 32 && r < 127) || r > 127 {
+			// Allow printable ASCII, newlines, tabs, and UTF-8 characters
+			sanitized.WriteRune(r)
+		} else if unicode.IsSpace(r) {
+			// Replace other whitespace with regular space
+			sanitized.WriteRune(' ')
+		}
+		// Skip other control characters
+	}
+
+	result := sanitized.String()
+	if len(result) == 0 {
+		return "", fmt.Errorf("%s contains only invalid characters", fieldName)
+	}
+
+	return result, nil
+}
+
+// validateBeadType ensures the bead type is valid.
+func validateBeadType(beadType string) error {
+	validTypes := map[string]bool{
+		"bug":     true,
+		"feature": true,
+		"task":    true,
+		"epic":    true,
+	}
+
+	if !validTypes[strings.ToLower(beadType)] {
+		return fmt.Errorf("invalid bead type: %s", beadType)
+	}
+	return nil
+}
+
+// validatePriority ensures the priority is within valid range.
+func validatePriority(priority int) error {
+	if priority < 0 || priority > 4 {
+		return errors.New("priority must be between 0 and 4")
+	}
+	return nil
+}
+
+// CreateBeadFromFeedback creates a bead using the bd CLI with proper input validation.
 func (i *Integration) CreateBeadFromFeedback(ctx context.Context, beadInfo BeadInfo) (string, error) {
-	// Build the bd create command
+	// Validate and sanitize all inputs to prevent injection attacks
+	title, err := validateAndSanitizeInput(beadInfo.Title, 200, "title")
+	if err != nil {
+		return "", fmt.Errorf("invalid title: %w", err)
+	}
+
+	// Validate bead type
+	if err := validateBeadType(beadInfo.Type); err != nil {
+		return "", err
+	}
+
+	// Validate priority
+	if err := validatePriority(beadInfo.Priority); err != nil {
+		return "", err
+	}
+
+	// Validate and sanitize parent ID
+	parentID, err := validateAndSanitizeInput(beadInfo.ParentID, 100, "parent ID")
+	if err != nil {
+		return "", fmt.Errorf("invalid parent ID: %w", err)
+	}
+
+	// Validate and sanitize description (allow longer descriptions)
+	description, err := validateAndSanitizeInput(beadInfo.Description, 5000, "description")
+	if err != nil {
+		return "", fmt.Errorf("invalid description: %w", err)
+	}
+
+	// Build the bd create command with validated inputs
 	args := []string{"create",
-		"--title", beadInfo.Title,
-		"--type", beadInfo.Type,
-		"--priority", fmt.Sprintf("%d", beadInfo.Priority),
-		"--parent", beadInfo.ParentID,
-		"--description", beadInfo.Description,
+		"--title", title,
+		"--type", beadInfo.Type, // Already validated
+		"--priority", fmt.Sprintf("%d", beadInfo.Priority), // Already validated as int
+		"--parent", parentID,
+		"--description", description,
 	}
 
 	// Add external reference if we have a source URL
 	if sourceURL, ok := beadInfo.Metadata["source_url"]; ok && sourceURL != "" {
-		// Create a short reference for the external-ref field
-		// For example, "gh-comment-123456" or "gh-pr-123"
-		externalRef := fmt.Sprintf("gh-%s", extractGitHubID(sourceURL))
-		args = append(args, "--external-ref", externalRef)
+		// Validate the source URL
+		sanitizedURL, err := validateAndSanitizeInput(sourceURL, 500, "source URL")
+		if err == nil {
+			// Create a short reference for the external-ref field
+			// For example, "gh-comment-123456" or "gh-pr-123"
+			externalRef := fmt.Sprintf("gh-%s", extractGitHubID(sanitizedURL))
+			// Validate the external reference
+			if sanitizedRef, err := validateAndSanitizeInput(externalRef, 100, "external reference"); err == nil {
+				args = append(args, "--external-ref", sanitizedRef)
+			}
+		}
+		// If validation fails, we skip adding the external reference but continue
 	}
 
-	// Add labels
+	// Add labels with validation
 	for _, label := range beadInfo.Labels {
-		args = append(args, "--label", label)
+		// Validate each label
+		sanitizedLabel, err := validateAndSanitizeInput(label, 50, "label")
+		if err != nil {
+			// Skip invalid labels but continue
+			continue
+		}
+		args = append(args, "--label", sanitizedLabel)
 	}
 
 	// Execute bd create
