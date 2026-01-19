@@ -720,6 +720,16 @@ func scheduleNewBeadExpire(beadID string) tea.Cmd {
 }
 
 func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle escape key globally for deselecting focused work
+	if msg.Type == tea.KeyEsc && m.viewMode == ViewNormal && m.focusedWorkID != "" {
+		m.focusedWorkID = ""
+		m.focusFilterActive = false  // Clear focus filter when deselecting work
+		m.statusMessage = "Work deselected"
+		m.statusIsError = false
+		// Refresh to show all issues again
+		return m, m.refreshData()
+	}
+
 	// Handle dialog-specific input
 	switch m.viewMode {
 	case ViewCreateBead, ViewCreateBeadInline, ViewAddChildBead, ViewEditBead:
