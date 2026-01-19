@@ -58,6 +58,19 @@ type PrFeedback struct {
 	ResolvedAt   sql.NullTime   `json:"resolved_at"`
 }
 
+type Scheduler struct {
+	ID           string         `json:"id"`
+	WorkID       string         `json:"work_id"`
+	TaskType     string         `json:"task_type"`
+	ScheduledAt  time.Time      `json:"scheduled_at"`
+	ExecutedAt   sql.NullTime   `json:"executed_at"`
+	Status       string         `json:"status"`
+	ErrorMessage sql.NullString `json:"error_message"`
+	Metadata     string         `json:"metadata"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+}
+
 type SchemaMigration struct {
 	Version   string       `json:"version"`
 	AppliedAt sql.NullTime `json:"applied_at"`

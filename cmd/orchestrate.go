@@ -12,6 +12,7 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
 	"github.com/spf13/cobra"
@@ -104,142 +105,9 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Start manual PR feedback poll watcher in a separate goroutine
-	go func() {
-		// Recover from any panics
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Error: feedback poll watcher panicked: %v\n", r)
-			}
-		}()
-
-		// Watch for poll signal files
-		signalPattern := filepath.Join(proj.Root, ".co", fmt.Sprintf("poll-feedback-%s-*", workID))
-		checkTicker := time.NewTicker(500 * time.Millisecond) // Check every 500ms
-		defer checkTicker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-checkTicker.C:
-				// Check for signal files
-				matches, err := filepath.Glob(signalPattern)
-				if err != nil {
-					continue
-				}
-
-				for _, signalFile := range matches {
-					fmt.Printf("\n=== Manual PR feedback poll triggered ===\n")
-
-					// Remove the signal file
-					_ = os.Remove(signalFile)
-
-					// Check if work has a PR URL
-					if work.PRURL == "" {
-						fmt.Println("No PR URL associated with this work, skipping feedback poll.")
-						continue
-					}
-
-					// Run the feedback check using internal function
-					fmt.Printf("Checking PR feedback for: %s\n", work.PRURL)
-
-					// Process PR feedback internally with auto-add flag
-					_, err := ProcessPRFeedback(ctx, proj, proj.DB, workID, true, 2)
-					if err != nil {
-						fmt.Printf("Error checking PR feedback: %v\n", err)
-					} else {
-						fmt.Println("PR feedback check completed.")
-					}
-				}
-			}
-		}
-	}()
-
-	// Start automatic PR feedback polling in a separate goroutine
-	// This checks every 5 minutes for new PR feedback and creates beads
-	go func() {
-		// Recover from any panics
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Error: automatic feedback poller panicked: %v\n", r)
-			}
-		}()
-
-		// Only run if work has a PR URL
-		if work.PRURL == "" {
-			return
-		}
-
-		// Check every 5 minutes
-		feedbackTicker := time.NewTicker(5 * time.Minute)
-		defer feedbackTicker.Stop()
-
-		// Wait a bit before the first check to let things stabilize
-		time.Sleep(30 * time.Second)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-feedbackTicker.C:
-				// Refresh work to get latest PR URL
-				currentWork, err := proj.DB.GetWork(ctx, workID)
-				if err != nil || currentWork == nil || currentWork.PRURL == "" {
-					continue
-				}
-
-				fmt.Printf("\n=== Automatic PR feedback poll ===\n")
-				fmt.Printf("Checking PR feedback for: %s\n", currentWork.PRURL)
-
-				// Process PR feedback internally with auto-add flag
-				_, err = ProcessPRFeedback(ctx, proj, proj.DB, workID, true, 2)
-				if err != nil {
-					fmt.Printf("Error checking PR feedback: %v\n", err)
-				} else {
-					fmt.Println("Automatic PR feedback check completed.")
-				}
-			}
-		}
-	}()
-
-	// Start GitHub comment resolution poller in a separate goroutine
-	// This checks every 5 minutes for feedback items where the bead is closed but not yet resolved on GitHub
-	go func() {
-		// Recover from any panics
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Error: comment resolution poller panicked: %v\n", r)
-			}
-		}()
-
-		// Only run if work has a PR URL
-		if work.PRURL == "" {
-			return
-		}
-
-		// Check every 5 minutes
-		resolutionTicker := time.NewTicker(5 * time.Minute)
-		defer resolutionTicker.Stop()
-
-		// Also check immediately on startup
-		checkAndResolveComments(ctx, proj, workID, work.PRURL)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-resolutionTicker.C:
-				// Refresh work to get latest PR URL
-				currentWork, err := proj.DB.GetWork(ctx, workID)
-				if err != nil || currentWork == nil || currentWork.PRURL == "" {
-					continue
-				}
-
-				checkAndResolveComments(ctx, proj, workID, currentWork.PRURL)
-			}
-		}
-	}()
+	// Start the scheduler watcher for this work
+	// This replaces file-based polling and fixed timers with a database-driven scheduler
+	StartSchedulerWatcher(ctx, proj, workID)
 
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
@@ -304,23 +172,8 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			// No tasks at all or all completed - check for PR feedback before waiting
-			if completedCount > 0 && work.PRURL != "" {
-				// All tasks are done and we have a PR - check for feedback
-				fmt.Println("\nAll tasks completed. Checking for PR feedback...")
-
-				// Process PR feedback internally with auto-add flag
-				// This creates beads (issues) that need human review, NOT tasks
-				createdCount, err := ProcessPRFeedback(ctx, proj, proj.DB, workID, true, 2)
-				if err != nil {
-					fmt.Printf("Warning: failed to check PR feedback: %v\n", err)
-				} else if createdCount > 0 {
-					fmt.Printf("Created %d new beads from PR feedback (review needed)\n", createdCount)
-				} else {
-					fmt.Println("No new PR feedback found.")
-				}
-				// Don't continue - beads need human review before becoming tasks
-			}
+			// All tasks completed - the scheduler will handle PR feedback checks
+			// No need to check here every 5 seconds
 
 			// Wait for new tasks with spinner
 			var msg string
@@ -753,10 +606,21 @@ func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workI
 
 // checkAndResolveComments checks for feedback items where the bead is closed and posts resolution comments to GitHub
 func checkAndResolveComments(ctx context.Context, proj *project.Project, workID, prURL string) {
+	checkAndResolveCommentsInternal(ctx, proj, workID, prURL, false)
+}
+
+func checkAndResolveCommentsQuiet(ctx context.Context, proj *project.Project, workID, prURL string) {
+	checkAndResolveCommentsInternal(ctx, proj, workID, prURL, true)
+}
+
+func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project, workID, prURL string, quiet bool) {
 	// Get unresolved feedback items for this work
 	feedbacks, err := proj.DB.GetUnresolvedFeedbackForClosedBeads(ctx, workID)
 	if err != nil {
-		fmt.Printf("Error getting unresolved feedback: %v\n", err)
+		if !quiet {
+			fmt.Printf("Error getting unresolved feedback: %v\n", err)
+		}
+		logging.Error("failed to get unresolved feedback", "error", err)
 		return
 	}
 
@@ -764,12 +628,18 @@ func checkAndResolveComments(ctx context.Context, proj *project.Project, workID,
 		return
 	}
 
-	fmt.Printf("\nChecking %d feedback items for resolution...\n", len(feedbacks))
+	if !quiet {
+		fmt.Printf("\nChecking %d feedback items for resolution...\n", len(feedbacks))
+	}
+	logging.Debug("checking feedback items for resolution", "count", len(feedbacks))
 
 	// Initialize beads client to check bead status
 	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(filepath.Join(proj.Root, "main", ".beads", "beads.db")))
 	if err != nil {
-		fmt.Printf("Error initializing beads client: %v\n", err)
+		if !quiet {
+			fmt.Printf("Error initializing beads client: %v\n", err)
+		}
+		logging.Error("failed to initialize beads client", "error", err)
 		return
 	}
 	defer beadsClient.Close()
@@ -784,7 +654,10 @@ func checkAndResolveComments(ctx context.Context, proj *project.Project, workID,
 		// Check if the bead is actually closed
 		bead, err := beadsClient.GetBead(ctx, *feedback.BeadID)
 		if err != nil {
-			fmt.Printf("Error getting bead %s: %v\n", *feedback.BeadID, err)
+			if !quiet {
+				fmt.Printf("Error getting bead %s: %v\n", *feedback.BeadID, err)
+			}
+			logging.Error("failed to get bead", "bead_id", *feedback.BeadID, "error", err)
 			continue
 		}
 
@@ -796,7 +669,10 @@ func checkAndResolveComments(ctx context.Context, proj *project.Project, workID,
 	// Resolve feedback for all closed beads
 	if len(closedBeadIDs) > 0 {
 		if err := ResolveFeedbackForBeads(ctx, proj.DB, beadsClient, workID, closedBeadIDs); err != nil {
-			fmt.Printf("Error resolving feedback comments: %v\n", err)
+			if !quiet {
+				fmt.Printf("Error resolving feedback comments: %v\n", err)
+			}
+			logging.Error("failed to resolve feedback comments", "error", err)
 		}
 	}
 }

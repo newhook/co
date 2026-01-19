@@ -38,10 +38,22 @@ func init() {
 	workFeedbackCmd.Flags().IntVar(&feedbackMinPriority, "min-priority", 2, "Minimum priority for created beads (0-4, 0=critical)")
 }
 
+// ProcessPRFeedbackQuiet processes PR feedback without outputting to stdout
+// This is used by the scheduler to avoid interfering with the TUI
+// Returns the number of beads created and any error
+func ProcessPRFeedbackQuiet(ctx context.Context, proj *project.Project, database *db.DB, workID string, autoAdd bool, minPriority int) (int, error) {
+	return processPRFeedbackInternal(ctx, proj, database, workID, autoAdd, minPriority, true)
+}
+
 // ProcessPRFeedback processes PR feedback for a work and creates beads
 // This is an internal function that can be called directly
 // Returns the number of beads created and any error
 func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string, autoAdd bool, minPriority int) (int, error) {
+	return processPRFeedbackInternal(ctx, proj, database, workID, autoAdd, minPriority, false)
+}
+
+// processPRFeedbackInternal is the actual implementation with output control
+func processPRFeedbackInternal(ctx context.Context, proj *project.Project, database *db.DB, workID string, autoAdd bool, minPriority int, quiet bool) (int, error) {
 	// Get work details
 	work, err := database.GetWork(ctx, workID)
 	if err != nil {
@@ -56,9 +68,11 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 		return 0, fmt.Errorf("work %s does not have a root issue ID", workID)
 	}
 
-	fmt.Printf("Processing PR feedback for work %s\n", workID)
-	fmt.Printf("PR URL: %s\n", work.PRURL)
-	fmt.Printf("Root issue: %s\n", work.RootIssueID)
+	if !quiet {
+		fmt.Printf("Processing PR feedback for work %s\n", workID)
+		fmt.Printf("PR URL: %s\n", work.PRURL)
+		fmt.Printf("Root issue: %s\n", work.RootIssueID)
+	}
 
 	// Create GitHub integration with custom rules
 	rules := &github.FeedbackRules{
@@ -73,18 +87,24 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 	integration := github.NewIntegration(rules)
 
 	// Fetch and process PR feedback
-	fmt.Println("\nFetching PR feedback...")
+	if !quiet {
+		fmt.Println("\nFetching PR feedback...")
+	}
 	feedbackItems, err := integration.FetchAndStoreFeedback(ctx, work.PRURL)
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch PR feedback: %w", err)
 	}
 
 	if len(feedbackItems) == 0 {
-		fmt.Println("No actionable feedback found.")
+		if !quiet {
+			fmt.Println("No actionable feedback found.")
+		}
 		return 0, nil
 	}
 
-	fmt.Printf("Found %d actionable feedback items:\n\n", len(feedbackItems))
+	if !quiet {
+		fmt.Printf("Found %d actionable feedback items:\n\n", len(feedbackItems))
+	}
 
 	// Store feedback in database and create beads
 	createdBeads := []string{}
@@ -93,23 +113,31 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 		// Check if feedback already exists
 		exists, err := database.HasExistingFeedback(ctx, workID, item.Title, item.Source)
 		if err != nil {
-			fmt.Printf("Error checking existing feedback: %v\n", err)
+			if !quiet {
+				fmt.Printf("Error checking existing feedback: %v\n", err)
+			}
 			continue
 		}
 
 		if exists {
-			fmt.Printf("%d. [SKIP - Already processed] %s\n", i+1, item.Title)
+			if !quiet {
+				fmt.Printf("%d. [SKIP - Already processed] %s\n", i+1, item.Title)
+			}
 			continue
 		}
 
-		fmt.Printf("%d. %s\n", i+1, item.Title)
-		fmt.Printf("   Type: %s | Priority: P%d | Source: %s\n", item.Type, item.Priority, item.Source)
+		if !quiet {
+			fmt.Printf("%d. %s\n", i+1, item.Title)
+			fmt.Printf("   Type: %s | Priority: P%d | Source: %s\n", item.Type, item.Priority, item.Source)
+		}
 
 		// Store feedback in database
 		prFeedback, err := database.CreatePRFeedback(ctx, workID, work.PRURL, string(item.Type), item.Title,
 			item.Description, item.Source, item.SourceURL, item.Priority, item.Context)
 		if err != nil {
-			fmt.Printf("   Error storing feedback: %v\n", err)
+			if !quiet {
+				fmt.Printf("   Error storing feedback: %v\n", err)
+			}
 			continue
 		}
 
@@ -139,16 +167,22 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 		// Create bead using bd CLI
 		beadID, err := integration.CreateBeadFromFeedback(ctx, beadInfo)
 		if err != nil {
-			fmt.Printf("   Error creating bead: %v\n", err)
+			if !quiet {
+				fmt.Printf("   Error creating bead: %v\n", err)
+			}
 			continue
 		}
 
-		fmt.Printf("   Created bead: %s\n", beadID)
+		if !quiet {
+			fmt.Printf("   Created bead: %s\n", beadID)
+		}
 		createdBeads = append(createdBeads, beadID)
 
 		// Mark feedback as processed
 		if err := database.MarkFeedbackProcessed(ctx, prFeedback.ID, beadID); err != nil {
-			fmt.Printf("   Warning: Failed to mark feedback as processed: %v\n", err)
+			if !quiet {
+				fmt.Printf("   Warning: Failed to mark feedback as processed: %v\n", err)
+			}
 		}
 
 		// Add bead to work if auto-add is enabled
@@ -156,7 +190,9 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 			// Add to work_beads table - need to get next group ID
 			groups, err := database.GetWorkBeadGroups(ctx, workID)
 			if err != nil {
-				fmt.Printf("   Warning: Failed to get work groups: %v\n", err)
+				if !quiet {
+					fmt.Printf("   Warning: Failed to get work groups: %v\n", err)
+				}
 				continue
 			}
 
@@ -166,26 +202,32 @@ func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.
 			}
 
 			if err := database.AddWorkBead(ctx, workID, beadID, nextGroupID, 0); err != nil {
-				fmt.Printf("   Warning: Failed to add bead to work: %v\n", err)
+				if !quiet {
+					fmt.Printf("   Warning: Failed to add bead to work: %v\n", err)
+				}
 			} else {
-				fmt.Printf("   Added bead to work\n")
+				if !quiet {
+					fmt.Printf("   Added bead to work\n")
+				}
 			}
 		}
 	}
 
 	// Summary
-	fmt.Printf("\n=== Summary ===\n")
-	fmt.Printf("Total feedback items: %d\n", len(feedbackItems))
-	fmt.Printf("Beads created: %d\n", len(createdBeads))
+	if !quiet {
+		fmt.Printf("\n=== Summary ===\n")
+		fmt.Printf("Total feedback items: %d\n", len(feedbackItems))
+		fmt.Printf("Beads created: %d\n", len(createdBeads))
 
-	if len(createdBeads) > 0 && !autoAdd {
-		fmt.Println("\nTo add these beads to the work, run:")
-		fmt.Printf("  co work add %s\n", strings.Join(createdBeads, " "))
-	}
+		if len(createdBeads) > 0 && !autoAdd {
+			fmt.Println("\nTo add these beads to the work, run:")
+			fmt.Printf("  co work add %s\n", strings.Join(createdBeads, " "))
+		}
 
-	if len(createdBeads) > 0 && autoAdd {
-		fmt.Println("\nBeads have been added to the work. Run the following to execute them:")
-		fmt.Printf("  co run --work %s\n", workID)
+		if len(createdBeads) > 0 && autoAdd {
+			fmt.Println("\nBeads have been added to the work. Run the following to execute them:")
+			fmt.Printf("  co run --work %s\n", workID)
+		}
 	}
 
 	return len(createdBeads), nil

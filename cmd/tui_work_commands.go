@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -371,19 +369,11 @@ func (m *workModel) pollPRFeedback() tea.Cmd {
 			return workCommandMsg{action: "Poll PR feedback", err: fmt.Errorf("work %s has no PR URL", workID)}
 		}
 
-		// Create a signal file that the orchestrator will watch for
-		signalPath := filepath.Join(m.proj.Root, ".co", fmt.Sprintf("poll-feedback-%s-%d", workID, time.Now().UnixNano()))
-
-		// Write the signal file
-		if err := os.WriteFile(signalPath, []byte(wp.work.PRURL), 0644); err != nil {
-			return workCommandMsg{action: "Poll PR feedback", err: fmt.Errorf("failed to create poll signal: %w", err)}
+		// Use the scheduler to trigger an immediate PR feedback check
+		ctx := context.Background()
+		if err := TriggerPRFeedbackCheck(ctx, m.proj, workID); err != nil {
+			return workCommandMsg{action: "Poll PR feedback", err: fmt.Errorf("failed to trigger PR feedback check: %w", err)}
 		}
-
-		// Clean up the signal file after a short delay
-		go func() {
-			time.Sleep(2 * time.Second)
-			_ = os.Remove(signalPath)
-		}()
 
 		return workCommandMsg{action: fmt.Sprintf("Triggered PR feedback poll for %s", workID)}
 	}
