@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -51,7 +50,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	mainRepoPath := m.proj.MainRepoPath()
 
 	// Use the shared fetchBeadsWithFilters function
-	items, err := fetchBeadsWithFilters(mainRepoPath, filters)
+	items, err := fetchBeadsWithFilters(m.ctx, mainRepoPath, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +97,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 
 func (m *planModel) createBead(title, beadType string, priority int, isEpic bool, description string, parent string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
+		ctx := m.ctx
 		mainRepoPath := m.proj.MainRepoPath()
 
 		_, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
@@ -124,7 +123,6 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 
 func (m *planModel) closeBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
 		session := m.sessionName()
 		tabName := db.TabNameForBead(beadID)
@@ -138,7 +136,7 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 		}
 
 		// Close the bead
-		if err := beads.Close(ctx, beadID, mainRepoPath); err != nil {
+		if err := beads.Close(m.ctx, beadID, mainRepoPath); err != nil {
 			return planDataMsg{err: fmt.Errorf("failed to close issue: %w", err)}
 		}
 
@@ -151,11 +149,10 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 
 func (m *planModel) saveBeadEdit(beadID, title, description, beadType string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
 
 		// Update the bead using beads package
-		err := beads.Update(ctx, beadID, mainRepoPath, beads.UpdateOptions{
+		err := beads.Update(m.ctx, beadID, mainRepoPath, beads.UpdateOptions{
 			Title:       title,
 			Type:        beadType,
 			Description: description,
@@ -174,11 +171,10 @@ func (m *planModel) saveBeadEdit(beadID, title, description, beadType string) te
 
 // openInEditor opens the issue in $EDITOR using bd edit
 func (m *planModel) openInEditor(beadID string) tea.Cmd {
-	ctx := context.Background()
 	mainRepoPath := m.proj.MainRepoPath()
 
 	// Use bd edit which handles $EDITOR and the issue format
-	c := beads.EditCommand(ctx, beadID, mainRepoPath)
+	c := beads.EditCommand(m.ctx, beadID, mainRepoPath)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		if err != nil {
 			return planStatusMsg{message: fmt.Sprintf("Editor error: %v", err), isError: true}
@@ -198,7 +194,6 @@ func (m *planModel) startPeriodicRefresh() tea.Cmd {
 // importLinearIssue imports Linear issues (supports multiple IDs/URLs)
 func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
 		mainRepoPath := m.proj.MainRepoPath()
 
 		// Get API key from environment or config
@@ -236,7 +231,7 @@ func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 
 		// If only one ID, use single import for backward compatibility
 		if len(issueIDs) == 1 {
-			result, err := fetcher.FetchAndImport(ctx, issueIDs[0], opts)
+			result, err := fetcher.FetchAndImport(m.ctx, issueIDs[0], opts)
 			if err != nil {
 				return linearImportCompleteMsg{err: fmt.Errorf("import failed: %w", err)}
 			}
@@ -257,7 +252,7 @@ func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 		}
 
 		// Use batch import for multiple IDs
-		results, err := fetcher.FetchBatch(ctx, issueIDs, opts)
+		results, err := fetcher.FetchBatch(m.ctx, issueIDs, opts)
 		if err != nil {
 			return linearImportCompleteMsg{err: fmt.Errorf("batch import failed: %w", err)}
 		}

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -35,7 +34,7 @@ func init() {
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := GetContext()
 
 	// Find project
 	proj, err := project.Find(ctx, "")

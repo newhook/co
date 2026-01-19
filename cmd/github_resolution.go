@@ -47,9 +47,9 @@ func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *b
 		}
 
 		// Construct resolution message
-		resolutionMessage := fmt.Sprintf("✅ Resolved in work %s", workID)
+		resolutionMessage := fmt.Sprintf("✅ Resolved in work %s (issue %s)", workID, *feedback.BeadID)
 		if bead.CloseReason != "" {
-			resolutionMessage = fmt.Sprintf("✅ Resolved in work %s: %s", workID, bead.CloseReason)
+			resolutionMessage = fmt.Sprintf("✅ Resolved in work %s (issue %s): %s", workID, *feedback.BeadID, bead.CloseReason)
 		}
 
 		// Parse PR URL to get owner/repo/pr_number
@@ -89,7 +89,7 @@ func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *b
 		if err := database.MarkFeedbackResolved(ctx, feedback.ID); err != nil {
 			fmt.Printf("Warning: failed to mark feedback %s as resolved: %v\n", feedback.ID, err)
 		} else {
-			fmt.Printf("Successfully resolved feedback for bead %s\n", *feedback.BeadID)
+			fmt.Printf("Successfully posted resolution comment for bead %s on GitHub\n", *feedback.BeadID)
 		}
 	}
 

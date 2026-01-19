@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os/exec"
@@ -25,7 +24,7 @@ func (m *workModel) refreshData() tea.Cmd {
 		}
 
 		// Also fetch beads for potential assignment
-		beads, _ := fetchBeadsWithFilters(m.proj.MainRepoPath(), beadFilters{status: "ready"})
+		beads, _ := fetchBeadsWithFilters(m.ctx, m.proj.MainRepoPath(), beadFilters{status: "ready"})
 
 		return workDataMsg{works: works, beads: beads}
 	}
@@ -33,7 +32,7 @@ func (m *workModel) refreshData() tea.Cmd {
 
 func (m *workModel) loadBeadsForAssign() tea.Cmd {
 	return func() tea.Msg {
-		beads, err := fetchBeadsWithFilters(m.proj.MainRepoPath(), beadFilters{status: "ready"})
+		beads, err := fetchBeadsWithFilters(m.ctx, m.proj.MainRepoPath(), beadFilters{status: "ready"})
 		if err != nil {
 			return workDataMsg{err: err}
 		}
@@ -245,8 +244,7 @@ func (m *workModel) updatePRDescriptionTask() tea.Cmd {
 
 		// Create update-pr-description task
 		taskID := fmt.Sprintf("%s.update-pr-%d", workID, time.Now().Unix())
-		ctx := context.Background()
-		err := m.proj.DB.CreateTask(ctx, taskID, "update-pr-description", []string{}, 0, workID)
+		err := m.proj.DB.CreateTask(m.ctx, taskID, "update-pr-description", []string{}, 0, workID)
 		if err != nil {
 			return workCommandMsg{action: "Update PR", err: err}
 		}
@@ -291,7 +289,6 @@ func (m *workModel) assignSelectedBeads() tea.Cmd {
 
 func (m *workModel) createBeadAndAssign(title, beadType string, priority int, isEpic bool, description string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
 		if m.worksCursor >= len(m.works) {
 			return workCommandMsg{action: "Create issue", err: fmt.Errorf("no work selected")}
 		}
@@ -299,7 +296,7 @@ func (m *workModel) createBeadAndAssign(title, beadType string, priority int, is
 		mainRepoPath := m.proj.MainRepoPath()
 
 		// Create the bead using beads package
-		beadID, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
+		beadID, err := beads.Create(m.ctx, mainRepoPath, beads.CreateOptions{
 			Title:       title,
 			Type:        beadType,
 			Priority:    priority,

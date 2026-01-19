@@ -31,7 +31,7 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 			initialCheck := time.Now().Add(5 * time.Minute)
 			logging.Info("Scheduling initial PR feedback check", "work_id", workID, "scheduled_for", initialCheck.Format(time.RFC3339))
 
-			_, err := proj.DB.ScheduleTask(ctx, workID, db.TaskTypePRFeedback, initialCheck, nil)
+			_, err := proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypePRFeedback, initialCheck, nil)
 			if err != nil {
 				logging.Warn("failed to schedule initial PR feedback check", "error", err)
 			} else {
@@ -39,7 +39,7 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 			}
 
 			// Also schedule comment resolution check
-			_, err = proj.DB.ScheduleTask(ctx, workID, db.TaskTypeCommentResolution, initialCheck, nil)
+			_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypeCommentResolution, initialCheck, nil)
 			if err != nil {
 				logging.Warn("failed to schedule initial comment resolution check", "error", err)
 			} else {
@@ -144,7 +144,7 @@ func handlePRFeedbackTask(ctx context.Context, proj *project.Project, workID str
 
 		// Schedule next check in 5 minutes
 		nextCheck := time.Now().Add(5 * time.Minute)
-		_, err = proj.DB.ScheduleTask(ctx, workID, db.TaskTypePRFeedback, nextCheck, nil)
+		_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypePRFeedback, nextCheck, nil)
 		if err != nil {
 			logging.Warn("failed to schedule next PR feedback check", "error", err, "work_id", workID)
 		} else {
@@ -173,7 +173,7 @@ func handleCommentResolutionTask(ctx context.Context, proj *project.Project, wor
 
 	// Schedule next check in 5 minutes
 	nextCheck := time.Now().Add(5 * time.Minute)
-	_, err = proj.DB.ScheduleTask(ctx, workID, db.TaskTypeCommentResolution, nextCheck, nil)
+	_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypeCommentResolution, nextCheck, nil)
 	if err != nil {
 		logging.Warn("failed to schedule next comment resolution check", "error", err)
 	}

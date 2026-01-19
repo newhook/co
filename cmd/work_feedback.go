@@ -76,12 +76,12 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 	// Create GitHub integration with custom rules
 	rules := &github.FeedbackRules{
-		CreateBeadForFailedChecks:    true,
-		CreateBeadForTestFailures:    true,
-		CreateBeadForLintErrors:      true,
-		CreateBeadForReviewComments:  true,
-		IgnoreDraftPRs:               false,
-		MinimumPriority:              minPriority,
+		CreateBeadForFailedChecks:   true,
+		CreateBeadForTestFailures:   true,
+		CreateBeadForLintErrors:     true,
+		CreateBeadForReviewComments: true,
+		IgnoreDraftPRs:              false,
+		MinimumPriority:             minPriority,
 	}
 
 	integration := github.NewIntegration(rules)
@@ -234,7 +234,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 }
 
 func runWorkFeedback(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := GetContext()
 
 	// Find project
 	proj, err := project.Find(ctx, "")
@@ -243,20 +243,13 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Open database
-	database, err := proj.OpenDB()
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-	defer database.Close()
-
 	// Get work ID
 	var workID string
 	if len(args) > 0 {
 		workID = args[0]
 	} else {
 		// Try to detect from current directory
-		work, err := detectWork(proj, database)
+		work, err := detectWork(ctx, proj, proj.DB)
 		if err != nil {
 			return fmt.Errorf("failed to detect work from current directory: %w", err)
 		}
@@ -269,7 +262,7 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 	}
 
 	// Call the internal function
-	_, err = ProcessPRFeedback(ctx, proj, database, workID, feedbackAutoAdd, feedbackMinPriority)
+	_, err = ProcessPRFeedback(ctx, proj, proj.DB, workID, feedbackAutoAdd, feedbackMinPriority)
 	return err
 }
 
@@ -287,9 +280,7 @@ func getBeadType(feedbackType github.FeedbackType) string {
 }
 
 // detectWork tries to detect the work from the current directory
-func detectWork(proj *project.Project, database *db.DB) (*db.Work, error) {
-	ctx := context.Background()
-
+func detectWork(ctx context.Context, proj *project.Project, database *db.DB) (*db.Work, error) {
 	// Get current directory
 	cwd, err := os.Getwd()
 	if err != nil {

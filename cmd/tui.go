@@ -90,10 +90,10 @@ type tuiCommandMsg struct {
 
 // tuiModel is the main TUI model
 type tuiModel struct {
-	ctx           context.Context
-	proj          *project.Project
-	width         int
-	height        int
+	ctx    context.Context
+	proj   *project.Project
+	width  int
+	height int
 
 	// Panel state
 	activePanel   Panel
@@ -185,7 +185,7 @@ func (m tuiModel) fetchData() tea.Cmd {
 		}
 
 		// Fetch beads with filters
-		beadItems, err := fetchBeadsWithFilters(m.proj.MainRepoPath(), m.filters)
+		beadItems, err := fetchBeadsWithFilters(m.ctx, m.proj.MainRepoPath(), m.filters)
 		if err != nil {
 			return tuiDataMsg{works: works, err: err}
 		}
@@ -194,12 +194,10 @@ func (m tuiModel) fetchData() tea.Cmd {
 	}
 }
 
-func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) {
-	ctx := context.Background()
-
+func fetchBeadsWithFilters(ctx context.Context, dir string, filters beadFilters) ([]beadItem, error) {
 	// For "ready" status, use bd ready command
 	if filters.status == "ready" {
-		return fetchReadyBeads(dir, filters)
+		return fetchReadyBeads(ctx, dir, filters)
 	}
 
 	// Create beads client
@@ -289,9 +287,7 @@ func fetchBeadsWithFilters(dir string, filters beadFilters) ([]beadItem, error) 
 	return items, nil
 }
 
-func fetchReadyBeads(dir string, filters beadFilters) ([]beadItem, error) {
-	ctx := context.Background()
-
+func fetchReadyBeads(ctx context.Context, dir string, filters beadFilters) ([]beadItem, error) {
 	// Create beads client
 	beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
 	client, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
@@ -1103,8 +1099,7 @@ func (m tuiModel) createWorkWithBeads(beadIDs []string) tea.Cmd {
 
 func (m tuiModel) createBead(title, beadType string, priority int) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
-		_, err := beads.Create(ctx, m.proj.MainRepoPath(), beads.CreateOptions{
+		_, err := beads.Create(m.ctx, m.proj.MainRepoPath(), beads.CreateOptions{
 			Title:    title,
 			Type:     beadType,
 			Priority: priority,
@@ -1118,8 +1113,7 @@ func (m tuiModel) createBead(title, beadType string, priority int) tea.Cmd {
 
 func (m tuiModel) closeBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
-		err := beads.Close(ctx, beadID, m.proj.MainRepoPath())
+		err := beads.Close(m.ctx, beadID, m.proj.MainRepoPath())
 		if err != nil {
 			return tuiCommandMsg{action: "Close bead", err: err}
 		}
@@ -1129,8 +1123,7 @@ func (m tuiModel) closeBead(beadID string) tea.Cmd {
 
 func (m tuiModel) reopenBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
-		err := beads.Reopen(ctx, beadID, m.proj.MainRepoPath())
+		err := beads.Reopen(m.ctx, beadID, m.proj.MainRepoPath())
 		if err != nil {
 			return tuiCommandMsg{action: "Reopen bead", err: err}
 		}
