@@ -223,7 +223,12 @@ func (m *planModel) FocusChanged(focused bool) tea.Cmd {
 	if focused {
 		// Refresh data when gaining focus
 		m.loading = true
-		return tea.Batch(m.refreshData(), m.startPeriodicRefresh())
+		cmds := []tea.Cmd{m.refreshData(), m.startPeriodicRefresh()}
+		// Load work tiles if a work is focused
+		if m.focusedWorkID != "" {
+			cmds = append(cmds, m.loadWorkTiles())
+		}
+		return tea.Batch(cmds...)
 	}
 	return nil
 }

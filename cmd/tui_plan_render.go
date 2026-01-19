@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
+	"github.com/newhook/co/internal/db"
 )
 
 const detailsPanelPadding = 4
@@ -23,8 +24,133 @@ func (m *planModel) renderFixedPanel(title, content string, width, height int) s
 	return tuiPanelStyle.Width(width).Height(height - 2).Render(b.String())
 }
 
+// renderFocusedWorkSplitView renders the split view when a work is focused
+func (m *planModel) renderFocusedWorkSplitView() string {
+	// Calculate heights for split view (40% work, 60% plan mode)
+	totalHeight := m.height - 1 // -1 for status bar
+	workPanelHeight := int(float64(totalHeight) * 0.4)
+	planPanelHeight := totalHeight - workPanelHeight - 1 // -1 for separator
+
+	// Find the focused work
+	var focusedWork *workProgress
+	for _, work := range m.workTiles {
+		if work != nil && work.work.ID == m.focusedWorkID {
+			focusedWork = work
+			break
+		}
+	}
+
+	// Render work panel
+	var workContent strings.Builder
+	if focusedWork != nil {
+		workContent.WriteString(fmt.Sprintf("%s %s\n", statusIcon(focusedWork.work.Status), focusedWork.work.ID))
+		workContent.WriteString(fmt.Sprintf("Branch: %s\n", focusedWork.work.BranchName))
+		workContent.WriteString(fmt.Sprintf("Status: %s\n", focusedWork.work.Status))
+
+		// Show task summary
+		completedTasks := 0
+		totalTasks := len(focusedWork.tasks)
+		for _, task := range focusedWork.tasks {
+			if task.task.Status == db.StatusCompleted {
+				completedTasks++
+			}
+		}
+		workContent.WriteString(fmt.Sprintf("Tasks: %d/%d completed\n", completedTasks, totalTasks))
+
+		// Show assigned beads
+		if len(focusedWork.workBeads) > 0 {
+			workContent.WriteString("\nAssigned Issues:\n")
+			for i, bead := range focusedWork.workBeads {
+				if i < 5 { // Show first 5 beads
+					statusStr := "○"
+					if bead.beadStatus == "closed" {
+						statusStr = "✓"
+					} else if bead.beadStatus == "in_progress" {
+						statusStr = "●"
+					}
+					workContent.WriteString(fmt.Sprintf("  %s %s: %s\n", statusStr, bead.id, bead.title))
+				}
+			}
+			if len(focusedWork.workBeads) > 5 {
+				workContent.WriteString(fmt.Sprintf("  ... and %d more\n", len(focusedWork.workBeads)-5))
+			}
+		}
+
+		// Show unassigned beads count
+		if focusedWork.unassignedBeadCount > 0 {
+			workContent.WriteString(fmt.Sprintf("\nUnassigned: %d issue(s)\n", focusedWork.unassignedBeadCount))
+		}
+
+		// Show feedback count
+		if focusedWork.feedbackCount > 0 {
+			workContent.WriteString(fmt.Sprintf("Feedback: %d item(s)\n", focusedWork.feedbackCount))
+		}
+	} else {
+		workContent.WriteString("Loading work details...")
+	}
+
+	workPanelStyle := tuiPanelStyle.
+		Width(m.width - 4).
+		Height(workPanelHeight - 2).
+		BorderForeground(lipgloss.Color("214")) // Highlight focused work
+
+	workTitle := fmt.Sprintf("Work: %s", m.focusedWorkID)
+	if m.focusFilterActive {
+		workTitle += " [FILTERED]"
+	}
+	workPanel := workPanelStyle.Render(tuiTitleStyle.Render(workTitle) + "\n" + workContent.String())
+
+	// Render plan mode panel (with reduced height)
+	// Calculate column widths for plan mode section
+	totalContentWidth := m.width - 4 // -4 for outer margins
+	separatorWidth := 3
+	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+	detailsWidth := totalContentWidth - separatorWidth - issuesWidth
+
+	// Render reduced issues panel
+	issuesContentLines := planPanelHeight - 3 // -3 for border (2) + title (1)
+	issuesContent := m.renderIssuesList(issuesContentLines, issuesWidth)
+	issuesPanelStyle := tuiPanelStyle.Width(issuesWidth).Height(planPanelHeight - 2)
+	if m.activePanel == PanelLeft {
+		issuesPanelStyle = issuesPanelStyle.BorderForeground(lipgloss.Color("214"))
+	}
+	issuesPanel := issuesPanelStyle.Render(tuiTitleStyle.Render("Issues") + "\n" + issuesContent)
+
+	// Render reduced details panel
+	detailsContentLines := planPanelHeight - 3
+	detailsContent := m.renderDetailsPanel(detailsContentLines, detailsWidth)
+	detailsPanelStyle := tuiPanelStyle.Width(detailsWidth).Height(planPanelHeight - 2)
+	if m.activePanel == PanelRight {
+		detailsPanelStyle = detailsPanelStyle.BorderForeground(lipgloss.Color("214"))
+	}
+	detailsPanel := detailsPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
+
+	// Add vertical separator between columns
+	vertSeparator := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Height(planPanelHeight).
+		Render("│")
+
+	// Combine plan mode columns
+	planSection := lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, vertSeparator, detailsPanel)
+
+	// Add horizontal separator between work and plan sections
+	horizSeparator := strings.Repeat("─", m.width)
+	horizSeparatorStyled := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Render(horizSeparator)
+
+	// Combine everything vertically
+	return lipgloss.JoinVertical(lipgloss.Left, workPanel, horizSeparatorStyled, planSection)
+}
+
 // renderTwoColumnLayout renders the issues and details panels side-by-side
 func (m *planModel) renderTwoColumnLayout() string {
+	// Check if a work is focused - if so, render split view
+	if m.focusedWorkID != "" {
+		return m.renderFocusedWorkSplitView()
+	}
+
 	// Calculate column widths based on ratio
 	// Account for separator (3 chars: " │ ") and panel borders
 	totalContentWidth := m.width - 4 // -4 for outer margins
