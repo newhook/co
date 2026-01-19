@@ -827,6 +827,23 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.refreshData()
 
+	case "f":
+		// Toggle focus filter (only works if a work is focused)
+		if m.focusedWorkID != "" {
+			m.focusFilterActive = !m.focusFilterActive
+			if m.focusFilterActive {
+				m.statusMessage = fmt.Sprintf("Focus filter enabled for work %s", m.focusedWorkID)
+			} else {
+				m.statusMessage = "Focus filter disabled"
+			}
+			m.statusIsError = false
+			return m, m.refreshData()
+		} else {
+			m.statusMessage = "Focus filter requires a focused work (press 'W' to select a work)"
+			m.statusIsError = true
+		}
+		return m, nil
+
 	case "v":
 		m.beadsExpanded = !m.beadsExpanded
 		return m, nil

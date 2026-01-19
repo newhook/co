@@ -65,6 +65,18 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 		}
 	}
 
+	// Apply focus filter if active
+	if m.focusFilterActive && m.focusedWorkID != "" {
+		var filteredItems []beadItem
+		for _, item := range items {
+			// Include only items assigned to the focused work
+			if item.assignedWorkID == m.focusedWorkID {
+				filteredItems = append(filteredItems, item)
+			}
+		}
+		items = filteredItems
+	}
+
 	// Build tree structure from dependencies
 	items = buildBeadTree(m.ctx, items, m.proj.Beads)
 

@@ -201,6 +201,9 @@ func (m *planModel) renderIssuesList(visibleLines int, panelWidth int) string {
 	if m.filters.label != "" {
 		filterInfo += fmt.Sprintf(" | Label: %s", m.filters.label)
 	}
+	if m.focusFilterActive && m.focusedWorkID != "" {
+		filterInfo = fmt.Sprintf("[FOCUS: %s] %s", m.focusedWorkID, filterInfo)
+	}
 
 	var content strings.Builder
 	content.WriteString(tuiDimStyle.Render(filterInfo))
