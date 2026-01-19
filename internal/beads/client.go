@@ -142,6 +142,18 @@ func Close(ctx context.Context, beadID, dir string) error {
 	return nil
 }
 
+// AddComment adds a comment to a bead.
+func AddComment(ctx context.Context, beadID, comment, dir string) error {
+	cmd := exec.CommandContext(ctx, "bd", "comments", "add", beadID, comment)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to add comment to bead %s: %w\n%s", beadID, err, output)
+	}
+	return nil
+}
+
 // Reopen reopens a closed bead.
 func Reopen(ctx context.Context, beadID, dir string) error {
 	cmd := exec.CommandContext(ctx, "bd", "reopen", beadID)

@@ -123,6 +123,40 @@ func (q *Queries) GetPRFeedbackByBead(ctx context.Context, beadID sql.NullString
 	return i, err
 }
 
+const getPRFeedbackBySourceID = `-- name: GetPRFeedbackBySourceID :one
+SELECT id, work_id, pr_url, feedback_type, title, description, source, source_url, source_id, priority, bead_id, metadata, created_at, processed_at, resolved_at FROM pr_feedback
+WHERE work_id = ? AND source_id = ?
+LIMIT 1
+`
+
+type GetPRFeedbackBySourceIDParams struct {
+	WorkID   string         `json:"work_id"`
+	SourceID sql.NullString `json:"source_id"`
+}
+
+func (q *Queries) GetPRFeedbackBySourceID(ctx context.Context, arg GetPRFeedbackBySourceIDParams) (PrFeedback, error) {
+	row := q.db.QueryRowContext(ctx, getPRFeedbackBySourceID, arg.WorkID, arg.SourceID)
+	var i PrFeedback
+	err := row.Scan(
+		&i.ID,
+		&i.WorkID,
+		&i.PrUrl,
+		&i.FeedbackType,
+		&i.Title,
+		&i.Description,
+		&i.Source,
+		&i.SourceUrl,
+		&i.SourceID,
+		&i.Priority,
+		&i.BeadID,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.ProcessedAt,
+		&i.ResolvedAt,
+	)
+	return i, err
+}
+
 const getUnresolvedFeedbackForBeads = `-- name: GetUnresolvedFeedbackForBeads :many
 SELECT id, work_id, pr_url, feedback_type, title, description, source, source_url, source_id, priority, bead_id, metadata, created_at, processed_at, resolved_at FROM pr_feedback
 WHERE bead_id IN (/*SLICE:bead_ids*/?)

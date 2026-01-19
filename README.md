@@ -202,13 +202,14 @@ All commands must be run from within a project directory (or subdirectory).
 co proj create ~/myproject https://github.com/user/repo
 cd ~/myproject
 
-# Create a work unit with beads (generates branch from bead titles)
-co work create bead-1,bead-2 bead-3
-# → Creates w-8xa/tree/ worktree with beads grouped into tasks
+# Create a work unit from a bead (generates branch from bead title)
+co work create bead-1
+# → Creates w-8xa/tree/ worktree with the bead
 
 # Execute work
 cd w-8xa
 co run                  # Execute tasks sequentially
+co run --plan           # Use LLM to group beads intelligently
 ```
 
 Claude Orchestrator uses a two-phase workflow: **work** → **run**.
@@ -216,19 +217,16 @@ Claude Orchestrator uses a two-phase workflow: **work** → **run**.
 ### Phase 1: Work - Create a Work Unit
 
 ```bash
-co work create bead-1,bead-2 bead-3     # Create work with beads
+co work create bead-1     # Create work with a single bead (or epic)
 ```
 
 This creates:
 - A work directory (`w-abc/`)
 - A git worktree with a generated branch (`w-abc/tree/`)
-- Tasks from the bead groupings (comma-separated beads go in one task)
 - A unique work ID using content-based hashing
 
-**Bead grouping syntax:**
-- `bead-1,bead-2` - beads separated by commas are grouped into one task
-- Space-separated arguments create separate tasks
-- Example: `co work create a,b c,d e` creates 3 tasks: [a,b], [c,d], [e]
+If the bead is an epic, all child beads are automatically included.
+Transitive dependencies are also included.
 
 The branch name is generated from bead titles and you're prompted for confirmation.
 
@@ -280,15 +278,16 @@ Tasks within a work are executed sequentially in the work's worktree.
 ### Typical Workflow Example
 
 ```bash
-# 1. Create a work unit with beads
-co work create bead-1 bead-2,bead-3
+# 1. Create a work unit from a bead
+co work create bead-1
 # Output: Generated work ID: w-8xa (from branch: feat/implement-feature-x)
 
 # 2. Navigate to the work directory
 cd w-8xa
 
 # 3. Execute tasks
-co run
+co run                  # Each bead becomes its own task
+co run --plan           # Or use LLM to group beads intelligently
 
 # 4. Create PR (Claude generates comprehensive description)
 co work pr
@@ -481,15 +480,15 @@ Claude Orchestrator uses a two-phase workflow with the Work → Tasks → Beads 
 ┌─────────────────────────────────────────────────────────────────┐
 │                      co work create                             │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. Parse bead arguments and groupings                          │
-│  2. Generate branch name from bead titles (prompt for confirm)  │
-│  3. Generate unique work ID using content-based hashing         │
-│  4. Create work directory: <project>/<work-id>/                 │
-│  5. Create git worktree: <work-id>/tree/                        │
+│  1. Parse bead argument                                         │
+│  2. Expand epics to include all child beads                     │
+│  3. Include transitive dependencies                             │
+│  4. Generate branch name from bead titles (prompt for confirm)  │
+│  5. Generate unique work ID using content-based hashing         │
+│  6. Create work directory: <project>/<work-id>/                 │
+│  7. Create git worktree: <work-id>/tree/                        │
 │     └─ git worktree add tree -b <branch-name>                   │
-│  6. Create tasks from bead groupings                            │
-│  7. Create zellij tab for the work                              │
-│  8. Expand epics to include all child beads                     │
+│  8. Create zellij tab for the work                              │
 │  9. Push branch and set upstream                                │
 │  10. Store work in tracking database                            │
 └─────────────────────────────────────────────────────────────────┘

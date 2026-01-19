@@ -91,7 +91,7 @@ func TestAddWorkBeads(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add beads to work
-	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-1", "bead-2"}, 0)
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-1", "bead-2"})
 	require.NoError(t, err)
 
 	// Verify beads were added
@@ -110,11 +110,11 @@ func TestAddWorkBeadsDuplicateError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add initial beads
-	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-1", "bead-2"}, 0)
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-1", "bead-2"})
 	require.NoError(t, err)
 
 	// Try to add duplicate beads - should error
-	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-2", "bead-3"}, 0)
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-2", "bead-3"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "beads already exist in work")
 	assert.Contains(t, err.Error(), "bead-2")
@@ -130,7 +130,7 @@ func TestAddWorkBeadsEmptyList(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add empty list - should succeed with no effect
-	err = db.AddWorkBeads(ctx, "w-test", []string{}, 0)
+	err = db.AddWorkBeads(ctx, "w-test", []string{})
 	require.NoError(t, err)
 
 	beads, err := db.GetWorkBeads(ctx, "w-test")
@@ -138,7 +138,7 @@ func TestAddWorkBeadsEmptyList(t *testing.T) {
 	assert.Empty(t, beads)
 }
 
-func TestAddWorkBeadsWithGroup(t *testing.T) {
+func TestAddWorkBeadsMultipleBatches(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -147,25 +147,16 @@ func TestAddWorkBeadsWithGroup(t *testing.T) {
 	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1")
 	require.NoError(t, err)
 
-	// Add beads with different groups
-	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-1", "bead-2"}, 1)
+	// Add beads in multiple batches
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-1", "bead-2"})
 	require.NoError(t, err)
-	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-3"}, 0)
+	err = db.AddWorkBeads(ctx, "w-test", []string{"bead-3"})
 	require.NoError(t, err)
 
-	// Verify groups
+	// Verify all beads were added
 	beads, err := db.GetWorkBeads(ctx, "w-test")
 	require.NoError(t, err)
 	assert.Len(t, beads, 3)
-
-	// Check that grouped beads have the correct group ID
-	groupedCount := 0
-	for _, b := range beads {
-		if b.GroupID == 1 {
-			groupedCount++
-		}
-	}
-	assert.Equal(t, 2, groupedCount)
 }
 
 func TestWorkRootIssueID(t *testing.T) {

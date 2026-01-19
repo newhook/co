@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/project"
@@ -107,8 +108,62 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 	// Store feedback in database and create beads
 	createdBeads := []string{}
+	mainRepoPath := proj.MainRepoPath()
 
 	for i, item := range feedbackItems {
+		// Check if this is a reply to an existing comment
+		if inReplyToID, ok := item.Context["in_reply_to_id"]; ok && inReplyToID != "" {
+			// This is a reply - find the original comment's bead and add this as a comment
+			parentFeedback, err := database.GetFeedbackBySourceID(ctx, workID, inReplyToID)
+			if err != nil {
+				if !quiet {
+					fmt.Printf("%d. [ERROR] Failed to look up parent comment %s: %v\n", i+1, inReplyToID, err)
+				}
+				continue
+			}
+
+			if parentFeedback == nil || parentFeedback.BeadID == nil {
+				if !quiet {
+					fmt.Printf("%d. [SKIP - Reply to untracked comment] %s\n", i+1, item.Title)
+				}
+				continue
+			}
+
+			// Check if this reply was already processed
+			if sourceID, ok := item.Context["source_id"]; ok && sourceID != "" {
+				exists, err := database.HasExistingFeedbackBySourceID(ctx, workID, sourceID)
+				if err == nil && exists {
+					if !quiet {
+						fmt.Printf("%d. [SKIP - Reply already processed] %s\n", i+1, item.Title)
+					}
+					continue
+				}
+			}
+
+			// Add the reply as a comment to the existing bead
+			commentText := fmt.Sprintf("Reply from %s:\n\n%s", item.Source, item.Description)
+			if err := beads.AddComment(ctx, *parentFeedback.BeadID, commentText, mainRepoPath); err != nil {
+				if !quiet {
+					fmt.Printf("%d. [ERROR] Failed to add comment to bead %s: %v\n", i+1, *parentFeedback.BeadID, err)
+				}
+				continue
+			}
+
+			if !quiet {
+				fmt.Printf("%d. [REPLY] Added comment to bead %s\n", i+1, *parentFeedback.BeadID)
+			}
+
+			// Store this reply in the database to track it was processed
+			// (using the same bead_id as the parent)
+			prFeedback, err := database.CreatePRFeedback(ctx, workID, work.PRURL, string(item.Type), item.Title,
+				item.Description, item.Source, item.SourceURL, item.Priority, item.Context)
+			if err == nil {
+				database.MarkFeedbackProcessed(ctx, prFeedback.ID, *parentFeedback.BeadID)
+			}
+
+			continue
+		}
+
 		// Check if feedback already exists
 		// Prefer checking by source_id (unique comment ID) if available
 		var exists bool
@@ -175,7 +230,6 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		}
 
 		// Create bead using beads package
-		mainRepoPath := proj.MainRepoPath()
 		beadID, err := integration.CreateBeadFromFeedback(ctx, mainRepoPath, beadInfo)
 		if err != nil {
 			if !quiet {

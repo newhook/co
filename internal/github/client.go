@@ -70,6 +70,7 @@ type ReviewComment struct {
 	Body         string    `json:"body"`
 	Author       string    `json:"author"`
 	CreatedAt    time.Time `json:"createdAt"`
+	InReplyToID  int       `json:"inReplyToId"` // Non-zero if this is a reply to another comment
 }
 
 // WorkflowRun represents a GitHub Actions workflow run.
@@ -291,6 +292,15 @@ func (c *Client) fetchComments(ctx context.Context, repo, prNumber string, statu
 
 // fetchReviews fetches PR reviews.
 func (c *Client) fetchReviews(ctx context.Context, repo, prNumber string, status *PRStatus) error {
+	// First, fetch all PR comments with line numbers
+	// This uses the pulls/{number}/comments endpoint which has line/original_line fields
+	commentsByReview, err := c.fetchAllPRComments(ctx, repo, prNumber)
+	if err != nil {
+		logging.Warn("failed to fetch PR comments", "error", err)
+		// Continue without comments rather than failing
+		commentsByReview = make(map[int][]ReviewComment)
+	}
+
 	cmd := exec.CommandContext(ctx, "gh", "api",
 		fmt.Sprintf("repos/%s/pulls/%s/reviews", repo, prNumber))
 
@@ -322,10 +332,9 @@ func (c *Client) fetchReviews(ctx context.Context, repo, prNumber string, status
 			CreatedAt: review.SubmittedAt,
 		}
 
-		// Fetch review comments
-		if err := c.fetchReviewComments(ctx, repo, prNumber, review.ID, &r); err != nil {
-			// Log but don't fail if we can't fetch comments
-			continue
+		// Attach comments from the pre-fetched map
+		if comments, ok := commentsByReview[review.ID]; ok {
+			r.Comments = comments
 		}
 
 		status.Reviews = append(status.Reviews, r)
@@ -334,33 +343,44 @@ func (c *Client) fetchReviews(ctx context.Context, repo, prNumber string, status
 	return nil
 }
 
-// fetchReviewComments fetches comments for a specific review.
-func (c *Client) fetchReviewComments(ctx context.Context, repo, prNumber string, reviewID int, review *Review) error {
+// fetchAllPRComments fetches all PR review comments with line numbers.
+// This uses the pulls/{number}/comments endpoint which returns line/original_line fields,
+// unlike the per-review endpoint which only returns position fields.
+func (c *Client) fetchAllPRComments(ctx context.Context, repo, prNumber string) (map[int][]ReviewComment, error) {
 	cmd := exec.CommandContext(ctx, "gh", "api",
-		fmt.Sprintf("repos/%s/pulls/%s/reviews/%d/comments", repo, prNumber, reviewID))
+		fmt.Sprintf("repos/%s/pulls/%s/comments", repo, prNumber))
 
 	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("gh api review comments failed: %w", err)
+		return nil, fmt.Errorf("gh api PR comments failed: %w", err)
 	}
 
 	var comments []struct {
-		ID           int       `json:"id"`
-		Path         string    `json:"path"`
-		Line         *int      `json:"line"`          // Can be null
-		OriginalLine *int      `json:"original_line"` // Fallback when line is null
-		Body         string    `json:"body"`
-		User         struct {
+		ID                  int       `json:"id"`
+		PullRequestReviewID int       `json:"pull_request_review_id"`
+		Path                string    `json:"path"`
+		Line                *int      `json:"line"`          // Can be null for outdated comments
+		OriginalLine        *int      `json:"original_line"` // Fallback when line is null
+		Body                string    `json:"body"`
+		User                struct {
 			Login string `json:"login"`
 		} `json:"user"`
-		CreatedAt time.Time `json:"created_at"`
+		CreatedAt   time.Time `json:"created_at"`
+		InReplyToID *int      `json:"in_reply_to_id"` // Non-nil if this is a reply
 	}
 
 	if err := json.Unmarshal(output, &comments); err != nil {
-		return fmt.Errorf("failed to parse review comments: %w", err)
+		return nil, fmt.Errorf("failed to parse PR comments: %w", err)
 	}
 
+	// Group comments by review ID
+	commentsByReview := make(map[int][]ReviewComment)
 	for _, comment := range comments {
+		// Skip system-generated comments (resolution/tracking comments)
+		if isSystemGeneratedComment(comment.Body) {
+			continue
+		}
+
 		line := 0
 		if comment.Line != nil {
 			line = *comment.Line
@@ -369,7 +389,12 @@ func (c *Client) fetchReviewComments(ctx context.Context, repo, prNumber string,
 		if comment.OriginalLine != nil {
 			originalLine = *comment.OriginalLine
 		}
-		review.Comments = append(review.Comments, ReviewComment{
+		inReplyToID := 0
+		if comment.InReplyToID != nil {
+			inReplyToID = *comment.InReplyToID
+		}
+
+		reviewComment := ReviewComment{
 			ID:           comment.ID,
 			Path:         comment.Path,
 			Line:         line,
@@ -377,11 +402,36 @@ func (c *Client) fetchReviewComments(ctx context.Context, repo, prNumber string,
 			Body:         comment.Body,
 			Author:       comment.User.Login,
 			CreatedAt:    comment.CreatedAt,
-		})
+			InReplyToID:  inReplyToID,
+		}
+
+		commentsByReview[comment.PullRequestReviewID] = append(
+			commentsByReview[comment.PullRequestReviewID],
+			reviewComment,
+		)
 	}
 
-	return nil
+	return commentsByReview, nil
 }
+
+// isSystemGeneratedComment checks if a comment was auto-generated by the system.
+func isSystemGeneratedComment(body string) bool {
+	systemPrefixes := []string{
+		"✅ Created tracking issue",
+		"✅ Resolved in work",
+		"🔄 Processing feedback",
+		"📋 Tracking issue",
+	}
+
+	trimmed := strings.TrimSpace(body)
+	for _, prefix := range systemPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 
 // fetchWorkflowRuns fetches workflow runs associated with a PR.
 func (c *Client) fetchWorkflowRuns(ctx context.Context, repo, prNumber string, status *PRStatus) error {

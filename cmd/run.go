@@ -9,7 +9,6 @@ import (
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
-	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
 	"github.com/newhook/co/internal/worktree"
@@ -251,8 +250,10 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 			return 0, fmt.Errorf("failed to plan beads: %w", err)
 		}
 	} else {
-		// Use existing group assignments from work_beads
-		taskGroups = groupBeadsByWorkBeadGroup(unassigned)
+		// Each bead becomes its own task
+		for _, wb := range unassigned {
+			taskGroups = append(taskGroups, []string{wb.BeadID})
+		}
 	}
 
 	// Create tasks from groups
@@ -278,34 +279,6 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 	}
 
 	return tasksCreated, nil
-}
-
-// groupBeadsByWorkBeadGroup groups beads by their group_id in work_beads.
-// Beads with group_id=0 each become their own task.
-// Beads with the same group_id > 0 are grouped together.
-func groupBeadsByWorkBeadGroup(workBeads []*db.WorkBead) [][]string {
-	// Group beads by group_id
-	groupMap := make(map[int64][]string)
-	for _, wb := range workBeads {
-		groupMap[wb.GroupID] = append(groupMap[wb.GroupID], wb.BeadID)
-	}
-
-	var result [][]string
-
-	// First, add ungrouped beads (group_id = 0) as individual tasks
-	if ungrouped, ok := groupMap[0]; ok {
-		for _, beadID := range ungrouped {
-			result = append(result, []string{beadID})
-		}
-		delete(groupMap, 0)
-	}
-
-	// Then add grouped beads
-	for _, beadIDs := range groupMap {
-		result = append(result, beadIDs)
-	}
-
-	return result
 }
 
 // planBeadsWithComplexity uses LLM complexity estimation to group beads.
