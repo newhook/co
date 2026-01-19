@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
-	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
@@ -55,17 +53,8 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Create beads client
-	mainRepoPath := proj.MainRepoPath()
-	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer beadsClient.Close()
-
 	// Get bead from beads DB to compute description hash
-	bead, err := beadsClient.GetBead(ctx, beadID)
+	bead, err := proj.Beads.GetBead(ctx, beadID)
 	if err != nil {
 		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
 	}
@@ -135,7 +124,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 			fmt.Println("\nEstimation Summary:")
 			for _, id := range taskBeadIDs {
 				// Get bead info for display
-				bead, err := beadsClient.GetBead(ctx, id)
+				bead, err := proj.Beads.GetBead(ctx, id)
 				if err != nil || bead == nil {
 					continue
 				}
@@ -156,7 +145,7 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 			// Count remaining
 			var remaining []string
 			for _, id := range taskBeadIDs {
-				bead, err := beadsClient.GetBead(ctx, id)
+				bead, err := proj.Beads.GetBead(ctx, id)
 				if err == nil && bead != nil {
 					fullDesc := bead.Title + "\n" + bead.Description
 					hash := db.HashDescription(fullDesc)

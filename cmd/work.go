@@ -189,7 +189,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	beadID := args[0]
 
 	// Expand the bead (handles epics and transitive deps)
-	expandedIssueIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, mainRepoPath)
+	expandedIssueIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
 	if err != nil {
 		return fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 	}
@@ -199,14 +199,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get issue details for branch name generation
-	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer beadsClient.Close()
-
-	issuesResult, err := beadsClient.GetBeadsWithDeps(ctx, expandedIssueIDs)
+	issuesResult, err := proj.Beads.GetBeadsWithDeps(ctx, expandedIssueIDs)
 	if err != nil {
 		return fmt.Errorf("failed to get issue details: %w", err)
 	}
@@ -352,7 +345,7 @@ type beadGroup struct {
 // Each arg is a comma-separated list of bead IDs (same group).
 // Epics are expanded to their child beads.
 // Returns an error if duplicate bead IDs are found across groups.
-func parseBeadGroups(ctx context.Context, args []string, mainRepoPath string) ([]beadGroup, error) {
+func parseBeadGroups(ctx context.Context, args []string, beadsClient *beads.Client) ([]beadGroup, error) {
 	var groups []beadGroup
 	seenBeads := make(map[string]bool)
 
@@ -366,7 +359,7 @@ func parseBeadGroups(ctx context.Context, args []string, mainRepoPath string) ([
 		var groupIssueIDs []string
 		for _, beadID := range beadIDs {
 			// Expand this bead (handles epics and transitive deps)
-			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, mainRepoPath)
+			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
 			if err != nil {
 				return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 			}
@@ -702,10 +695,8 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("work %s not found", workID)
 	}
 
-	mainRepoPath := proj.MainRepoPath()
-
 	// Parse bead groups
-	beadGroups, err := parseBeadGroups(ctx, args, mainRepoPath)
+	beadGroups, err := parseBeadGroups(ctx, args, proj.Beads)
 	if err != nil {
 		return err
 	}
@@ -1076,8 +1067,6 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("work %s not found", workID)
 	}
 
-	mainRepoPath := proj.MainRepoPath()
-
 	// Run review-fix loop if --auto is set
 	maxIterations := proj.Config.Workflow.GetMaxReviewIterations()
 	for iteration := 0; ; iteration++ {
@@ -1133,16 +1122,8 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 		// Check if the review created any issues under the root issue
 		var beadsToFix []beads.Bead
 		if work.RootIssueID != "" {
-			// Create beads client
-			beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-			beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-			if err != nil {
-				return fmt.Errorf("failed to create beads client: %w", err)
-			}
-			defer beadsClient.Close()
-
 			// Get all children of the root issue
-			rootChildrenIssues, err := beadsClient.GetBeadWithChildren(ctx, work.RootIssueID)
+			rootChildrenIssues, err := proj.Beads.GetBeadWithChildren(ctx, work.RootIssueID)
 			if err != nil {
 				return fmt.Errorf("failed to get children of root issue %s: %w", work.RootIssueID, err)
 			}

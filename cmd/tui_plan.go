@@ -13,7 +13,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/beads/watcher"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
@@ -132,7 +131,6 @@ type planModel struct {
 
 	// Database watcher for cache invalidation
 	beadsWatcher *watcher.Watcher
-	beadsClient  *beads.Client
 
 	// New bead animation tracking
 	newBeads map[string]time.Time // beadID -> creation timestamp for animation
@@ -166,15 +164,8 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	linearInput.SetWidth(60)
 	linearInput.SetHeight(4)
 
-	// Initialize beads database client and watcher
+	// Initialize beads database watcher
 	beadsDBPath := filepath.Join(proj.Root, "main", ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		// Log error but continue without cache - fallback to CLI-based approach
-		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize beads client: %v\n", err)
-		beadsClient = nil
-	}
-
 	beadsWatcher, err := watcher.New(watcher.DefaultConfig(beadsDBPath))
 	if err != nil {
 		// Log error but continue without watcher
@@ -185,11 +176,6 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 			// Log error and disable watcher
 			fmt.Fprintf(os.Stderr, "Warning: Failed to start beads watcher: %v\n", err)
 			beadsWatcher = nil
-			// Close beadsClient to prevent resource leak
-			if beadsClient != nil {
-				beadsClient.Close()
-				beadsClient = nil
-			}
 		}
 	}
 
@@ -210,10 +196,9 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		newBeads:             make(map[string]time.Time),
 		createBeadPriority:   2,
 		zj:                   zellij.New(),
-		columnRatio:          0.4, // Default 40/60 split (issues/details)
-		hoveredIssue:         -1,  // No issue hovered initially
-		beadsWatcher:         beadsWatcher,
-		beadsClient:          beadsClient,
+		columnRatio:  0.4, // Default 40/60 split (issues/details)
+		hoveredIssue: -1,  // No issue hovered initially
+		beadsWatcher: beadsWatcher,
 		filters: beadFilters{
 			status: "open",
 			sortBy: "default",
@@ -282,8 +267,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle watcher events
 		if msg.Type == watcher.DBChanged {
 			// Flush cache and trigger data reload
-			if m.beadsClient != nil {
-				m.beadsClient.FlushCache(m.ctx)
+			if m.proj.Beads != nil {
+				m.proj.Beads.FlushCache(m.ctx)
 			}
 			// Trigger data reload and wait for next watcher event
 			return m, tea.Batch(m.refreshData(), m.waitForWatcherEvent())
@@ -999,10 +984,8 @@ func (m *planModel) cleanup() {
 	if m.beadsWatcher != nil {
 		_ = m.beadsWatcher.Stop()
 	}
-	// Close the beads client to release database connections
-	if m.beadsClient != nil {
-		_ = m.beadsClient.Close()
-	}
+	// Note: m.proj.Beads is owned by the Project and closed by proj.Close()
+	// which is deferred in runTUI. Do not close it here to avoid double-close.
 }
 
 // View implements tea.Model

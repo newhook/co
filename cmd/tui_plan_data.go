@@ -50,7 +50,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	mainRepoPath := m.proj.MainRepoPath()
 
 	// Use the shared fetchBeadsWithFilters function
-	items, err := fetchBeadsWithFilters(m.ctx, mainRepoPath, filters)
+	items, err := fetchBeadsWithFilters(m.ctx, m.proj.Beads, mainRepoPath, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -66,8 +66,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	}
 
 	// Build tree structure from dependencies
-	// When search is active, skip fetching parent beads to avoid adding unfiltered items
-	items = buildBeadTree(m.ctx, items, m.beadsClient, mainRepoPath, filters.searchText)
+	items = buildBeadTree(m.ctx, items, m.proj.Beads)
 
 	// If no tree structure, apply regular sorting
 	hasTree := false

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -254,7 +253,6 @@ func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 // Uses bin-packing to group beads based on their complexity estimates.
 func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db.Work) error {
 	ctx := GetContext()
-	mainRepoPath := proj.MainRepoPath()
 
 	fmt.Println("Creating implement, review, and PR tasks based on complexity estimates...")
 
@@ -268,16 +266,8 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 		return fmt.Errorf("no beads found for estimate task %s", estimateTask.ID)
 	}
 
-	// Create beads client
-	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer beadsClient.Close()
-
 	// Get issues with dependencies for planning
-	issuesResult, err := beadsClient.GetBeadsWithDeps(ctx, beadIDs)
+	issuesResult, err := proj.Beads.GetBeadsWithDeps(ctx, beadIDs)
 	if err != nil {
 		return fmt.Errorf("failed to get bead details: %w", err)
 	}
@@ -393,7 +383,6 @@ func spinnerWait(msg string, duration time.Duration) {
 // If review finds issues, creates fix tasks and a new review task.
 func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Work) error {
 	ctx := GetContext()
-	mainRepoPath := proj.MainRepoPath()
 
 	// Count how many review iterations we've had
 	reviewCount := countReviewIterations(proj, work.ID)
@@ -403,24 +392,11 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 		return createPRTask(proj, work, reviewTask.ID)
 	}
 
-	// Create beads client - needed for checking beads
-	var beadsClient *beads.Client
-	if work.RootIssueID != "" {
-		beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-		var err error
-		beadsClient, err = beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-		if err != nil {
-			return fmt.Errorf("failed to create beads client: %w", err)
-		}
-		defer beadsClient.Close()
-	}
-
 	// Check if the review created any issue beads under the root issue
 	var beadsToFix []beads.Bead
-	if work.RootIssueID != "" && beadsClient != nil {
-
+	if work.RootIssueID != "" {
 		// Get all children of the root issue
-		rootChildrenIssues, err := beadsClient.GetBeadWithChildren(ctx, work.RootIssueID)
+		rootChildrenIssues, err := proj.Beads.GetBeadWithChildren(ctx, work.RootIssueID)
 		if err != nil {
 			return fmt.Errorf("failed to get children of root issue %s: %w", work.RootIssueID, err)
 		}
@@ -449,7 +425,7 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 			// Re-check for new beads from PR feedback
 			if work.RootIssueID != "" {
 				// Re-fetch children of root issue to see if feedback created new beads
-				rootChildrenIssues, err := beadsClient.GetBeadWithChildren(ctx, work.RootIssueID)
+				rootChildrenIssues, err := proj.Beads.GetBeadWithChildren(ctx, work.RootIssueID)
 				if err == nil {
 					// Filter for any new open beads (not just review-created ones)
 					for _, issue := range rootChildrenIssues {
@@ -636,17 +612,6 @@ func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project,
 	}
 	logging.Debug("checking feedback items for resolution", "count", len(feedbacks))
 
-	// Initialize beads client to check bead status
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(filepath.Join(proj.Root, "main", ".beads", "beads.db")))
-	if err != nil {
-		if !quiet {
-			fmt.Printf("Error initializing beads client: %v\n", err)
-		}
-		logging.Error("failed to initialize beads client", "error", err)
-		return
-	}
-	defer beadsClient.Close()
-
 	// Collect closed bead IDs
 	var closedBeadIDs []string
 	for _, feedback := range feedbacks {
@@ -655,7 +620,7 @@ func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project,
 		}
 
 		// Check if the bead is actually closed
-		bead, err := beadsClient.GetBead(ctx, *feedback.BeadID)
+		bead, err := proj.Beads.GetBead(ctx, *feedback.BeadID)
 		if err != nil {
 			if !quiet {
 				fmt.Printf("Error getting bead %s: %v\n", *feedback.BeadID, err)
@@ -671,7 +636,7 @@ func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project,
 
 	// Resolve feedback for all closed beads
 	if len(closedBeadIDs) > 0 {
-		if err := ResolveFeedbackForBeads(ctx, proj.DB, beadsClient, workID, closedBeadIDs); err != nil {
+		if err := ResolveFeedbackForBeads(ctx, proj.DB, proj.Beads, workID, closedBeadIDs); err != nil {
 			if !quiet {
 				fmt.Printf("Error resolving feedback comments: %v\n", err)
 			}

@@ -120,12 +120,12 @@ func generateBranchNameFromIssues(issues []*beads.Bead) string {
 
 // collectIssuesForMultipleIDs collects all issues to include for multiple bead IDs.
 // It collects transitive dependencies for each bead and deduplicates the results.
-func collectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, dir string) (*beads.BeadsWithDepsResult, error) {
+func collectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, beadsClient *beads.Client) (*beads.BeadsWithDepsResult, error) {
 	// Use a map to deduplicate issue IDs
 	issueIDSet := make(map[string]bool)
 
 	for _, beadID := range beadIDList {
-		issueIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, dir)
+		issueIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
 		if err != nil {
 			return nil, err
 		}
@@ -141,13 +141,6 @@ func collectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, dir s
 	}
 
 	// Get all issues with dependencies in one call
-	beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer beadsClient.Close()
-
 	return beadsClient.GetBeadsWithDeps(ctx, issueIDs)
 }
 
@@ -192,14 +185,10 @@ func branchExists(repoPath, branchName string) bool {
 // collectIssueIDsForAutomatedWorkflow collects all issue IDs to include in the workflow.
 // For an issue with dependencies, it includes all transitive dependencies.
 // For an epic issue, it includes all child issues (non-epic).
-func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID, dir string) ([]string, error) {
-	// Create beads client
-	beadsDBPath := filepath.Join(dir, ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create beads client: %w", err)
+func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, beadsClient *beads.Client) ([]string, error) {
+	if beadsClient == nil {
+		return nil, fmt.Errorf("beads client is nil")
 	}
-	defer beadsClient.Close()
 
 	// First, get the main issue
 	mainIssue, err := beadsClient.GetBead(ctx, beadID)
@@ -294,16 +283,8 @@ func runWorkCreateWithBeads(proj *project.Project, beadID string, baseBranch str
 
 	fmt.Printf("Creating work for bead: %s\n", beadID)
 
-	// Create beads client
-	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer beadsClient.Close()
-
 	// Get the root issue and generate branch name
-	rootIssue, err := beadsClient.GetBead(ctx, beadID)
+	rootIssue, err := proj.Beads.GetBead(ctx, beadID)
 	if err != nil {
 		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
 	}
@@ -413,14 +394,7 @@ func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch strin
 	fmt.Printf("Starting automated workflow for bead: %s\n", beadID)
 
 	// Step 1: Get the root bead and generate branch name
-	beadsDBPath := filepath.Join(mainRepoPath, ".beads", "beads.db")
-	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
-	if err != nil {
-		return fmt.Errorf("failed to create beads client: %w", err)
-	}
-	defer beadsClient.Close()
-
-	rootIssue, err := beadsClient.GetBead(ctx, beadID)
+	rootIssue, err := proj.Beads.GetBead(ctx, beadID)
 	if err != nil {
 		return fmt.Errorf("failed to get bead %s: %w", beadID, err)
 	}
@@ -493,7 +467,7 @@ func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch strin
 
 	// Step 3: Collect issues (expand epic children and transitive dependencies)
 	fmt.Println("Collecting beads...")
-	issuesResult, err := collectIssuesForMultipleIDs(ctx, []string{beadID}, mainRepoPath)
+	issuesResult, err := collectIssuesForMultipleIDs(ctx, []string{beadID}, proj.Beads)
 	if err != nil {
 		return fmt.Errorf("failed to collect beads: %w", err)
 	}

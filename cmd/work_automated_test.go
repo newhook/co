@@ -359,11 +359,10 @@ func TestGenerateBranchNameFromBead_Percent(t *testing.T) {
 }
 
 func TestCollectIssueIDsForAutomatedWorkflow_NoBeadsAvailable(t *testing.T) {
-	// This test verifies error handling when bd CLI is not available
-	// or returns an error for a non-existent bead
-	_, err := collectIssueIDsForAutomatedWorkflow(context.Background(), "non-existent-bead-id", "/tmp/non-existent-dir")
+	// This test verifies error handling when the beads client is nil
+	_, err := collectIssueIDsForAutomatedWorkflow(context.Background(), "non-existent-bead-id", nil)
 
-	// Should return an error since the bead doesn't exist
+	// Should return an error since the client is nil
 	assert.Error(t, err)
 }
 
