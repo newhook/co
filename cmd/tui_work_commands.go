@@ -370,8 +370,7 @@ func (m *workModel) pollPRFeedback() tea.Cmd {
 		}
 
 		// Use the scheduler to trigger an immediate PR feedback check
-		ctx := context.Background()
-		if err := TriggerPRFeedbackCheck(ctx, m.proj, workID); err != nil {
+		if err := TriggerPRFeedbackCheck(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Poll PR feedback", err: fmt.Errorf("failed to trigger PR feedback check: %w", err)}
 		}
 
