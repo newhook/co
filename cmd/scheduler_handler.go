@@ -25,11 +25,14 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 
 		logging.Debug("Scheduler watcher started", "work_id", workID)
 
-		// Schedule initial PR feedback check in 5 minutes
+		// Schedule initial PR feedback check based on configured interval
+		prFeedbackInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
+		commentResolutionInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
+
 		work, err := proj.DB.GetWork(ctx, workID)
 		if err == nil && work != nil && work.PRURL != "" {
-			initialCheck := time.Now().Add(5 * time.Minute)
-			logging.Info("Scheduling initial PR feedback check", "work_id", workID, "scheduled_for", initialCheck.Format(time.RFC3339))
+			initialCheck := time.Now().Add(prFeedbackInterval)
+			logging.Info("Scheduling initial PR feedback check", "work_id", workID, "scheduled_for", initialCheck.Format(time.RFC3339), "interval", prFeedbackInterval)
 
 			_, err := proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypePRFeedback, initialCheck, nil)
 			if err != nil {
@@ -39,7 +42,8 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 			}
 
 			// Also schedule comment resolution check
-			_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypeCommentResolution, initialCheck, nil)
+			initialResolutionCheck := time.Now().Add(commentResolutionInterval)
+			_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypeCommentResolution, initialResolutionCheck, nil)
 			if err != nil {
 				logging.Warn("failed to schedule initial comment resolution check", "error", err)
 			} else {
@@ -49,11 +53,12 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 			logging.Debug("No PR URL found, skipping initial scheduling", "work_id", workID, "has_work", work != nil)
 		}
 
-		// Poll the scheduler table every second
-		ticker := time.NewTicker(1 * time.Second)
+		// Poll the scheduler table at configured interval
+		schedulerPollInterval := proj.Config.Scheduler.GetSchedulerPollInterval()
+		ticker := time.NewTicker(schedulerPollInterval)
 		defer ticker.Stop()
 
-		logging.Debug("Starting scheduler polling loop", "work_id", workID, "poll_interval", "1s")
+		logging.Debug("Starting scheduler polling loop", "work_id", workID, "poll_interval", schedulerPollInterval)
 
 		lastLogTime := time.Now()
 		for {
@@ -142,13 +147,14 @@ func handlePRFeedbackTask(ctx context.Context, proj *project.Project, workID str
 			logging.Debug("Task completed successfully", "task_id", task.ID, "work_id", workID)
 		}
 
-		// Schedule next check in 5 minutes
-		nextCheck := time.Now().Add(5 * time.Minute)
+		// Schedule next check using configured interval
+		nextInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
+		nextCheck := time.Now().Add(nextInterval)
 		_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypePRFeedback, nextCheck, nil)
 		if err != nil {
 			logging.Warn("failed to schedule next PR feedback check", "error", err, "work_id", workID)
 		} else {
-			logging.Info("Scheduled next PR feedback check", "work_id", workID, "next_check", nextCheck.Format(time.RFC3339))
+			logging.Info("Scheduled next PR feedback check", "work_id", workID, "next_check", nextCheck.Format(time.RFC3339), "interval", nextInterval)
 		}
 	}
 }
@@ -171,8 +177,9 @@ func handleCommentResolutionTask(ctx context.Context, proj *project.Project, wor
 		logging.Warn("failed to mark task as completed", "error", err)
 	}
 
-	// Schedule next check in 5 minutes
-	nextCheck := time.Now().Add(5 * time.Minute)
+	// Schedule next check using configured interval
+	nextInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
+	nextCheck := time.Now().Add(nextInterval)
 	_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypeCommentResolution, nextCheck, nil)
 	if err != nil {
 		logging.Warn("failed to schedule next comment resolution check", "error", err)

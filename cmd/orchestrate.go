@@ -77,7 +77,8 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 
 	// Start activity tracker for health monitoring in a separate goroutine
 	// This avoids the busy loop issue from having a select with default in the main loop
-	activityTicker := time.NewTicker(30 * time.Second)
+	activityInterval := proj.Config.Scheduler.GetActivityUpdateInterval()
+	activityTicker := time.NewTicker(activityInterval)
 	defer activityTicker.Stop()
 
 	// Run activity updates in background
