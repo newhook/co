@@ -441,6 +441,21 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.worksCursor = 0
 		}
 
+		// Reset zoom if the selected work no longer exists
+		if m.zoomLevel == ZoomZoomedIn && m.selectedWorkID != "" {
+			found := false
+			for _, wp := range m.works {
+				if wp.work.ID == m.selectedWorkID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				m.zoomLevel = ZoomOverview
+				m.selectedWorkID = ""
+			}
+		}
+
 	case workCommandMsg:
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("%s failed: %v", msg.action, msg.err)

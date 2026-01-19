@@ -59,7 +59,7 @@ func (m *workModel) renderEmptyGridState() string {
     - Task list with states
     - Progress indicators
 
-  Press 'c' to create a new work.
+  Create work from the Plan tab (press 'P').
   Press 'Enter' on a work to zoom into task view.
 `
 	style := lipgloss.NewStyle().
@@ -448,12 +448,11 @@ func (m *workModel) renderEmptyGridPanel(width, height int) string {
 // renderOverviewStatusBar renders the status bar for overview mode
 func (m *workModel) renderOverviewStatusBar() string {
 	// Commands on the left - work-level actions for overview mode
-	cButton := styleButtonWithHover("[c]reate", m.hoveredButton == "c")
 	dButton := styleButtonWithHover("[d]estroy", m.hoveredButton == "d")
 	helpButton := styleButtonWithHover("[?]help", m.hoveredButton == "?")
 
-	keys := "[Tab]workers [←→]workers [↑↓]issues [Enter]zoom " + cButton + " " + dButton + " " + helpButton
-	keysPlain := "[Tab]workers [←→]workers [↑↓]issues [Enter]zoom [c]reate [d]estroy [?]help"
+	keys := "[Tab]workers [←→]workers [↑↓]issues [Enter]zoom " + dButton + " " + helpButton
+	keysPlain := "[Tab]workers [←→]workers [↑↓]issues [Enter]zoom [d]estroy [?]help"
 
 	// Status on the right
 	var statusParts []string

@@ -142,11 +142,6 @@ func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID st
 		}
 
 		for _, work := range allWorks {
-			// Only show active works (pending or processing)
-			if work.Status == db.StatusCompleted {
-				continue
-			}
-
 			wp, err := fetchWorkProgress(ctx, proj, work)
 			if err != nil {
 				continue // Skip works with errors
