@@ -588,6 +588,138 @@ func (c *Client) PostReviewReply(ctx context.Context, prURL string, reviewCommen
 	return nil
 }
 
+// ResolveReviewThread resolves a review thread containing the specified comment.
+// This uses the GraphQL API since the REST API doesn't support resolving threads.
+func (c *Client) ResolveReviewThread(ctx context.Context, prURL string, commentID int) error {
+	logging.Debug("resolving review thread", "prURL", prURL, "commentID", commentID)
+
+	// Extract PR number and repo from URL
+	prNumber, repo, err := parsePRURL(prURL)
+	if err != nil {
+		logging.Error("invalid PR URL for resolving thread", "error", err, "prURL", prURL)
+		return fmt.Errorf("invalid PR URL: %w", err)
+	}
+
+	// Parse repo into owner and name
+	repoParts := strings.Split(repo, "/")
+	if len(repoParts) != 2 {
+		return fmt.Errorf("invalid repo format: %s", repo)
+	}
+	owner := repoParts[0]
+	repoName := repoParts[1]
+
+	prNum, err := strconv.Atoi(prNumber)
+	if err != nil {
+		return fmt.Errorf("invalid PR number: %w", err)
+	}
+
+	// First, find the thread ID containing this comment using GraphQL
+	threadID, err := c.findReviewThreadID(ctx, owner, repoName, prNum, commentID)
+	if err != nil {
+		return fmt.Errorf("failed to find review thread: %w", err)
+	}
+
+	if threadID == "" {
+		logging.Warn("review thread not found for comment", "commentID", commentID)
+		return nil // Thread not found, might already be resolved or deleted
+	}
+
+	// Resolve the thread using GraphQL mutation
+	mutation := fmt.Sprintf(`mutation {
+		resolveReviewThread(input: {threadId: "%s"}) {
+			thread {
+				isResolved
+			}
+		}
+	}`, threadID)
+
+	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
+		"-f", fmt.Sprintf("query=%s", mutation))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check if thread is already resolved
+		if strings.Contains(string(output), "already resolved") {
+			logging.Debug("review thread already resolved", "threadID", threadID)
+			return nil
+		}
+		logging.Error("failed to resolve review thread", "error", err, "output", string(output))
+		return fmt.Errorf("failed to resolve review thread: %w\nOutput: %s", err, output)
+	}
+
+	logging.Info("successfully resolved review thread", "prURL", prURL, "commentID", commentID, "threadID", threadID)
+	return nil
+}
+
+// findReviewThreadID finds the GraphQL thread ID for a review comment.
+func (c *Client) findReviewThreadID(ctx context.Context, owner, repo string, prNumber, commentID int) (string, error) {
+	// Query for review threads and find the one containing our comment
+	query := fmt.Sprintf(`query {
+		repository(owner: "%s", name: "%s") {
+			pullRequest(number: %d) {
+				reviewThreads(first: 100) {
+					nodes {
+						id
+						isResolved
+						comments(first: 10) {
+							nodes {
+								databaseId
+							}
+						}
+					}
+				}
+			}
+		}
+	}`, owner, repo, prNumber)
+
+	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
+		"-f", fmt.Sprintf("query=%s", query))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("graphql query failed: %w\nOutput: %s", err, output)
+	}
+
+	// Parse the response to find the thread containing our comment
+	var response struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						Nodes []struct {
+							ID         string `json:"id"`
+							IsResolved bool   `json:"isResolved"`
+							Comments   struct {
+								Nodes []struct {
+									DatabaseID int `json:"databaseId"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(output, &response); err != nil {
+		return "", fmt.Errorf("failed to parse graphql response: %w", err)
+	}
+
+	// Find the thread containing the comment
+	for _, thread := range response.Data.Repository.PullRequest.ReviewThreads.Nodes {
+		if thread.IsResolved {
+			continue // Skip already resolved threads
+		}
+		for _, comment := range thread.Comments.Nodes {
+			if comment.DatabaseID == commentID {
+				return thread.ID, nil
+			}
+		}
+	}
+
+	return "", nil // Thread not found
+}
+
 // parsePRURL extracts the repo and PR number from a GitHub PR URL.
 func parsePRURL(prURL string) (prNumber, repo string, err error) {
 	// Expected format: https://github.com/owner/repo/pull/123

@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/github"
 )
 
 // ResolveFeedbackForBeads posts resolution comments on GitHub for closed beads.
@@ -85,11 +87,26 @@ func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *b
 			continue
 		}
 
+		fmt.Printf("Successfully posted resolution comment for bead %s on GitHub\n", *feedback.BeadID)
+
+		// For review comments, also resolve the thread
+		if strings.Contains(feedback.Source, "Review:") && *feedback.SourceID != "" {
+			ghClient := github.NewClient()
+			commentID, convErr := strconv.Atoi(*feedback.SourceID)
+			if convErr != nil {
+				fmt.Printf("Warning: invalid comment ID %s: %v\n", *feedback.SourceID, convErr)
+			} else {
+				if resolveErr := ghClient.ResolveReviewThread(ctx, feedback.PRURL, commentID); resolveErr != nil {
+					fmt.Printf("Warning: failed to resolve review thread: %v\n", resolveErr)
+				} else {
+					fmt.Printf("Successfully resolved review thread for bead %s\n", *feedback.BeadID)
+				}
+			}
+		}
+
 		// Mark feedback as resolved in database
 		if err := database.MarkFeedbackResolved(ctx, feedback.ID); err != nil {
 			fmt.Printf("Warning: failed to mark feedback %s as resolved: %v\n", feedback.ID, err)
-		} else {
-			fmt.Printf("Successfully posted resolution comment for bead %s on GitHub\n", *feedback.BeadID)
 		}
 	}
 
