@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/newhook/co/internal/beads"
 )
 
 // Integration handles the integration between GitHub PR feedback and beads.
@@ -138,8 +140,8 @@ func validatePriority(priority int) error {
 	return nil
 }
 
-// CreateBeadFromFeedback creates a bead using the bd CLI with proper input validation.
-func (i *Integration) CreateBeadFromFeedback(ctx context.Context, beadInfo BeadInfo) (string, error) {
+// CreateBeadFromFeedback creates a bead using the beads package with proper input validation.
+func (i *Integration) CreateBeadFromFeedback(ctx context.Context, beadDir string, beadInfo BeadInfo) (string, error) {
 	// Validate and sanitize all inputs to prevent injection attacks
 	title, err := validateAndSanitizeInput(beadInfo.Title, 200, "title")
 	if err != nil {
@@ -168,32 +170,25 @@ func (i *Integration) CreateBeadFromFeedback(ctx context.Context, beadInfo BeadI
 		return "", fmt.Errorf("invalid description: %w", err)
 	}
 
-	// Build the bd create command with validated inputs
-	args := []string{"create",
-		"--title", title,
-		"--type", beadInfo.Type, // Already validated
-		"--priority", fmt.Sprintf("%d", beadInfo.Priority), // Already validated as int
-		"--parent", parentID,
-		"--description", description,
-	}
-
-	// Add external reference if we have a source URL
+	// Prepare external reference if we have a source URL
+	var externalRef string
 	if sourceURL, ok := beadInfo.Metadata["source_url"]; ok && sourceURL != "" {
 		// Validate the source URL
 		sanitizedURL, err := validateAndSanitizeInput(sourceURL, 500, "source URL")
 		if err == nil {
 			// Create a short reference for the external-ref field
 			// For example, "gh-comment-123456" or "gh-pr-123"
-			externalRef := fmt.Sprintf("gh-%s", extractGitHubID(sanitizedURL))
+			ref := fmt.Sprintf("gh-%s", extractGitHubID(sanitizedURL))
 			// Validate the external reference
-			if sanitizedRef, err := validateAndSanitizeInput(externalRef, 100, "external reference"); err == nil {
-				args = append(args, "--external-ref", sanitizedRef)
+			if sanitizedRef, err := validateAndSanitizeInput(ref, 100, "external reference"); err == nil {
+				externalRef = sanitizedRef
 			}
 		}
 		// If validation fails, we skip adding the external reference but continue
 	}
 
-	// Add labels with validation
+	// Validate labels
+	var validLabels []string
 	for _, label := range beadInfo.Labels {
 		// Validate each label
 		sanitizedLabel, err := validateAndSanitizeInput(label, 50, "label")
@@ -201,36 +196,26 @@ func (i *Integration) CreateBeadFromFeedback(ctx context.Context, beadInfo BeadI
 			// Skip invalid labels but continue
 			continue
 		}
-		args = append(args, "--label", sanitizedLabel)
+		validLabels = append(validLabels, sanitizedLabel)
 	}
 
-	// Execute bd create
-	cmd := exec.CommandContext(ctx, "bd", args...)
-	output, err := cmd.CombinedOutput()
+	// Create bead using the beads package
+	createOpts := beads.CreateOptions{
+		Title:       title,
+		Type:        beadInfo.Type,    // Already validated
+		Priority:    beadInfo.Priority, // Already validated as int
+		Parent:      parentID,
+		Description: description,
+		Labels:      validLabels,
+		ExternalRef: externalRef,
+	}
+
+	beadID, err := beads.Create(ctx, beadDir, createOpts)
 	if err != nil {
-		return "", fmt.Errorf("failed to create bead: %w\nOutput: %s", err, output)
+		return "", fmt.Errorf("failed to create bead: %w", err)
 	}
 
-	// Parse the output to get the bead ID
-	// Expected format: "Created issue: beads-xxx"
-	outputStr := string(output)
-	if strings.Contains(outputStr, "Created issue:") {
-		parts := strings.Fields(outputStr)
-		for i, part := range parts {
-			if part == "issue:" && i+1 < len(parts) {
-				return parts[i+1], nil
-			}
-		}
-	}
-
-	// Fallback: try to extract anything that looks like a bead ID
-	for _, line := range strings.Split(outputStr, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "beads-") {
-			return strings.Fields(line)[0], nil
-		}
-	}
-
-	return "", fmt.Errorf("could not parse bead ID from output: %s", outputStr)
+	return beadID, nil
 }
 
 // AddBeadToWork adds a bead to a work using the work_beads table.
@@ -322,7 +307,7 @@ func (i *Integration) ResolveFeedback(ctx context.Context, beadID string) error 
 }
 
 // CreateBeadsForWork creates beads for all unprocessed feedback for a work.
-func (i *Integration) CreateBeadsForWork(ctx context.Context, workID, prURL, rootIssueID string) ([]string, error) {
+func (i *Integration) CreateBeadsForWork(ctx context.Context, beadDir, workID, prURL, rootIssueID string) ([]string, error) {
 	// Fetch all feedback
 	beadInfos, err := i.ProcessPRFeedback(ctx, prURL, rootIssueID)
 	if err != nil {
@@ -333,7 +318,7 @@ func (i *Integration) CreateBeadsForWork(ctx context.Context, workID, prURL, roo
 
 	// Create beads for each feedback item
 	for _, beadInfo := range beadInfos {
-		beadID, err := i.CreateBeadFromFeedback(ctx, beadInfo)
+		beadID, err := i.CreateBeadFromFeedback(ctx, beadDir, beadInfo)
 		if err != nil {
 			// Log error but continue with other beads
 			fmt.Printf("Failed to create bead for '%s': %v\n", beadInfo.Title, err)

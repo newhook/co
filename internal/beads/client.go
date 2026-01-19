@@ -56,12 +56,14 @@ func CloseEligibleEpicsInDir(ctx context.Context, dir string) error {
 
 // CreateOptions specifies options for creating a bead.
 type CreateOptions struct {
-	Title       string
-	Type        string // "task", "bug", "feature"
-	Priority    int
-	IsEpic      bool
-	Description string
-	Parent      string // Parent bead ID for hierarchical child
+	Title        string
+	Type         string   // "task", "bug", "feature"
+	Priority     int
+	IsEpic       bool
+	Description  string
+	Parent       string   // Parent bead ID for hierarchical child
+	Labels       []string // Optional labels for the bead
+	ExternalRef  string   // Optional external reference (e.g., GitHub comment ID)
 }
 
 // Create creates a new bead and returns its ID.
@@ -77,6 +79,14 @@ func Create(ctx context.Context, dir string, opts CreateOptions) (string, error)
 	}
 	if opts.Parent != "" {
 		args = append(args, "--parent="+opts.Parent)
+	}
+	if opts.ExternalRef != "" {
+		args = append(args, "--external-ref="+opts.ExternalRef)
+	}
+	for _, label := range opts.Labels {
+		if label != "" {
+			args = append(args, "--label="+label)
+		}
 	}
 
 	logging.Debug("creating bead", "args", args, "dir", dir, "opts", opts)

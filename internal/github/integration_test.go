@@ -114,7 +114,7 @@ func TestCreateBeadFromFeedback(t *testing.T) {
 		// This test would fail without bd CLI installed and proper setup
 		t.Skip("Skipping test that requires bd CLI")
 
-		beadID, err := integration.CreateBeadFromFeedback(ctx, beadInfo)
+		beadID, err := integration.CreateBeadFromFeedback(ctx, t.TempDir(), beadInfo)
 		if err == nil {
 			if beadID == "" {
 				t.Error("Expected non-empty bead ID")
@@ -132,7 +132,7 @@ func TestCreateBeadFromFeedback(t *testing.T) {
 		// This should fail even if bd is installed
 		t.Skip("Skipping test that requires bd CLI")
 
-		_, err := integration.CreateBeadFromFeedback(ctx, invalidInfo)
+		_, err := integration.CreateBeadFromFeedback(ctx, t.TempDir(), invalidInfo)
 		if err == nil {
 			t.Error("Expected error for empty title")
 		}
@@ -224,7 +224,7 @@ func TestCreateBeadsForWork(t *testing.T) {
 		// This test requires GitHub API access and bd CLI
 		t.Skip("Skipping test that requires GitHub API and bd CLI")
 
-		beadIDs, err := integration.CreateBeadsForWork(ctx, workID, prURL, rootIssueID)
+		beadIDs, err := integration.CreateBeadsForWork(ctx, t.TempDir(), workID, prURL, rootIssueID)
 		if err == nil {
 			if beadIDs == nil {
 				t.Error("Expected bead IDs (even if empty), got nil")

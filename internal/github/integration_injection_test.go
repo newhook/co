@@ -163,7 +163,7 @@ func TestCreateBeadFromFeedback_InjectionPrevention(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Note: This test doesn't actually execute bd command, it just tests
 			// that validation happens. In a real test environment, we'd mock exec.CommandContext.
-			_, err := integration.CreateBeadFromFeedback(ctx, tt.beadInfo)
+			_, err := integration.CreateBeadFromFeedback(ctx, t.TempDir(), tt.beadInfo)
 
 			if tt.shouldError {
 				if err == nil {

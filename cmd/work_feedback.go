@@ -176,8 +176,9 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			Metadata:    metadata,
 		}
 
-		// Create bead using bd CLI
-		beadID, err := integration.CreateBeadFromFeedback(ctx, beadInfo)
+		// Create bead using beads package
+		mainRepoPath := proj.MainRepoPath()
+		beadID, err := integration.CreateBeadFromFeedback(ctx, mainRepoPath, beadInfo)
 		if err != nil {
 			if !quiet {
 				fmt.Printf("   Error creating bead: %v\n", err)
