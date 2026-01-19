@@ -445,8 +445,8 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 	if len(beadsToFix) == 0 && work.PRURL != "" {
 		fmt.Println("Review passed - checking for PR feedback...")
 
-		// Process PR feedback internally with auto-add flag
-		_, err := ProcessPRFeedback(ctx, proj, proj.DB, work.ID, true, 2)
+		// Process PR feedback - creates beads but doesn't add them to work
+		_, err := ProcessPRFeedback(ctx, proj, proj.DB, work.ID, 2)
 		if err != nil {
 			fmt.Printf("Warning: failed to check PR feedback: %v\n", err)
 		} else {
