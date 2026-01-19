@@ -146,6 +146,36 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 	}
 }
 
+func (m *planModel) closeBeads(beadIDs []string) tea.Cmd {
+	return func() tea.Msg {
+		mainRepoPath := m.proj.MainRepoPath()
+		session := m.sessionName()
+
+		// First, close any active sessions for these beads
+		for _, beadID := range beadIDs {
+			if m.activeBeadSessions[beadID] {
+				tabName := db.TabNameForBead(beadID)
+				// Terminate and close the tab
+				_ = m.zj.TerminateAndCloseTab(m.ctx, session, tabName)
+				// Unregister from database
+				_ = m.proj.DB.UnregisterPlanSession(m.ctx, beadID)
+			}
+		}
+
+		// Close all beads using the beads package
+		for _, beadID := range beadIDs {
+			if err := beads.Close(m.ctx, beadID, mainRepoPath); err != nil {
+				return planDataMsg{err: fmt.Errorf("failed to close issue %s: %w", beadID, err)}
+			}
+		}
+
+		// Refresh after close
+		items, err := m.loadBeads()
+		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
+		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
+	}
+}
+
 func (m *planModel) saveBeadEdit(beadID, title, description, beadType string) tea.Cmd {
 	return func() tea.Msg {
 		mainRepoPath := m.proj.MainRepoPath()

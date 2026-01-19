@@ -745,9 +745,20 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "x":
-		// Close selected bead
-		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			m.viewMode = ViewCloseBeadConfirm
+		// Close selected bead(s)
+		if len(m.beadItems) > 0 {
+			// Check if we have any selected beads
+			hasSelection := false
+			for _, item := range m.beadItems {
+				if m.selectedBeads[item.id] {
+					hasSelection = true
+					break
+				}
+			}
+			// If we have selected beads or a cursor bead, show confirmation
+			if hasSelection || m.beadsCursor < len(m.beadItems) {
+				m.viewMode = ViewCloseBeadConfirm
+			}
 		}
 		return m, nil
 
@@ -959,9 +970,20 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "A":
-		// Add selected issue to existing work
-		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			return m, m.loadAvailableWorks()
+		// Add selected issue(s) to existing work
+		if len(m.beadItems) > 0 {
+			// Check if we have any selected beads
+			hasSelection := false
+			for _, item := range m.beadItems {
+				if m.selectedBeads[item.id] {
+					hasSelection = true
+					break
+				}
+			}
+			// If we have selected beads or a cursor bead, load available works
+			if hasSelection || m.beadsCursor < len(m.beadItems) {
+				return m, m.loadAvailableWorks()
+			}
 		}
 		return m, nil
 

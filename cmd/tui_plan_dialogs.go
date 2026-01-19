@@ -235,12 +235,27 @@ func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	}
 	switch msg.String() {
 	case "y", "Y":
-		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			beadID := m.beadItems[m.beadsCursor].id
-			m.viewMode = ViewNormal
-			return m, m.closeBead(beadID)
+		// Collect selected beads
+		var beadIDs []string
+		for _, item := range m.beadItems {
+			if m.selectedBeads[item.id] {
+				beadIDs = append(beadIDs, item.id)
+			}
 		}
+
+		// If no selected beads, use cursor bead
+		if len(beadIDs) == 0 && len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+			beadIDs = append(beadIDs, m.beadItems[m.beadsCursor].id)
+		}
+
 		m.viewMode = ViewNormal
+		if len(beadIDs) == 1 {
+			// Single bead - use the existing closeBead function
+			return m, m.closeBead(beadIDs[0])
+		} else if len(beadIDs) > 1 {
+			// Multiple beads - use the batch close function
+			return m, m.closeBeads(beadIDs)
+		}
 		return m, nil
 	case "n", "N":
 		m.viewMode = ViewNormal
@@ -269,8 +284,27 @@ func (m *planModel) updateAddToWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if len(m.availableWorks) > 0 && m.worksCursor < len(m.availableWorks) {
 			workID := m.availableWorks[m.worksCursor].id
-			beadID := m.beadItems[m.beadsCursor].id
-			return m, m.addBeadToWork(beadID, workID)
+
+			// Collect selected beads
+			var beadIDs []string
+			for _, item := range m.beadItems {
+				if m.selectedBeads[item.id] {
+					beadIDs = append(beadIDs, item.id)
+				}
+			}
+
+			// If no selected beads, use cursor bead
+			if len(beadIDs) == 0 && len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+				beadIDs = append(beadIDs, m.beadItems[m.beadsCursor].id)
+			}
+
+			if len(beadIDs) == 1 {
+				// Single bead - use the existing addBeadToWork function
+				return m, m.addBeadToWork(beadIDs[0], workID)
+			} else if len(beadIDs) > 1 {
+				// Multiple beads - use the batch add function
+				return m, m.addBeadsToWork(beadIDs, workID)
+			}
 		}
 		return m, nil
 	}
@@ -310,21 +344,50 @@ func (m *planModel) renderLabelFilterDialogContent() string {
 }
 
 func (m *planModel) renderCloseBeadConfirmContent() string {
-	beadID := ""
-	beadTitle := ""
-	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-		beadID = m.beadItems[m.beadsCursor].id
-		beadTitle = m.beadItems[m.beadsCursor].title
+	// Collect selected beads
+	var selectedBeads []beadItem
+	for _, item := range m.beadItems {
+		if m.selectedBeads[item.id] {
+			selectedBeads = append(selectedBeads, item)
+		}
+	}
+
+	// If no selected beads, use cursor bead
+	if len(selectedBeads) == 0 && len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		selectedBeads = append(selectedBeads, m.beadItems[m.beadsCursor])
+	}
+
+	// Build the confirmation message
+	var beadsList string
+	if len(selectedBeads) == 1 {
+		beadsList = fmt.Sprintf("  %s\n  %s", selectedBeads[0].id, selectedBeads[0].title)
+	} else if len(selectedBeads) > 1 {
+		beadsList = fmt.Sprintf("  %d issues:\n", len(selectedBeads))
+		for i, bead := range selectedBeads {
+			if i < 5 { // Show first 5 beads
+				beadsList += fmt.Sprintf("  - %s: %s\n", bead.id, bead.title)
+			}
+		}
+		if len(selectedBeads) > 5 {
+			beadsList += fmt.Sprintf("  ... and %d more", len(selectedBeads)-5)
+		}
+	}
+
+	var title string
+	if len(selectedBeads) == 1 {
+		title = "Close Issue"
+	} else {
+		title = fmt.Sprintf("Close %d Issues", len(selectedBeads))
 	}
 
 	content := fmt.Sprintf(`
-  Close Issue
-
-  Are you sure you want to close %s?
   %s
 
+  Are you sure you want to close:
+%s
+
   [y] Yes  [n] No
-`, beadID, beadTitle)
+`, title, beadsList)
 
 	return tuiDialogStyle.Render(content)
 }

@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -351,22 +350,20 @@ func (m *planModel) loadAvailableWorks() tea.Cmd {
 
 		var items []workItem
 		for _, w := range works {
-			// Only show pending/processing works (not completed/failed)
-			if w.Status == "pending" || w.Status == "processing" {
-				item := workItem{
-					id:          w.ID,
-					status:      w.Status,
-					branch:      w.BranchName,
-					rootIssueID: w.RootIssueID,
-				}
-				// Try to get the root issue title from beads cache
-				if w.RootIssueID != "" && m.proj.Beads != nil {
-					if bead, err := m.proj.Beads.GetBead(m.ctx, w.RootIssueID); err == nil {
-						item.rootIssueTitle = bead.Title
-					}
-				}
-				items = append(items, item)
+			// Show all works (users might want to add to completed works)
+			item := workItem{
+				id:          w.ID,
+				status:      w.Status,
+				branch:      w.BranchName,
+				rootIssueID: w.RootIssueID,
 			}
+			// Try to get the root issue title from beads cache
+			if w.RootIssueID != "" && m.proj.Beads != nil {
+				if bead, err := m.proj.Beads.GetBead(m.ctx, w.RootIssueID); err == nil {
+					item.rootIssueTitle = bead.Title
+				}
+			}
+			items = append(items, item)
 		}
 		return worksLoadedMsg{works: items}
 	}
@@ -375,16 +372,27 @@ func (m *planModel) loadAvailableWorks() tea.Cmd {
 // addBeadToWork adds a bead to an existing work
 func (m *planModel) addBeadToWork(beadID, workID string) tea.Cmd {
 	return func() tea.Msg {
-		mainRepoPath := m.proj.MainRepoPath()
-
-		// Use co work add command
-		cmd := exec.Command("co", "work", "add", beadID, "--work="+workID)
-		cmd.Dir = mainRepoPath
-		if err := cmd.Run(); err != nil {
+		// Use internal function instead of CLI
+		_, err := AddBeadsToWork(m.ctx, m.proj, workID, []string{beadID})
+		if err != nil {
 			return beadAddedToWorkMsg{beadID: beadID, workID: workID, err: fmt.Errorf("failed to add issue to work: %w", err)}
 		}
 
 		return beadAddedToWorkMsg{beadID: beadID, workID: workID}
+	}
+}
+
+func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
+	return func() tea.Msg {
+		// Use internal function instead of CLI
+		_, err := AddBeadsToWork(m.ctx, m.proj, workID, beadIDs)
+		if err != nil {
+			beadIDsStr := strings.Join(beadIDs, ", ")
+			return beadAddedToWorkMsg{beadID: beadIDsStr, workID: workID, err: fmt.Errorf("failed to add issues to work: %w", err)}
+		}
+
+		beadIDsStr := strings.Join(beadIDs, ", ")
+		return beadAddedToWorkMsg{beadID: beadIDsStr, workID: workID}
 	}
 }
 
