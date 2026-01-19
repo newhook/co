@@ -723,6 +723,13 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "R":
+		// Reset failed task (Shift+R) - only in task panel in zoomed mode
+		if m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle {
+			return m, m.resetTask()
+		}
+		return m, nil
+
 	case "o":
 		// Restart orchestrator for selected work (PanelLeft in overview, or PanelMiddle in zoomed mode)
 		canActOnWork := m.activePanel == PanelLeft || (m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelMiddle)

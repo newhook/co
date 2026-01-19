@@ -150,6 +150,7 @@ func (m *workModel) renderHelp() string {
   u             Update PR description
   f             Poll PR feedback (if PR exists)
   d             Destroy selected work
+  Shift+R       Reset failed task to pending
 
   General
   ────────────────────────────

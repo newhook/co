@@ -374,3 +374,44 @@ func (m *workModel) pollPRFeedback() tea.Cmd {
 		return workCommandMsg{action: fmt.Sprintf("Triggered PR feedback poll for %s", workID)}
 	}
 }
+
+// resetTask resets a failed task back to pending status
+func (m *workModel) resetTask() tea.Cmd {
+	return func() tea.Msg {
+		if m.worksCursor >= len(m.works) {
+			return workCommandMsg{action: "Reset task", err: fmt.Errorf("no work selected")}
+		}
+
+		wp := m.works[m.worksCursor]
+
+		// Get the selected task based on the cursor position
+		if m.tasksCursor >= len(wp.tasks)+len(wp.unassignedBeads) {
+			return workCommandMsg{action: "Reset task", err: fmt.Errorf("no task selected")}
+		}
+
+		// Check if cursor is in the tasks section (not unassigned beads)
+		if m.tasksCursor >= len(wp.tasks) {
+			return workCommandMsg{action: "Reset task", err: fmt.Errorf("cannot reset unassigned beads")}
+		}
+
+		taskProgress := wp.tasks[m.tasksCursor]
+		task := taskProgress.task
+
+		// Only reset failed tasks
+		if task.Status != db.StatusFailed {
+			return workCommandMsg{action: "Reset task", err: fmt.Errorf("task %s is not failed (status: %s)", task.ID, task.Status)}
+		}
+
+		// Reset task status to pending
+		if err := m.proj.DB.ResetTaskStatus(m.ctx, task.ID); err != nil {
+			return workCommandMsg{action: "Reset task", err: fmt.Errorf("failed to reset task status: %w", err)}
+		}
+
+		// Reset all bead statuses for this task
+		if err := m.proj.DB.ResetTaskBeadStatuses(m.ctx, task.ID); err != nil {
+			return workCommandMsg{action: "Reset task", err: fmt.Errorf("failed to reset bead statuses: %w", err)}
+		}
+
+		return workCommandMsg{action: fmt.Sprintf("Reset task %s to pending", task.ID)}
+	}
+}
