@@ -222,6 +222,19 @@ func (m *workModel) recalculateGrid() {
 func (m *workModel) FocusChanged(focused bool) tea.Cmd {
 	m.focused = focused
 	if focused {
+		logging.Debug("Work mode gaining focus",
+			"zoomLevel", m.zoomLevel,
+			"activePanel", m.activePanel,
+			"selectedWorkID", m.selectedWorkID,
+			"worksCursor", m.worksCursor)
+
+		// Ensure activePanel is valid for current zoomLevel
+		if m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelLeft {
+			logging.Debug("Correcting invalid activePanel on focus",
+				"oldPanel", "PanelLeft", "newPanel", "PanelMiddle")
+			m.activePanel = PanelMiddle
+		}
+
 		// Refresh data when gaining focus and restart spinner
 		m.loading = true
 		cmds := []tea.Cmd{
@@ -441,19 +454,30 @@ func (m *workModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.worksCursor = 0
 		}
 
-		// Reset zoom if the selected work no longer exists
-		if m.zoomLevel == ZoomZoomedIn && m.selectedWorkID != "" {
+		// Restore worksCursor from selectedWorkID after data refresh
+		if m.selectedWorkID != "" {
 			found := false
-			for _, wp := range m.works {
+			for i, wp := range m.works {
 				if wp.work.ID == m.selectedWorkID {
+					m.worksCursor = i
 					found = true
 					break
 				}
 			}
-			if !found {
+			// Reset zoom if the selected work no longer exists
+			if !found && m.zoomLevel == ZoomZoomedIn {
+				logging.Debug("Selected work no longer exists, resetting zoom",
+					"selectedWorkID", m.selectedWorkID)
 				m.zoomLevel = ZoomOverview
 				m.selectedWorkID = ""
 			}
+		}
+
+		// Ensure activePanel is valid for current zoomLevel
+		if m.zoomLevel == ZoomZoomedIn && m.activePanel == PanelLeft {
+			logging.Debug("Correcting invalid activePanel for zoomed mode",
+				"oldPanel", "PanelLeft", "newPanel", "PanelMiddle")
+			m.activePanel = PanelMiddle
 		}
 
 	case workCommandMsg:
@@ -579,6 +603,11 @@ func (m *workModel) updateOverviewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.selectedWorkID = m.works[panelIdx].work.ID
 				m.activePanel = PanelMiddle // Start on tasks panel (no left panel in zoom mode)
 				m.tasksCursor = 0
+				logging.Debug("Zooming in via number key",
+					"key", msg.String(),
+					"worksCursor", m.worksCursor,
+					"selectedWorkID", m.selectedWorkID,
+					"activePanel", m.activePanel)
 			}
 			return m, nil
 		case "enter":
@@ -588,6 +617,10 @@ func (m *workModel) updateOverviewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.selectedWorkID = m.works[m.worksCursor].work.ID
 				m.activePanel = PanelMiddle // Start on tasks panel (no left panel in zoom mode)
 				m.tasksCursor = 0
+				logging.Debug("Zooming in via enter key",
+					"worksCursor", m.worksCursor,
+					"selectedWorkID", m.selectedWorkID,
+					"activePanel", m.activePanel)
 			}
 			return m, nil
 		case "d":
@@ -688,6 +721,8 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// In zoomed mode, only toggle between Middle and Right (no Left panel)
 		if m.zoomLevel == ZoomZoomedIn {
 			if m.activePanel == PanelRight {
+				logging.Debug("Panel change via h/left in zoomed mode",
+					"from", "PanelRight", "to", "PanelMiddle")
 				m.activePanel = PanelMiddle
 			}
 		} else if m.activePanel > PanelLeft {
@@ -698,6 +733,8 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// In zoomed mode, only toggle between Middle and Right (no Left panel)
 		if m.zoomLevel == ZoomZoomedIn {
 			if m.activePanel == PanelMiddle {
+				logging.Debug("Panel change via l/right in zoomed mode",
+					"from", "PanelMiddle", "to", "PanelRight")
 				m.activePanel = PanelRight
 			}
 		} else if m.activePanel < PanelRight {
@@ -707,19 +744,30 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		if m.zoomLevel == ZoomZoomedIn {
 			// Toggle between Middle and Right panels only (no Left panel in zoom mode)
+			oldPanel := m.activePanel
 			if m.activePanel == PanelMiddle {
 				m.activePanel = PanelRight
 			} else {
 				m.activePanel = PanelMiddle
 			}
+			logging.Debug("Panel change via tab in zoomed mode",
+				"from", oldPanel, "to", m.activePanel)
 		}
 
 	case "1":
 		if m.zoomLevel == ZoomZoomedIn {
+			if m.activePanel != PanelMiddle {
+				logging.Debug("Panel change via 1 key in zoomed mode",
+					"from", m.activePanel, "to", "PanelMiddle")
+			}
 			m.activePanel = PanelMiddle // 1 = Tasks panel
 		}
 	case "2":
 		if m.zoomLevel == ZoomZoomedIn {
+			if m.activePanel != PanelRight {
+				logging.Debug("Panel change via 2 key in zoomed mode",
+					"from", m.activePanel, "to", "PanelRight")
+			}
 			m.activePanel = PanelRight // 2 = Details panel
 		}
 
@@ -855,6 +903,9 @@ func (m *workModel) updateZoomedKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		// Zoom out to overview
 		if m.zoomLevel == ZoomZoomedIn {
+			logging.Debug("Zooming out to overview",
+				"previousSelectedWorkID", m.selectedWorkID,
+				"worksCursor", m.worksCursor)
 			m.zoomLevel = ZoomOverview
 			m.selectedWorkID = ""
 		}
