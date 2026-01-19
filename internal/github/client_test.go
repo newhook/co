@@ -32,7 +32,7 @@ func TestParsePRURL(t *testing.T) {
 			prURL:      "https://github.com/owner/repo/pull/456/",
 			wantNumber: "456",
 			wantRepo:   "owner/repo",
-			wantErr:    false,
+			wantErr:    false, // Trailing slashes are trimmed, so this should work
 		},
 		{
 			name:       "Valid GitHub PR URL with subdomain",
@@ -51,16 +51,16 @@ func TestParsePRURL(t *testing.T) {
 		{
 			name:       "Invalid URL - missing PR number",
 			prURL:      "https://github.com/owner/repo/pull/",
-			wantNumber: "", // Will get empty string from parts[6]
-			wantRepo:   "owner/repo", // Will still parse owner/repo
-			wantErr:    false, // Current implementation doesn't check for empty PR number
+			wantNumber: "",
+			wantRepo:   "",
+			wantErr:    true, // Now properly validates empty PR number
 		},
 		{
 			name:       "Invalid URL - not GitHub",
 			prURL:      "https://gitlab.com/owner/repo/pull/123",
-			wantNumber: "123", // Will still parse the number
-			wantRepo:   "owner/repo", // Will still parse owner/repo
-			wantErr:    false, // Current implementation doesn't validate domain
+			wantNumber: "",
+			wantRepo:   "",
+			wantErr:    true, // Now properly validates domain
 		},
 		{
 			name:       "Invalid URL - malformed",
@@ -72,6 +72,41 @@ func TestParsePRURL(t *testing.T) {
 		{
 			name:       "Invalid URL - too short",
 			prURL:      "https://github.com/owner",
+			wantNumber: "",
+			wantRepo:   "",
+			wantErr:    true,
+		},
+		{
+			name:       "Invalid URL - non-numeric PR number",
+			prURL:      "https://github.com/owner/repo/pull/abc",
+			wantNumber: "",
+			wantRepo:   "",
+			wantErr:    true,
+		},
+		{
+			name:       "Invalid URL - HTTP instead of HTTPS",
+			prURL:      "http://github.com/owner/repo/pull/123",
+			wantNumber: "",
+			wantRepo:   "",
+			wantErr:    true,
+		},
+		{
+			name:       "Invalid URL - extra path components",
+			prURL:      "https://github.com/owner/repo/pull/123/files",
+			wantNumber: "",
+			wantRepo:   "",
+			wantErr:    true,
+		},
+		{
+			name:       "Invalid URL - empty owner",
+			prURL:      "https://github.com//repo/pull/123",
+			wantNumber: "",
+			wantRepo:   "",
+			wantErr:    true,
+		},
+		{
+			name:       "Invalid URL - empty repo",
+			prURL:      "https://github.com/owner//pull/123",
 			wantNumber: "",
 			wantRepo:   "",
 			wantErr:    true,

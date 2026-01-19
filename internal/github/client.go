@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -497,14 +499,58 @@ func (c *Client) fetchWorkflowJobs(ctx context.Context, repo string, runID int64
 // parsePRURL extracts the repo and PR number from a GitHub PR URL.
 func parsePRURL(prURL string) (prNumber, repo string, err error) {
 	// Expected format: https://github.com/owner/repo/pull/123
-	parts := strings.Split(prURL, "/")
-	if len(parts) < 7 || parts[5] != "pull" {
-		return "", "", fmt.Errorf("invalid PR URL format: %s", prURL)
+
+	// Parse and validate URL
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid URL: %w", err)
 	}
 
-	owner := parts[3]
-	repoName := parts[4]
-	prNumber = parts[6]
+	// Validate scheme and host
+	if u.Scheme != "https" {
+		return "", "", fmt.Errorf("URL must use HTTPS scheme, got: %s", u.Scheme)
+	}
+
+	if u.Host != "github.com" {
+		return "", "", fmt.Errorf("URL must be from github.com, got: %s", u.Host)
+	}
+
+	// Parse path components
+	// Remove leading/trailing slashes for consistent parsing
+	path := strings.Trim(u.Path, "/")
+	parts := strings.Split(path, "/")
+
+	// Validate path structure: owner/repo/pull/number
+	if len(parts) != 4 {
+		return "", "", fmt.Errorf("invalid PR URL path structure: expected /owner/repo/pull/number, got: %s", u.Path)
+	}
+
+	if parts[2] != "pull" {
+		return "", "", fmt.Errorf("URL is not a pull request URL (missing 'pull' in path): %s", prURL)
+	}
+
+	// Extract components
+	owner := parts[0]
+	repoName := parts[1]
+	prNumber = parts[3]
+
+	// Validate owner and repo names are not empty
+	if owner == "" {
+		return "", "", fmt.Errorf("owner cannot be empty in PR URL: %s", prURL)
+	}
+
+	if repoName == "" {
+		return "", "", fmt.Errorf("repository name cannot be empty in PR URL: %s", prURL)
+	}
+
+	// Validate PR number is not empty and is numeric
+	if prNumber == "" {
+		return "", "", fmt.Errorf("PR number cannot be empty in URL: %s", prURL)
+	}
+
+	if _, err := strconv.Atoi(prNumber); err != nil {
+		return "", "", fmt.Errorf("PR number must be numeric, got: %s", prNumber)
+	}
 
 	return prNumber, fmt.Sprintf("%s/%s", owner, repoName), nil
 }
