@@ -96,16 +96,15 @@ and adherence to project standards.`,
 }
 
 var workAddCmd = &cobra.Command{
-	Use:   "add <bead-args...>",
+	Use:   "add <bead-ids...>",
 	Short: "Add beads to work",
 	Long: `Add beads to an existing work unit.
 
-Beads can be specified with grouping syntax:
-  co work add bead-4,bead-5 bead-6
-  - Comma-separated beads are grouped together for a single task
-  - Space-separated arguments create separate task groups
+Multiple beads can be specified separated by spaces or commas.
+Epics are automatically expanded to include all child beads.
 
-Epics are automatically expanded to include all child beads.`,
+Use --plan when running to let the LLM group beads intelligently,
+or --auto for a fully automated workflow.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runWorkAdd,
 }
@@ -287,13 +286,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 
-	// Initialize bead group counter
-	if err := proj.DB.InitializeBeadGroupCounter(ctx, workID); err != nil {
-		fmt.Printf("Warning: failed to initialize bead group counter: %v\n", err)
-	}
-
-	// Add beads to work_beads with group assignments
-	if err := addBeadGroupsToWork(ctx, proj, workID, beadGroups); err != nil {
+	// Add beads to work_beads
+	if err := addBeadsToWork(ctx, proj, workID, beadGroups); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to add beads to work: %w", err)
@@ -336,27 +330,28 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// beadGroup represents a group of beads that should be in the same task.
+// beadGroup represents a collection of bead IDs.
+// Grouping semantics have been removed - all beads in a group
+// are added to the work individually.
 type beadGroup struct {
 	issueIDs []string
 }
 
-// parseBeadGroups parses positional args into bead groups.
-// Each arg is a comma-separated list of bead IDs (same group).
+// parseBeadGroups parses positional args into beads.
+// Both commas and spaces are treated as separators.
 // Epics are expanded to their child beads.
-// Returns an error if duplicate bead IDs are found across groups.
+// Returns an error if duplicate bead IDs are found.
 func parseBeadGroups(ctx context.Context, args []string, beadsClient *beads.Client) ([]beadGroup, error) {
-	var groups []beadGroup
 	seenBeads := make(map[string]bool)
+	var allIssueIDs []string
 
 	for _, arg := range args {
-		// Split comma-separated bead IDs
+		// Split comma-separated bead IDs (commas and spaces both work as separators)
 		beadIDs := parseBeadIDs(arg)
 		if len(beadIDs) == 0 {
 			continue
 		}
 
-		var groupIssueIDs []string
 		for _, beadID := range beadIDs {
 			// Expand this bead (handles epics and transitive deps)
 			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
@@ -369,16 +364,17 @@ func parseBeadGroups(ctx context.Context, args []string, beadsClient *beads.Clie
 					return nil, fmt.Errorf("duplicate bead %s specified", issueID)
 				}
 				seenBeads[issueID] = true
-				groupIssueIDs = append(groupIssueIDs, issueID)
+				allIssueIDs = append(allIssueIDs, issueID)
 			}
-		}
-
-		if len(groupIssueIDs) > 0 {
-			groups = append(groups, beadGroup{issueIDs: groupIssueIDs})
 		}
 	}
 
-	return groups, nil
+	if len(allIssueIDs) == 0 {
+		return nil, nil
+	}
+
+	// Return all beads in a single group (grouping is no longer meaningful)
+	return []beadGroup{{issueIDs: allIssueIDs}}, nil
 }
 
 // promptForBranchName prompts the user to accept or customize the branch name.
@@ -408,25 +404,11 @@ func promptForBranchName(proposed string) (string, error) {
 	return response, nil
 }
 
-// addBeadGroupsToWork adds bead groups to work_beads table.
-func addBeadGroupsToWork(ctx context.Context, proj *project.Project, workID string, groups []beadGroup) error {
+// addBeadsToWork adds beads to work_beads table.
+func addBeadsToWork(ctx context.Context, proj *project.Project, workID string, groups []beadGroup) error {
 	for _, group := range groups {
-		var groupID int64
-		if len(group.issueIDs) > 1 {
-			// Get next group ID for grouped beads
-			var err error
-			groupID, err = proj.DB.GetNextBeadGroupID(ctx, workID)
-			if err != nil {
-				return fmt.Errorf("failed to get next group ID: %w", err)
-			}
-		}
-		// groupID = 0 for ungrouped beads (single bead in group)
-
-		// issueIDs are already bead IDs
-		beadIDs := group.issueIDs
-
 		// Add beads to work
-		if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs, groupID); err != nil {
+		if err := proj.DB.AddWorkBeads(ctx, workID, group.issueIDs); err != nil {
 			return fmt.Errorf("failed to add beads: %w", err)
 		}
 	}
@@ -475,8 +457,8 @@ func AddBeadsToWork(ctx context.Context, proj *project.Project, workID string, b
 		}
 	}
 
-	// Add beads to work (each as its own group with groupID=0)
-	if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs, 0); err != nil {
+	// Add beads to work
+	if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs); err != nil {
 		return nil, fmt.Errorf("failed to add beads: %w", err)
 	}
 
@@ -581,12 +563,6 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return nil, fmt.Errorf("failed to create work record: %w", err)
-	}
-
-	// Initialize bead group counter
-	if err := proj.DB.InitializeBeadGroupCounter(ctx, workID); err != nil {
-		// Non-fatal warning
-		fmt.Fprintf(output, "Warning: failed to initialize bead group counter: %v\n", err)
 	}
 
 	return &WorkCreateResult{
@@ -719,7 +695,7 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add beads to work
-	if err := addBeadGroupsToWork(ctx, proj, workID, beadGroups); err != nil {
+	if err := addBeadsToWork(ctx, proj, workID, beadGroups); err != nil {
 		return fmt.Errorf("failed to add beads: %w", err)
 	}
 

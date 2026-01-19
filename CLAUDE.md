@@ -282,11 +282,10 @@ Two-phase workflow: **work** → **run**.
    - If mise enabled (`.mise.toml` or `.tool-versions`): runs `mise trust`, `mise install`
    - If mise `setup` task defined: runs `mise run setup` (use for npm/pnpm install)
 
-2. Create work unit with beads: `co work create <bead-args...>`
-   - Syntax: `co work create bead-1,bead-2 bead-3` (comma = same group, space = different groups)
+2. Create work unit from a bead: `co work create <bead-id>`
    - Auto-generates work ID (w-abc, w-xyz, etc.)
    - Generates branch name from bead titles, prompts for confirmation
-   - Expands epics to include all child beads
+   - Expands epics to include all child beads with transitive dependencies
    - Creates subdirectory with git worktree: `<project>/<work-id>/tree/`
    - Use `--auto` for full automated workflow (implement, review/fix loop, PR)
 
@@ -308,11 +307,8 @@ Zellij sessions are named `co-<project-name>` for isolation between projects.
 
 ## Work Commands
 
-### `co work create <bead-args...>`
-Creates a new work unit with beads:
-- Syntax: `co work create bead-1,bead-2 bead-3`
-  - Comma-separated beads are grouped together for a single task
-  - Space-separated arguments create separate task groups
+### `co work create <bead-id>`
+Creates a new work unit from a bead:
 - Generates branch name from bead titles, prompts for confirmation
 - Expands epics to include all child beads with transitive dependencies
 - Auto-generates work ID (w-abc, w-xyz, etc.)
@@ -324,10 +320,9 @@ Creates a new work unit with beads:
 - Use `--base` to specify base branch (default: main)
 - Use `--auto` for full automated workflow (implement, review/fix loop, PR)
 
-### `co work add <bead-args...>`
+### `co work add <bead-ids...>`
 Adds beads to an existing work:
-- Syntax: `co work add bead-4,bead-5 bead-6 [--work=<id>]`
-  - Same grouping syntax as `create`
+- Syntax: `co work add bead-4 bead-5 [--work=<id>]`
 - Detects work from current directory or uses `--work` flag
 - Expands epics to include all child beads
 - Cannot add beads already assigned to a task

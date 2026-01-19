@@ -320,7 +320,7 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 		}
 
 		// Add beads to the work
-		if err := addBeadGroupsToWork(m.ctx, m.proj, result.WorkID, beadGroups); err != nil {
+		if err := addBeadsToWork(m.ctx, m.proj, result.WorkID, beadGroups); err != nil {
 			// Work was created but beads couldn't be added - don't fail completely
 			return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
 		}

@@ -10,49 +10,36 @@ import (
 )
 
 const addWorkBead = `-- name: AddWorkBead :exec
-INSERT INTO work_beads (work_id, bead_id, group_id, position)
-VALUES (?, ?, ?, ?)
+INSERT INTO work_beads (work_id, bead_id, position)
+VALUES (?, ?, ?)
 `
 
 type AddWorkBeadParams struct {
 	WorkID   string `json:"work_id"`
 	BeadID   string `json:"bead_id"`
-	GroupID  int64  `json:"group_id"`
 	Position int64  `json:"position"`
 }
 
 func (q *Queries) AddWorkBead(ctx context.Context, arg AddWorkBeadParams) error {
-	_, err := q.db.ExecContext(ctx, addWorkBead,
-		arg.WorkID,
-		arg.BeadID,
-		arg.GroupID,
-		arg.Position,
-	)
+	_, err := q.db.ExecContext(ctx, addWorkBead, arg.WorkID, arg.BeadID, arg.Position)
 	return err
 }
 
 const addWorkBeadsBatch = `-- name: AddWorkBeadsBatch :exec
-INSERT INTO work_beads (work_id, bead_id, group_id, position)
-VALUES (?, ?, ?, ?)
+INSERT INTO work_beads (work_id, bead_id, position)
+VALUES (?, ?, ?)
 ON CONFLICT (work_id, bead_id) DO UPDATE SET
-    group_id = excluded.group_id,
     position = excluded.position
 `
 
 type AddWorkBeadsBatchParams struct {
 	WorkID   string `json:"work_id"`
 	BeadID   string `json:"bead_id"`
-	GroupID  int64  `json:"group_id"`
 	Position int64  `json:"position"`
 }
 
 func (q *Queries) AddWorkBeadsBatch(ctx context.Context, arg AddWorkBeadsBatchParams) error {
-	_, err := q.db.ExecContext(ctx, addWorkBeadsBatch,
-		arg.WorkID,
-		arg.BeadID,
-		arg.GroupID,
-		arg.Position,
-	)
+	_, err := q.db.ExecContext(ctx, addWorkBeadsBatch, arg.WorkID, arg.BeadID, arg.Position)
 	return err
 }
 
@@ -105,20 +92,6 @@ func (q *Queries) GetAllAssignedBeads(ctx context.Context) ([]GetAllAssignedBead
 	return items, nil
 }
 
-const getAndIncrementBeadGroupCounter = `-- name: GetAndIncrementBeadGroupCounter :one
-UPDATE work_bead_group_counters
-SET next_group_id = next_group_id + 1
-WHERE work_id = ?
-RETURNING next_group_id - 1 as group_id
-`
-
-func (q *Queries) GetAndIncrementBeadGroupCounter(ctx context.Context, workID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getAndIncrementBeadGroupCounter, workID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const getMaxWorkBeadPosition = `-- name: GetMaxWorkBeadPosition :one
 SELECT CAST(COALESCE(MAX(position), -1) AS INTEGER) as max_position
 FROM work_beads
@@ -133,7 +106,7 @@ func (q *Queries) GetMaxWorkBeadPosition(ctx context.Context, workID string) (in
 }
 
 const getUnassignedWorkBeads = `-- name: GetUnassignedWorkBeads :many
-SELECT wb.work_id, wb.bead_id, wb.group_id, wb.position, wb.created_at
+SELECT wb.work_id, wb.bead_id, wb.position, wb.created_at
 FROM work_beads wb
 WHERE wb.work_id = ?
   AND NOT EXISTS (
@@ -156,7 +129,6 @@ func (q *Queries) GetUnassignedWorkBeads(ctx context.Context, workID string) ([]
 		if err := rows.Scan(
 			&i.WorkID,
 			&i.BeadID,
-			&i.GroupID,
 			&i.Position,
 			&i.CreatedAt,
 		); err != nil {
@@ -173,38 +145,8 @@ func (q *Queries) GetUnassignedWorkBeads(ctx context.Context, workID string) ([]
 	return items, nil
 }
 
-const getWorkBeadGroups = `-- name: GetWorkBeadGroups :many
-SELECT DISTINCT group_id
-FROM work_beads
-WHERE work_id = ? AND group_id > 0
-ORDER BY group_id
-`
-
-func (q *Queries) GetWorkBeadGroups(ctx context.Context, workID string) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, getWorkBeadGroups, workID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []int64{}
-	for rows.Next() {
-		var group_id int64
-		if err := rows.Scan(&group_id); err != nil {
-			return nil, err
-		}
-		items = append(items, group_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getWorkBeads = `-- name: GetWorkBeads :many
-SELECT work_id, bead_id, group_id, position, created_at
+SELECT work_id, bead_id, position, created_at
 FROM work_beads
 WHERE work_id = ?
 ORDER BY position
@@ -222,7 +164,6 @@ func (q *Queries) GetWorkBeads(ctx context.Context, workID string) ([]WorkBead, 
 		if err := rows.Scan(
 			&i.WorkID,
 			&i.BeadID,
-			&i.GroupID,
 			&i.Position,
 			&i.CreatedAt,
 		); err != nil {
@@ -237,58 +178,6 @@ func (q *Queries) GetWorkBeads(ctx context.Context, workID string) ([]WorkBead, 
 		return nil, err
 	}
 	return items, nil
-}
-
-const getWorkBeadsByGroup = `-- name: GetWorkBeadsByGroup :many
-SELECT work_id, bead_id, group_id, position, created_at
-FROM work_beads
-WHERE work_id = ? AND group_id = ?
-ORDER BY position
-`
-
-type GetWorkBeadsByGroupParams struct {
-	WorkID  string `json:"work_id"`
-	GroupID int64  `json:"group_id"`
-}
-
-func (q *Queries) GetWorkBeadsByGroup(ctx context.Context, arg GetWorkBeadsByGroupParams) ([]WorkBead, error) {
-	rows, err := q.db.QueryContext(ctx, getWorkBeadsByGroup, arg.WorkID, arg.GroupID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []WorkBead{}
-	for rows.Next() {
-		var i WorkBead
-		if err := rows.Scan(
-			&i.WorkID,
-			&i.BeadID,
-			&i.GroupID,
-			&i.Position,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const initializeBeadGroupCounter = `-- name: InitializeBeadGroupCounter :exec
-INSERT INTO work_bead_group_counters (work_id, next_group_id)
-VALUES (?, 1)
-ON CONFLICT (work_id) DO NOTHING
-`
-
-func (q *Queries) InitializeBeadGroupCounter(ctx context.Context, workID string) error {
-	_, err := q.db.ExecContext(ctx, initializeBeadGroupCounter, workID)
-	return err
 }
 
 const isBeadInTask = `-- name: IsBeadInTask :one
@@ -322,26 +211,6 @@ type RemoveWorkBeadParams struct {
 
 func (q *Queries) RemoveWorkBead(ctx context.Context, arg RemoveWorkBeadParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, removeWorkBead, arg.WorkID, arg.BeadID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateWorkBeadGroup = `-- name: UpdateWorkBeadGroup :execrows
-UPDATE work_beads
-SET group_id = ?
-WHERE work_id = ? AND bead_id = ?
-`
-
-type UpdateWorkBeadGroupParams struct {
-	GroupID int64  `json:"group_id"`
-	WorkID  string `json:"work_id"`
-	BeadID  string `json:"bead_id"`
-}
-
-func (q *Queries) UpdateWorkBeadGroup(ctx context.Context, arg UpdateWorkBeadGroupParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateWorkBeadGroup, arg.GroupID, arg.WorkID, arg.BeadID)
 	if err != nil {
 		return 0, err
 	}

@@ -280,31 +280,14 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 	return tasksCreated, nil
 }
 
-// groupBeadsByWorkBeadGroup groups beads by their group_id in work_beads.
-// Beads with group_id=0 each become their own task.
-// Beads with the same group_id > 0 are grouped together.
+// groupBeadsByWorkBeadGroup returns each bead as its own task group.
+// Grouping support has been removed - use --plan to let the LLM group beads
+// intelligently based on complexity.
 func groupBeadsByWorkBeadGroup(workBeads []*db.WorkBead) [][]string {
-	// Group beads by group_id
-	groupMap := make(map[int64][]string)
-	for _, wb := range workBeads {
-		groupMap[wb.GroupID] = append(groupMap[wb.GroupID], wb.BeadID)
-	}
-
 	var result [][]string
-
-	// First, add ungrouped beads (group_id = 0) as individual tasks
-	if ungrouped, ok := groupMap[0]; ok {
-		for _, beadID := range ungrouped {
-			result = append(result, []string{beadID})
-		}
-		delete(groupMap, 0)
+	for _, wb := range workBeads {
+		result = append(result, []string{wb.BeadID})
 	}
-
-	// Then add grouped beads
-	for _, beadIDs := range groupMap {
-		result = append(result, beadIDs)
-	}
-
 	return result
 }
 
