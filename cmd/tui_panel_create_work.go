@@ -306,5 +306,37 @@ func (p *CreateWorkPanel) RenderWithPanel(contentHeight int) string {
 		panelStyle = panelStyle.BorderForeground(lipgloss.Color("214"))
 	}
 
-	return panelStyle.Render(tuiTitleStyle.Render("Create Work") + "\n" + panelContent)
+	result := panelStyle.Render(tuiTitleStyle.Render("Create Work") + "\n" + panelContent)
+
+	// If the result is taller than expected (due to lipgloss wrapping), fix it
+	// by removing extra lines from the INNER content while preserving borders and title
+	if lipgloss.Height(result) > contentHeight {
+		lines := strings.Split(result, "\n")
+		extraLines := len(lines) - contentHeight
+		// Need at least 4 lines: top border, title, 1+ content, bottom border
+		if extraLines > 0 && len(lines) > 3 {
+			// Keep first line (top border), second line (title), and last line (bottom border)
+			// Remove extra lines from content area only
+			topBorder := lines[0]
+			titleLine := lines[1]
+			bottomBorder := lines[len(lines)-1]
+			// Content is from lines[2] to lines[len-2]
+			contentLines := lines[2 : len(lines)-1]
+			// Calculate how many content lines we can keep
+			keepContentLines := len(contentLines) - extraLines
+			if keepContentLines < 1 {
+				keepContentLines = 1 // Always show at least 1 content line
+			}
+			// Truncate content from the end
+			if keepContentLines < len(contentLines) {
+				contentLines = contentLines[:keepContentLines]
+			}
+			lines = []string{topBorder, titleLine}
+			lines = append(lines, contentLines...)
+			lines = append(lines, bottomBorder)
+			result = strings.Join(lines, "\n")
+		}
+	}
+
+	return result
 }
