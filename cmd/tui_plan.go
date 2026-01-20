@@ -540,7 +540,12 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case workCommandMsg:
-		m.viewMode = ViewNormal
+		// For destroy work action, stay in work overlay mode
+		if msg.action == "Destroy work" {
+			m.viewMode = ViewWorkOverlay
+		} else {
+			m.viewMode = ViewNormal
+		}
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("%s failed: %v", msg.action, msg.err)
 			m.statusIsError = true
@@ -957,11 +962,13 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "y", "Y":
 			if m.focusedWorkID != "" {
-				m.viewMode = ViewNormal
+				// Stay in work overlay mode - the overlay should remain open after destroy
+				m.viewMode = ViewWorkOverlay
 				return m, m.destroyFocusedWork()
 			}
 		case "n", "N", "esc":
-			m.viewMode = ViewNormal
+			// Return to work overlay mode on cancel
+			m.viewMode = ViewWorkOverlay
 		}
 		return m, nil
 	case ViewPlanDialog:
