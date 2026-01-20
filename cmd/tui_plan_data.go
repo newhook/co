@@ -11,6 +11,7 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/linear"
+	"github.com/newhook/co/internal/logging"
 )
 
 // refreshData creates a tea.Cmd that refreshes bead data
@@ -49,6 +50,11 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error) {
 	mainRepoPath := m.proj.MainRepoPath()
 
+	logging.Debug("loadBeadsWithFilters called",
+		"status", filters.status,
+		"searchText", filters.searchText,
+		"workSelectionBeadIDs_count", len(filters.workSelectionBeadIDs))
+
 	// If work selection filter is active, fetch all beads (both open and closed)
 	// so we can show the complete view of selected task/work
 	effectiveFilters := filters
@@ -61,6 +67,10 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	if err != nil {
 		return nil, err
 	}
+
+	logging.Debug("after fetchBeadsWithFilters",
+		"effectiveStatus", effectiveFilters.status,
+		"items_count", len(items))
 
 	// Fetch assigned beads from database and populate assignedWorkID
 	assignedBeads, err := m.proj.DB.GetAllAssignedBeads(m.ctx)
@@ -82,6 +92,53 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 			}
 		}
 		items = filteredItems
+
+		logging.Debug("after work selection filter",
+			"items_count", len(items))
+
+		// Apply status filter on top of work selection filter
+		// This allows filtering work beads by status (e.g., show only open beads in work)
+		if filters.status != "" && filters.status != "all" {
+			var statusFiltered []beadItem
+			for _, item := range items {
+				if filters.status == "open" {
+					// "open" means all non-closed statuses
+					if item.Status != "closed" {
+						statusFiltered = append(statusFiltered, item)
+					}
+				} else if filters.status == "ready" {
+					// "ready" means open and unblocked
+					if item.isReady {
+						statusFiltered = append(statusFiltered, item)
+					}
+				} else if item.Status == filters.status {
+					statusFiltered = append(statusFiltered, item)
+				}
+			}
+			items = statusFiltered
+
+			logging.Debug("after status filter in work selection",
+				"status", filters.status,
+				"items_count", len(items))
+		}
+
+		// Apply search text filter on top of work selection filter
+		if filters.searchText != "" {
+			searchLower := strings.ToLower(filters.searchText)
+			var searchFiltered []beadItem
+			for _, item := range items {
+				if strings.Contains(strings.ToLower(item.ID), searchLower) ||
+					strings.Contains(strings.ToLower(item.Title), searchLower) ||
+					strings.Contains(strings.ToLower(item.Description), searchLower) {
+					searchFiltered = append(searchFiltered, item)
+				}
+			}
+			items = searchFiltered
+
+			logging.Debug("after search filter in work selection",
+				"searchText", filters.searchText,
+				"items_count", len(items))
+		}
 	} else if m.focusFilterActive && m.focusedWorkID != "" {
 		// Apply focus filter if active (only when work selection filter is not set)
 		var filteredItems []beadItem

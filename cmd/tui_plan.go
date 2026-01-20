@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/beads/watcher"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
@@ -77,8 +78,9 @@ type planModel struct {
 	lastUpdate    time.Time
 
 	// Work overlay state
-	focusedWorkID     string // ID of focused work (splits screen)
-	focusFilterActive bool   // Whether focus filter is active
+	focusedWorkID        string // ID of focused work (splits screen)
+	focusFilterActive    bool   // Whether focus filter is active
+	workSelectionCleared bool   // User manually cleared work selection filter (don't auto-restore)
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -582,8 +584,13 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.focusedWorkID != "" {
 			focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
 			m.workDetails.SetFocusedWork(focusedWork)
+			// Check orchestrator health for the focused work
+			m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.focusedWorkID))
 			// Rebuild the filter to reflect any changes in work beads
-			return m, m.updateWorkSelectionFilter()
+			// BUT skip if user manually cleared the filter (e.g., pressed '*')
+			if !m.workSelectionCleared {
+				return m, m.updateWorkSelectionFilter()
+			}
 		}
 		return m, nil
 
@@ -947,6 +954,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
 			m.workDetails.SetFocusedWork(focusedWork)
 			m.workDetails.SetSelectedIndex(0) // Start with root issue selected
+			// Check orchestrator health for the focused work
+			m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.focusedWorkID))
 
 			// Now update the filter and refresh
 			return m, m.updateWorkSelectionFilter()
@@ -1030,6 +1039,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.createReviewTask()
 		case WorkDetailActionPR:
 			return m, m.createPRTask()
+		case WorkDetailActionRestartOrchestrator:
+			return m, m.restartOrchestrator()
 		}
 		// WorkDetailActionNone - fall through to normal handling
 	}
@@ -1042,6 +1053,11 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.activePanel = PanelLeft
 			} else {
 				m.activePanel = PanelWorkDetails
+				// Reset the cleared flag and restore work selection filter
+				if m.workSelectionCleared {
+					m.workSelectionCleared = false
+					return m, m.updateWorkSelectionFilter()
+				}
 			}
 		}
 		return m, nil
@@ -1114,17 +1130,44 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.textInput.Focus()
 		return m, nil
 
+	case "*":
+		// Show all issues (clear status filter AND work selection filter)
+		logging.Debug("filter key pressed",
+			"key", "*",
+			"activePanel", m.activePanel,
+			"focusedWorkID", m.focusedWorkID,
+			"workSelectionBeadIDs_count", len(m.filters.workSelectionBeadIDs))
+		m.filters.status = "all"
+		m.filters.workSelectionBeadIDs = nil
+		m.workSelectionCleared = true // Prevent auto-restore on refresh
+		return m, m.refreshData()
+
 	case "o":
+		logging.Debug("filter key pressed",
+			"key", "o",
+			"activePanel", m.activePanel,
+			"focusedWorkID", m.focusedWorkID,
+			"workSelectionBeadIDs_count", len(m.filters.workSelectionBeadIDs))
 		m.filters.status = "open"
 		return m, m.refreshData()
 
 	case "c":
 		// Filter to closed issues (work details panel handles 'c' for Claude)
+		logging.Debug("filter key pressed",
+			"key", "c",
+			"activePanel", m.activePanel,
+			"focusedWorkID", m.focusedWorkID,
+			"workSelectionBeadIDs_count", len(m.filters.workSelectionBeadIDs))
 		m.filters.status = "closed"
 		return m, m.refreshData()
 
 	case "r":
 		// Filter to ready issues (work details panel handles 'r' for Run)
+		logging.Debug("filter key pressed",
+			"key", "r",
+			"activePanel", m.activePanel,
+			"focusedWorkID", m.focusedWorkID,
+			"workSelectionBeadIDs_count", len(m.filters.workSelectionBeadIDs))
 		m.filters.status = "ready"
 		return m, m.refreshData()
 
@@ -1561,7 +1604,11 @@ func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
 	} else {
 		// Root issue selected - show root issue and all work beads
 		// This includes the root and all beads assigned to this work
+		logging.Debug("updateWorkSelectionFilter - root selected",
+			"workBeads_count", len(focusedWork.workBeads),
+			"rootIssueID", focusedWork.work.RootIssueID)
 		for _, bp := range focusedWork.workBeads {
+			logging.Debug("adding workBead to filter", "id", bp.id)
 			m.filters.workSelectionBeadIDs[bp.id] = true
 		}
 		// Also ensure root issue is included (it may not be in workBeads if it's an epic)

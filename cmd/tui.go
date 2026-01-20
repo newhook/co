@@ -2111,6 +2111,18 @@ func (m tuiModel) renderWorkDetails(wp *workProgress, width int) string {
 		}
 	}
 
+	// Show unassigned beads (beads in work but not assigned to any task)
+	if len(wp.unassignedBeads) > 0 {
+		b.WriteString("\n")
+		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+		b.WriteString(warningStyle.Render(fmt.Sprintf("Unassigned (%d)", len(wp.unassignedBeads))))
+		b.WriteString("\n")
+		for _, bp := range wp.unassignedBeads {
+			beadIcon := m.statusIcon(bp.status)
+			b.WriteString(fmt.Sprintf("  %s %s\n", beadIcon, bp.id))
+		}
+	}
+
 	return b.String()
 }
 

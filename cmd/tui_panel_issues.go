@@ -142,12 +142,58 @@ func (p *IssuesPanel) RenderWithPanel(contentHeight int) string {
 	issuesContentLines := contentHeight - 3 // -3 for border (2) + title (1)
 	issuesContent := p.Render(issuesContentLines)
 
+	// Ensure content is exactly the right number of lines to prevent layout overflow
+	issuesContent = padOrTruncateLinesIssues(issuesContent, issuesContentLines)
+
 	panelStyle := tuiPanelStyle.Width(p.width).Height(contentHeight - 2)
 	if p.focused {
 		panelStyle = panelStyle.BorderForeground(lipgloss.Color("214"))
 	}
 
-	return panelStyle.Render(tuiTitleStyle.Render("Issues") + "\n" + issuesContent)
+	result := panelStyle.Render(tuiTitleStyle.Render("Issues") + "\n" + issuesContent)
+
+	// If the result is taller than expected (due to lipgloss wrapping), fix it
+	// by removing extra lines from the INNER content while preserving borders
+	if lipgloss.Height(result) > contentHeight {
+		lines := strings.Split(result, "\n")
+		extraLines := len(lines) - contentHeight
+		if extraLines > 0 && len(lines) > 2 {
+			// Keep first line (top border), remove extra lines before last line (bottom border)
+			topBorder := lines[0]
+			bottomBorder := lines[len(lines)-1]
+			innerContent := lines[1 : len(lines)-1-extraLines]
+			lines = append([]string{topBorder}, innerContent...)
+			lines = append(lines, bottomBorder)
+			result = strings.Join(lines, "\n")
+		}
+	}
+
+	return result
+}
+
+// padOrTruncateLinesIssues ensures the content has exactly targetLines lines
+func padOrTruncateLinesIssues(content string, targetLines int) string {
+	if targetLines < 1 {
+		targetLines = 1
+	}
+
+	lines := strings.Split(content, "\n")
+	// Remove trailing empty line if present (from trailing \n)
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	if len(lines) > targetLines {
+		// Truncate
+		lines = lines[:targetLines]
+	} else if len(lines) < targetLines {
+		// Pad with empty lines
+		for len(lines) < targetLines {
+			lines = append(lines, "")
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // renderBeadLine renders a single bead line

@@ -8,7 +8,7 @@ import (
 	"github.com/muesli/reflow/truncate"
 )
 
-const detailsPanelPaddingVal = 4
+// Panel padding: tuiPanelStyle has Padding(0, 1) = 2 chars horizontal padding total
 
 // IssueDetailsPanel renders issue details for the focused bead.
 type IssueDetailsPanel struct {
@@ -75,7 +75,25 @@ func (p *IssueDetailsPanel) RenderWithPanel(contentHeight int) string {
 		panelStyle = panelStyle.BorderForeground(lipgloss.Color("214"))
 	}
 
-	return panelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
+	result := panelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
+
+	// If the result is taller than expected (due to lipgloss wrapping), fix it
+	// by removing extra lines from the INNER content while preserving borders
+	if lipgloss.Height(result) > contentHeight {
+		lines := strings.Split(result, "\n")
+		extraLines := len(lines) - contentHeight
+		if extraLines > 0 && len(lines) > 2 {
+			// Keep first line (top border), remove extra lines before last line (bottom border)
+			topBorder := lines[0]
+			bottomBorder := lines[len(lines)-1]
+			innerContent := lines[1 : len(lines)-1-extraLines]
+			lines = append([]string{topBorder}, innerContent...)
+			lines = append(lines, bottomBorder)
+			result = strings.Join(lines, "\n")
+		}
+	}
+
+	return result
 }
 
 // padOrTruncateLinesDetails ensures the content has exactly targetLines lines
@@ -114,30 +132,45 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 
 	bead := p.focusedBead
 
-	content.WriteString(tuiLabelStyle.Render("ID: "))
-	content.WriteString(tuiValueStyle.Render(bead.ID))
-	content.WriteString("  ")
-	content.WriteString(tuiLabelStyle.Render("Type: "))
-	content.WriteString(tuiValueStyle.Render(bead.Type))
-	content.WriteString("  ")
-	content.WriteString(tuiLabelStyle.Render("P"))
-	content.WriteString(tuiValueStyle.Render(fmt.Sprintf("%d", bead.Priority)))
-	content.WriteString("  ")
-	content.WriteString(tuiLabelStyle.Render("Status: "))
-	content.WriteString(tuiValueStyle.Render(bead.Status))
+	// Calculate inner width (panel has Padding(0, 1) = 2 chars total horizontal padding)
+	innerWidth := p.width - 2
+
+	// Build header line - may need truncation to fit
+	var header strings.Builder
+	header.WriteString(tuiLabelStyle.Render("ID: "))
+	header.WriteString(tuiValueStyle.Render(bead.ID))
+	header.WriteString("  ")
+	header.WriteString(tuiLabelStyle.Render("Type: "))
+	header.WriteString(tuiValueStyle.Render(bead.Type))
+	header.WriteString("  ")
+	header.WriteString(tuiLabelStyle.Render("P"))
+	header.WriteString(tuiValueStyle.Render(fmt.Sprintf("%d", bead.Priority)))
+	header.WriteString("  ")
+	header.WriteString(tuiLabelStyle.Render("Status: "))
+	header.WriteString(tuiValueStyle.Render(bead.Status))
 	if p.hasActiveSession {
-		content.WriteString("  ")
-		content.WriteString(tuiSuccessStyle.Render("[Session Active]"))
+		header.WriteString("  ")
+		header.WriteString(tuiSuccessStyle.Render("[Session Active]"))
 	}
 	if bead.assignedWorkID != "" {
-		content.WriteString("  ")
-		content.WriteString(tuiDimStyle.Render("Work: " + bead.assignedWorkID))
+		header.WriteString("  ")
+		header.WriteString(tuiDimStyle.Render("Work: " + bead.assignedWorkID))
 	}
+
+	// Truncate header to fit inner width
+	headerStr := header.String()
+	if lipgloss.Width(headerStr) > innerWidth {
+		headerStr = truncate.StringWithTail(headerStr, uint(innerWidth), "...")
+	}
+	content.WriteString(headerStr)
 	content.WriteString("\n")
 
-	// Use width-aware wrapping for title
-	titleStyle := tuiValueStyle.Width(p.width - detailsPanelPaddingVal)
-	content.WriteString(titleStyle.Render(bead.Title))
+	// Truncate title to fit on one line (use innerWidth which accounts for panel padding)
+	titleStr := bead.Title
+	if lipgloss.Width(titleStr) > innerWidth {
+		titleStr = truncate.StringWithTail(titleStr, uint(innerWidth), "...")
+	}
+	content.WriteString(tuiValueStyle.Render(titleStr))
 
 	// Calculate remaining lines for description and children
 	linesUsed := 2 // header + title
@@ -146,17 +179,22 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 	// Show description if we have room
 	if bead.Description != "" && remainingLines > 2 {
 		content.WriteString("\n")
-		descStyle := tuiDimStyle.Width(p.width - detailsPanelPaddingVal)
+		// Truncate description to fit within inner width
 		desc := bead.Description
 		descLines := remainingLines - 2
 		if len(bead.children) > 0 {
 			descLines = min(descLines, 3)
 		}
-		maxLen := descLines * (p.width - detailsPanelPaddingVal)
+		maxLen := descLines * innerWidth
 		if len(desc) > maxLen && maxLen > 0 {
 			desc = desc[:maxLen] + "..."
 		}
-		content.WriteString(descStyle.Render(desc))
+		// Ensure each line fits within innerWidth
+		descStr := tuiDimStyle.Render(desc)
+		if lipgloss.Width(descStr) > innerWidth {
+			descStr = truncate.StringWithTail(descStr, uint(innerWidth), "...")
+		}
+		content.WriteString(descStr)
 		linesUsed++
 		remainingLines--
 	}
@@ -181,8 +219,9 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 			} else {
 				childLine = fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID))
 			}
-			if lipgloss.Width(childLine) > p.width {
-				childLine = truncate.StringWithTail(childLine, uint(p.width), "...")
+			// Truncate to fit inner width (minus 1 for the leading \n that doesn't count toward width)
+			if lipgloss.Width(childLine)-1 > innerWidth {
+				childLine = truncate.StringWithTail(childLine, uint(innerWidth+1), "...")
 			}
 			content.WriteString(childLine)
 		}
