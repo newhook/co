@@ -252,12 +252,13 @@ func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 			return linearImportCompleteMsg{err: fmt.Errorf("failed to create Linear fetcher: %w", err)}
 		}
 
-		// Prepare import options
+		// Prepare import options from panel
+		formResult := m.linearImportPanel.GetResult()
 		opts := &linear.ImportOptions{
-			DryRun:         m.linearImportDryRun,
-			UpdateExisting: m.linearImportUpdate,
-			CreateDeps:     m.linearImportCreateDeps,
-			MaxDepDepth:    m.linearImportMaxDepth,
+			DryRun:         formResult.DryRun,
+			UpdateExisting: formResult.Update,
+			CreateDeps:     formResult.CreateDeps,
+			MaxDepDepth:    formResult.MaxDepth,
 		}
 
 		// Parse newline-delimited input

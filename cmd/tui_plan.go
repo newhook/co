@@ -135,15 +135,6 @@ type planModel struct {
 	// See ButtonRegion struct for details on the tracking lifecycle.
 	dialogButtons []ButtonRegion // Tracked button positions for current dialog
 
-	// Linear import state
-	linearImportInput      textarea.Model  // Input for Linear issue IDs/URLs (multi-line)
-	linearImportCreateDeps bool            // Whether to create dependencies
-	linearImportUpdate     bool            // Whether to update existing beads
-	linearImportDryRun     bool            // Dry run mode
-	linearImportMaxDepth   int             // Max dependency depth
-	linearImportFocus      int             // 0=input, 1=createDeps, 2=update, 3=dryRun, 4=maxDepth
-	linearImporting        bool            // Whether import is in progress
-
 	// Database watcher for cache invalidation
 	beadsWatcher *watcher.Watcher
 
@@ -173,12 +164,6 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	branchInput.CharLimit = 100
 	branchInput.Width = 60
 
-	linearInput := textarea.New()
-	linearInput.Placeholder = "Enter Linear issue IDs or URLs (one per line)..."
-	linearInput.CharLimit = 2000
-	linearInput.SetWidth(60)
-	linearInput.SetHeight(4)
-
 	// Initialize beads database watcher
 	beadsDBPath := filepath.Join(proj.Root, "main", ".beads", "beads.db")
 	beadsWatcher, err := watcher.New(watcher.DefaultConfig(beadsDBPath))
@@ -195,11 +180,9 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	}
 
 	m := &planModel{
-		createDescTextarea:   createDescTa,
-		createWorkBranch:     branchInput,
-		linearImportInput:    linearInput,
-		linearImportMaxDepth: 2, // Default max depth
-		ctx:                  ctx,
+		createDescTextarea: createDescTa,
+		createWorkBranch:   branchInput,
+		ctx:                ctx,
 		proj:                 proj,
 		width:                80,
 		height:               24,
@@ -390,11 +373,11 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Handle different dialog types
 					if m.viewMode == ViewLinearImportInline {
 						// Submit Linear import
-						issueIDs := strings.TrimSpace(m.linearImportInput.Value())
-						if issueIDs != "" {
+						result := m.linearImportPanel.GetResult()
+						if result.IssueIDs != "" {
 							m.viewMode = ViewNormal
-							m.linearImporting = true
-							return m, m.importLinearIssue(issueIDs)
+							m.linearImportPanel.SetImporting(true)
+							return m, m.importLinearIssue(result.IssueIDs)
 						}
 						return m, nil
 					} else {
@@ -404,7 +387,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if clickedDialogButton == "cancel" {
 					// Cancel the form
 					if m.viewMode == ViewLinearImportInline {
-						m.linearImportInput.Blur()
+						m.linearImportPanel.Blur()
 					} else if m.viewMode == ViewCreateWork {
 						m.createWorkBranch.Blur()
 					} else {
@@ -593,7 +576,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refreshData()
 
 	case linearImportCompleteMsg:
-		m.linearImporting = false
+		m.linearImportPanel.SetImporting(false)
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("Import failed: %v", msg.err)
 			m.statusIsError = true
@@ -1161,13 +1144,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.viewMode = ViewLinearImportInline
-		m.linearImportInput.Reset()
-		m.linearImportInput.Focus()
-		m.linearImportFocus = 0
-		m.linearImportCreateDeps = false
-		m.linearImportUpdate = false
-		m.linearImportDryRun = false
-		m.linearImportMaxDepth = 2
+		m.linearImportPanel.Reset()
 		return m, nil
 
 	case "A":
@@ -1310,15 +1287,6 @@ func (m *planModel) syncPanels() {
 	// Sync Linear import panel
 	m.linearImportPanel.SetSize(detailsWidth, m.height)
 	m.linearImportPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewLinearImportInline)
-	m.linearImportPanel.SetFormState(
-		&m.linearImportInput,
-		m.linearImportCreateDeps,
-		m.linearImportUpdate,
-		m.linearImportDryRun,
-		m.linearImportMaxDepth,
-		m.linearImportFocus,
-		m.linearImporting,
-	)
 	m.linearImportPanel.SetHoveredButton(m.hoveredDialogButton)
 
 	// Sync bead form panel

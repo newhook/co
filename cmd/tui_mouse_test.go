@@ -200,13 +200,13 @@ func TestDetectDialogButton(t *testing.T) {
 		beadItems: []beadItem{
 			testBeadItem("test-bead-1", "Test Bead", "open", 2, "task"),
 		},
-		beadsCursor: 0,
-		activeBeadSessions: make(map[string]bool),
-		selectedBeads: make(map[string]bool),
-		createWorkBranch: textinput.New(),
-		textInput: textinput.New(),
-		createDescTextarea: textarea.New(),
-		linearImportInput: textarea.New(),
+		beadsCursor:          0,
+		activeBeadSessions:   make(map[string]bool),
+		selectedBeads:        make(map[string]bool),
+		createWorkBranch:     textinput.New(),
+		textInput:            textinput.New(),
+		createDescTextarea:   textarea.New(),
+		linearImportPanel:    NewLinearImportPanel(),
 	}
 
 	// Button positions from panel:
@@ -287,11 +287,7 @@ func TestDetectDialogButton(t *testing.T) {
 			expectedButton: "ok",
 			setupFunc: func() {
 				// Set up for Linear import mode
-				m.linearImportInput = textarea.New()
-				m.linearImportCreateDeps = false
-				m.linearImportUpdate = false
-				m.linearImportDryRun = false
-				m.linearImportMaxDepth = 3
+				m.linearImportPanel.Reset()
 			},
 		},
 		{

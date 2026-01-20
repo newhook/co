@@ -5,8 +5,27 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// LinearImportAction represents an action result from the panel
+type LinearImportAction int
+
+const (
+	LinearImportActionNone LinearImportAction = iota
+	LinearImportActionCancel
+	LinearImportActionSubmit
+)
+
+// LinearImportResult contains form values when submitted
+type LinearImportResult struct {
+	IssueIDs   string
+	CreateDeps bool
+	Update     bool
+	DryRun     bool
+	MaxDepth   int
+}
 
 // LinearImportPanel renders the Linear import form.
 type LinearImportPanel struct {
@@ -17,8 +36,8 @@ type LinearImportPanel struct {
 	// Focus state
 	focused bool
 
-	// Form state
-	input      *textarea.Model
+	// Form state (owned directly)
+	input      textarea.Model
 	createDeps bool
 	update     bool
 	dryRun     bool
@@ -32,11 +51,175 @@ type LinearImportPanel struct {
 
 // NewLinearImportPanel creates a new LinearImportPanel
 func NewLinearImportPanel() *LinearImportPanel {
+	input := textarea.New()
+	input.Placeholder = "Enter Linear issue IDs or URLs (one per line)..."
+	input.CharLimit = 2000
+	input.SetWidth(60)
+	input.SetHeight(4)
+
 	return &LinearImportPanel{
 		width:    60,
 		height:   20,
 		maxDepth: 2,
+		input:    input,
 	}
+}
+
+// Init initializes the panel and returns any initial command
+func (p *LinearImportPanel) Init() tea.Cmd {
+	return textarea.Blink
+}
+
+// Reset resets the form to initial state
+func (p *LinearImportPanel) Reset() {
+	p.input.Reset()
+	p.input.Focus()
+	p.focusIdx = 0
+	p.createDeps = false
+	p.update = false
+	p.dryRun = false
+	p.maxDepth = 2
+	p.importing = false
+}
+
+// Update handles key events and returns an action
+func (p *LinearImportPanel) Update(msg tea.KeyMsg) (tea.Cmd, LinearImportAction) {
+	// Check escape/cancel keys
+	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+		p.input.Blur()
+		return nil, LinearImportActionCancel
+	}
+
+	// Tab cycles between elements: input(0) -> createDeps(1) -> update(2) -> dryRun(3) -> maxDepth(4) -> Ok(5) -> Cancel(6)
+	if msg.Type == tea.KeyTab || msg.String() == "tab" {
+		// Leave textarea focus before switching
+		if p.focusIdx == 0 {
+			p.input.Blur()
+		}
+
+		p.focusIdx = (p.focusIdx + 1) % 7
+
+		// Enter new focus
+		if p.focusIdx == 0 {
+			p.input.Focus()
+		}
+		return nil, LinearImportActionNone
+	}
+
+	// Shift+Tab goes backwards
+	if msg.Type == tea.KeyShiftTab {
+		// Leave textarea focus before switching
+		if p.focusIdx == 0 {
+			p.input.Blur()
+		}
+
+		p.focusIdx--
+		if p.focusIdx < 0 {
+			p.focusIdx = 6
+		}
+
+		// Enter new focus
+		if p.focusIdx == 0 {
+			p.input.Focus()
+		}
+		return nil, LinearImportActionNone
+	}
+
+	// Ctrl+Enter submits from textarea
+	if msg.String() == "ctrl+enter" && p.focusIdx == 0 {
+		issueIDs := strings.TrimSpace(p.input.Value())
+		if issueIDs != "" {
+			return nil, LinearImportActionSubmit
+		}
+		return nil, LinearImportActionNone
+	}
+
+	// Enter or Space activates buttons and submits from other fields (but not from textarea - use Ctrl+Enter there)
+	if (msg.String() == "enter" || msg.String() == " ") && p.focusIdx != 0 {
+		// Handle Ok button (focus = 5)
+		if p.focusIdx == 5 {
+			issueIDs := strings.TrimSpace(p.input.Value())
+			if issueIDs != "" {
+				return nil, LinearImportActionSubmit
+			}
+			return nil, LinearImportActionNone
+		}
+		// Handle Cancel button (focus = 6)
+		if p.focusIdx == 6 {
+			p.input.Blur()
+			return nil, LinearImportActionCancel
+		}
+		// Only Enter (not space) submits the form from other non-textarea fields
+		if msg.String() == "enter" {
+			issueIDs := strings.TrimSpace(p.input.Value())
+			if issueIDs != "" {
+				return nil, LinearImportActionSubmit
+			}
+		}
+		return nil, LinearImportActionNone
+	}
+
+	// Handle input based on focused element
+	switch p.focusIdx {
+	case 0: // Textarea field
+		var cmd tea.Cmd
+		p.input, cmd = p.input.Update(msg)
+		return cmd, LinearImportActionNone
+
+	case 1: // Create dependencies checkbox
+		if msg.String() == " " || msg.String() == "x" {
+			p.createDeps = !p.createDeps
+		}
+		return nil, LinearImportActionNone
+
+	case 2: // Update existing checkbox
+		if msg.String() == " " || msg.String() == "x" {
+			p.update = !p.update
+		}
+		return nil, LinearImportActionNone
+
+	case 3: // Dry run checkbox
+		if msg.String() == " " || msg.String() == "x" {
+			p.dryRun = !p.dryRun
+		}
+		return nil, LinearImportActionNone
+
+	case 4: // Max depth
+		switch msg.String() {
+		case "j", "down", "-":
+			if p.maxDepth > 1 {
+				p.maxDepth--
+			}
+		case "k", "up", "+", "=":
+			if p.maxDepth < 5 {
+				p.maxDepth++
+			}
+		}
+		return nil, LinearImportActionNone
+	}
+
+	return nil, LinearImportActionNone
+}
+
+// GetResult returns the current form values
+func (p *LinearImportPanel) GetResult() LinearImportResult {
+	return LinearImportResult{
+		IssueIDs:   strings.TrimSpace(p.input.Value()),
+		CreateDeps: p.createDeps,
+		Update:     p.update,
+		DryRun:     p.dryRun,
+		MaxDepth:   p.maxDepth,
+	}
+}
+
+// SetImporting sets the importing state
+func (p *LinearImportPanel) SetImporting(importing bool) {
+	p.importing = importing
+}
+
+// Blur removes focus from the input
+func (p *LinearImportPanel) Blur() {
+	p.input.Blur()
 }
 
 // SetSize updates the panel dimensions
@@ -55,25 +238,6 @@ func (p *LinearImportPanel) IsFocused() bool {
 	return p.focused
 }
 
-// SetFormState updates the form state
-func (p *LinearImportPanel) SetFormState(
-	input *textarea.Model,
-	createDeps bool,
-	update bool,
-	dryRun bool,
-	maxDepth int,
-	focusIdx int,
-	importing bool,
-) {
-	p.input = input
-	p.createDeps = createDeps
-	p.update = update
-	p.dryRun = dryRun
-	p.maxDepth = maxDepth
-	p.focusIdx = focusIdx
-	p.importing = importing
-}
-
 // SetHoveredButton updates which button is hovered
 func (p *LinearImportPanel) SetHoveredButton(button string) {
 	p.hoveredButton = button
@@ -88,9 +252,7 @@ func (p *LinearImportPanel) Render() string {
 	if inputWidth < 20 {
 		inputWidth = 20
 	}
-	if p.input != nil {
-		p.input.SetWidth(inputWidth)
-	}
+	p.input.SetWidth(inputWidth)
 
 	// Show focus labels
 	issueIDsLabel := "Issue IDs/URLs:"
@@ -133,9 +295,7 @@ func (p *LinearImportPanel) Render() string {
 	content.WriteString("\n\n")
 	content.WriteString(issueIDsLabel)
 	content.WriteString("\n")
-	if p.input != nil {
-		content.WriteString(p.input.View())
-	}
+	content.WriteString(p.input.View())
 	content.WriteString("\n\n")
 	content.WriteString(createDepsLabel + " [" + createDepsCheck + "]")
 	content.WriteString("\n")

@@ -347,127 +347,22 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 
 // updateLinearImportInline handles input for the Linear import inline form
 func (m *planModel) updateLinearImportInline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check escape/cancel keys
-	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+	cmd, action := m.linearImportPanel.Update(msg)
+
+	switch action {
+	case LinearImportActionCancel:
 		m.viewMode = ViewNormal
-		m.linearImportInput.Blur()
-		return m, nil
-	}
-
-	// Tab cycles between elements: input(0) -> createDeps(1) -> update(2) -> dryRun(3) -> maxDepth(4) -> Ok(5) -> Cancel(6)
-	if msg.Type == tea.KeyTab || msg.String() == "tab" {
-		// Leave textarea focus before switching
-		if m.linearImportFocus == 0 {
-			m.linearImportInput.Blur()
-		}
-
-		m.linearImportFocus = (m.linearImportFocus + 1) % 7
-
-		// Enter new focus
-		if m.linearImportFocus == 0 {
-			m.linearImportInput.Focus()
-		}
-		return m, nil
-	}
-
-	// Shift+Tab goes backwards
-	if msg.Type == tea.KeyShiftTab {
-		// Leave textarea focus before switching
-		if m.linearImportFocus == 0 {
-			m.linearImportInput.Blur()
-		}
-
-		m.linearImportFocus--
-		if m.linearImportFocus < 0 {
-			m.linearImportFocus = 6
-		}
-
-		// Enter new focus
-		if m.linearImportFocus == 0 {
-			m.linearImportInput.Focus()
-		}
-		return m, nil
-	}
-
-	// Ctrl+Enter submits from textarea
-	if msg.String() == "ctrl+enter" && m.linearImportFocus == 0 {
-		issueIDs := strings.TrimSpace(m.linearImportInput.Value())
-		if issueIDs != "" {
-			m.viewMode = ViewNormal
-			m.linearImporting = true
-			return m, m.importLinearIssue(issueIDs)
-		}
-		return m, nil
-	}
-
-	// Enter or Space activates buttons and submits from other fields (but not from textarea - use Ctrl+Enter there)
-	if (msg.String() == "enter" || msg.String() == " ") && m.linearImportFocus != 0 {
-		// Handle Ok button (focus = 5)
-		if m.linearImportFocus == 5 {
-			issueIDs := strings.TrimSpace(m.linearImportInput.Value())
-			if issueIDs != "" {
-				m.viewMode = ViewNormal
-				m.linearImporting = true
-				return m, m.importLinearIssue(issueIDs)
-			}
-			return m, nil
-		}
-		// Handle Cancel button (focus = 6)
-		if m.linearImportFocus == 6 {
-			m.viewMode = ViewNormal
-			m.linearImportInput.Blur()
-			return m, nil
-		}
-		// Only Enter (not space) submits the form from other non-textarea fields
-		if msg.String() == "enter" {
-			issueIDs := strings.TrimSpace(m.linearImportInput.Value())
-			if issueIDs != "" {
-				m.viewMode = ViewNormal
-				m.linearImporting = true
-				return m, m.importLinearIssue(issueIDs)
-			}
-		}
-		return m, nil
-	}
-
-	// Handle input based on focused element
-	var cmd tea.Cmd
-	switch m.linearImportFocus {
-	case 0: // Textarea field
-		m.linearImportInput, cmd = m.linearImportInput.Update(msg)
 		return m, cmd
 
-	case 1: // Create dependencies checkbox
-		if msg.String() == " " || msg.String() == "x" {
-			m.linearImportCreateDeps = !m.linearImportCreateDeps
+	case LinearImportActionSubmit:
+		result := m.linearImportPanel.GetResult()
+		if result.IssueIDs != "" {
+			m.viewMode = ViewNormal
+			m.linearImportPanel.SetImporting(true)
+			return m, m.importLinearIssue(result.IssueIDs)
 		}
-		return m, nil
-
-	case 2: // Update existing checkbox
-		if msg.String() == " " || msg.String() == "x" {
-			m.linearImportUpdate = !m.linearImportUpdate
-		}
-		return m, nil
-
-	case 3: // Dry run checkbox
-		if msg.String() == " " || msg.String() == "x" {
-			m.linearImportDryRun = !m.linearImportDryRun
-		}
-		return m, nil
-
-	case 4: // Max depth
-		switch msg.String() {
-		case "j", "down", "-":
-			if m.linearImportMaxDepth > 1 {
-				m.linearImportMaxDepth--
-			}
-		case "k", "up", "+", "=":
-			if m.linearImportMaxDepth < 5 {
-				m.linearImportMaxDepth++
-			}
-		}
-		return m, nil
+		return m, cmd
 	}
 
-	return m, nil
+	return m, cmd
 }
