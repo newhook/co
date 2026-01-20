@@ -97,12 +97,8 @@ func (p *WorkOverlayPanel) Render() string {
 	dropdownStyle := lipgloss.NewStyle().
 		Width(p.width).
 		Height(dropdownHeight).
-		Border(lipgloss.NormalBorder()).
+		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColor)).
-		BorderBottom(true).
-		BorderLeft(false).
-		BorderRight(false).
-		BorderTop(false).
 		Background(lipgloss.Color("235"))
 
 	if p.loading {
