@@ -103,6 +103,7 @@ type planModel struct {
 	mouseY              int
 	hoveredButton       string // which button is hovered ("n", "e", "w", "p", etc.)
 	hoveredIssue        int    // index of hovered issue, -1 if none
+	hoveredWorkItem     int    // index of hovered work detail item, -1 if none
 	hoveredDialogButton string // which dialog button is hovered ("ok", "cancel")
 
 	// Button position tracking for robust click detection
@@ -160,6 +161,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		zj:                 zellij.New(),
 		columnRatio:        0.4, // Default 40/60 split (issues/details)
 		hoveredIssue:       -1,  // No issue hovered initially
+		hoveredWorkItem:    -1,  // No work item hovered initially
 		beadsWatcher:       beadsWatcher,
 		filters: beadFilters{
 			status: "open",
@@ -285,6 +287,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Y == statusBarY {
 				m.hoveredButton = m.detectCommandsBarButton(msg.X)
 				m.hoveredIssue = -1
+				m.hoveredWorkItem = -1
 				m.hoveredDialogButton = ""
 			} else {
 				m.hoveredButton = ""
@@ -292,6 +295,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.hoveredDialogButton = m.detectDialogButton(msg.X, msg.Y)
 				if m.hoveredDialogButton != "" {
 					m.hoveredIssue = -1
+					m.hoveredWorkItem = -1
 				} else if m.viewMode == ViewWorkOverlay {
 					// When work overlay is open, only detect issues if mouse is below overlay
 					// Add 2 for border (top + bottom) since calculateWorkOverlayHeight returns content height
@@ -299,14 +303,29 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if msg.Y < overlayHeight {
 						// Mouse is within overlay area - detect work tile hover
 						m.hoveredIssue = -1
+						m.hoveredWorkItem = -1
 						m.workOverlay.DetectHoveredWork(msg.X, msg.Y, overlayHeight)
 					} else {
 						// Mouse is below overlay - detect issues with offset
 						m.workOverlay.ClearHoveredWork()
+						m.hoveredWorkItem = -1
 						m.hoveredIssue = m.detectHoveredIssueWithOffset(msg.Y, overlayHeight)
 					}
+				} else if m.focusedWorkID != "" {
+					// Focused work mode: work details panel at top, issues panel at bottom
+					workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+					if msg.Y < workPanelHeight {
+						// Mouse is in work details area
+						m.hoveredIssue = -1
+						m.hoveredWorkItem = m.workDetails.DetectHoveredItem(msg.X, msg.Y)
+					} else {
+						// Mouse is in issues area - detect issues with offset
+						m.hoveredWorkItem = -1
+						m.hoveredIssue = m.detectHoveredIssueWithOffset(msg.Y, workPanelHeight)
+					}
 				} else {
-					// Detect hover over issue lines
+					// Normal mode - detect hover over issue lines
+					m.hoveredWorkItem = -1
 					m.hoveredIssue = m.detectHoveredIssue(msg.Y)
 				}
 			}
@@ -1488,6 +1507,7 @@ func (m *planModel) syncPanels() {
 		m.workDetails.SetFocus(m.activePanel == PanelWorkDetails, false)
 		focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
 		m.workDetails.SetFocusedWork(focusedWork)
+		m.workDetails.SetHoveredItem(m.hoveredWorkItem)
 	}
 
 	// Sync Linear import panel

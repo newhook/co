@@ -39,16 +39,18 @@ type WorkDetailsPanel struct {
 
 	// Data
 	focusedWork         *workProgress
-	selectedIndex       int  // 0 = root issue, 1+ = tasks (task index + 1)
+	selectedIndex       int // 0 = root issue, 1+ = tasks (task index + 1)
+	hoveredIndex        int // -1 = none, 0 = root issue, 1+ = tasks/unassigned beads
 	orchestratorHealthy bool // Whether the orchestrator process is running
 }
 
 // NewWorkDetailsPanel creates a new WorkDetailsPanel
 func NewWorkDetailsPanel() *WorkDetailsPanel {
 	return &WorkDetailsPanel{
-		width:       80,
-		height:      20,
-		columnRatio: 0.4, // Default 40/60 split to match issues panel
+		width:        80,
+		height:       20,
+		columnRatio:  0.4, // Default 40/60 split to match issues panel
+		hoveredIndex: -1,  // No item hovered initially
 	}
 }
 
@@ -107,6 +109,16 @@ func (p *WorkDetailsPanel) GetFocusedWork() *workProgress {
 // SetSelectedIndex sets the selected index
 func (p *WorkDetailsPanel) SetSelectedIndex(idx int) {
 	p.selectedIndex = idx
+}
+
+// SetHoveredItem updates which item is hovered
+func (p *WorkDetailsPanel) SetHoveredItem(index int) {
+	p.hoveredIndex = index
+}
+
+// GetHoveredItem returns the currently hovered item index
+func (p *WorkDetailsPanel) GetHoveredItem() int {
+	return p.hoveredIndex
 }
 
 // GetSelectedTaskID returns the currently selected task ID, or empty if root issue is selected
@@ -356,11 +368,20 @@ func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 
 // renderRootIssueLine renders the root issue line
 func (p *WorkDetailsPanel) renderRootIssueLine(content *strings.Builder, panelWidth int) {
+	isSelected := p.selectedIndex == 0
+	isHovered := p.hoveredIndex == 0
+
 	prefix := "  "
 	style := tuiDimStyle
-	if p.selectedIndex == 0 {
+	if isSelected {
 		prefix = "► "
 		style = tuiSelectedStyle
+	} else if isHovered {
+		// Apply hover style (gray background, white text, bold)
+		style = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("255")).
+			Background(lipgloss.Color("240")).
+			Bold(true)
 	}
 
 	// Find root issue info from workBeads
@@ -391,11 +412,20 @@ func (p *WorkDetailsPanel) renderTaskLine(content *strings.Builder, taskIdx int,
 	task := p.focusedWork.tasks[taskIdx]
 	itemIndex := taskIdx + 1 // +1 because 0 is root issue
 
+	isSelected := p.selectedIndex == itemIndex
+	isHovered := p.hoveredIndex == itemIndex
+
 	prefix := "  "
 	style := tuiDimStyle
-	if p.selectedIndex == itemIndex {
+	if isSelected {
 		prefix = "► "
 		style = tuiSelectedStyle
+	} else if isHovered {
+		// Apply hover style (gray background, white text, bold)
+		style = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("255")).
+			Background(lipgloss.Color("240")).
+			Bold(true)
 	}
 
 	// Status icon and color
@@ -445,11 +475,20 @@ func (p *WorkDetailsPanel) renderUnassignedBeadLine(content *strings.Builder, be
 	tasksEndIdx := 1 + len(p.focusedWork.tasks)
 	itemIdx := tasksEndIdx + beadIdx
 
+	isSelected := p.selectedIndex == itemIdx
+	isHovered := p.hoveredIndex == itemIdx
+
 	prefix := "  "
 	style := tuiDimStyle
-	if p.selectedIndex == itemIdx {
+	if isSelected {
 		prefix = "► "
 		style = tuiSelectedStyle
+	} else if isHovered {
+		// Apply hover style (gray background, white text, bold)
+		style = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("255")).
+			Background(lipgloss.Color("240")).
+			Bold(true)
 	}
 
 	// Use warning color (orange) for unassigned beads
@@ -788,4 +827,88 @@ func (p *WorkDetailsPanel) DetectClickedTask(x, y int) string {
 		return p.focusedWork.tasks[taskIdx].task.ID
 	}
 	return ""
+}
+
+// DetectHoveredItem determines which item is at the given Y position for hover detection.
+// Returns the absolute index (0 = root, 1+ = tasks, N+ = unassigned beads), or -1 if not over an item.
+func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
+	if p.focusedWork == nil {
+		return -1
+	}
+
+	// Use panel's actual dimensions (set via SetSize)
+	workPanelHeight := p.height
+
+	// Calculate left panel width using same formula as render
+	totalContentWidth := p.width - 4
+	leftWidth := int(float64(totalContentWidth) * p.columnRatio)
+
+	// Check if position is within left panel bounds (where items are displayed)
+	// Left panel starts at x=1 (after border) and ends at x=leftWidth+1
+	if x > leftWidth+2 {
+		return -1
+	}
+
+	// Check if y is within panel height
+	if y >= workPanelHeight {
+		return -1
+	}
+
+	// Calculate header lines - this matches renderLeftPanel logic
+	// Header: work header (1) + branch (1) + separator (1) = 3
+	// Plus orchestrator line (1) if work is processing or has active tasks
+	headerLines := 3
+	hasActiveTask := false
+	for _, task := range p.focusedWork.tasks {
+		if task.task.Status == db.StatusProcessing {
+			hasActiveTask = true
+			break
+		}
+	}
+	if p.focusedWork.work.Status == db.StatusProcessing || hasActiveTask {
+		headerLines = 4
+	}
+
+	// Layout in work panel:
+	// Y=0: Top border
+	// Y=1: Panel title "Work"
+	// Y=2: Work header (ID, status)
+	// Y=3: Branch info
+	// Y=4: Orchestrator status (conditional) OR Separator
+	// Y=4 or 5: Separator (if orchestrator shown, +1)
+	// Y=5 or 6: First item
+	firstItemY := 2 + headerLines // border(1) + title(1) + headerLines
+
+	// Calculate available lines (same logic as renderLeftPanel)
+	contentHeight := p.height - 2 // excludes border
+	availableContentLines := contentHeight - 3
+	if availableContentLines < 1 {
+		availableContentLines = 1
+	}
+	availableLines := availableContentLines - headerLines
+	if availableLines < 1 {
+		availableLines = 1
+	}
+
+	if y < firstItemY || y >= firstItemY+availableLines {
+		return -1
+	}
+
+	// Total items: root issue + tasks + unassigned beads
+	totalItems := 1 + len(p.focusedWork.tasks) + len(p.focusedWork.unassignedBeads)
+
+	// Calculate scroll window (same as renderLeftPanel)
+	startIdx := 0
+	if p.selectedIndex >= availableLines && availableLines > 0 {
+		startIdx = max(0, p.selectedIndex-availableLines/2)
+	}
+
+	lineIndex := y - firstItemY
+	itemIndex := startIdx + lineIndex
+
+	if itemIndex >= 0 && itemIndex < totalItems {
+		return itemIndex
+	}
+
+	return -1
 }
