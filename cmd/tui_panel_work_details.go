@@ -832,7 +832,15 @@ func (p *WorkDetailsPanel) DetectClickedTask(x, y int) string {
 // DetectHoveredItem determines which item is at the given Y position for hover detection.
 // Returns the absolute index (0 = root, 1+ = tasks, N+ = unassigned beads), or -1 if not over an item.
 func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
+	logging.Debug("DetectHoveredItem called",
+		"x", x,
+		"y", y,
+		"panelWidth", p.width,
+		"panelHeight", p.height,
+		"hasFocusedWork", p.focusedWork != nil)
+
 	if p.focusedWork == nil {
+		logging.Debug("DetectHoveredItem: no focused work")
 		return -1
 	}
 
@@ -843,14 +851,21 @@ func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
 	totalContentWidth := p.width - 4
 	leftWidth := int(float64(totalContentWidth) * p.columnRatio)
 
+	logging.Debug("DetectHoveredItem bounds check",
+		"leftWidth", leftWidth,
+		"workPanelHeight", workPanelHeight,
+		"columnRatio", p.columnRatio)
+
 	// Check if position is within left panel bounds (where items are displayed)
 	// Left panel starts at x=1 (after border) and ends at x=leftWidth+1
 	if x > leftWidth+2 {
+		logging.Debug("DetectHoveredItem: x out of bounds", "x", x, "maxX", leftWidth+2)
 		return -1
 	}
 
 	// Check if y is within panel height
 	if y >= workPanelHeight {
+		logging.Debug("DetectHoveredItem: y out of bounds", "y", y, "maxY", workPanelHeight)
 		return -1
 	}
 
@@ -890,7 +905,17 @@ func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
 		availableLines = 1
 	}
 
+	logging.Debug("DetectHoveredItem layout",
+		"headerLines", headerLines,
+		"firstItemY", firstItemY,
+		"availableLines", availableLines,
+		"yInRange", y >= firstItemY && y < firstItemY+availableLines)
+
 	if y < firstItemY || y >= firstItemY+availableLines {
+		logging.Debug("DetectHoveredItem: y not in item range",
+			"y", y,
+			"firstItemY", firstItemY,
+			"lastItemY", firstItemY+availableLines-1)
 		return -1
 	}
 
@@ -905,6 +930,13 @@ func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
 
 	lineIndex := y - firstItemY
 	itemIndex := startIdx + lineIndex
+
+	logging.Debug("DetectHoveredItem result",
+		"lineIndex", lineIndex,
+		"startIdx", startIdx,
+		"itemIndex", itemIndex,
+		"totalItems", totalItems,
+		"inBounds", itemIndex >= 0 && itemIndex < totalItems)
 
 	if itemIndex >= 0 && itemIndex < totalItems {
 		return itemIndex

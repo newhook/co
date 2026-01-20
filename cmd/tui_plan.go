@@ -314,10 +314,17 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.focusedWorkID != "" {
 					// Focused work mode: work details panel at top, issues panel at bottom
 					workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+					logging.Debug("mouse motion in focused work mode",
+						"focusedWorkID", m.focusedWorkID,
+						"mouseX", msg.X,
+						"mouseY", msg.Y,
+						"workPanelHeight", workPanelHeight)
 					if msg.Y < workPanelHeight {
 						// Mouse is in work details area
 						m.hoveredIssue = -1
 						m.hoveredWorkItem = m.workDetails.DetectHoveredItem(msg.X, msg.Y)
+						logging.Debug("detected work item hover",
+							"hoveredWorkItem", m.hoveredWorkItem)
 					} else {
 						// Mouse is in issues area - detect issues with offset
 						m.hoveredWorkItem = -1
@@ -1508,6 +1515,10 @@ func (m *planModel) syncPanels() {
 		focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
 		m.workDetails.SetFocusedWork(focusedWork)
 		m.workDetails.SetHoveredItem(m.hoveredWorkItem)
+		if m.hoveredWorkItem >= 0 {
+			logging.Debug("syncPanels: setting hovered work item",
+				"hoveredWorkItem", m.hoveredWorkItem)
+		}
 	}
 
 	// Sync Linear import panel
