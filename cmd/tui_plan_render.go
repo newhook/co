@@ -25,10 +25,10 @@ func (m *planModel) renderFixedPanel(title, content string, width, height int) s
 // renderFocusedWorkSplitView renders the split view when a work is focused
 // This shows a horizontal split: Work details on top (40%), Issues/Details below (60%)
 func (m *planModel) renderFocusedWorkSplitView() string {
-	// Calculate heights for split view (40% work, 60% plan mode)
+	// Calculate heights for split view - use same height as work overlay for consistency
 	totalHeight := m.height - 1 // -1 for status bar
-	workPanelHeight := int(float64(totalHeight) * 0.4)
-	planPanelHeight := totalHeight - workPanelHeight - 1 // -1 for separator
+	workPanelHeight := m.calculateWorkOverlayHeight()
+	planPanelHeight := totalHeight - workPanelHeight // panels have their own borders
 
 	// Update work details panel size for the work section
 	m.workDetails.SetSize(m.width, workPanelHeight)
@@ -75,20 +75,15 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	// Combine plan mode columns
 	planSection := lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, vertSeparator, detailsPanel)
 
-	// Add horizontal separator between work and plan sections
-	horizSeparator := strings.Repeat("─", m.width)
-	horizSeparatorStyled := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Render(horizSeparator)
-
-	// Combine everything vertically
-	return lipgloss.JoinVertical(lipgloss.Left, workPanel, horizSeparatorStyled, planSection)
+	// Combine everything vertically (panel borders provide visual separation)
+	return lipgloss.JoinVertical(lipgloss.Left, workPanel, planSection)
 }
 
 // renderTwoColumnLayout renders the issues and details panels side-by-side
 func (m *planModel) renderTwoColumnLayout() string {
 	// Check if a work is focused - if so, render split view
-	if m.focusedWorkID != "" {
+	// But not when work overlay is open - the overlay takes precedence
+	if m.focusedWorkID != "" && m.viewMode != ViewWorkOverlay {
 		return m.renderFocusedWorkSplitView()
 	}
 

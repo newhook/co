@@ -176,7 +176,7 @@ func TestDetectDialogButton(t *testing.T) {
 	createWorkPanel := NewCreateWorkPanel()
 	branchInput := textinput.New()
 	createWorkPanel.SetFormState(
-		[]string{"test-bead-1"},
+		"test-bead-1",
 		&branchInput,
 		1, // field index = buttons
 		0, // button index = execute

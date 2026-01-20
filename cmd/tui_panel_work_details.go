@@ -11,8 +11,9 @@ import (
 // WorkDetailsPanel renders the focused work split view showing work and task details.
 type WorkDetailsPanel struct {
 	// Dimensions
-	width  int
-	height int
+	width       int
+	height      int
+	columnRatio float64 // Ratio of left column width (0.0-1.0), synced with issues panel
 
 	// Focus state
 	leftPanelFocused  bool
@@ -26,8 +27,9 @@ type WorkDetailsPanel struct {
 // NewWorkDetailsPanel creates a new WorkDetailsPanel
 func NewWorkDetailsPanel() *WorkDetailsPanel {
 	return &WorkDetailsPanel{
-		width:  80,
-		height: 20,
+		width:       80,
+		height:      20,
+		columnRatio: 0.4, // Default 40/60 split to match issues panel
 	}
 }
 
@@ -35,6 +37,11 @@ func NewWorkDetailsPanel() *WorkDetailsPanel {
 func (p *WorkDetailsPanel) SetSize(width, height int) {
 	p.width = width
 	p.height = height
+}
+
+// SetColumnRatio sets the column width ratio to match the issues panel
+func (p *WorkDetailsPanel) SetColumnRatio(ratio float64) {
+	p.columnRatio = ratio
 }
 
 // SetFocus updates which side is focused
@@ -78,22 +85,27 @@ func (p *WorkDetailsPanel) SetSelectedTaskID(id string) {
 // Render returns the work details split view
 func (p *WorkDetailsPanel) Render() string {
 	workPanelHeight := p.height
-	halfWidth := (p.width - 4) / 2 - 1
+
+	// Calculate column widths using the same formula as issues panel
+	totalContentWidth := p.width - 4
+	separatorWidth := 3
+	leftWidth := int(float64(totalContentWidth-separatorWidth) * p.columnRatio)
+	rightWidth := totalContentWidth - separatorWidth - leftWidth
 
 	// === Left side: Work info and tasks list ===
-	leftContent := p.renderLeftPanel(workPanelHeight, halfWidth)
+	leftContent := p.renderLeftPanel(workPanelHeight, leftWidth)
 
 	// === Right side: Task details ===
-	rightContent := p.renderRightPanel(workPanelHeight, halfWidth)
+	rightContent := p.renderRightPanel(workPanelHeight, rightWidth)
 
 	// Create the two panels with proper highlighting
-	leftPanelStyle := tuiPanelStyle.Width(halfWidth).Height(workPanelHeight - 2)
+	leftPanelStyle := tuiPanelStyle.Width(leftWidth).Height(workPanelHeight - 2)
 	if p.leftPanelFocused {
 		leftPanelStyle = leftPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}
 	leftPanel := leftPanelStyle.Render(tuiTitleStyle.Render("Work & Tasks") + "\n" + leftContent)
 
-	rightPanelStyle := tuiPanelStyle.Width(halfWidth).Height(workPanelHeight - 2)
+	rightPanelStyle := tuiPanelStyle.Width(rightWidth).Height(workPanelHeight - 2)
 	if p.rightPanelFocused {
 		rightPanelStyle = rightPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}

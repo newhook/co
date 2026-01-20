@@ -384,7 +384,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(result.BeadIDs, result.BranchName, false)
+						return m, m.executeCreateWork(result.BeadID, result.BranchName, false)
 					}
 				} else if clickedDialogButton == "auto" {
 					// Handle auto button for work creation
@@ -397,7 +397,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(result.BeadIDs, result.BranchName, true)
+						return m, m.executeCreateWork(result.BeadID, result.BranchName, true)
 					}
 				}
 
@@ -799,7 +799,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewNormal
 			// Clear selections after work creation
 			m.selectedBeads = make(map[string]bool)
-			return m, m.executeCreateWork(result.BeadIDs, result.BranchName, false)
+			return m, m.executeCreateWork(result.BeadID, result.BranchName, false)
 
 		case CreateWorkActionAuto:
 			result := m.createWorkPanel.GetResult()
@@ -811,7 +811,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewNormal
 			// Clear selections after work creation
 			m.selectedBeads = make(map[string]bool)
-			return m, m.executeCreateWork(result.BeadIDs, result.BranchName, true)
+			return m, m.executeCreateWork(result.BeadID, result.BranchName, true)
 		}
 
 		return m, cmd
@@ -899,7 +899,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// Generate initial branch name
 				beads := []*beadsForBranch{{ID: selectedBead.ID, Title: selectedBead.Title}}
 				initialBranch := generateBranchNameFromBeadsForBranch(beads)
-				m.createWorkPanel.Reset([]string{selectedBead.ID}, initialBranch)
+				m.createWorkPanel.Reset(selectedBead.ID, initialBranch)
 				m.viewMode = ViewCreateWork
 				m.workOverlay.ClearSelection()
 			}
@@ -943,64 +943,18 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Normal mode key handling
 	switch msg.String() {
-	case "tab":
-		// Tab cycles between panels in focused work mode
+	case "tab", "shift+tab":
+		// Tab only cycles between list panels (left panels), not detail panels
+		// In focused work mode: toggle between work tasks list and issues list
+		// In normal mode: no tabbing needed (stays on issues list)
 		if m.focusedWorkID != "" {
-			// 4-panel cycle: Work(L) -> Work(R) -> Issues(L) -> Issues(R)
-			if m.workPanelFocused {
-				if m.activePanel == PanelLeft {
-					m.activePanel = PanelRight
-				} else {
-					// Move from work right panel to issues left panel
-					m.workPanelFocused = false
-					m.activePanel = PanelLeft
-				}
-			} else {
-				if m.activePanel == PanelLeft {
-					m.activePanel = PanelRight
-				} else {
-					// Move from issues right panel back to work left panel
-					m.workPanelFocused = true
-					m.activePanel = PanelLeft
-				}
-			}
-		} else {
-			// Normal 2-panel cycle
-			if m.activePanel == PanelLeft {
-				m.activePanel = PanelRight
-			} else {
-				m.activePanel = PanelLeft
-			}
+			// Toggle between work panel (tasks list) and issues panel (issues list)
+			// Always keep activePanel as PanelLeft (the list panels)
+			m.workPanelFocused = !m.workPanelFocused
+			m.activePanel = PanelLeft
 		}
-		return m, nil
-
-	case "shift+tab":
-		// Shift+Tab cycles backwards
-		if m.focusedWorkID != "" {
-			if m.workPanelFocused {
-				if m.activePanel == PanelRight {
-					m.activePanel = PanelLeft
-				} else {
-					// Move from work left panel to issues right panel
-					m.workPanelFocused = false
-					m.activePanel = PanelRight
-				}
-			} else {
-				if m.activePanel == PanelRight {
-					m.activePanel = PanelLeft
-				} else {
-					// Move from issues left panel back to work right panel
-					m.workPanelFocused = true
-					m.activePanel = PanelRight
-				}
-			}
-		} else {
-			if m.activePanel == PanelRight {
-				m.activePanel = PanelLeft
-			} else {
-				m.activePanel = PanelRight
-			}
-		}
+		// In normal mode without focused work, tab does nothing
+		// (issue detail is not a tabbing target)
 		return m, nil
 
 	case "h", "left":
@@ -1174,52 +1128,18 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.workOverlay.Init(), m.loadWorkTiles())
 
 	case "w":
-		// Create work from selected bead(s) - show dialog
+		// Create work from cursor bead - show dialog
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			// Collect selected beads, or use cursor bead if none selected
-			var selectedIDs []string
-			var branchBeads []*beadsForBranch
-			var alreadyAssigned []string
-			for _, item := range m.beadItems {
-				if m.selectedBeads[item.ID] {
-					if item.assignedWorkID != "" {
-						alreadyAssigned = append(alreadyAssigned, item.ID+" ("+item.assignedWorkID+")")
-					} else {
-						selectedIDs = append(selectedIDs, item.ID)
-						branchBeads = append(branchBeads, &beadsForBranch{
-							ID:    item.ID,
-							Title: item.Title,
-						})
-					}
-				}
-			}
-			// If no beads selected, use the cursor bead
-			if len(selectedIDs) == 0 && len(alreadyAssigned) == 0 {
-				bead := m.beadItems[m.beadsCursor]
-				if bead.assignedWorkID != "" {
-					m.statusMessage = fmt.Sprintf("Cannot create work: %s already assigned to %s", bead.ID, bead.assignedWorkID)
-					m.statusIsError = true
-					return m, nil
-				}
-				selectedIDs = []string{bead.ID}
-				branchBeads = []*beadsForBranch{{
-					ID:    bead.ID,
-					Title: bead.Title,
-				}}
-			}
-			// Show error if some selected beads are already assigned
-			if len(alreadyAssigned) > 0 {
-				m.statusMessage = fmt.Sprintf("Skipped already-assigned: %s", strings.Join(alreadyAssigned, ", "))
+			bead := m.beadItems[m.beadsCursor]
+			if bead.assignedWorkID != "" {
+				m.statusMessage = fmt.Sprintf("Cannot create work: %s already assigned to %s", bead.ID, bead.assignedWorkID)
 				m.statusIsError = true
-				// If all beads were assigned, abort
-				if len(selectedIDs) == 0 {
-					m.statusMessage = "All selected beads are already assigned to works"
-					return m, nil
-				}
+				return m, nil
 			}
-			// Generate proposed branch name from all selected beads
+			// Generate proposed branch name from cursor bead
+			branchBeads := []*beadsForBranch{{ID: bead.ID, Title: bead.Title}}
 			branchName := generateBranchNameFromBeadsForBranch(branchBeads)
-			m.createWorkPanel.Reset(selectedIDs, branchName)
+			m.createWorkPanel.Reset(bead.ID, branchName)
 			m.viewMode = ViewCreateWork
 			return m, m.createWorkPanel.Init()
 		}
@@ -1341,8 +1261,19 @@ func (m *planModel) syncPanels() {
 	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
 	detailsWidth := totalContentWidth - separatorWidth - issuesWidth
 
+	// Determine status bar context based on current focus
+	var statusBarCtx StatusBarContext
+	if m.viewMode == ViewWorkOverlay && m.workOverlay.IsFocused() {
+		statusBarCtx = StatusBarContextWorkOverlay
+	} else if m.focusedWorkID != "" && m.workPanelFocused && m.viewMode != ViewWorkOverlay {
+		statusBarCtx = StatusBarContextWorkDetail
+	} else {
+		statusBarCtx = StatusBarContextIssues
+	}
+
 	// Sync status bar
 	m.statusBar.SetSize(m.width)
+	m.statusBar.SetContext(statusBarCtx)
 	m.statusBar.SetStatus(m.statusMessage, m.statusIsError)
 	m.statusBar.SetLoading(m.loading)
 	m.statusBar.SetLastUpdate(m.lastUpdate)
@@ -1387,6 +1318,7 @@ func (m *planModel) syncPanels() {
 	// Sync work details (for focused work split view)
 	if m.focusedWorkID != "" {
 		m.workDetails.SetSize(m.width, m.height)
+		m.workDetails.SetColumnRatio(m.columnRatio) // Use same ratio as issues panel
 		m.workDetails.SetFocus(
 			m.workPanelFocused && m.activePanel == PanelLeft,
 			m.workPanelFocused && m.activePanel == PanelRight,

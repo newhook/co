@@ -10,6 +10,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// StatusBarContext indicates which panel the status bar should show commands for
+type StatusBarContext int
+
+const (
+	StatusBarContextIssues StatusBarContext = iota
+	StatusBarContextWorkOverlay
+	StatusBarContextWorkDetail
+)
+
 // StatusBar is the status bar panel at the bottom of the TUI.
 // It renders command buttons, status messages, and handles hover/click detection.
 type StatusBar struct {
@@ -22,6 +31,9 @@ type StatusBar struct {
 	loading       bool
 	lastUpdate    time.Time
 	spinner       spinner.Model
+
+	// Context determines which commands to show
+	context StatusBarContext
 
 	// Mouse state
 	hoveredButton string
@@ -87,6 +99,11 @@ func (s *StatusBar) SetHoveredButton(button string) {
 	s.hoveredButton = button
 }
 
+// SetContext updates the status bar context (which panel's commands to show)
+func (s *StatusBar) SetContext(ctx StatusBarContext) {
+	s.context = ctx
+}
+
 // GetHoveredButton returns which button is currently hovered
 func (s *StatusBar) GetHoveredButton() string {
 	return s.hoveredButton
@@ -112,6 +129,46 @@ func (s *StatusBar) Render() string {
 		return tuiStatusBarStyle.Width(s.width).Render(searchPrompt + searchInput + hint)
 	}
 
+	var commands string
+	var commandsPlain string
+
+	switch s.context {
+	case StatusBarContextWorkOverlay:
+		// Work overlay commands
+		commands, commandsPlain = s.renderWorkOverlayCommands()
+	case StatusBarContextWorkDetail:
+		// Work detail commands
+		commands, commandsPlain = s.renderWorkDetailCommands()
+	default:
+		// Issues commands (default)
+		commands, commandsPlain = s.renderIssuesCommands()
+	}
+
+	// Status on the right
+	var status string
+	var statusPlain string
+	if s.statusMessage != "" {
+		statusPlain = s.statusMessage
+		if s.statusIsError {
+			status = tuiErrorStyle.Render(s.statusMessage)
+		} else {
+			status = tuiSuccessStyle.Render(s.statusMessage)
+		}
+	} else if s.loading {
+		statusPlain = "Loading..."
+		status = s.spinner.View() + " Loading..."
+	} else {
+		statusPlain = fmt.Sprintf("Updated: %s", s.lastUpdate.Format("15:04:05"))
+		status = tuiDimStyle.Render(statusPlain)
+	}
+
+	// Build bar with commands left, status right
+	padding := max(s.width-len(commandsPlain)-len(statusPlain)-4, 2)
+	return tuiStatusBarStyle.Width(s.width).Render(commands + strings.Repeat(" ", padding) + status)
+}
+
+// renderIssuesCommands returns commands for the issues panel
+func (s *StatusBar) renderIssuesCommands() (string, string) {
 	// Show p action based on session state
 	pAction := "[p]Plan"
 	if s.getBeadItems != nil && s.getBeadsCursor != nil && s.getActiveSessions != nil {
@@ -138,31 +195,40 @@ func (s *StatusBar) Render() string {
 	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
 
 	commands := nButton + " " + eButton + " " + aButton + " " + xButton + " " + wButton + " " + AButton + " " + iButton + " " + pButton + " " + helpButton
-
-	// Commands plain text for width calculation
 	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work [A]dd [i]Import %s [?]Help", pAction)
 
-	// Status on the right
-	var status string
-	var statusPlain string
-	if s.statusMessage != "" {
-		statusPlain = s.statusMessage
-		if s.statusIsError {
-			status = tuiErrorStyle.Render(s.statusMessage)
-		} else {
-			status = tuiSuccessStyle.Render(s.statusMessage)
-		}
-	} else if s.loading {
-		statusPlain = "Loading..."
-		status = s.spinner.View() + " Loading..."
-	} else {
-		statusPlain = fmt.Sprintf("Updated: %s", s.lastUpdate.Format("15:04:05"))
-		status = tuiDimStyle.Render(statusPlain)
-	}
+	return commands, commandsPlain
+}
 
-	// Build bar with commands left, status right
-	padding := max(s.width-len(commandsPlain)-len(statusPlain)-4, 2)
-	return tuiStatusBarStyle.Width(s.width).Render(commands + strings.Repeat(" ", padding) + status)
+// renderWorkOverlayCommands returns commands for the work overlay panel
+func (s *StatusBar) renderWorkOverlayCommands() (string, string) {
+	// Work overlay specific commands
+	cButton := styleButtonWithHover("[c]Create", s.hoveredButton == "c")
+	dButton := styleButtonWithHover("[d]Destroy", s.hoveredButton == "d")
+	pButton := styleButtonWithHover("[p]Plan", s.hoveredButton == "p")
+	rButton := styleButtonWithHover("[r]Run", s.hoveredButton == "r")
+	enterButton := styleButtonWithHover("[Enter]Select", s.hoveredButton == "enter")
+	escButton := styleButtonWithHover("[Esc]Close", s.hoveredButton == "esc")
+	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
+
+	commands := cButton + " " + dButton + " " + pButton + " " + rButton + " " + enterButton + " " + escButton + " " + helpButton
+	commandsPlain := "[c]Create [d]Destroy [p]Plan [r]Run [Enter]Select [Esc]Close [?]Help"
+
+	return commands, commandsPlain
+}
+
+// renderWorkDetailCommands returns commands for the work detail panel
+func (s *StatusBar) renderWorkDetailCommands() (string, string) {
+	// Work detail specific commands
+	escButton := styleButtonWithHover("[Esc]Deselect", s.hoveredButton == "esc")
+	fButton := styleButtonWithHover("[f]Focus", s.hoveredButton == "f")
+	WButton := styleButtonWithHover("[W]Works", s.hoveredButton == "W")
+	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
+
+	commands := escButton + " " + fButton + " " + WButton + " " + helpButton
+	commandsPlain := "[Esc]Deselect [f]Focus [W]Works [?]Help"
+
+	return commands, commandsPlain
 }
 
 // DetectButton determines which button is at the given X position
@@ -173,6 +239,18 @@ func (s *StatusBar) DetectButton(x int) string {
 	}
 	x = x - 1
 
+	switch s.context {
+	case StatusBarContextWorkOverlay:
+		return s.detectWorkOverlayButton(x)
+	case StatusBarContextWorkDetail:
+		return s.detectWorkDetailButton(x)
+	default:
+		return s.detectIssuesButton(x)
+	}
+}
+
+// detectIssuesButton detects button clicks for the issues panel
+func (s *StatusBar) detectIssuesButton(x int) string {
 	// Get the plain text version of the commands
 	pAction := "[p]Plan"
 	if s.getBeadItems != nil && s.getBeadsCursor != nil && s.getActiveSessions != nil {
@@ -223,6 +301,68 @@ func (s *StatusBar) DetectButton(x int) string {
 	}
 	if pIdx >= 0 && x >= pIdx && x < pIdx+len(pAction) {
 		return "p"
+	}
+	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
+		return "?"
+	}
+
+	return ""
+}
+
+// detectWorkOverlayButton detects button clicks for the work overlay panel
+func (s *StatusBar) detectWorkOverlayButton(x int) string {
+	commandsPlain := "[c]Create [d]Destroy [p]Plan [r]Run [Enter]Select [Esc]Close [?]Help"
+
+	cIdx := strings.Index(commandsPlain, "[c]Create")
+	dIdx := strings.Index(commandsPlain, "[d]Destroy")
+	pIdx := strings.Index(commandsPlain, "[p]Plan")
+	rIdx := strings.Index(commandsPlain, "[r]Run")
+	enterIdx := strings.Index(commandsPlain, "[Enter]Select")
+	escIdx := strings.Index(commandsPlain, "[Esc]Close")
+	helpIdx := strings.Index(commandsPlain, "[?]Help")
+
+	if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]Create") {
+		return "c"
+	}
+	if dIdx >= 0 && x >= dIdx && x < dIdx+len("[d]Destroy") {
+		return "d"
+	}
+	if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]Plan") {
+		return "p"
+	}
+	if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]Run") {
+		return "r"
+	}
+	if enterIdx >= 0 && x >= enterIdx && x < enterIdx+len("[Enter]Select") {
+		return "enter"
+	}
+	if escIdx >= 0 && x >= escIdx && x < escIdx+len("[Esc]Close") {
+		return "esc"
+	}
+	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
+		return "?"
+	}
+
+	return ""
+}
+
+// detectWorkDetailButton detects button clicks for the work detail panel
+func (s *StatusBar) detectWorkDetailButton(x int) string {
+	commandsPlain := "[Esc]Deselect [f]Focus [W]Works [?]Help"
+
+	escIdx := strings.Index(commandsPlain, "[Esc]Deselect")
+	fIdx := strings.Index(commandsPlain, "[f]Focus")
+	WIdx := strings.Index(commandsPlain, "[W]Works")
+	helpIdx := strings.Index(commandsPlain, "[?]Help")
+
+	if escIdx >= 0 && x >= escIdx && x < escIdx+len("[Esc]Deselect") {
+		return "esc"
+	}
+	if fIdx >= 0 && x >= fIdx && x < fIdx+len("[f]Focus") {
+		return "f"
+	}
+	if WIdx >= 0 && x >= WIdx && x < WIdx+len("[W]Works") {
+		return "W"
 	}
 	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
 		return "?"

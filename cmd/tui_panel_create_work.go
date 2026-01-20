@@ -22,7 +22,7 @@ const (
 // CreateWorkResult contains form values when submitted
 type CreateWorkResult struct {
 	BranchName string
-	BeadIDs    []string
+	BeadID     string
 }
 
 // CreateWorkPanel renders the work creation form.
@@ -35,7 +35,7 @@ type CreateWorkPanel struct {
 	focused bool
 
 	// Form state (owned directly)
-	beadIDs     []string
+	beadID      string
 	branchInput textinput.Model
 	fieldIdx    int // 0=branch, 1=buttons
 	buttonIdx   int // 0=Execute, 1=Auto, 2=Cancel
@@ -68,8 +68,8 @@ func (p *CreateWorkPanel) Init() tea.Cmd {
 }
 
 // Reset resets the form to initial state
-func (p *CreateWorkPanel) Reset(beadIDs []string, branchName string) {
-	p.beadIDs = beadIDs
+func (p *CreateWorkPanel) Reset(beadID string, branchName string) {
+	p.beadID = beadID
 	p.branchInput.SetValue(branchName)
 	p.branchInput.Focus()
 	p.fieldIdx = 0
@@ -143,13 +143,13 @@ func (p *CreateWorkPanel) Update(msg tea.KeyMsg) (tea.Cmd, CreateWorkAction) {
 func (p *CreateWorkPanel) GetResult() CreateWorkResult {
 	return CreateWorkResult{
 		BranchName: strings.TrimSpace(p.branchInput.Value()),
-		BeadIDs:    p.beadIDs,
+		BeadID:     p.beadID,
 	}
 }
 
-// GetBeadIDs returns the bead IDs for this work
-func (p *CreateWorkPanel) GetBeadIDs() []string {
-	return p.beadIDs
+// GetBeadID returns the bead ID for this work
+func (p *CreateWorkPanel) GetBeadID() string {
+	return p.beadID
 }
 
 // Blur removes focus from the input
@@ -175,7 +175,7 @@ func (p *CreateWorkPanel) IsFocused() bool {
 
 // SetFormState updates the form state (deprecated - panel owns its state now)
 func (p *CreateWorkPanel) SetFormState(
-	beadIDs []string,
+	beadID string,
 	branchInput *textinput.Model,
 	fieldIdx int,
 	buttonIdx int,
@@ -208,37 +208,10 @@ func (p *CreateWorkPanel) Render() string {
 	currentLine += 2
 
 	// Show bead info
-	var beadInfo string
-	if len(p.beadIDs) == 1 {
-		beadInfo = fmt.Sprintf("Creating work from issue: %s", issueIDStyle.Render(p.beadIDs[0]))
-	} else {
-		beadInfo = fmt.Sprintf("Creating work from %d issues", len(p.beadIDs))
-		content.WriteString(beadInfo)
-		content.WriteString("\n")
-		currentLine++
-		maxShow := 5
-		if len(p.beadIDs) < maxShow {
-			maxShow = len(p.beadIDs)
-		}
-		for i := 0; i < maxShow; i++ {
-			content.WriteString("  - " + issueIDStyle.Render(p.beadIDs[i]))
-			content.WriteString("\n")
-			currentLine++
-		}
-		if len(p.beadIDs) > maxShow {
-			content.WriteString(fmt.Sprintf("  ... and %d more", len(p.beadIDs)-maxShow))
-			content.WriteString("\n")
-			currentLine++
-		}
-		content.WriteString("\n")
-		currentLine++
-	}
-
-	if len(p.beadIDs) == 1 {
-		content.WriteString(beadInfo)
-		content.WriteString("\n\n")
-		currentLine += 2
-	}
+	beadInfo := fmt.Sprintf("Creating work from issue: %s", issueIDStyle.Render(p.beadID))
+	content.WriteString(beadInfo)
+	content.WriteString("\n\n")
+	currentLine += 2
 
 	// Branch name input
 	branchLabel := "Branch name:"

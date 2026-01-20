@@ -70,35 +70,28 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 
 // executeCreateWork creates a work unit with the given branch name.
 // This calls internal logic directly instead of shelling out to the CLI.
-func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto bool) tea.Cmd {
+func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
-		firstBeadID := beadIDs[0]
-
-		// Expand all beads (handles epics and transitive deps)
-		var allIssueIDs []string
-		for _, beadID := range beadIDs {
-			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
-			if err != nil {
-				return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
-			}
-			allIssueIDs = append(allIssueIDs, expandedIDs...)
+		// Expand the bead (handles epics and transitive deps)
+		allIssueIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
+		if err != nil {
+			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
 		}
 
 		if len(allIssueIDs) == 0 {
-			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("no beads found for %v", beadIDs)}
+			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("no beads found for %s", beadID)}
 		}
 
 		// Create work with branch name (silent to avoid console output in TUI)
-		// The first bead becomes the root issue ID
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", firstBeadID, WorkCreateOptions{Silent: true})
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", beadID, WorkCreateOptions{Silent: true})
 		if err != nil {
-			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to create work: %w", err)}
+			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
 
 		// Add beads to the work
 		if err := addBeadsToWork(m.ctx, m.proj, result.WorkID, allIssueIDs); err != nil {
 			// Work was created but beads couldn't be added - don't fail completely
-			return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
+			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
 		}
 
 		// Spawn the orchestrator for this work (or run automated workflow if auto)
@@ -111,11 +104,11 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 			// Spawn the orchestrator
 			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
 				// Non-fatal: work was created but orchestrator failed to spawn
-				return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
+				return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
 			}
 		}
 
-		return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID}
+		return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}
 	}
 }
 
