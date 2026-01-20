@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/process"
 )
 
 // sessionName returns the zellij session name for this project
@@ -324,4 +326,53 @@ func truncateString(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// checkOrchestratorHealth checks if the orchestrator process is running for a work
+func checkOrchestratorHealth(ctx context.Context, workID string) bool {
+	// Check if an orchestrator process is running for this specific work
+	pattern := "co orchestrate --work " + workID
+	running, _ := process.IsProcessRunning(ctx, pattern)
+	return running
+}
+
+// restartOrchestrator kills and restarts the orchestrator for the focused work
+func (m *planModel) restartOrchestrator() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Get work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+
+		// Kill any existing orchestrator process
+		pattern := fmt.Sprintf("co orchestrate --work %s", workID)
+		if running, _ := process.IsProcessRunning(m.ctx, pattern); running {
+			process.KillProcess(m.ctx, pattern)
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		// Spawn a new orchestrator
+		spawned, err := claude.EnsureWorkOrchestrator(
+			m.ctx,
+			workID,
+			m.proj.Config.Project.Name,
+			work.WorktreePath,
+			work.Name,
+			io.Discard,
+		)
+		if err != nil {
+			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: err}
+		}
+
+		status := "already running"
+		if spawned {
+			status = "restarted"
+		}
+		return workCommandMsg{action: fmt.Sprintf("Orchestrator %s", status), workID: workID}
+	}
 }

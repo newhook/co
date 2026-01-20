@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/logging"
 )
 
 // WorkDetailAction represents an action result from the work details panel
@@ -14,14 +15,15 @@ type WorkDetailAction int
 
 const (
 	WorkDetailActionNone WorkDetailAction = iota
-	WorkDetailActionOpenTerminal // Open terminal/console (t)
-	WorkDetailActionOpenClaude   // Open Claude session (c)
-	WorkDetailActionPlan         // Plan work (p)
-	WorkDetailActionRun          // Run work (r)
-	WorkDetailActionReview       // Create review task (R)
-	WorkDetailActionPR           // Create PR task (P)
-	WorkDetailActionNavigateUp   // Navigate up (k/up)
-	WorkDetailActionNavigateDown // Navigate down (j/down)
+	WorkDetailActionOpenTerminal       // Open terminal/console (t)
+	WorkDetailActionOpenClaude         // Open Claude session (c)
+	WorkDetailActionPlan               // Plan work (p)
+	WorkDetailActionRun                // Run work (r)
+	WorkDetailActionReview             // Create review task (R)
+	WorkDetailActionPR                 // Create PR task (P)
+	WorkDetailActionNavigateUp         // Navigate up (k/up)
+	WorkDetailActionNavigateDown       // Navigate down (j/down)
+	WorkDetailActionRestartOrchestrator // Restart orchestrator (o)
 )
 
 // WorkDetailsPanel renders the focused work split view showing work and task details.
@@ -36,8 +38,9 @@ type WorkDetailsPanel struct {
 	rightPanelFocused bool
 
 	// Data
-	focusedWork   *workProgress
-	selectedIndex int // 0 = root issue, 1+ = tasks (task index + 1)
+	focusedWork         *workProgress
+	selectedIndex       int  // 0 = root issue, 1+ = tasks (task index + 1)
+	orchestratorHealthy bool // Whether the orchestrator process is running
 }
 
 // NewWorkDetailsPanel creates a new WorkDetailsPanel
@@ -71,13 +74,24 @@ func (p *WorkDetailsPanel) SetFocusedWork(focusedWork *workProgress) {
 	p.focusedWork = focusedWork
 	// Validate current selection still exists
 	if focusedWork != nil {
-		maxIndex := len(focusedWork.tasks) // 0 = root, 1..n = tasks
+		// 0 = root, 1..n = tasks, n+1..m = unassigned beads
+		maxIndex := len(focusedWork.tasks) + len(focusedWork.unassignedBeads)
 		if p.selectedIndex > maxIndex {
 			p.selectedIndex = 0 // Reset to root issue
 		}
 	} else {
 		p.selectedIndex = 0
 	}
+}
+
+// SetOrchestratorHealth updates the orchestrator health status
+func (p *WorkDetailsPanel) SetOrchestratorHealth(healthy bool) {
+	p.orchestratorHealthy = healthy
+}
+
+// IsOrchestratorHealthy returns whether the orchestrator is running
+func (p *WorkDetailsPanel) IsOrchestratorHealthy() bool {
+	return p.orchestratorHealthy
 }
 
 // GetSelectedIndex returns the currently selected index (0 = root issue, 1+ = tasks)
@@ -110,6 +124,7 @@ func (p *WorkDetailsPanel) GetSelectedTaskID() string {
 // GetSelectedBeadIDs returns the bead IDs that should be shown based on current selection.
 // - If root issue is selected (index 0): returns all work beads (root + dependents)
 // - If a task is selected: returns only the beads assigned to that task
+// - If an unassigned bead is selected: returns just that bead's ID
 // Returns nil if no work is focused.
 func (p *WorkDetailsPanel) GetSelectedBeadIDs() []string {
 	if p.focusedWork == nil {
@@ -125,6 +140,8 @@ func (p *WorkDetailsPanel) GetSelectedBeadIDs() []string {
 		return beadIDs
 	}
 
+	tasksEndIdx := 1 + len(p.focusedWork.tasks)
+
 	// Task selected - return only task's beads
 	taskIdx := p.selectedIndex - 1
 	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
@@ -133,6 +150,12 @@ func (p *WorkDetailsPanel) GetSelectedBeadIDs() []string {
 			beadIDs = append(beadIDs, bp.id)
 		}
 		return beadIDs
+	}
+
+	// Unassigned bead selected - return just that bead
+	unassignedIdx := p.selectedIndex - tasksEndIdx
+	if unassignedIdx >= 0 && unassignedIdx < len(p.focusedWork.unassignedBeads) {
+		return []string{p.focusedWork.unassignedBeads[unassignedIdx].id}
 	}
 
 	return nil
@@ -261,22 +284,37 @@ func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 	// Branch info (1 line) - "Branch: " is 8 chars
 	fmt.Fprintf(&content, "Branch: %s\n", truncateString(p.focusedWork.work.BranchName, contentWidth-8))
 
+	// Orchestrator health (1 line) - only show if work is processing or has active tasks
+	hasActiveTask := false
+	for _, task := range p.focusedWork.tasks {
+		if task.task.Status == db.StatusProcessing {
+			hasActiveTask = true
+			break
+		}
+	}
+	headerLines := 3
+	if p.focusedWork.work.Status == db.StatusProcessing || hasActiveTask {
+		if p.orchestratorHealthy {
+			healthStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+			content.WriteString(healthStyle.Render("✓ Orchestrator running"))
+		} else {
+			healthStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+			content.WriteString(healthStyle.Render("✗ Orchestrator dead [o] restart"))
+		}
+		content.WriteString("\n")
+		headerLines = 4
+	}
+
 	// Separator (1 line)
 	content.WriteString(strings.Repeat("─", contentWidth))
 	content.WriteString("\n")
-
-	// Calculate available lines for items
-	// panelHeight is the total height available after title
-	// Header takes 3 lines (work header, branch, separator)
-	// Reserve 1 line for scroll indicator
-	headerLines := 3
 	availableLines := panelHeight - headerLines - 1
 	if availableLines < 1 {
 		availableLines = 1
 	}
 
-	// Total items: 1 root issue + n tasks
-	totalItems := 1 + len(p.focusedWork.tasks)
+	// Total items: 1 root issue + n tasks + unassigned beads (if any)
+	totalItems := 1 + len(p.focusedWork.tasks) + len(p.focusedWork.unassignedBeads)
 
 	// Calculate scroll window
 	startIdx := 0
@@ -286,15 +324,23 @@ func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 	endIdx := min(startIdx+availableLines, totalItems)
 
 	// Render visible items (use contentWidth which accounts for padding)
+	// Layout: index 0 = root issue, 1..n = tasks, n+1..m = unassigned beads
+	tasksEndIdx := 1 + len(p.focusedWork.tasks)
 	for i := startIdx; i < endIdx; i++ {
 		if i == 0 {
 			// Root issue
 			p.renderRootIssueLine(&content, contentWidth)
-		} else {
+		} else if i < tasksEndIdx {
 			// Task (index i-1 in tasks array)
 			taskIdx := i - 1
 			if taskIdx < len(p.focusedWork.tasks) {
 				p.renderTaskLine(&content, taskIdx, contentWidth)
+			}
+		} else {
+			// Unassigned bead (index i - tasksEndIdx in unassignedBeads array)
+			unassignedIdx := i - tasksEndIdx
+			if unassignedIdx < len(p.focusedWork.unassignedBeads) {
+				p.renderUnassignedBeadLine(&content, unassignedIdx, contentWidth)
 			}
 		}
 	}
@@ -389,6 +435,37 @@ func (p *WorkDetailsPanel) renderTaskLine(content *strings.Builder, taskIdx int,
 	content.WriteString("\n")
 }
 
+// renderUnassignedBeadLine renders an unassigned bead line
+func (p *WorkDetailsPanel) renderUnassignedBeadLine(content *strings.Builder, beadIdx int, panelWidth int) {
+	if beadIdx >= len(p.focusedWork.unassignedBeads) {
+		return
+	}
+
+	bead := p.focusedWork.unassignedBeads[beadIdx]
+	tasksEndIdx := 1 + len(p.focusedWork.tasks)
+	itemIdx := tasksEndIdx + beadIdx
+
+	prefix := "  "
+	style := tuiDimStyle
+	if p.selectedIndex == itemIdx {
+		prefix = "► "
+		style = tuiSelectedStyle
+	}
+
+	// Use warning color (orange) for unassigned beads
+	beadIcon := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("○")
+	beadLine := fmt.Sprintf("%s%s %s", prefix, beadIcon, bead.id)
+	if bead.title != "" {
+		maxTitleLen := panelWidth - len(beadLine) - 4
+		if maxTitleLen > 0 {
+			beadLine += " " + truncateString(bead.title, maxTitleLen)
+		}
+	}
+
+	content.WriteString(style.Render(beadLine))
+	content.WriteString("\n")
+}
+
 // renderRightPanel renders the right panel with selected item details
 func (p *WorkDetailsPanel) renderRightPanel(panelHeight, panelWidth int) string {
 	var content strings.Builder
@@ -403,10 +480,19 @@ func (p *WorkDetailsPanel) renderRightPanel(panelHeight, panelWidth int) string 
 		return p.renderRootIssueDetails(panelWidth)
 	}
 
+	// Check if task or unassigned bead is selected
+	tasksEndIdx := 1 + len(p.focusedWork.tasks)
+
 	// Show task details
 	taskIdx := p.selectedIndex - 1
 	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
 		return p.renderTaskDetails(p.focusedWork.tasks[taskIdx], panelWidth)
+	}
+
+	// Show unassigned bead details
+	unassignedIdx := p.selectedIndex - tasksEndIdx
+	if unassignedIdx >= 0 && unassignedIdx < len(p.focusedWork.unassignedBeads) {
+		return p.renderUnassignedBeadDetails(p.focusedWork.unassignedBeads[unassignedIdx], panelWidth)
 	}
 
 	content.WriteString(tuiDimStyle.Render("Select an item to view details"))
@@ -529,6 +615,36 @@ func (p *WorkDetailsPanel) renderTaskDetails(task *taskProgress, panelWidth int)
 	return content.String()
 }
 
+// renderUnassignedBeadDetails renders details for an unassigned bead
+func (p *WorkDetailsPanel) renderUnassignedBeadDetails(bead beadProgress, panelWidth int) string {
+	var content strings.Builder
+
+	// Account for padding (tuiPanelStyle has Padding(0, 1) = 2 chars total)
+	contentWidth := panelWidth - 2
+
+	// Header with warning style
+	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	content.WriteString(warningStyle.Render("Unassigned Bead"))
+	content.WriteString("\n\n")
+
+	content.WriteString(fmt.Sprintf("ID: %s\n", bead.id))
+	if bead.title != "" {
+		content.WriteString(fmt.Sprintf("Title: %s\n", truncateString(bead.title, contentWidth-7)))
+	}
+	if bead.issueType != "" {
+		content.WriteString(fmt.Sprintf("Type: %s\n", bead.issueType))
+	}
+	content.WriteString(fmt.Sprintf("Priority: %d\n", bead.priority))
+	content.WriteString(fmt.Sprintf("Status: %s\n", bead.beadStatus))
+
+	if bead.description != "" {
+		content.WriteString("\nDescription:\n")
+		content.WriteString(truncateString(bead.description, contentWidth))
+	}
+
+	return content.String()
+}
+
 // NavigateUp moves selection to the previous item
 func (p *WorkDetailsPanel) NavigateUp() {
 	if p.focusedWork == nil {
@@ -544,7 +660,13 @@ func (p *WorkDetailsPanel) NavigateDown() {
 	if p.focusedWork == nil {
 		return
 	}
-	maxIndex := len(p.focusedWork.tasks) // 0 = root, 1..n = tasks
+	// 0 = root, 1..n = tasks, n+1..m = unassigned beads
+	maxIndex := len(p.focusedWork.tasks) + len(p.focusedWork.unassignedBeads)
+	logging.Debug("NavigateDown",
+		"selectedIndex", p.selectedIndex,
+		"maxIndex", maxIndex,
+		"tasks", len(p.focusedWork.tasks),
+		"unassignedBeads", len(p.focusedWork.unassignedBeads))
 	if p.selectedIndex < maxIndex {
 		p.selectedIndex++
 	}
@@ -563,6 +685,9 @@ func (p *WorkDetailsPanel) NavigateTaskDown() {
 // Update handles key events and returns an action.
 // This follows the same pattern as WorkOverlayPanel for consistency.
 func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
+	logging.Debug("WorkDetailsPanel.Update",
+		"key", msg.String())
+
 	// Handle navigation keys
 	switch msg.String() {
 	case "j", "down":
@@ -574,15 +699,19 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 	case "t":
 		return nil, WorkDetailActionOpenTerminal
 	case "c":
+		logging.Debug("WorkDetailsPanel intercepted 'c' key")
 		return nil, WorkDetailActionOpenClaude
 	case "p":
 		return nil, WorkDetailActionPlan
 	case "r":
+		logging.Debug("WorkDetailsPanel intercepted 'r' key")
 		return nil, WorkDetailActionRun
 	case "R":
 		return nil, WorkDetailActionReview
 	case "P":
 		return nil, WorkDetailActionPR
+	case "o":
+		return nil, WorkDetailActionRestartOrchestrator
 	}
 
 	return nil, WorkDetailActionNone

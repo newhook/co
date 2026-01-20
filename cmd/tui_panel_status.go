@@ -223,13 +223,14 @@ func (s *StatusBar) renderWorkDetailCommands() (string, string) {
 	cButton := styleButtonWithHover("[c]laude", s.hoveredButton == "c")
 	pButton := styleButtonWithHover("[p]Plan", s.hoveredButton == "p")
 	rButton := styleButtonWithHover("[r]Run", s.hoveredButton == "r")
+	oButton := styleButtonWithHover("[o]rch", s.hoveredButton == "o")
 	RButton := styleButtonWithHover("[R]Review", s.hoveredButton == "R")
 	PButton := styleButtonWithHover("[P]PR", s.hoveredButton == "P")
 	escButton := styleButtonWithHover("[Esc]Deselect", s.hoveredButton == "esc")
 	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
 
-	commands := tButton + " " + cButton + " " + pButton + " " + rButton + " " + RButton + " " + PButton + " " + escButton + " " + helpButton
-	commandsPlain := "[t]erminal [c]laude [p]Plan [r]Run [R]Review [P]PR [Esc]Deselect [?]Help"
+	commands := tButton + " " + cButton + " " + pButton + " " + rButton + " " + oButton + " " + RButton + " " + PButton + " " + escButton + " " + helpButton
+	commandsPlain := "[t]erminal [c]laude [p]Plan [r]Run [o]rch [R]Review [P]PR [Esc]Deselect [?]Help"
 
 	return commands, commandsPlain
 }
@@ -351,12 +352,13 @@ func (s *StatusBar) detectWorkOverlayButton(x int) string {
 
 // detectWorkDetailButton detects button clicks for the work detail panel
 func (s *StatusBar) detectWorkDetailButton(x int) string {
-	commandsPlain := "[t]erminal [c]laude [p]Plan [r]Run [R]Review [P]PR [Esc]Deselect [?]Help"
+	commandsPlain := "[t]erminal [c]laude [p]Plan [r]Run [o]rch [R]Review [P]PR [Esc]Deselect [?]Help"
 
 	tIdx := strings.Index(commandsPlain, "[t]erminal")
 	cIdx := strings.Index(commandsPlain, "[c]laude")
 	pIdx := strings.Index(commandsPlain, "[p]Plan")
 	rIdx := strings.Index(commandsPlain, "[r]Run")
+	oIdx := strings.Index(commandsPlain, "[o]rch")
 	RIdx := strings.Index(commandsPlain, "[R]Review")
 	PIdx := strings.Index(commandsPlain, "[P]PR")
 	escIdx := strings.Index(commandsPlain, "[Esc]Deselect")
@@ -373,6 +375,9 @@ func (s *StatusBar) detectWorkDetailButton(x int) string {
 	}
 	if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]Run") {
 		return "r"
+	}
+	if oIdx >= 0 && x >= oIdx && x < oIdx+len("[o]rch") {
+		return "o"
 	}
 	if RIdx >= 0 && x >= RIdx && x < RIdx+len("[R]Review") {
 		return "R"
