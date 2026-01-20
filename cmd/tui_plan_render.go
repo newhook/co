@@ -62,9 +62,6 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	case ViewCreateWork:
 		m.createWorkPanel.SetSize(detailsWidth, planPanelHeight)
 		detailsPanel = m.createWorkPanel.RenderWithPanel(planPanelHeight)
-	case ViewAddToWork:
-		m.addToWorkPanel.SetSize(detailsWidth, planPanelHeight)
-		detailsPanel = m.addToWorkPanel.RenderWithPanel(planPanelHeight)
 	default:
 		detailsPanel = m.detailsPanel.RenderWithPanel(planPanelHeight)
 	}
@@ -110,8 +107,6 @@ func (m *planModel) renderTwoColumnLayout() string {
 		rightPanel = m.linearImportPanel.RenderWithPanel(contentHeight)
 	case ViewCreateWork:
 		rightPanel = m.createWorkPanel.RenderWithPanel(contentHeight)
-	case ViewAddToWork:
-		rightPanel = m.addToWorkPanel.RenderWithPanel(contentHeight)
 	default:
 		rightPanel = m.detailsPanel.RenderWithPanel(contentHeight)
 	}

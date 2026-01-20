@@ -264,53 +264,6 @@ func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-// updateAddToWork handles input for the add to work dialog
-func (m *planModel) updateAddToWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
-		m.viewMode = ViewNormal
-		return m, nil
-	}
-	switch msg.String() {
-	case "j", "down":
-		if m.worksCursor < len(m.availableWorks)-1 {
-			m.worksCursor++
-		}
-		return m, nil
-	case "k", "up":
-		if m.worksCursor > 0 {
-			m.worksCursor--
-		}
-		return m, nil
-	case "enter":
-		if len(m.availableWorks) > 0 && m.worksCursor < len(m.availableWorks) {
-			workID := m.availableWorks[m.worksCursor].id
-
-			// Collect selected beads
-			var beadIDs []string
-			for _, item := range m.beadItems {
-				if m.selectedBeads[item.ID] {
-					beadIDs = append(beadIDs, item.ID)
-				}
-			}
-
-			// If no selected beads, use cursor bead
-			if len(beadIDs) == 0 && len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-				beadIDs = append(beadIDs, m.beadItems[m.beadsCursor].ID)
-			}
-
-			if len(beadIDs) == 1 {
-				// Single bead - use the existing addBeadToWork function
-				return m, m.addBeadToWork(beadIDs[0], workID)
-			} else if len(beadIDs) > 1 {
-				// Multiple beads - use the batch add function
-				return m, m.addBeadsToWork(beadIDs, workID)
-			}
-		}
-		return m, nil
-	}
-	return m, nil
-}
-
 // indentLines adds a prefix to each line of a multi-line string.
 // This is used to properly align textarea components within dialogs.
 func indentLines(s, prefix string) string {
@@ -388,39 +341,6 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 
   [y] Yes  [n] No
 `, title, beadsList)
-
-	return tuiDialogStyle.Render(content)
-}
-
-// renderAddToWorkDialogContent renders the add to work dialog
-func (m *planModel) renderAddToWorkDialogContent() string {
-	beadID := ""
-	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-		beadID = m.beadItems[m.beadsCursor].ID
-	}
-
-	var worksList strings.Builder
-	if len(m.availableWorks) == 0 {
-		worksList.WriteString("  No available works.\n")
-	} else {
-		for i, work := range m.availableWorks {
-			prefix := "  "
-			if i == m.worksCursor {
-				prefix = "> "
-			}
-			worksList.WriteString(fmt.Sprintf("%s%s (%s) - %s\n", prefix, work.id, work.status, work.branch))
-		}
-	}
-
-	content := fmt.Sprintf(`
-  Add Issue to Work
-
-  Issue: %s
-
-  Select a work:
-%s
-  [Enter] Add  [j/k] Navigate  [Esc] Cancel
-`, issueIDStyle.Render(beadID), worksList.String())
 
 	return tuiDialogStyle.Render(content)
 }

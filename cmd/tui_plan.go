@@ -57,9 +57,8 @@ type planModel struct {
 	workOverlay       *WorkOverlayPanel
 	workDetails       *WorkDetailsPanel
 	linearImportPanel *LinearImportPanel
-	beadFormPanel     *BeadFormPanel
-	createWorkPanel   *CreateWorkPanel
-	addToWorkPanel    *AddToWorkPanel
+	beadFormPanel   *BeadFormPanel
+	createWorkPanel *CreateWorkPanel
 
 	// Panel state
 	activePanel Panel
@@ -95,10 +94,6 @@ type planModel struct {
 	createWorkBranch    textinput.Model // Editable branch name
 	createWorkField     int             // 0=branch, 1=buttons
 	createWorkButtonIdx int             // 0=Execute, 1=Auto, 2=Cancel
-
-	// Add to work state
-	availableWorks []workItem // List of works to choose from
-	worksCursor    int        // Cursor position in works list
 
 	// Work overlay state
 	workTiles           []*workProgress // Works displayed in overlay
@@ -234,7 +229,6 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	m.linearImportPanel = NewLinearImportPanel()
 	m.beadFormPanel = NewBeadFormPanel()
 	m.createWorkPanel = NewCreateWorkPanel()
-	m.addToWorkPanel = NewAddToWorkPanel()
 
 	// Set up status bar data providers
 	m.statusBar.SetDataProviders(
@@ -569,17 +563,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case worksLoadedMsg:
-		if msg.err != nil {
-			m.statusMessage = fmt.Sprintf("Failed to load works: %v", msg.err)
-			m.statusIsError = true
-			return m, nil
-		}
-		m.availableWorks = msg.works
-		m.worksCursor = 0
-		m.viewMode = ViewAddToWork
-		return m, nil
-
 	case beadAddedToWorkMsg:
 		m.viewMode = ViewNormal
 		if msg.err != nil {
@@ -742,12 +725,6 @@ type planWorkCreatedMsg struct {
 	err    error
 }
 
-// worksLoadedMsg indicates available works have been loaded
-type worksLoadedMsg struct {
-	works []workItem
-	err   error
-}
-
 // beadAddedToWorkMsg indicates a bead was added to a work
 type beadAddedToWorkMsg struct {
 	beadID string
@@ -820,8 +797,6 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateBeadForm(msg)
 	case ViewCreateWork:
 		return m.updateCreateWorkDialog(msg)
-	case ViewAddToWork:
-		return m.updateAddToWork(msg)
 	case ViewBeadSearch:
 		return m.updateBeadSearch(msg)
 	case ViewLabelFilter:
@@ -1196,7 +1171,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "A":
-		// Add selected issue(s) to existing work
+		// Add selected issue(s) to the focused work
+		if m.focusedWorkID == "" {
+			m.statusMessage = "Select a work first (press 'W' to open work overlay)"
+			m.statusIsError = true
+			return m, nil
+		}
 		if len(m.beadItems) > 0 {
 			// Collect selected beads or use cursor bead
 			var beadsToAdd []string
@@ -1226,15 +1206,9 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			if len(beadsToAdd) > 0 {
-				// If a work is focused, add directly to it
-				if m.focusedWorkID != "" {
-					// Add issues directly to the focused work
-					m.selectedBeads = make(map[string]bool) // Clear selection after adding
-					return m, m.addBeadsToWork(beadsToAdd, m.focusedWorkID)
-				} else {
-					// Show work selection dialog
-					return m, m.loadAvailableWorks()
-				}
+				// Add issues directly to the focused work
+				m.selectedBeads = make(map[string]bool) // Clear selection after adding
+				return m, m.addBeadsToWork(beadsToAdd, m.focusedWorkID)
 			}
 		}
 		return m, nil
@@ -1379,17 +1353,6 @@ func (m *planModel) syncPanels() {
 		m.createWorkButtonIdx,
 	)
 	m.createWorkPanel.SetHoveredButton(m.hoveredDialogButton)
-
-	// Sync add to work panel
-	m.addToWorkPanel.SetSize(detailsWidth, m.height)
-	m.addToWorkPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewAddToWork)
-	m.addToWorkPanel.SetData(
-		m.beadItems,
-		m.beadsCursor,
-		m.selectedBeads,
-		m.availableWorks,
-		m.worksCursor,
-	)
 }
 
 // View implements tea.Model
@@ -1404,9 +1367,6 @@ func (m *planModel) View() string {
 		// Fall through to normal rendering
 	case ViewCreateWork:
 		// Create work now renders inline in the details panel
-		// Fall through to normal rendering
-	case ViewAddToWork:
-		// Add to work now renders inline in the details panel
 		// Fall through to normal rendering
 	case ViewBeadSearch:
 		// Inline search mode - render normal view with search bar in status area

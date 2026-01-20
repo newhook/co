@@ -192,36 +192,6 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 	}
 }
 
-// loadAvailableWorks loads the list of available works with root issue info
-func (m *planModel) loadAvailableWorks() tea.Cmd {
-	return func() tea.Msg {
-		// Empty string means no filter (all statuses)
-		works, err := m.proj.DB.ListWorks(m.ctx, "")
-		if err != nil {
-			return worksLoadedMsg{err: err}
-		}
-
-		var items []workItem
-		for _, w := range works {
-			// Show all works (users might want to add to completed works)
-			item := workItem{
-				id:          w.ID,
-				status:      w.Status,
-				branch:      w.BranchName,
-				rootIssueID: w.RootIssueID,
-			}
-			// Try to get the root issue title from beads cache
-			if w.RootIssueID != "" && m.proj.Beads != nil {
-				if bead, err := m.proj.Beads.GetBead(m.ctx, w.RootIssueID); err == nil {
-					item.rootIssueTitle = bead.Title
-				}
-			}
-			items = append(items, item)
-		}
-		return worksLoadedMsg{works: items}
-	}
-}
-
 // addBeadToWork adds a bead to an existing work
 func (m *planModel) addBeadToWork(beadID, workID string) tea.Cmd {
 	return func() tea.Msg {

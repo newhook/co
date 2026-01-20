@@ -144,7 +144,6 @@ const (
 	ViewCreateBeadInline // Create issue inline in description area
 	ViewCreateEpic
 	ViewAddChildBead // Add child issue to selected issue
-	ViewAddToWork    // Add issue to existing work
 	ViewEditBead     // Edit selected issue
 	ViewDestroyConfirm
 	ViewCloseBeadConfirm
