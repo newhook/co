@@ -68,257 +68,30 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 	}
 }
 
-// updateCreateWorkDialog handles input for the create work dialog
-func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
-		m.viewMode = ViewNormal
-		m.createWorkBranch.Blur()
-		return m, nil
-	}
-
-	// Tab cycles between branch(0), buttons(1)
-	if msg.Type == tea.KeyTab {
-		m.createWorkField = (m.createWorkField + 1) % 2
-		if m.createWorkField == 0 {
-			m.createWorkBranch.Focus()
-		} else {
-			m.createWorkBranch.Blur()
-		}
-		return m, nil
-	}
-
-	// Shift+Tab goes backwards
-	if msg.Type == tea.KeyShiftTab {
-		m.createWorkField = 1 - m.createWorkField
-		if m.createWorkField == 0 {
-			m.createWorkBranch.Focus()
-		} else {
-			m.createWorkBranch.Blur()
-		}
-		return m, nil
-	}
-
-	// Handle input based on focused field
-	var cmd tea.Cmd
-	switch m.createWorkField {
-	case 0: // Branch name input
-		m.createWorkBranch, cmd = m.createWorkBranch.Update(msg)
-	case 1: // Buttons
-		switch msg.String() {
-		case "k", "up":
-			m.createWorkButtonIdx--
-			if m.createWorkButtonIdx < 0 {
-				m.createWorkButtonIdx = 2
-			}
-		case "j", "down":
-			m.createWorkButtonIdx = (m.createWorkButtonIdx + 1) % 3
-		case "enter":
-			branchName := strings.TrimSpace(m.createWorkBranch.Value())
-			if branchName == "" {
-				m.statusMessage = "Branch name cannot be empty"
-				m.statusIsError = true
-				return m, nil
-			}
-			switch m.createWorkButtonIdx {
-			case 0: // Execute
-				m.viewMode = ViewNormal
-				// Clear selections after work creation
-				m.selectedBeads = make(map[string]bool)
-				return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, false)
-			case 1: // Auto
-				m.viewMode = ViewNormal
-				// Clear selections after work creation
-				m.selectedBeads = make(map[string]bool)
-				return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, true)
-			case 2: // Cancel
-				m.viewMode = ViewNormal
-				m.createWorkBranch.Blur()
-			}
-			return m, nil
-		}
-	}
-	return m, cmd
-}
-
-
-// renderCreateWorkInlineContent renders the work creation panel inline in the details area.
-// This function implements the button position tracking mechanism by:
-// 1. Clearing previous button positions at the start (m.dialogButtons = nil)
-// 2. Tracking the current line number as content is rendered
-// 3. Recording each button's position when it's drawn to the screen
-// 4. Storing positions relative to the content area for accurate mouse detection
-func (m *planModel) renderCreateWorkInlineContent(visibleLines int, width int) string {
-	var content strings.Builder
-
-	// Clear previous button positions to ensure we're tracking the current render state.
-	// This is critical for accuracy as button positions may change between renders
-	// due to content changes, terminal resizing, or scrolling.
-	m.dialogButtons = nil
-
-	// Track current line number (starting at 0, counting lines in the content area)
-	currentLine := 0
-
-	// Panel header
-	content.WriteString(tuiSuccessStyle.Render("Create Work"))
-	content.WriteString("\n\n")
-	currentLine += 2 // header + blank line
-
-	// Show bead info
-	var beadInfo string
-	if len(m.createWorkBeadIDs) == 1 {
-		beadInfo = fmt.Sprintf("Creating work from issue: %s", issueIDStyle.Render(m.createWorkBeadIDs[0]))
-	} else {
-		beadInfo = fmt.Sprintf("Creating work from %d issues", len(m.createWorkBeadIDs))
-		// List the first few IDs
-		content.WriteString(beadInfo)
-		content.WriteString("\n")
-		currentLine++ // bead info line
-		maxShow := 5
-		if len(m.createWorkBeadIDs) < maxShow {
-			maxShow = len(m.createWorkBeadIDs)
-		}
-		for i := 0; i < maxShow; i++ {
-			content.WriteString("  • " + issueIDStyle.Render(m.createWorkBeadIDs[i]))
-			content.WriteString("\n")
-			currentLine++ // each bead ID line
-		}
-		if len(m.createWorkBeadIDs) > maxShow {
-			content.WriteString(fmt.Sprintf("  ... and %d more", len(m.createWorkBeadIDs)-maxShow))
-			content.WriteString("\n")
-			currentLine++ // "... and N more" line
-		}
-		content.WriteString("\n")
-		currentLine++ // blank line
-	}
-
-	if len(m.createWorkBeadIDs) == 1 {
-		content.WriteString(beadInfo)
-		content.WriteString("\n\n")
-		currentLine += 2 // bead info + blank line
-	}
-
-	// Branch name input
-	branchLabel := "Branch name:"
-	if m.createWorkField == 0 {
-		branchLabel = tuiSuccessStyle.Render("Branch name:") + " " + tuiDimStyle.Render("(editing)")
-	} else {
-		branchLabel = tuiLabelStyle.Render("Branch name:")
-	}
-	content.WriteString(branchLabel)
-	content.WriteString("\n")
-	currentLine++ // branch label line
-	content.WriteString(m.createWorkBranch.View())
-	content.WriteString("\n\n")
-	currentLine += 2 // branch input + blank line
-
-	// Action buttons with better spacing
-	content.WriteString("Actions:\n")
-	currentLine++ // "Actions:" label
-
-	// Execute button
-	executeStyle := tuiDimStyle
-	executePrefix := "  "
-	if m.createWorkField == 1 && m.createWorkButtonIdx == 0 {
-		executeStyle = tuiSelectedStyle
-		executePrefix = "► "
-	} else if m.hoveredDialogButton == "execute" {
-		executeStyle = tuiSuccessStyle
-	}
-	// Track Execute button position for mouse click detection.
-	// The position is calculated dynamically based on the actual button text,
-	// which changes when selected (adds "► " prefix). This ensures accurate
-	// click detection regardless of the button's visual state.
-	executeButtonText := executePrefix + "Execute"
-	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
-		ID:     "execute",
-		Y:      currentLine,                // Y position relative to content area
-		StartX: 2,                           // Button always starts at column 2
-		EndX:   2 + len(executeButtonText), // End position based on actual text length
-	})
-	content.WriteString("  " + executeStyle.Render(executeButtonText))
-	content.WriteString(" - Create work and spawn orchestrator\n")
-	currentLine++
-
-	// Auto button
-	autoStyle := tuiDimStyle
-	autoPrefix := "  "
-	if m.createWorkField == 1 && m.createWorkButtonIdx == 1 {
-		autoStyle = tuiSelectedStyle
-		autoPrefix = "► "
-	} else if m.hoveredDialogButton == "auto" {
-		autoStyle = tuiSuccessStyle
-	}
-	// Track Auto button position
-	autoButtonText := autoPrefix + "Auto"
-	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
-		ID:     "auto",
-		Y:      currentLine,
-		StartX: 2,
-		EndX:   2 + len(autoButtonText), // Calculate based on actual text length
-	})
-	content.WriteString("  " + autoStyle.Render(autoButtonText))
-	content.WriteString(" - Create work with automated workflow\n")
-	currentLine++
-
-	// Cancel button
-	cancelStyle := tuiDimStyle
-	cancelPrefix := "  "
-	if m.createWorkField == 1 && m.createWorkButtonIdx == 2 {
-		cancelStyle = tuiSelectedStyle
-		cancelPrefix = "► "
-	} else if m.hoveredDialogButton == "cancel" {
-		cancelStyle = tuiSuccessStyle
-	}
-	// Track Cancel button position
-	cancelButtonText := cancelPrefix + "Cancel"
-	m.dialogButtons = append(m.dialogButtons, ButtonRegion{
-		ID:     "cancel",
-		Y:      currentLine,
-		StartX: 2,
-		EndX:   2 + len(cancelButtonText), // Calculate based on actual text length
-	})
-	content.WriteString("  " + cancelStyle.Render(cancelButtonText))
-	content.WriteString(" - Cancel work creation\n")
-	currentLine++
-
-	// Navigation help
-	content.WriteString("\n")
-	content.WriteString(tuiDimStyle.Render("Navigation: [Tab/Shift+Tab] Switch field  [↑↓/jk] Select button  [Enter] Confirm  [Esc] Cancel"))
-
-	return content.String()
-}
-
 // executeCreateWork creates a work unit with the given branch name.
 // This calls internal logic directly instead of shelling out to the CLI.
-func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto bool) tea.Cmd {
+func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
-		firstBeadID := beadIDs[0]
-
-		// Expand all beads (handles epics and transitive deps)
-		var allIssueIDs []string
-		for _, beadID := range beadIDs {
-			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
-			if err != nil {
-				return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
-			}
-			allIssueIDs = append(allIssueIDs, expandedIDs...)
+		// Expand the bead (handles epics and transitive deps)
+		allIssueIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
+		if err != nil {
+			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
 		}
 
 		if len(allIssueIDs) == 0 {
-			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("no beads found for %v", beadIDs)}
+			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("no beads found for %s", beadID)}
 		}
 
 		// Create work with branch name (silent to avoid console output in TUI)
-		// The first bead becomes the root issue ID
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", firstBeadID, WorkCreateOptions{Silent: true})
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", beadID, WorkCreateOptions{Silent: true})
 		if err != nil {
-			return planWorkCreatedMsg{beadID: firstBeadID, err: fmt.Errorf("failed to create work: %w", err)}
+			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
 
 		// Add beads to the work
 		if err := addBeadsToWork(m.ctx, m.proj, result.WorkID, allIssueIDs); err != nil {
 			// Work was created but beads couldn't be added - don't fail completely
-			return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
+			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
 		}
 
 		// Spawn the orchestrator for this work (or run automated workflow if auto)
@@ -331,54 +104,11 @@ func (m *planModel) executeCreateWork(beadIDs []string, branchName string, auto 
 			// Spawn the orchestrator
 			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
 				// Non-fatal: work was created but orchestrator failed to spawn
-				return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
+				return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
 			}
 		}
 
-		return planWorkCreatedMsg{beadID: firstBeadID, workID: result.WorkID}
-	}
-}
-
-// loadAvailableWorks loads the list of available works with root issue info
-func (m *planModel) loadAvailableWorks() tea.Cmd {
-	return func() tea.Msg {
-		// Empty string means no filter (all statuses)
-		works, err := m.proj.DB.ListWorks(m.ctx, "")
-		if err != nil {
-			return worksLoadedMsg{err: err}
-		}
-
-		var items []workItem
-		for _, w := range works {
-			// Show all works (users might want to add to completed works)
-			item := workItem{
-				id:          w.ID,
-				status:      w.Status,
-				branch:      w.BranchName,
-				rootIssueID: w.RootIssueID,
-			}
-			// Try to get the root issue title from beads cache
-			if w.RootIssueID != "" && m.proj.Beads != nil {
-				if bead, err := m.proj.Beads.GetBead(m.ctx, w.RootIssueID); err == nil {
-					item.rootIssueTitle = bead.Title
-				}
-			}
-			items = append(items, item)
-		}
-		return worksLoadedMsg{works: items}
-	}
-}
-
-// addBeadToWork adds a bead to an existing work
-func (m *planModel) addBeadToWork(beadID, workID string) tea.Cmd {
-	return func() tea.Msg {
-		// Use internal function instead of CLI
-		_, err := AddBeadsToWork(m.ctx, m.proj, workID, []string{beadID})
-		if err != nil {
-			return beadAddedToWorkMsg{beadID: beadID, workID: workID, err: fmt.Errorf("failed to add issue to work: %w", err)}
-		}
-
-		return beadAddedToWorkMsg{beadID: beadID, workID: workID}
+		return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}
 	}
 }
 
@@ -396,3 +126,202 @@ func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
 	}
 }
 
+// workTilesLoadedMsg indicates work tiles have been loaded for overlay
+type workTilesLoadedMsg struct {
+	works []*workProgress
+	err   error
+}
+
+// loadWorkTiles loads work data for the overlay display
+func (m *planModel) loadWorkTiles() tea.Cmd {
+	return func() tea.Msg {
+		works, err := fetchPollData(m.ctx, m.proj, "", "")
+		if err != nil {
+			return workTilesLoadedMsg{err: err}
+		}
+		return workTilesLoadedMsg{works: works}
+	}
+}
+
+// Helper functions for work commands
+
+// destroyWork destroys a work by ID
+func (m *planModel) destroyWork(workID string) tea.Cmd {
+	return func() tea.Msg {
+		if err := DestroyWork(m.ctx, m.proj, workID, io.Discard); err != nil {
+			return workCommandMsg{action: "Destroy work", workID: workID, err: err}
+		}
+		return workCommandMsg{action: "Destroy work", workID: workID}
+	}
+}
+
+// destroyFocusedWork destroys the currently focused work (used by confirmation dialog)
+func (m *planModel) destroyFocusedWork() tea.Cmd {
+	return m.destroyWork(m.focusedWorkID)
+}
+
+// planFocusedWork creates tasks for the currently focused work
+func (m *planModel) planFocusedWork(autoGroup bool) tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Use internal function instead of CLI
+		_, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Plan work", workID: workID, err: err}
+		}
+		return workCommandMsg{action: "Plan work", workID: workID}
+	}
+}
+
+// runWork runs a work by ID
+func (m *planModel) runWork(workID string) tea.Cmd {
+	return func() tea.Msg {
+		// Use internal function - this runs co run with the work ID
+		_, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Run work", workID: workID, err: err}
+		}
+		return workCommandMsg{action: "Run work", workID: workID}
+	}
+}
+
+// runFocusedWork runs the currently focused work
+func (m *planModel) runFocusedWork() tea.Cmd {
+	return m.runWork(m.focusedWorkID)
+}
+
+// createReviewTask creates a review task for the currently focused work
+func (m *planModel) createReviewTask() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Get work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+
+		// Get existing tasks to generate unique review ID
+		tasks, err := m.proj.DB.GetWorkTasks(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("failed to get work tasks: %w", err)}
+		}
+
+		// Count existing review tasks
+		reviewCount := 0
+		reviewPrefix := fmt.Sprintf("%s.review", workID)
+		for _, task := range tasks {
+			if strings.HasPrefix(task.ID, reviewPrefix) {
+				reviewCount++
+			}
+		}
+
+		// Generate unique review task ID
+		reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
+
+		// Create the review task
+		err = m.proj.DB.CreateTask(m.ctx, reviewTaskID, "review", []string{}, 0, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("failed to create review task: %w", err)}
+		}
+
+		return workCommandMsg{action: "Create review", workID: workID}
+	}
+}
+
+// createPRTask creates a PR task for the currently focused work
+func (m *planModel) createPRTask() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Get work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+
+		// Check if work is completed
+		if work.Status != db.StatusCompleted {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("work %s is not completed (status: %s)", workID, work.Status)}
+		}
+
+		// Check if PR already exists
+		if work.PRURL != "" {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("PR already exists: %s", work.PRURL)}
+		}
+
+		// Generate PR task ID
+		prTaskID := fmt.Sprintf("%s.pr", workID)
+
+		// Create the PR task
+		err = m.proj.DB.CreateTask(m.ctx, prTaskID, "pr", []string{}, 0, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("failed to create PR task: %w", err)}
+		}
+
+		return workCommandMsg{action: "Create PR", workID: workID}
+	}
+}
+
+// openConsole opens a terminal/console tab for the focused work
+func (m *planModel) openConsole() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Get work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Open console", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Open console", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+
+		err = claude.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Open console", workID: workID, err: err}
+		}
+
+		return workCommandMsg{action: "Open console", workID: workID}
+	}
+}
+
+// openClaude opens a Claude Code session tab for the focused work
+func (m *planModel) openClaude() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Get work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Open Claude", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Open Claude", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+
+		err = claude.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Open Claude", workID: workID, err: err}
+		}
+
+		return workCommandMsg{action: "Open Claude", workID: workID}
+	}
+}
+
+// truncateString truncates a string to the specified length
+func truncateString(s string, maxLen int) string {
+	// Handle negative maxLen values
+	if maxLen < 0 {
+		return ""
+	}
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}

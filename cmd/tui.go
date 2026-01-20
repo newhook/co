@@ -26,39 +26,47 @@ var (
 
 var tuiCmd = &cobra.Command{
 	Use:   "tui",
-	Short: "Interactive TUI for managing works and beads (lazygit-style)",
-	Long: `A full-featured interactive TUI for managing the Claude Orchestrator.
-
-Features a lazygit-style drill-down interface with 3 depth levels:
-  Depth 0: [Beads] | [Works] | [Work Details]
-  Depth 1: [Works] | [Tasks] | [Task Details]
-  Depth 2: [Tasks] | [Beads] | [Bead Details]
+	Short: "Interactive TUI for managing beads and works",
+	Long: `Interactive TUI for managing beads and works in Claude Orchestrator.
 
 Key bindings:
   Navigation:
-    h, ←        Move left / drill out from leftmost panel
-    l, →        Move right / drill in from middle panel
-    j/k, ↑/↓    Navigate list (syncs child panels when in left panel)
-    Tab, 1-3    Jump to panel at current depth
+    h, ←        Move left (navigate panels)
+    l, →        Move right (navigate panels)
+    j/k, ↑/↓    Navigate list items
+    Tab, 1-3    Jump to specific panel
 
-  Bead Management (at Beads panel, depth 0):
+  Bead Management:
     n           Create new bead
+    e           Create epic
     Space       Toggle selection (for multi-select)
+    Enter       Show bead details
+    x           Close selected bead
     b           Toggle between ready/all beads
-    A           Automated workflow (create + plan + run + review + PR)
+    /           Search beads
+    L           Filter by labels
+    d           Add dependency
+    D           Remove dependency
+    m           Move bead (change priority/status)
+    t           Edit title
+    T           Edit type
+    s           Toggle sync status
 
-  Work Management (at Works panel):
-    c           Create new work (opens branch name dialog)
-    d           Destroy selected work
+  Work Management:
+    W           Open work overlay
+    [f]         Toggle focus filter (when work focused)
+    A           Add issues to focused work
+    c           Create new work (in work overlay)
+    d           Destroy selected work (in work overlay)
     p           Plan work (create tasks from beads)
     r           Run work (execute pending tasks)
-    a           Assign beads to selected work
     R           Create review task for work
     P           Create PR task for work
 
   Other:
     ?           Show help
-    q           Quit`,
+    q           Quit
+    F5          Manual feedback polling (when PR exists)`,
 	Args: cobra.NoArgs,
 	RunE: runTUI,
 }
@@ -261,16 +269,15 @@ func fetchBeadsWithFilters(ctx context.Context, beadsClient *beads.Client, mainR
 			}
 		}
 
+		beadWithDeps := depsResult.GetBead(issue.ID)
+		if beadWithDeps == nil {
+			// Fallback: create BeadWithDeps from the issue
+			bead := issue
+			beadWithDeps = &beads.BeadWithDeps{Bead: &bead}
+		}
 		items = append(items, beadItem{
-			id:              issue.ID,
-			title:           issue.Title,
-			status:          issue.Status,
-			priority:        int(issue.Priority),
-			beadType:        issue.Type,
-			description:     issue.Description,
-			isReady:         readySet[issue.ID],
-			dependencyCount: len(depsResult.Dependencies[issue.ID]),
-			dependentCount:  len(depsResult.Dependents[issue.ID]),
+			BeadWithDeps: beadWithDeps,
+			isReady:      readySet[issue.ID],
 		})
 	}
 
@@ -309,16 +316,15 @@ func fetchReadyBeads(ctx context.Context, beadsClient *beads.Client, filters bea
 			}
 		}
 
+		beadWithDeps := depsResult.GetBead(issue.ID)
+		if beadWithDeps == nil {
+			// Fallback: create BeadWithDeps from the issue
+			bead := issue
+			beadWithDeps = &beads.BeadWithDeps{Bead: &bead}
+		}
 		items = append(items, beadItem{
-			id:              issue.ID,
-			title:           issue.Title,
-			description:     issue.Description,
-			status:          issue.Status,
-			priority:        int(issue.Priority),
-			beadType:        issue.Type,
-			isReady:         true,
-			dependencyCount: len(depsResult.Dependencies[issue.ID]),
-			dependentCount:  len(depsResult.Dependents[issue.ID]),
+			BeadWithDeps: beadWithDeps,
+			isReady:      true,
 		})
 	}
 
@@ -332,20 +338,20 @@ func sortBeadItems(items []beadItem, sortBy string) []beadItem {
 	switch sortBy {
 	case "priority":
 		sort.Slice(items, func(i, j int) bool {
-			return items[i].priority < items[j].priority
+			return items[i].Priority < items[j].Priority
 		})
 	case "title":
 		sort.Slice(items, func(i, j int) bool {
-			return items[i].title < items[j].title
+			return items[i].Title < items[j].Title
 		})
 	case "triage":
 		// Triage sort: priority first, then by type (bug > task > feature)
 		sort.Slice(items, func(i, j int) bool {
-			if items[i].priority != items[j].priority {
-				return items[i].priority < items[j].priority
+			if items[i].Priority != items[j].Priority {
+				return items[i].Priority < items[j].Priority
 			}
 			typeOrder := map[string]int{"bug": 0, "task": 1, "feature": 2}
-			return typeOrder[items[i].beadType] < typeOrder[items[j].beadType]
+			return typeOrder[items[i].Type] < typeOrder[items[j].Type]
 		})
 	}
 	return items
@@ -397,7 +403,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.beads != nil {
 			// Preserve selection state
 			for i := range msg.beads {
-				if m.selectedBeads[msg.beads[i].id] {
+				if m.selectedBeads[msg.beads[i].ID] {
 					msg.beads[i].selected = true
 				}
 			}
@@ -584,9 +590,9 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			bead := &m.beadItems[m.beadsCursor]
 			bead.selected = !bead.selected
 			if bead.selected {
-				m.selectedBeads[bead.id] = true
+				m.selectedBeads[bead.ID] = true
 			} else {
-				delete(m.selectedBeads, bead.id)
+				delete(m.selectedBeads, bead.ID)
 			}
 		}
 		return m, nil
@@ -595,7 +601,7 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		if m.isBeadsPanelActive() && len(m.beadItems) > 0 {
 			bead := m.beadItems[m.beadsCursor]
-			if bead.status == "open" {
+			if bead.Status == "open" {
 				m.viewMode = ViewCloseBeadConfirm
 			}
 		}
@@ -605,8 +611,8 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "X":
 		if m.isBeadsPanelActive() && len(m.beadItems) > 0 {
 			bead := m.beadItems[m.beadsCursor]
-			if bead.status == "closed" {
-				return m, m.reopenBead(bead.id)
+			if bead.Status == "closed" {
+				return m, m.reopenBead(bead.ID)
 			}
 		}
 		return m, nil
@@ -922,9 +928,9 @@ func (m tuiModel) updateAssignBeads(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			bead := &m.beadItems[m.beadsCursor]
 			bead.selected = !bead.selected
 			if bead.selected {
-				m.selectedBeads[bead.id] = true
+				m.selectedBeads[bead.ID] = true
 			} else {
-				delete(m.selectedBeads, bead.id)
+				delete(m.selectedBeads, bead.ID)
 			}
 		}
 		return m, nil
@@ -1013,7 +1019,7 @@ func (m tuiModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			beadID := m.beadItems[m.beadsCursor].id
+			beadID := m.beadItems[m.beadsCursor].ID
 			m.viewMode = ViewNormal
 			return m, m.closeBead(beadID)
 		}
@@ -1509,7 +1515,7 @@ func (m tuiModel) renderBeadsPanelAt(width, height int, position Panel) string {
 			var line string
 			if m.beadsExpanded {
 				// Expanded view: icon id [type] Pn - title
-				typeStr := bead.beadType
+				typeStr := bead.Type
 				if typeStr == "" {
 					typeStr = "task"
 				}
@@ -1517,11 +1523,11 @@ func (m tuiModel) renderBeadsPanelAt(width, height int, position Panel) string {
 				if typeStr == "feature" {
 					typeStr = "feat"
 				}
-				line = fmt.Sprintf("%s %s [%s] P%d", icon, bead.id, typeStr, bead.priority)
+				line = fmt.Sprintf("%s %s [%s] P%d", icon, bead.ID, typeStr, bead.Priority)
 				// Add title if space allows
 				maxTitleLen := width - len(line) - 5
-				if maxTitleLen > 10 && bead.title != "" {
-					titlePart := bead.title
+				if maxTitleLen > 10 && bead.Title != "" {
+					titlePart := bead.Title
 					if len(titlePart) > maxTitleLen {
 						titlePart = titlePart[:maxTitleLen-3] + "..."
 					}
@@ -1529,7 +1535,7 @@ func (m tuiModel) renderBeadsPanelAt(width, height int, position Panel) string {
 				}
 			} else {
 				// Compact view: icon id
-				line = fmt.Sprintf("%s %s", icon, bead.id)
+				line = fmt.Sprintf("%s %s", icon, bead.ID)
 			}
 
 			if isSelected {
@@ -1621,29 +1627,29 @@ func (m tuiModel) renderBeadItemDetails(bead beadItem, width int) string {
 	var b strings.Builder
 
 	b.WriteString(tuiLabelStyle.Render("Bead: "))
-	b.WriteString(tuiValueStyle.Render(bead.id))
+	b.WriteString(tuiValueStyle.Render(bead.ID))
 	b.WriteString("\n")
 
 	b.WriteString(tuiLabelStyle.Render("Title: "))
-	b.WriteString(tuiValueStyle.Render(bead.title))
+	b.WriteString(tuiValueStyle.Render(bead.Title))
 	b.WriteString("\n")
 
-	if bead.beadType != "" {
+	if bead.Type != "" {
 		b.WriteString(tuiLabelStyle.Render("Type: "))
-		b.WriteString(tuiValueStyle.Render(bead.beadType))
+		b.WriteString(tuiValueStyle.Render(bead.Type))
 		b.WriteString("\n")
 	}
 
 	b.WriteString(tuiLabelStyle.Render("Status: "))
-	if bead.status == "open" {
-		b.WriteString(statusProcessing.Render(bead.status))
+	if bead.Status == "open" {
+		b.WriteString(statusProcessing.Render(bead.Status))
 	} else {
-		b.WriteString(statusCompleted.Render(bead.status))
+		b.WriteString(statusCompleted.Render(bead.Status))
 	}
 	b.WriteString("\n")
 
 	b.WriteString(tuiLabelStyle.Render("Priority: "))
-	b.WriteString(tuiValueStyle.Render(fmt.Sprintf("P%d", bead.priority)))
+	b.WriteString(tuiValueStyle.Render(fmt.Sprintf("P%d", bead.Priority)))
 	b.WriteString("\n")
 
 	b.WriteString(tuiLabelStyle.Render("Ready: "))
@@ -1654,12 +1660,12 @@ func (m tuiModel) renderBeadItemDetails(bead beadItem, width int) string {
 	}
 	b.WriteString("\n")
 
-	if bead.description != "" {
+	if bead.Description != "" {
 		b.WriteString("\n")
 		b.WriteString(tuiLabelStyle.Render("Description:"))
 		b.WriteString("\n")
 		// Word-wrap description
-		desc := bead.description
+		desc := bead.Description
 		if len(desc) > width*5 {
 			desc = desc[:width*5-3] + "..."
 		}

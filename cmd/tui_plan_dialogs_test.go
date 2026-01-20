@@ -11,20 +11,20 @@ import (
 // TestMultiSelectionCloseConfirmation tests the close confirmation dialog with multiple selected beads
 func TestMultiSelectionCloseConfirmation(t *testing.T) {
 	tests := []struct {
-		name           string
-		beadItems      []beadItem
-		selectedBeads  map[string]bool
-		cursorIndex    int
-		expectedCount  int // Expected number of beads to be closed
+		name             string
+		beadItems        []beadItem
+		selectedBeads    map[string]bool
+		cursorIndex      int
+		expectedCount    int  // Expected number of beads to be closed
 		expectedInDialog bool // Whether beads should appear in dialog
-		description    string
+		description      string
 	}{
 		{
 			name: "Multiple selected beads",
 			beadItems: []beadItem{
-				{id: "bead-1", title: "First task", status: "open"},
-				{id: "bead-2", title: "Second task", status: "open"},
-				{id: "bead-3", title: "Third task", status: "open"},
+				testBeadItem("bead-1", "First task", "open", 2, "task"),
+				testBeadItem("bead-2", "Second task", "open", 2, "task"),
+				testBeadItem("bead-3", "Third task", "open", 2, "task"),
 			},
 			selectedBeads: map[string]bool{
 				"bead-1": true,
@@ -38,8 +38,8 @@ func TestMultiSelectionCloseConfirmation(t *testing.T) {
 		{
 			name: "No selected beads - uses cursor",
 			beadItems: []beadItem{
-				{id: "bead-1", title: "First task", status: "open"},
-				{id: "bead-2", title: "Second task", status: "open"},
+				testBeadItem("bead-1", "First task", "open", 2, "task"),
+				testBeadItem("bead-2", "Second task", "open", 2, "task"),
 			},
 			selectedBeads:    map[string]bool{},
 			cursorIndex:      1,
@@ -50,9 +50,9 @@ func TestMultiSelectionCloseConfirmation(t *testing.T) {
 		{
 			name: "All beads selected",
 			beadItems: []beadItem{
-				{id: "bead-1", title: "First task", status: "open"},
-				{id: "bead-2", title: "Second task", status: "open"},
-				{id: "bead-3", title: "Third task", status: "open"},
+				testBeadItem("bead-1", "First task", "open", 2, "task"),
+				testBeadItem("bead-2", "Second task", "open", 2, "task"),
+				testBeadItem("bead-3", "Third task", "open", 2, "task"),
 			},
 			selectedBeads: map[string]bool{
 				"bead-1": true,
@@ -67,13 +67,13 @@ func TestMultiSelectionCloseConfirmation(t *testing.T) {
 		{
 			name: "More than 5 beads selected",
 			beadItems: []beadItem{
-				{id: "bead-1", title: "Task 1", status: "open"},
-				{id: "bead-2", title: "Task 2", status: "open"},
-				{id: "bead-3", title: "Task 3", status: "open"},
-				{id: "bead-4", title: "Task 4", status: "open"},
-				{id: "bead-5", title: "Task 5", status: "open"},
-				{id: "bead-6", title: "Task 6", status: "open"},
-				{id: "bead-7", title: "Task 7", status: "open"},
+				testBeadItem("bead-1", "Task 1", "open", 2, "task"),
+				testBeadItem("bead-2", "Task 2", "open", 2, "task"),
+				testBeadItem("bead-3", "Task 3", "open", 2, "task"),
+				testBeadItem("bead-4", "Task 4", "open", 2, "task"),
+				testBeadItem("bead-5", "Task 5", "open", 2, "task"),
+				testBeadItem("bead-6", "Task 6", "open", 2, "task"),
+				testBeadItem("bead-7", "Task 7", "open", 2, "task"),
 			},
 			selectedBeads: map[string]bool{
 				"bead-1": true,
@@ -122,12 +122,12 @@ func TestMultiSelectionCloseConfirmation(t *testing.T) {
 				selectedCount := 0
 				shownCount := 0
 				for _, item := range tt.beadItems {
-					if tt.selectedBeads[item.id] {
+					if tt.selectedBeads[item.ID] {
 						selectedCount++
 						// Only first 5 beads should be shown
 						if shownCount < 5 {
-							if !strings.Contains(dialogContent, item.id) {
-								t.Errorf("%s: Expected bead ID '%s' to appear in dialog (one of first 5)", tt.description, item.id)
+							if !strings.Contains(dialogContent, item.ID) {
+								t.Errorf("%s: Expected bead ID '%s' to appear in dialog (one of first 5)", tt.description, item.ID)
 							}
 							shownCount++
 						}
@@ -151,11 +151,11 @@ func TestMultiSelectionCloseConfirmation(t *testing.T) {
 // TestUpdateCloseBeadConfirm tests the keyboard handling for close confirmation
 func TestUpdateCloseBeadConfirm(t *testing.T) {
 	tests := []struct {
-		name           string
-		key            string
-		shouldClose    bool
-		shouldCancel   bool
-		description    string
+		name         string
+		key          string
+		shouldClose  bool
+		shouldCancel bool
+		description  string
 	}{
 		{
 			name:         "Confirm with 'y'",
@@ -199,8 +199,8 @@ func TestUpdateCloseBeadConfirm(t *testing.T) {
 			// Create a mock planModel with selected beads
 			m := &planModel{
 				beadItems: []beadItem{
-					{id: "bead-1", title: "Task 1", status: "open"},
-					{id: "bead-2", title: "Task 2", status: "open"},
+					testBeadItem("bead-1", "Task 1", "open", 2, "task"),
+					testBeadItem("bead-2", "Task 2", "open", 2, "task"),
 				},
 				selectedBeads: map[string]bool{
 					"bead-1": true,
@@ -240,18 +240,18 @@ func TestUpdateCloseBeadConfirm(t *testing.T) {
 // TestCloseKeyHandlerWithSelection tests 'x' key handler with multi-selection
 func TestCloseKeyHandlerWithSelection(t *testing.T) {
 	tests := []struct {
-		name                string
-		beadItems           []beadItem
-		selectedBeads       map[string]bool
-		cursorIndex         int
-		shouldShowDialog    bool
-		description         string
+		name             string
+		beadItems        []beadItem
+		selectedBeads    map[string]bool
+		cursorIndex      int
+		shouldShowDialog bool
+		description      string
 	}{
 		{
 			name: "With selected beads",
 			beadItems: []beadItem{
-				{id: "bead-1", title: "Task 1", status: "open"},
-				{id: "bead-2", title: "Task 2", status: "open"},
+				testBeadItem("bead-1", "Task 1", "open", 2, "task"),
+				testBeadItem("bead-2", "Task 2", "open", 2, "task"),
 			},
 			selectedBeads: map[string]bool{
 				"bead-1": true,
@@ -263,7 +263,7 @@ func TestCloseKeyHandlerWithSelection(t *testing.T) {
 		{
 			name: "Without selected beads but with cursor",
 			beadItems: []beadItem{
-				{id: "bead-1", title: "Task 1", status: "open"},
+				testBeadItem("bead-1", "Task 1", "open", 2, "task"),
 			},
 			selectedBeads:    map[string]bool{},
 			cursorIndex:      0,
@@ -295,7 +295,7 @@ func TestCloseKeyHandlerWithSelection(t *testing.T) {
 			if len(m.beadItems) > 0 {
 				hasSelection := false
 				for _, item := range m.beadItems {
-					if m.selectedBeads[item.id] {
+					if m.selectedBeads[item.ID] {
 						hasSelection = true
 						break
 					}
@@ -345,15 +345,15 @@ func TestBatchCloseFunction(t *testing.T) {
 // TestCloseConfirmationEdgeCases tests edge cases for close confirmation
 func TestCloseConfirmationEdgeCases(t *testing.T) {
 	tests := []struct {
-		name          string
-		setup         func() *planModel
+		name             string
+		setup            func() *planModel
 		expectedBehavior string
 	}{
 		{
 			name: "Empty selection and invalid cursor",
 			setup: func() *planModel {
 				return &planModel{
-					beadItems:     []beadItem{{id: "bead-1", title: "Task", status: "open"}},
+					beadItems:     []beadItem{testBeadItem("bead-1", "Task", "open", 2, "task")},
 					selectedBeads: map[string]bool{},
 					beadsCursor:   10, // Invalid cursor position
 					viewMode:      ViewCloseBeadConfirm,
@@ -366,8 +366,8 @@ func TestCloseConfirmationEdgeCases(t *testing.T) {
 			setup: func() *planModel {
 				return &planModel{
 					beadItems: []beadItem{
-						{id: "bead-1", title: "Task 1", status: "closed"},
-						{id: "bead-2", title: "Task 2", status: "open"},
+						testBeadItem("bead-1", "Task 1", "closed", 2, "task"),
+						testBeadItem("bead-2", "Task 2", "open", 2, "task"),
 					},
 					selectedBeads: map[string]bool{
 						"bead-1": true, // Already closed
@@ -382,11 +382,11 @@ func TestCloseConfirmationEdgeCases(t *testing.T) {
 		{
 			name: "Mixed assigned and unassigned beads",
 			setup: func() *planModel {
+				item1 := testBeadItem("bead-1", "Task 1", "open", 2, "task")
+				item1.assignedWorkID = "w-123"
+				item2 := testBeadItem("bead-2", "Task 2", "open", 2, "task")
 				return &planModel{
-					beadItems: []beadItem{
-						{id: "bead-1", title: "Task 1", status: "open", assignedWorkID: "w-123"},
-						{id: "bead-2", title: "Task 2", status: "open", assignedWorkID: ""},
-					},
+					beadItems: []beadItem{item1, item2},
 					selectedBeads: map[string]bool{
 						"bead-1": true, // Already assigned to work
 						"bead-2": true,

@@ -49,8 +49,15 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error) {
 	mainRepoPath := m.proj.MainRepoPath()
 
+	// If work selection filter is active, fetch all beads (both open and closed)
+	// so we can show the complete view of selected task/work
+	effectiveFilters := filters
+	if len(filters.workSelectionBeadIDs) > 0 {
+		effectiveFilters.status = "" // Fetch all statuses
+	}
+
 	// Use the shared fetchBeadsWithFilters function
-	items, err := fetchBeadsWithFilters(m.ctx, m.proj.Beads, mainRepoPath, filters)
+	items, err := fetchBeadsWithFilters(m.ctx, m.proj.Beads, mainRepoPath, effectiveFilters)
 	if err != nil {
 		return nil, err
 	}
@@ -59,10 +66,32 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	assignedBeads, err := m.proj.DB.GetAllAssignedBeads(m.ctx)
 	if err == nil {
 		for i := range items {
-			if workID, ok := assignedBeads[items[i].id]; ok {
+			if workID, ok := assignedBeads[items[i].ID]; ok {
 				items[i].assignedWorkID = workID
 			}
 		}
+	}
+
+	// Apply work selection filter if set (takes precedence over focus filter)
+	// This filters to show only beads from the selected task or root issue
+	if len(filters.workSelectionBeadIDs) > 0 {
+		var filteredItems []beadItem
+		for _, item := range items {
+			if filters.workSelectionBeadIDs[item.ID] {
+				filteredItems = append(filteredItems, item)
+			}
+		}
+		items = filteredItems
+	} else if m.focusFilterActive && m.focusedWorkID != "" {
+		// Apply focus filter if active (only when work selection filter is not set)
+		var filteredItems []beadItem
+		for _, item := range items {
+			// Include only items assigned to the focused work
+			if item.assignedWorkID == m.focusedWorkID {
+				filteredItems = append(filteredItems, item)
+			}
+		}
+		items = filteredItems
 	}
 
 	// Build tree structure from dependencies
@@ -71,7 +100,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	// If no tree structure, apply regular sorting
 	hasTree := false
 	for _, item := range items {
-		if item.treeDepth > 0 || item.dependentCount > 0 {
+		if item.treeDepth > 0 || len(item.Dependents) > 0 {
 			hasTree = true
 			break
 		}
@@ -82,11 +111,11 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 		switch filters.sortBy {
 		case "priority":
 			sort.Slice(items, func(i, j int) bool {
-				return items[i].priority < items[j].priority
+				return items[i].Priority < items[j].Priority
 			})
 		case "title":
 			sort.Slice(items, func(i, j int) bool {
-				return items[i].title < items[j].title
+				return items[i].Title < items[j].Title
 			})
 		}
 	}
@@ -240,12 +269,13 @@ func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 			return linearImportCompleteMsg{err: fmt.Errorf("failed to create Linear fetcher: %w", err)}
 		}
 
-		// Prepare import options
+		// Prepare import options from panel
+		formResult := m.linearImportPanel.GetResult()
 		opts := &linear.ImportOptions{
-			DryRun:         m.linearImportDryRun,
-			UpdateExisting: m.linearImportUpdate,
-			CreateDeps:     m.linearImportCreateDeps,
-			MaxDepDepth:    m.linearImportMaxDepth,
+			DryRun:         formResult.DryRun,
+			UpdateExisting: formResult.Update,
+			CreateDeps:     formResult.CreateDeps,
+			MaxDepDepth:    formResult.MaxDepth,
 		}
 
 		// Parse newline-delimited input

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -50,6 +49,16 @@ type planModel struct {
 	width  int
 	height int
 
+	// Panels (self-contained rendering components)
+	statusBar         *StatusBar
+	issuesPanel       *IssuesPanel
+	detailsPanel      *IssueDetailsPanel
+	workOverlay       *WorkOverlayPanel
+	workDetails       *WorkDetailsPanel
+	linearImportPanel *LinearImportPanel
+	beadFormPanel   *BeadFormPanel
+	createWorkPanel *CreateWorkPanel
+
 	// Panel state
 	activePanel Panel
 	beadsCursor int
@@ -62,32 +71,14 @@ type planModel struct {
 	// UI state
 	viewMode      ViewMode
 	spinner       spinner.Model
-	textInput     textinput.Model
+	textInput     textinput.Model // Used for search and label filter dialogs
 	statusMessage string
 	statusIsError bool
 	lastUpdate    time.Time
 
-	// Create bead state
-	createBeadType     int            // 0=task, 1=bug, 2=feature
-	createBeadPriority int            // 0-4, default 2
-	createDialogFocus  int            // 0=title, 1=type, 2=priority, 3=description
-	createDescTextarea textarea.Model // Textarea for description
-
-	// Add child bead state
-	parentBeadID string // ID of parent when adding child
-
-	// Edit bead state (editBeadID is set when editing, uses shared form fields)
-	editBeadID string // ID of bead being edited
-
-	// Create work dialog state
-	createWorkBeadIDs   []string        // Bead IDs for work creation (supports multi-select)
-	createWorkBranch    textinput.Model // Editable branch name
-	createWorkField     int             // 0=branch, 1=buttons
-	createWorkButtonIdx int             // 0=Execute, 1=Auto, 2=Cancel
-
-	// Add to work state
-	availableWorks []workItem // List of works to choose from
-	worksCursor    int        // Cursor position in works list
+	// Work overlay state
+	focusedWorkID     string // ID of focused work (splits screen)
+	focusFilterActive bool   // Whether focus filter is active
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -120,15 +111,6 @@ type planModel struct {
 	// See ButtonRegion struct for details on the tracking lifecycle.
 	dialogButtons []ButtonRegion // Tracked button positions for current dialog
 
-	// Linear import state
-	linearImportInput      textarea.Model  // Input for Linear issue IDs/URLs (multi-line)
-	linearImportCreateDeps bool            // Whether to create dependencies
-	linearImportUpdate     bool            // Whether to update existing beads
-	linearImportDryRun     bool            // Dry run mode
-	linearImportMaxDepth   int             // Max dependency depth
-	linearImportFocus      int             // 0=input, 1=createDeps, 2=update, 3=dryRun, 4=maxDepth
-	linearImporting        bool            // Whether import is in progress
-
 	// Database watcher for cache invalidation
 	beadsWatcher *watcher.Watcher
 
@@ -143,26 +125,9 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 
 	ti := textinput.New()
-	ti.Placeholder = "Enter title..."
+	ti.Placeholder = "Search..."
 	ti.CharLimit = 100
 	ti.Width = 40
-
-	createDescTa := textarea.New()
-	createDescTa.Placeholder = "Enter description (optional)..."
-	createDescTa.CharLimit = 2000
-	createDescTa.SetWidth(60)
-	createDescTa.SetHeight(4)
-
-	branchInput := textinput.New()
-	branchInput.Placeholder = "Branch name..."
-	branchInput.CharLimit = 100
-	branchInput.Width = 60
-
-	linearInput := textarea.New()
-	linearInput.Placeholder = "Enter Linear issue IDs or URLs (one per line)..."
-	linearInput.CharLimit = 2000
-	linearInput.SetWidth(60)
-	linearInput.SetHeight(4)
 
 	// Initialize beads database watcher
 	beadsDBPath := filepath.Join(proj.Root, "main", ".beads", "beads.db")
@@ -179,31 +144,47 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		}
 	}
 
-	return &planModel{
-		createDescTextarea:   createDescTa,
-		createWorkBranch:     branchInput,
-		linearImportInput:    linearInput,
-		linearImportMaxDepth: 2, // Default max depth
-		ctx:                  ctx,
-		proj:                 proj,
-		width:                80,
-		height:               24,
-		activePanel:          PanelLeft,
-		spinner:              s,
-		textInput:            ti,
-		activeBeadSessions:   make(map[string]bool),
-		selectedBeads:        make(map[string]bool),
-		newBeads:             make(map[string]time.Time),
-		createBeadPriority:   2,
-		zj:                   zellij.New(),
-		columnRatio:  0.4, // Default 40/60 split (issues/details)
-		hoveredIssue: -1,  // No issue hovered initially
-		beadsWatcher: beadsWatcher,
+	m := &planModel{
+		ctx:                ctx,
+		proj:               proj,
+		width:              80,
+		height:             24,
+		activePanel:        PanelLeft,
+		spinner:            s,
+		textInput:          ti,
+		activeBeadSessions: make(map[string]bool),
+		selectedBeads:      make(map[string]bool),
+		newBeads:           make(map[string]time.Time),
+		zj:                 zellij.New(),
+		columnRatio:        0.4, // Default 40/60 split (issues/details)
+		hoveredIssue:       -1,  // No issue hovered initially
+		beadsWatcher:       beadsWatcher,
 		filters: beadFilters{
 			status: "open",
 			sortBy: "default",
 		},
 	}
+
+	// Initialize panels
+	m.statusBar = NewStatusBar()
+	m.issuesPanel = NewIssuesPanel()
+	m.detailsPanel = NewIssueDetailsPanel()
+	m.workOverlay = NewWorkOverlayPanel()
+	m.workDetails = NewWorkDetailsPanel()
+	m.linearImportPanel = NewLinearImportPanel()
+	m.beadFormPanel = NewBeadFormPanel()
+	m.createWorkPanel = NewCreateWorkPanel()
+
+	// Set up status bar data providers
+	m.statusBar.SetDataProviders(
+		func() []beadItem { return m.beadItems },
+		func() int { return m.beadsCursor },
+		func() map[string]bool { return m.activeBeadSessions },
+		func() ViewMode { return m.viewMode },
+		func() string { return m.textInput.View() },
+	)
+
+	return m
 }
 
 // SetSize implements SubModel
@@ -217,7 +198,12 @@ func (m *planModel) FocusChanged(focused bool) tea.Cmd {
 	if focused {
 		// Refresh data when gaining focus
 		m.loading = true
-		return tea.Batch(m.refreshData(), m.startPeriodicRefresh())
+		cmds := []tea.Cmd{m.refreshData(), m.startPeriodicRefresh()}
+		// Load work tiles if a work is focused
+		if m.focusedWorkID != "" {
+			cmds = append(cmds, m.loadWorkTiles())
+		}
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
@@ -303,6 +289,16 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.hoveredDialogButton = m.detectDialogButton(msg.X, msg.Y)
 				if m.hoveredDialogButton != "" {
 					m.hoveredIssue = -1
+				} else if m.viewMode == ViewWorkOverlay {
+					// When work overlay is open, only detect issues if mouse is below overlay
+					overlayHeight := m.calculateWorkOverlayHeight()
+					if msg.Y < overlayHeight {
+						// Mouse is within overlay area - no issue hover
+						m.hoveredIssue = -1
+					} else {
+						// Mouse is below overlay - detect issues with offset
+						m.hoveredIssue = m.detectHoveredIssueWithOffset(msg.Y, overlayHeight)
+					}
 				} else {
 					// Detect hover over issue lines
 					m.hoveredIssue = m.detectHoveredIssue(msg.Y)
@@ -339,63 +335,111 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Handle different dialog types
 					if m.viewMode == ViewLinearImportInline {
 						// Submit Linear import
-						issueIDs := strings.TrimSpace(m.linearImportInput.Value())
-						if issueIDs != "" {
+						result := m.linearImportPanel.GetResult()
+						if result.IssueIDs != "" {
 							m.viewMode = ViewNormal
-							m.linearImporting = true
-							return m, m.importLinearIssue(issueIDs)
+							m.linearImportPanel.SetImporting(true)
+							return m, m.importLinearIssue(result.IssueIDs)
 						}
 						return m, nil
 					} else {
-						// Submit bead form
-						return m.submitBeadForm()
+						// Submit bead form - inline the logic
+						result := m.beadFormPanel.GetResult()
+						if result.Title == "" {
+							return m, nil
+						}
+						m.viewMode = ViewNormal
+						m.beadFormPanel.Blur()
+
+						// Determine mode and call appropriate action
+						if result.EditBeadID != "" {
+							// Edit mode
+							return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
+						}
+
+						// Create or add-child mode
+						isEpic := result.BeadType == "epic"
+						return m, m.createBead(result.Title, result.BeadType, result.Priority, isEpic, result.Description, result.ParentID)
 					}
 				} else if clickedDialogButton == "cancel" {
 					// Cancel the form
 					if m.viewMode == ViewLinearImportInline {
-						m.linearImportInput.Blur()
+						m.linearImportPanel.Blur()
 					} else if m.viewMode == ViewCreateWork {
-						m.createWorkBranch.Blur()
+						m.createWorkPanel.Blur()
 					} else {
-						m.textInput.Blur()
-						m.createDescTextarea.Blur()
-						m.editBeadID = ""
-						m.parentBeadID = ""
+						m.beadFormPanel.Blur()
 					}
 					m.viewMode = ViewNormal
 					return m, nil
 				} else if clickedDialogButton == "execute" {
 					// Handle execute button for work creation
 					if m.viewMode == ViewCreateWork {
-						branchName := strings.TrimSpace(m.createWorkBranch.Value())
-						if branchName == "" {
+						result := m.createWorkPanel.GetResult()
+						if result.BranchName == "" {
 							m.statusMessage = "Branch name cannot be empty"
 							m.statusIsError = true
 							return m, nil
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, false)
+						return m, m.executeCreateWork(result.BeadID, result.BranchName, false)
 					}
 				} else if clickedDialogButton == "auto" {
 					// Handle auto button for work creation
 					if m.viewMode == ViewCreateWork {
-						branchName := strings.TrimSpace(m.createWorkBranch.Value())
-						if branchName == "" {
+						result := m.createWorkPanel.GetResult()
+						if result.BranchName == "" {
 							m.statusMessage = "Branch name cannot be empty"
 							m.statusIsError = true
 							return m, nil
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, true)
+						return m, m.executeCreateWork(result.BeadID, result.BranchName, true)
 					}
 				}
 
-				// Check if clicking on an issue
-				clickedIssue := m.detectHoveredIssue(msg.Y)
-				if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
-					m.beadsCursor = clickedIssue
+				// Handle panel clicking in focused work mode
+				if m.focusedWorkID != "" {
+					clickedPanel := m.detectClickedPanel(msg.X, msg.Y)
+					switch clickedPanel {
+					case "work-left":
+						// Check if clicking on a task or root issue
+						clickedItem := m.workDetails.DetectClickedItem(msg.X, msg.Y)
+						if clickedItem >= 0 {
+							m.workDetails.SetSelectedIndex(clickedItem)
+							m.activePanel = PanelWorkDetails
+							// Update filter to show beads for clicked item
+							return m, m.updateWorkSelectionFilter()
+						}
+						m.activePanel = PanelWorkDetails
+						return m, nil
+					case "work-right":
+						m.activePanel = PanelWorkDetails
+						return m, nil
+					case "issues-left":
+						// Check if clicking on an issue
+						clickedIssue := m.detectHoveredIssue(msg.Y)
+						if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
+							m.beadsCursor = clickedIssue
+						}
+						m.activePanel = PanelLeft
+						return m, nil
+					case "issues-right":
+						m.activePanel = PanelRight
+						return m, nil
+					}
+				} else {
+					// Normal mode - just check for issue clicks
+					clickedIssue := m.detectHoveredIssue(msg.Y)
+					if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
+						m.beadsCursor = clickedIssue
+						m.activePanel = PanelLeft
+					} else if msg.X > m.width/2 {
+						// Clicked on right side - switch to details panel
+						m.activePanel = PanelRight
+					}
 				}
 			}
 		}
@@ -414,13 +458,13 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.beadItems) > 0 {
 			existingIDs := make(map[string]bool)
 			for _, bead := range m.beadItems {
-				existingIDs[bead.id] = true
+				existingIDs[bead.ID] = true
 			}
 			for _, bead := range msg.beads {
 				// Mark as new if not in existing list and not already animated
-				if !existingIDs[bead.id] && m.newBeads[bead.id].IsZero() {
-					m.newBeads[bead.id] = now
-					expireCmds = append(expireCmds, scheduleNewBeadExpire(bead.id))
+				if !existingIDs[bead.ID] && m.newBeads[bead.ID].IsZero() {
+					m.newBeads[bead.ID] = now
+					expireCmds = append(expireCmds, scheduleNewBeadExpire(bead.ID))
 				}
 			}
 		}
@@ -434,6 +478,15 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMessage = msg.err.Error()
 			m.statusIsError = true
+		}
+
+		// Ensure cursor stays within bounds after filter changes
+		if m.beadsCursor >= len(m.beadItems) {
+			if len(m.beadItems) > 0 {
+				m.beadsCursor = len(m.beadItems) - 1
+			} else {
+				m.beadsCursor = 0
+			}
 		}
 
 		// Don't clear status message on success - let it persist until next action
@@ -475,17 +528,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case worksLoadedMsg:
-		if msg.err != nil {
-			m.statusMessage = fmt.Sprintf("Failed to load works: %v", msg.err)
-			m.statusIsError = true
-			return m, nil
-		}
-		m.availableWorks = msg.works
-		m.worksCursor = 0
-		m.viewMode = ViewAddToWork
-		return m, nil
-
 	case beadAddedToWorkMsg:
 		m.viewMode = ViewNormal
 		if msg.err != nil {
@@ -497,6 +539,36 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case workCommandMsg:
+		m.viewMode = ViewNormal
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("%s failed: %v", msg.action, msg.err)
+			m.statusIsError = true
+		} else {
+			m.statusMessage = fmt.Sprintf("%s completed for %s", msg.action, msg.workID)
+			m.statusIsError = false
+			// If work was destroyed, clear the focused work
+			if msg.action == "Destroy work" {
+				m.focusedWorkID = ""
+				m.focusFilterActive = false
+				m.filters.workSelectionBeadIDs = nil
+			}
+		}
+		// Refresh data and work tiles
+		return m, tea.Batch(m.refreshData(), m.loadWorkTiles())
+
+	case workTilesLoadedMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Failed to load works: %v", msg.err)
+			m.statusIsError = true
+			m.viewMode = ViewNormal
+			m.loading = false
+			return m, nil
+		}
+		m.workOverlay.SetWorkTiles(msg.works)
+		m.loading = false
+		return m, nil
+
 	case editorFinishedMsg:
 		// Refresh data after external editor closes
 		m.statusMessage = "Editor closed, refreshing..."
@@ -504,7 +576,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refreshData()
 
 	case linearImportCompleteMsg:
-		m.linearImporting = false
+		m.linearImportPanel.SetImporting(false)
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("Import failed: %v", msg.err)
 			m.statusIsError = true
@@ -636,12 +708,6 @@ type planWorkCreatedMsg struct {
 	err    error
 }
 
-// worksLoadedMsg indicates available works have been loaded
-type worksLoadedMsg struct {
-	works []workItem
-	err   error
-}
-
 // beadAddedToWorkMsg indicates a bead was added to a work
 type beadAddedToWorkMsg struct {
 	beadID string
@@ -686,6 +752,13 @@ type newBeadExpireMsg struct {
 	beadID string
 }
 
+// workCommandMsg indicates a work command completed
+type workCommandMsg struct {
+	action string
+	workID string
+	err    error
+}
+
 // newBeadAnimationDuration is how long newly created beads are highlighted
 const newBeadAnimationDuration = 5 * time.Second
 
@@ -697,15 +770,85 @@ func scheduleNewBeadExpire(beadID string) tea.Cmd {
 }
 
 func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle escape key globally for deselecting focused work
+	if msg.Type == tea.KeyEsc && m.viewMode == ViewNormal && m.focusedWorkID != "" {
+		m.focusedWorkID = ""
+		m.focusFilterActive = false              // Clear focus filter when deselecting work
+		m.filters.workSelectionBeadIDs = nil     // Clear work selection filter
+		m.activePanel = PanelLeft                // Reset focus to issues panel
+		m.statusMessage = "Work deselected"
+		m.statusIsError = false
+		// Refresh to show all issues again
+		return m, m.refreshData()
+	}
+
 	// Handle dialog-specific input
 	switch m.viewMode {
 	case ViewCreateBead, ViewCreateBeadInline, ViewAddChildBead, ViewEditBead:
-		// All bead form dialogs use the unified handler
-		return m.updateBeadForm(msg)
+		// Delegate to bead form panel and handle returned action
+		cmd, action := m.beadFormPanel.Update(msg)
+
+		switch action {
+		case BeadFormActionCancel:
+			m.viewMode = ViewNormal
+			return m, cmd
+
+		case BeadFormActionSubmit:
+			result := m.beadFormPanel.GetResult()
+			if result.Title == "" {
+				return m, cmd
+			}
+
+			m.viewMode = ViewNormal
+			m.beadFormPanel.Blur()
+
+			// Determine mode and call appropriate action
+			if result.EditBeadID != "" {
+				// Edit mode
+				return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
+			}
+
+			// Create or add-child mode
+			isEpic := result.BeadType == "epic"
+			return m, m.createBead(result.Title, result.BeadType, result.Priority, isEpic, result.Description, result.ParentID)
+		}
+
+		return m, cmd
 	case ViewCreateWork:
-		return m.updateCreateWorkDialog(msg)
-	case ViewAddToWork:
-		return m.updateAddToWork(msg)
+		// Delegate to create work panel and handle returned action
+		cmd, action := m.createWorkPanel.Update(msg)
+
+		switch action {
+		case CreateWorkActionCancel:
+			m.viewMode = ViewNormal
+			return m, cmd
+
+		case CreateWorkActionExecute:
+			result := m.createWorkPanel.GetResult()
+			if result.BranchName == "" {
+				m.statusMessage = "Branch name cannot be empty"
+				m.statusIsError = true
+				return m, nil
+			}
+			m.viewMode = ViewNormal
+			// Clear selections after work creation
+			m.selectedBeads = make(map[string]bool)
+			return m, m.executeCreateWork(result.BeadID, result.BranchName, false)
+
+		case CreateWorkActionAuto:
+			result := m.createWorkPanel.GetResult()
+			if result.BranchName == "" {
+				m.statusMessage = "Branch name cannot be empty"
+				m.statusIsError = true
+				return m, nil
+			}
+			m.viewMode = ViewNormal
+			// Clear selections after work creation
+			m.selectedBeads = make(map[string]bool)
+			return m, m.executeCreateWork(result.BeadID, result.BranchName, true)
+		}
+
+		return m, cmd
 	case ViewBeadSearch:
 		return m.updateBeadSearch(msg)
 	case ViewLabelFilter:
@@ -713,21 +856,199 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ViewCloseBeadConfirm:
 		return m.updateCloseBeadConfirm(msg)
 	case ViewLinearImportInline:
-		return m.updateLinearImportInline(msg)
+		// Delegate to linear import panel and handle returned action
+		cmd, action := m.linearImportPanel.Update(msg)
+
+		switch action {
+		case LinearImportActionCancel:
+			m.viewMode = ViewNormal
+			return m, cmd
+
+		case LinearImportActionSubmit:
+			result := m.linearImportPanel.GetResult()
+			if result.IssueIDs != "" {
+				m.viewMode = ViewNormal
+				m.linearImportPanel.SetImporting(true)
+				return m, m.importLinearIssue(result.IssueIDs)
+			}
+			return m, cmd
+		}
+
+		return m, cmd
+	case ViewWorkOverlay:
+		// Handle navigation when issues panel is focused (not overlay)
+		if m.activePanel != PanelWorkOverlay {
+			switch msg.String() {
+			case "j", "down":
+				if m.beadsCursor < len(m.beadItems)-1 {
+					m.beadsCursor++
+				}
+				return m, nil
+			case "k", "up":
+				if m.beadsCursor > 0 {
+					m.beadsCursor--
+				}
+				return m, nil
+			case "tab":
+				m.activePanel = PanelWorkOverlay
+				return m, nil
+			case "esc":
+				m.viewMode = ViewNormal
+				m.workOverlay.ClearSelection()
+				m.activePanel = PanelLeft
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// Sync panel focus state before delegating
+		m.workOverlay.SetFocus(true)
+
+		// Delegate to work overlay panel and handle returned action
+		cmd, action := m.workOverlay.Update(msg)
+
+		switch action {
+		case WorkOverlayActionCancel:
+			m.viewMode = ViewNormal
+			m.workOverlay.ClearSelection()
+			m.activePanel = PanelLeft
+			return m, cmd
+
+		case WorkOverlayActionSelect:
+			// Set the focused work and return to normal view with split screen
+			m.focusedWorkID = m.workOverlay.GetSelectedWorkTileID()
+			m.viewMode = ViewNormal
+			m.activePanel = PanelWorkDetails
+			m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
+			m.statusIsError = false
+			// Reset focus filter when selecting a new work
+			m.focusFilterActive = false
+
+			// Set up the work selection filter with the work's beads
+			// First, ensure workDetails has the focused work so we can get bead IDs
+			focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
+			m.workDetails.SetFocusedWork(focusedWork)
+			m.workDetails.SetSelectedIndex(0) // Start with root issue selected
+
+			// Now update the filter and refresh
+			return m, m.updateWorkSelectionFilter()
+
+		case WorkOverlayActionToggleFocus:
+			if m.activePanel == PanelWorkOverlay {
+				m.activePanel = PanelLeft
+			} else {
+				m.activePanel = PanelWorkOverlay
+			}
+			return m, cmd
+
+		case WorkOverlayActionDestroy:
+			workID := m.workOverlay.GetSelectedWorkTileID()
+			if workID != "" {
+				// Set focusedWorkID so the confirmation dialog knows what to destroy
+				m.focusedWorkID = workID
+				m.viewMode = ViewDestroyConfirm
+			}
+			return m, cmd
+		}
+
+		return m, cmd
+	case ViewDestroyConfirm:
+		// Handle destroy confirmation dialog
+		switch msg.String() {
+		case "y", "Y":
+			if m.focusedWorkID != "" {
+				m.viewMode = ViewNormal
+				return m, m.destroyFocusedWork()
+			}
+		case "n", "N", "esc":
+			m.viewMode = ViewNormal
+		}
+		return m, nil
+	case ViewPlanDialog:
+		// Handle plan dialog
+		switch msg.String() {
+		case "a", "A":
+			// Auto-group
+			if m.focusedWorkID != "" {
+				m.viewMode = ViewNormal
+				return m, m.planFocusedWork(true)
+			}
+		case "s", "S":
+			// Single-bead tasks
+			if m.focusedWorkID != "" {
+				m.viewMode = ViewNormal
+				return m, m.planFocusedWork(false)
+			}
+		case "esc":
+			m.viewMode = ViewNormal
+		}
+		return m, nil
 	case ViewHelp:
 		m.viewMode = ViewNormal
 		return m, nil
 	}
 
 	// Normal mode key handling
+
+	// Delegate to work details panel when it's active
+	if m.activePanel == PanelWorkDetails && m.focusedWorkID != "" {
+		cmd, action := m.workDetails.Update(msg)
+		switch action {
+		case WorkDetailActionNavigateUp, WorkDetailActionNavigateDown:
+			// Navigation actions - check if selection changed and update filter
+			return m, m.updateWorkSelectionFilter()
+		case WorkDetailActionOpenTerminal:
+			return m, m.openConsole()
+		case WorkDetailActionOpenClaude:
+			return m, m.openClaude()
+		case WorkDetailActionPlan:
+			m.viewMode = ViewPlanDialog
+			return m, cmd
+		case WorkDetailActionRun:
+			return m, m.runFocusedWork()
+		case WorkDetailActionReview:
+			return m, m.createReviewTask()
+		case WorkDetailActionPR:
+			return m, m.createPRTask()
+		}
+		// WorkDetailActionNone - fall through to normal handling
+	}
+
 	switch msg.String() {
+	case "tab", "shift+tab":
+		// In focused work mode: toggle between work details and issues
+		if m.focusedWorkID != "" {
+			if m.activePanel == PanelWorkDetails {
+				m.activePanel = PanelLeft
+			} else {
+				m.activePanel = PanelWorkDetails
+			}
+		}
+		return m, nil
+
+	case "h", "left":
+		// Simple left navigation in panels
+		if m.activePanel == PanelRight {
+			m.activePanel = PanelLeft
+		}
+		return m, nil
+
+	case "l", "right":
+		// Simple right navigation in panels
+		if m.activePanel == PanelLeft {
+			m.activePanel = PanelRight
+		}
+		return m, nil
+
 	case "j", "down":
+		// Navigate down in current list (work details is handled above)
 		if m.beadsCursor < len(m.beadItems)-1 {
 			m.beadsCursor++
 		}
 		return m, nil
 
 	case "k", "up":
+		// Navigate up in current list (work details is handled above)
 		if m.beadsCursor > 0 {
 			m.beadsCursor--
 		}
@@ -736,13 +1057,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		// Create new bead inline
 		m.viewMode = ViewCreateBeadInline
-		m.textInput.Reset()
-		m.textInput.Focus()
-		m.createBeadType = 0
-		m.createBeadPriority = 2
-		m.createDialogFocus = 0 // Start with title focused
-		m.createDescTextarea.Reset()
-		return m, nil
+		m.beadFormPanel.Reset()
+		return m, m.beadFormPanel.Init()
 
 	case "x":
 		// Close selected bead(s)
@@ -750,7 +1066,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Check if we have any selected beads
 			hasSelection := false
 			for _, item := range m.beadItems {
-				if m.selectedBeads[item.id] {
+				if m.selectedBeads[item.ID] {
 					hasSelection = true
 					break
 				}
@@ -783,10 +1099,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.refreshData()
 
 	case "c":
+		// Filter to closed issues (work details panel handles 'c' for Claude)
 		m.filters.status = "closed"
 		return m, m.refreshData()
 
 	case "r":
+		// Filter to ready issues (work details panel handles 'r' for Run)
 		m.filters.status = "ready"
 		return m, m.refreshData()
 
@@ -801,6 +1119,23 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.filters.sortBy = "default"
 		}
 		return m, m.refreshData()
+
+	case "f":
+		// Toggle focus filter (only works if a work is focused)
+		if m.focusedWorkID != "" {
+			m.focusFilterActive = !m.focusFilterActive
+			if m.focusFilterActive {
+				m.statusMessage = fmt.Sprintf("Focus filter enabled for work %s", m.focusedWorkID)
+			} else {
+				m.statusMessage = "Focus filter disabled"
+			}
+			m.statusIsError = false
+			return m, m.refreshData()
+		} else {
+			m.statusMessage = "Focus filter requires a focused work (press 'W' to select a work)"
+			m.statusIsError = true
+		}
+		return m, nil
 
 	case "v":
 		m.beadsExpanded = !m.beadsExpanded
@@ -836,83 +1171,49 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.statusIsError = true
 				return m, nil
 			}
-			m.selectedBeads[bead.id] = !m.selectedBeads[bead.id]
+			m.selectedBeads[bead.ID] = !m.selectedBeads[bead.ID]
 		}
 		return m, nil
 
 	case "p":
-		// Spawn/resume planning session for selected bead
+		// Spawn/resume planning session for selected bead (work details panel handles 'p' for Plan)
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			beadID := m.beadItems[m.beadsCursor].id
+			beadID := m.beadItems[m.beadsCursor].ID
 			return m, m.spawnPlanSession(beadID)
 		}
 		return m, nil
 
+	case "W":
+		// Show work overlay
+		m.viewMode = ViewWorkOverlay
+		m.activePanel = PanelWorkOverlay
+		m.loading = true
+		return m, tea.Batch(m.workOverlay.Init(), m.loadWorkTiles())
+
 	case "w":
-		// Create work from selected bead(s) - show dialog
+		// Create work from cursor bead - show dialog
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			// Collect selected beads, or use cursor bead if none selected
-			var selectedIDs []string
-			var branchBeads []*beadsForBranch
-			var alreadyAssigned []string
-			for _, item := range m.beadItems {
-				if m.selectedBeads[item.id] {
-					if item.assignedWorkID != "" {
-						alreadyAssigned = append(alreadyAssigned, item.id+" ("+item.assignedWorkID+")")
-					} else {
-						selectedIDs = append(selectedIDs, item.id)
-						branchBeads = append(branchBeads, &beadsForBranch{
-							ID:    item.id,
-							Title: item.title,
-						})
-					}
-				}
-			}
-			// If no beads selected, use the cursor bead
-			if len(selectedIDs) == 0 && len(alreadyAssigned) == 0 {
-				bead := m.beadItems[m.beadsCursor]
-				if bead.assignedWorkID != "" {
-					m.statusMessage = fmt.Sprintf("Cannot create work: %s already assigned to %s", bead.id, bead.assignedWorkID)
-					m.statusIsError = true
-					return m, nil
-				}
-				selectedIDs = []string{bead.id}
-				branchBeads = []*beadsForBranch{{
-					ID:    bead.id,
-					Title: bead.title,
-				}}
-			}
-			// Show error if some selected beads are already assigned
-			if len(alreadyAssigned) > 0 {
-				m.statusMessage = fmt.Sprintf("Skipped already-assigned: %s", strings.Join(alreadyAssigned, ", "))
+			bead := m.beadItems[m.beadsCursor]
+			if bead.assignedWorkID != "" {
+				m.statusMessage = fmt.Sprintf("Cannot create work: %s already assigned to %s", bead.ID, bead.assignedWorkID)
 				m.statusIsError = true
-				// If all beads were assigned, abort
-				if len(selectedIDs) == 0 {
-					m.statusMessage = "All selected beads are already assigned to works"
-					return m, nil
-				}
+				return m, nil
 			}
-			m.createWorkBeadIDs = selectedIDs
-			// Generate proposed branch name from all selected beads
+			// Generate proposed branch name from cursor bead
+			branchBeads := []*beadsForBranch{{ID: bead.ID, Title: bead.Title}}
 			branchName := generateBranchNameFromBeadsForBranch(branchBeads)
-			m.createWorkBranch.SetValue(branchName)
-			m.createWorkBranch.Focus()
-			m.createWorkField = 0
-			m.createWorkButtonIdx = 0
+			m.createWorkPanel.Reset(bead.ID, branchName)
 			m.viewMode = ViewCreateWork
+			return m, m.createWorkPanel.Init()
 		}
 		return m, nil
 
 	case "a":
 		// Add child issue to selected issue
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			m.parentBeadID = m.beadItems[m.beadsCursor].id
+			m.beadFormPanel.SetAddChildMode(m.beadItems[m.beadsCursor].ID)
 			m.viewMode = ViewAddChildBead
-			m.textInput.Reset()
-			m.textInput.Focus()
-			m.createBeadType = 0
-			m.createBeadPriority = 2
-			m.createDialogFocus = 0 // Start with title focused
+			return m, m.beadFormPanel.Init()
 		}
 		return m, nil
 
@@ -920,23 +1221,9 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Edit selected issue using the unified bead form
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			bead := m.beadItems[m.beadsCursor]
-			m.editBeadID = bead.id
+			m.beadFormPanel.SetEditMode(bead.ID, bead.Title, bead.Description, bead.Type, bead.Priority)
 			m.viewMode = ViewEditBead
-			m.textInput.Reset()
-			m.textInput.SetValue(bead.title)
-			m.textInput.Focus()
-			m.createDescTextarea.Reset()
-			m.createDescTextarea.SetValue(bead.description)
-			// Find the type index
-			m.createBeadType = 0
-			for i, t := range beadTypes {
-				if t == bead.beadType {
-					m.createBeadType = i
-					break
-				}
-			}
-			m.createBeadPriority = bead.priority
-			m.createDialogFocus = 0 // Start with title focused
+			return m, m.beadFormPanel.Init()
 		}
 		return m, nil
 
@@ -944,7 +1231,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Edit selected issue in external editor
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			bead := m.beadItems[m.beadsCursor]
-			return m, m.openInEditor(bead.id)
+			return m, m.openInEditor(bead.ID)
 		}
 		return m, nil
 
@@ -960,29 +1247,48 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.viewMode = ViewLinearImportInline
-		m.linearImportInput.Reset()
-		m.linearImportInput.Focus()
-		m.linearImportFocus = 0
-		m.linearImportCreateDeps = false
-		m.linearImportUpdate = false
-		m.linearImportDryRun = false
-		m.linearImportMaxDepth = 2
-		return m, nil
+		m.linearImportPanel.Reset()
+		return m, m.linearImportPanel.Init()
 
 	case "A":
-		// Add selected issue(s) to existing work
+		// Add selected issue(s) to the focused work
+		if m.focusedWorkID == "" {
+			m.statusMessage = "Select a work first (press 'W' to open work overlay)"
+			m.statusIsError = true
+			return m, nil
+		}
 		if len(m.beadItems) > 0 {
-			// Check if we have any selected beads
+			// Collect selected beads or use cursor bead
+			var beadsToAdd []string
 			hasSelection := false
 			for _, item := range m.beadItems {
-				if m.selectedBeads[item.id] {
+				if m.selectedBeads[item.ID] {
 					hasSelection = true
-					break
+					// Check if already assigned
+					if item.assignedWorkID != "" {
+						m.statusMessage = fmt.Sprintf("Issue %s already assigned to %s", item.ID, item.assignedWorkID)
+						m.statusIsError = true
+						return m, nil
+					}
+					beadsToAdd = append(beadsToAdd, item.ID)
 				}
 			}
-			// If we have selected beads or a cursor bead, load available works
-			if hasSelection || m.beadsCursor < len(m.beadItems) {
-				return m, m.loadAvailableWorks()
+
+			// If no selection, use cursor bead
+			if !hasSelection && m.beadsCursor < len(m.beadItems) {
+				bead := m.beadItems[m.beadsCursor]
+				if bead.assignedWorkID != "" {
+					m.statusMessage = fmt.Sprintf("Issue %s already assigned to %s", bead.ID, bead.assignedWorkID)
+					m.statusIsError = true
+					return m, nil
+				}
+				beadsToAdd = append(beadsToAdd, bead.ID)
+			}
+
+			if len(beadsToAdd) > 0 {
+				// Add issues directly to the focused work
+				m.selectedBeads = make(map[string]bool) // Clear selection after adding
+				return m, m.addBeadsToWork(beadsToAdd, m.focusedWorkID)
 			}
 		}
 		return m, nil
@@ -1010,8 +1316,101 @@ func (m *planModel) cleanup() {
 	// which is deferred in runTUI. Do not close it here to avoid double-close.
 }
 
+// syncPanels synchronizes data from planModel to the panel components
+func (m *planModel) syncPanels() {
+	// Calculate column widths
+	totalContentWidth := m.width - 4
+	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
+	detailsWidth := totalContentWidth - issuesWidth
+
+	// Determine status bar context based on focused panel
+	var statusBarCtx StatusBarContext
+	switch m.activePanel {
+	case PanelWorkOverlay:
+		statusBarCtx = StatusBarContextWorkOverlay
+	case PanelWorkDetails:
+		statusBarCtx = StatusBarContextWorkDetail
+	default:
+		statusBarCtx = StatusBarContextIssues
+	}
+
+	// Sync status bar
+	m.statusBar.SetSize(m.width)
+	m.statusBar.SetContext(statusBarCtx)
+	m.statusBar.SetStatus(m.statusMessage, m.statusIsError)
+	m.statusBar.SetLoading(m.loading)
+	m.statusBar.SetLastUpdate(m.lastUpdate)
+	m.statusBar.SetHoveredButton(m.hoveredButton)
+
+	// Sync issues panel
+	m.issuesPanel.SetSize(issuesWidth, m.height)
+	m.issuesPanel.SetFocus(m.activePanel == PanelLeft)
+	m.issuesPanel.SetData(
+		m.beadItems,
+		m.beadsCursor,
+		m.filters,
+		m.beadsExpanded,
+		m.selectedBeads,
+		m.activeBeadSessions,
+		m.newBeads,
+	)
+	m.issuesPanel.SetWorkContext(m.focusedWorkID, m.focusFilterActive)
+	m.issuesPanel.SetHoveredIssue(m.hoveredIssue)
+
+	// Sync details panel
+	m.detailsPanel.SetSize(detailsWidth, m.height)
+	m.detailsPanel.SetFocus(m.activePanel == PanelRight)
+	// Get focused bead and build child lookup map
+	var focusedBead *beadItem
+	var hasActiveSession bool
+	childBeadMap := make(map[string]*beadItem)
+	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		focusedBead = &m.beadItems[m.beadsCursor]
+		hasActiveSession = m.activeBeadSessions[focusedBead.ID]
+		// Build map for child lookup
+		for i := range m.beadItems {
+			childBeadMap[m.beadItems[i].ID] = &m.beadItems[i]
+		}
+	}
+	m.detailsPanel.SetData(focusedBead, hasActiveSession, childBeadMap)
+
+	// Sync work overlay
+	m.workOverlay.SetSize(m.width, m.height)
+	m.workOverlay.SetLoading(m.loading)
+	m.workOverlay.SetFocus(m.activePanel == PanelWorkOverlay)
+
+	// Sync work details (for focused work split view)
+	if m.focusedWorkID != "" {
+		// Calculate the correct work panel height (same formula as renderFocusedWorkSplitView)
+		workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+		m.workDetails.SetSize(m.width, workPanelHeight)
+		m.workDetails.SetColumnRatio(m.columnRatio) // Use same ratio as issues panel
+		m.workDetails.SetFocus(m.activePanel == PanelWorkDetails, false)
+		focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
+		m.workDetails.SetFocusedWork(focusedWork)
+	}
+
+	// Sync Linear import panel
+	m.linearImportPanel.SetSize(detailsWidth, m.height)
+	m.linearImportPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewLinearImportInline)
+	m.linearImportPanel.SetHoveredButton(m.hoveredDialogButton)
+
+	// Sync bead form panel
+	m.beadFormPanel.SetSize(detailsWidth, m.height)
+	m.beadFormPanel.SetFocus(m.activePanel == PanelRight)
+	m.beadFormPanel.SetHoveredButton(m.hoveredDialogButton)
+
+	// Sync create work panel
+	m.createWorkPanel.SetSize(detailsWidth, m.height)
+	m.createWorkPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewCreateWork)
+	m.createWorkPanel.SetHoveredButton(m.hoveredDialogButton)
+}
+
 // View implements tea.Model
 func (m *planModel) View() string {
+	// Sync data to panels before rendering
+	m.syncPanels()
+
 	// Handle dialogs
 	switch m.viewMode {
 	case ViewCreateBead, ViewCreateBeadInline, ViewAddChildBead, ViewEditBead:
@@ -1020,9 +1419,6 @@ func (m *planModel) View() string {
 	case ViewCreateWork:
 		// Create work now renders inline in the details panel
 		// Fall through to normal rendering
-	case ViewAddToWork:
-		// Add to work now renders inline in the details panel
-		// Fall through to normal rendering
 	case ViewBeadSearch:
 		// Inline search mode - render normal view with search bar in status area
 		// Fall through to normal rendering
@@ -1030,18 +1426,53 @@ func (m *planModel) View() string {
 		return m.renderWithDialog(m.renderLabelFilterDialogContent())
 	case ViewCloseBeadConfirm:
 		return m.renderWithDialog(m.renderCloseBeadConfirmContent())
+	case ViewDestroyConfirm:
+		return m.renderWithDialog(m.renderDestroyConfirmContent())
+	case ViewPlanDialog:
+		return m.renderWithDialog(m.renderPlanDialogContent())
 	case ViewLinearImportInline:
 		// Inline import mode - render normal view with import form in details area
 		// Fall through to normal rendering
+	case ViewWorkOverlay:
+		// Work overlay mode - show work dropdown at top with normal content below
+		// Fall through to render normal content with overlay
 	case ViewHelp:
 		return m.renderHelp()
 	}
 
-	// Use two-column layout
-	content := m.renderTwoColumnLayout()
-	statusBar := m.renderCommandsBar()
+	// Render status bar using the panel
+	statusBar := m.statusBar.Render()
 
-	// Combine content and status bar
+	// If work overlay is active, show it as a dropdown at the top
+	if m.viewMode == ViewWorkOverlay {
+		overlay := m.workOverlay.Render()
+
+		// Calculate remaining height for content
+		// Note: renderTwoColumnLayout already subtracts 1 for status bar,
+		// so we only subtract the overlay height here
+		overlayHeight := lipgloss.Height(overlay)
+		remainingHeight := m.height - overlayHeight
+
+		// Render content with reduced height
+		var content string
+		if remainingHeight > 5 {
+			// Temporarily adjust model height for content rendering
+			originalHeight := m.height
+			m.height = remainingHeight
+			m.syncPanels() // Re-sync with new height
+			content = m.renderTwoColumnLayout()
+			m.height = originalHeight
+		} else {
+			// Not enough space, just show a condensed view
+			content = tuiDimStyle.Render("  (Content area - press Esc to close overlay)")
+		}
+
+		// Combine overlay, content and status bar
+		return lipgloss.JoinVertical(lipgloss.Left, overlay, content, statusBar)
+	}
+
+	// Normal view without overlay
+	content := m.renderTwoColumnLayout()
 	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 }
 
@@ -1080,4 +1511,52 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 	// Remove trailing dashes
 	branchName = strings.TrimRight(branchName, "-")
 	return "feat/" + branchName
+}
+
+
+// updateWorkSelectionFilter updates the bead filter based on the current work details selection
+// and triggers a data refresh
+func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
+	if m.focusedWorkID == "" {
+		// No work focused, clear the filter
+		m.filters.workSelectionBeadIDs = nil
+		return nil
+	}
+
+	focusedWork := m.workDetails.GetFocusedWork()
+	if focusedWork == nil {
+		m.filters.workSelectionBeadIDs = nil
+		return nil
+	}
+
+	// Build the filter map based on what's selected
+	m.filters.workSelectionBeadIDs = make(map[string]bool)
+
+	if m.workDetails.IsTaskSelected() {
+		// Task selected - show only the beads directly assigned to that task
+		beadIDs := m.workDetails.GetSelectedBeadIDs()
+		for _, id := range beadIDs {
+			m.filters.workSelectionBeadIDs[id] = true
+		}
+	} else {
+		// Root issue selected - show root issue and all work beads
+		// This includes the root and all beads assigned to this work
+		for _, bp := range focusedWork.workBeads {
+			m.filters.workSelectionBeadIDs[bp.id] = true
+		}
+		// Also ensure root issue is included (it may not be in workBeads if it's an epic)
+		if focusedWork.work.RootIssueID != "" {
+			m.filters.workSelectionBeadIDs[focusedWork.work.RootIssueID] = true
+		}
+	}
+
+	if len(m.filters.workSelectionBeadIDs) == 0 {
+		m.filters.workSelectionBeadIDs = nil
+		return nil
+	}
+
+	// Reset cursor to top when filter changes
+	m.beadsCursor = 0
+
+	return m.refreshData()
 }

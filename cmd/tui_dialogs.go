@@ -132,8 +132,8 @@ func (m tuiModel) renderCloseBeadConfirmDialog() string {
 	beadID := ""
 	beadTitle := ""
 	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-		beadID = m.beadItems[m.beadsCursor].id
-		beadTitle = m.beadItems[m.beadsCursor].title
+		beadID = m.beadItems[m.beadsCursor].ID
+		beadTitle = m.beadItems[m.beadsCursor].Title
 	}
 
 	content := fmt.Sprintf(`
@@ -203,7 +203,7 @@ func (m tuiModel) renderAssignBeadsView() string {
 			checkbox = "[ ]"
 		}
 
-		line := fmt.Sprintf("%s %s - %s", checkbox, bead.id, bead.title)
+		line := fmt.Sprintf("%s %s - %s", checkbox, bead.ID, bead.Title)
 
 		if i == m.beadsCursor {
 			line = tuiSelectedStyle.Render("> " + line)

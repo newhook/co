@@ -8,15 +8,10 @@ import (
 // TestBuildBeadTree_EpicHierarchy tests handling of epic (parent-child) relationships
 func TestBuildBeadTree_EpicHierarchy(t *testing.T) {
 	items := []beadItem{
-		{id: "epic-1", title: "Epic 1", status: "open", priority: 1, dependencyCount: 0, dependentCount: 2},
-		{id: "task-1", title: "Task 1", status: "open", priority: 2, dependencyCount: 1, dependentCount: 0},
-		{id: "task-2", title: "Task 2", status: "open", priority: 2, dependencyCount: 1, dependentCount: 0},
+		testBeadItem("epic-1", "Epic 1", "open", 1, "epic"),
+		testBeadItem("task-1", "Task 1", "open", 2, "task", "epic-1"),
+		testBeadItem("task-2", "Task 2", "open", 2, "task", "epic-1"),
 	}
-
-	// Manually set dependencies since we don't have a real database
-	// In real scenario, this would come from GetIssuesWithDeps
-	items[1].dependencies = []string{"epic-1"}
-	items[2].dependencies = []string{"epic-1"}
 
 	result := buildBeadTree(context.Background(), items, nil)
 
@@ -25,8 +20,8 @@ func TestBuildBeadTree_EpicHierarchy(t *testing.T) {
 		t.Fatalf("expected 3 items, got %d", len(result))
 	}
 
-	if result[0].id != "epic-1" || result[0].treeDepth != 0 {
-		t.Errorf("expected epic-1 at root level, got %s at depth %d", result[0].id, result[0].treeDepth)
+	if result[0].ID != "epic-1" || result[0].treeDepth != 0 {
+		t.Errorf("expected epic-1 at root level, got %s at depth %d", result[0].ID, result[0].treeDepth)
 	}
 
 	// Both tasks should be at depth 1
@@ -38,11 +33,9 @@ func TestBuildBeadTree_EpicHierarchy(t *testing.T) {
 // TestBuildBeadTree_BlocksDependencies tests handling of "blocks" type dependencies
 func TestBuildBeadTree_BlocksDependencies(t *testing.T) {
 	items := []beadItem{
-		{id: "blocker", title: "Blocker", status: "open", priority: 1},
-		{id: "blocked", title: "Blocked", status: "open", priority: 2, dependencyCount: 1},
+		testBeadItem("blocker", "Blocker", "open", 1, "task"),
+		testBeadItem("blocked", "Blocked", "open", 2, "task", "blocker"),
 	}
-
-	items[1].dependencies = []string{"blocker"}
 
 	result := buildBeadTree(context.Background(), items, nil)
 
@@ -51,22 +44,20 @@ func TestBuildBeadTree_BlocksDependencies(t *testing.T) {
 	}
 
 	// Blocker should be root, blocked should be child
-	if result[0].id != "blocker" {
-		t.Errorf("expected blocker first, got %s", result[0].id)
+	if result[0].ID != "blocker" {
+		t.Errorf("expected blocker first, got %s", result[0].ID)
 	}
-	if result[1].id != "blocked" || result[1].treeDepth != 1 {
-		t.Errorf("expected blocked at depth 1, got %s at depth %d", result[1].id, result[1].treeDepth)
+	if result[1].ID != "blocked" || result[1].treeDepth != 1 {
+		t.Errorf("expected blocked at depth 1, got %s at depth %d", result[1].ID, result[1].treeDepth)
 	}
 }
 
 // TestBuildBeadTree_ClosedParentVisibility tests filtering of closed parents
 func TestBuildBeadTree_ClosedParentVisibility(t *testing.T) {
 	items := []beadItem{
-		{id: "parent", title: "Parent", status: "closed", priority: 1, isClosedParent: true},
-		{id: "child", title: "Child", status: "open", priority: 2, dependencyCount: 1},
+		testBeadItemWithOptions("parent", "Parent", "closed", 1, "epic", true),
+		testBeadItem("child", "Child", "open", 2, "task", "parent"),
 	}
-
-	items[1].dependencies = []string{"parent"}
 
 	result := buildBeadTree(context.Background(), items, nil)
 
@@ -79,7 +70,7 @@ func TestBuildBeadTree_ClosedParentVisibility(t *testing.T) {
 // TestBuildBeadTree_ClosedParentNoVisibleChildren tests filtering out closed parents without visible children
 func TestBuildBeadTree_ClosedParentNoVisibleChildren(t *testing.T) {
 	items := []beadItem{
-		{id: "parent", title: "Parent", status: "closed", priority: 1, isClosedParent: true},
+		testBeadItemWithOptions("parent", "Parent", "closed", 1, "epic", true),
 	}
 
 	result := buildBeadTree(context.Background(), items, nil)
@@ -93,15 +84,11 @@ func TestBuildBeadTree_ClosedParentNoVisibleChildren(t *testing.T) {
 // TestBuildBeadTree_MultiLevelNesting tests deep hierarchy
 func TestBuildBeadTree_MultiLevelNesting(t *testing.T) {
 	items := []beadItem{
-		{id: "level-0", title: "Level 0", status: "open", priority: 1},
-		{id: "level-1", title: "Level 1", status: "open", priority: 2, dependencyCount: 1},
-		{id: "level-2", title: "Level 2", status: "open", priority: 3, dependencyCount: 1},
-		{id: "level-3", title: "Level 3", status: "open", priority: 4, dependencyCount: 1},
+		testBeadItem("level-0", "Level 0", "open", 1, "task"),
+		testBeadItem("level-1", "Level 1", "open", 2, "task", "level-0"),
+		testBeadItem("level-2", "Level 2", "open", 3, "task", "level-1"),
+		testBeadItem("level-3", "Level 3", "open", 4, "task", "level-2"),
 	}
-
-	items[1].dependencies = []string{"level-0"}
-	items[2].dependencies = []string{"level-1"}
-	items[3].dependencies = []string{"level-2"}
 
 	result := buildBeadTree(context.Background(), items, nil)
 
@@ -113,7 +100,7 @@ func TestBuildBeadTree_MultiLevelNesting(t *testing.T) {
 	expectedDepths := []int{0, 1, 2, 3}
 	for i, item := range result {
 		if item.treeDepth != expectedDepths[i] {
-			t.Errorf("item %s expected depth %d, got %d", item.id, expectedDepths[i], item.treeDepth)
+			t.Errorf("item %s expected depth %d, got %d", item.ID, expectedDepths[i], item.treeDepth)
 		}
 	}
 }
@@ -121,14 +108,11 @@ func TestBuildBeadTree_MultiLevelNesting(t *testing.T) {
 // TestBuildBeadTree_MultipleRoots tests handling of multiple independent trees
 func TestBuildBeadTree_MultipleRoots(t *testing.T) {
 	items := []beadItem{
-		{id: "root-1", title: "Root 1", status: "open", priority: 1},
-		{id: "root-2", title: "Root 2", status: "open", priority: 2},
-		{id: "child-1", title: "Child 1", status: "open", priority: 3, dependencyCount: 1},
-		{id: "child-2", title: "Child 2", status: "open", priority: 4, dependencyCount: 1},
+		testBeadItem("root-1", "Root 1", "open", 1, "task"),
+		testBeadItem("root-2", "Root 2", "open", 2, "task"),
+		testBeadItem("child-1", "Child 1", "open", 3, "task", "root-1"),
+		testBeadItem("child-2", "Child 2", "open", 4, "task", "root-2"),
 	}
-
-	items[2].dependencies = []string{"root-1"}
-	items[3].dependencies = []string{"root-2"}
 
 	result := buildBeadTree(context.Background(), items, nil)
 
@@ -152,14 +136,11 @@ func TestBuildBeadTree_MultipleRoots(t *testing.T) {
 // TestBuildBeadTree_MixedTypes tests handling of different dependency types together
 func TestBuildBeadTree_MixedTypes(t *testing.T) {
 	items := []beadItem{
-		{id: "epic", title: "Epic", status: "open", priority: 1, beadType: "epic"},
-		{id: "task", title: "Task", status: "open", priority: 2, beadType: "task", dependencyCount: 1},
-		{id: "bug", title: "Bug", status: "open", priority: 3, beadType: "bug"},
-		{id: "feature", title: "Feature", status: "open", priority: 4, beadType: "feature", dependencyCount: 1},
+		testBeadItem("epic", "Epic", "open", 1, "epic"),
+		testBeadItem("task", "Task", "open", 2, "task", "epic"),
+		testBeadItem("bug", "Bug", "open", 3, "bug"),
+		testBeadItem("feature", "Feature", "open", 4, "feature", "bug"),
 	}
-
-	items[1].dependencies = []string{"epic"}
-	items[3].dependencies = []string{"bug"}
 
 	result := buildBeadTree(context.Background(), items, nil)
 
@@ -171,7 +152,7 @@ func TestBuildBeadTree_MixedTypes(t *testing.T) {
 	rootTypes := make(map[string]bool)
 	for _, item := range result {
 		if item.treeDepth == 0 {
-			rootTypes[item.beadType] = true
+			rootTypes[item.Type] = true
 		}
 	}
 
@@ -183,15 +164,10 @@ func TestBuildBeadTree_MixedTypes(t *testing.T) {
 // TestBuildBeadTree_CircularDependencies tests handling of circular dependency detection
 func TestBuildBeadTree_CircularDependencies(t *testing.T) {
 	items := []beadItem{
-		{id: "item-1", title: "Item 1", status: "open", priority: 1, dependencyCount: 1},
-		{id: "item-2", title: "Item 2", status: "open", priority: 2, dependencyCount: 1},
-		{id: "item-3", title: "Item 3", status: "open", priority: 3, dependencyCount: 1},
+		testBeadItem("item-1", "Item 1", "open", 1, "task", "item-3"),
+		testBeadItem("item-2", "Item 2", "open", 2, "task", "item-1"),
+		testBeadItem("item-3", "Item 3", "open", 3, "task", "item-2"),
 	}
-
-	// Create circular dependency: 1 -> 2 -> 3 -> 1
-	items[0].dependencies = []string{"item-3"}
-	items[1].dependencies = []string{"item-1"}
-	items[2].dependencies = []string{"item-2"}
 
 	// The function should handle this gracefully without infinite loop
 	result := buildBeadTree(context.Background(), items, nil)
@@ -216,7 +192,7 @@ func TestBuildBeadTree_EmptyInput(t *testing.T) {
 func TestBuildBeadTree_WithNilClient(t *testing.T) {
 	// With nil client, function uses dependencies already set on items
 	items := []beadItem{
-		{id: "item-1", title: "Item 1", status: "open", priority: 1},
+		testBeadItem("item-1", "Item 1", "open", 1, "task"),
 	}
 
 	result := buildBeadTree(context.Background(), items, nil)
@@ -229,11 +205,9 @@ func TestBuildBeadTree_WithNilClient(t *testing.T) {
 // TestBuildBeadTree_ParentChildRelationship tests that parent-child relationships are preserved
 func TestBuildBeadTree_ParentChildRelationship(t *testing.T) {
 	items := []beadItem{
-		{id: "parent", title: "Parent", status: "closed", priority: 1, isClosedParent: true},
-		{id: "child", title: "Child", status: "open", priority: 2, dependencyCount: 1},
+		testBeadItemWithOptions("parent", "Parent", "closed", 1, "epic", true),
+		testBeadItem("child", "Child", "open", 2, "task", "parent"),
 	}
-
-	items[1].dependencies = []string{"parent"}
 
 	// Parents should be fetched and visible when they have visible children
 	result := buildBeadTree(context.Background(), items, nil)
