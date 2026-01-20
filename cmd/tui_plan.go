@@ -218,6 +218,7 @@ func (m *planModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		m.spinner.Tick,
 		m.refreshData(),
+		m.startPeriodicRefresh(),
 	}
 
 	// Subscribe to watcher events if watcher is available
