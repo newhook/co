@@ -1295,34 +1295,19 @@ func (m *planModel) syncPanels() {
 	// Sync details panel
 	m.detailsPanel.SetSize(detailsWidth, m.height)
 	m.detailsPanel.SetFocus(m.activePanel == PanelRight && !m.workPanelFocused)
-	m.detailsPanel.SetData(m.beadItems, m.beadsCursor, m.activeBeadSessions)
-	m.detailsPanel.SetFormState(
-		m.viewMode,
-		&m.textInput,
-		&m.createDescTextarea,
-		m.createBeadType,
-		m.createBeadPriority,
-		m.createDialogFocus,
-		m.editBeadID,
-		m.parentBeadID,
-	)
-	m.detailsPanel.SetLinearImportState(
-		&m.linearImportInput,
-		m.linearImportCreateDeps,
-		m.linearImportUpdate,
-		m.linearImportDryRun,
-		m.linearImportMaxDepth,
-		m.linearImportFocus,
-		m.linearImporting,
-	)
-	m.detailsPanel.SetCreateWorkState(
-		m.createWorkBeadIDs,
-		&m.createWorkBranch,
-		m.createWorkField,
-		m.createWorkButtonIdx,
-	)
-	m.detailsPanel.SetAddToWorkState(m.availableWorks, m.worksCursor)
-	m.detailsPanel.SetHoveredDialogButton(m.hoveredDialogButton)
+	// Get focused bead and build child lookup map
+	var focusedBead *beadItem
+	var hasActiveSession bool
+	childBeadMap := make(map[string]*beadItem)
+	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
+		focusedBead = &m.beadItems[m.beadsCursor]
+		hasActiveSession = m.activeBeadSessions[focusedBead.id]
+		// Build map for child lookup
+		for i := range m.beadItems {
+			childBeadMap[m.beadItems[i].id] = &m.beadItems[i]
+		}
+	}
+	m.detailsPanel.SetData(focusedBead, hasActiveSession, childBeadMap)
 
 	// Sync work overlay
 	m.workOverlay.SetSize(m.width, m.height)

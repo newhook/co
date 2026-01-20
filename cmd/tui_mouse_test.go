@@ -173,11 +173,24 @@ func TestButtonRegion(t *testing.T) {
 
 // TestDetectDialogButton tests the dialog button detection logic
 func TestDetectDialogButton(t *testing.T) {
+	// Create CreateWorkPanel with pre-set buttons for testing
+	createWorkPanel := NewCreateWorkPanel()
+	branchInput := textinput.New()
+	createWorkPanel.SetFormState(
+		[]string{"test-bead-1"},
+		&branchInput,
+		1, // field index = buttons
+		0, // button index = execute
+	)
+	// Render to populate button positions
+	createWorkPanel.Render()
+
 	// Create model
 	m := &planModel{
 		width:       100,
 		height:      30,
 		columnRatio: 0.5,
+		createWorkPanel: createWorkPanel,
 		dialogButtons: []ButtonRegion{
 			// These match the actual button tracking in tui_plan_work.go
 			{ID: "execute", Y: 5, StartX: 2, EndX: 10}, // "► Execute" (9 chars), EndX is last valid position
@@ -196,6 +209,12 @@ func TestDetectDialogButton(t *testing.T) {
 		linearImportInput: textarea.New(),
 	}
 
+	// Button positions from panel:
+	// - execute: Y=8 content → absoluteY = 8 + 2 = 10
+	// - auto: Y=9 content → absoluteY = 9 + 2 = 11
+	// - cancel: Y=10 content → absoluteY = 10 + 2 = 12
+	// detailsPanelStart = 51 (issuesWidth 46 + separator 3 + margin 2)
+
 	testCases := []struct {
 		name           string
 		viewMode       ViewMode
@@ -207,57 +226,57 @@ func TestDetectDialogButton(t *testing.T) {
 		{
 			name:           "ViewCreateWork mode - execute button start",
 			viewMode:       ViewCreateWork,
-			x:              55, // detailsPanelStart (53) + button StartX (2)
-			y:              7,  // formStartY (2) + button Y (5)
+			x:              53, // detailsPanelStart (51) + button StartX (2)
+			y:              10, // absoluteY = button.Y (8) + 2
 			expectedButton: "execute",
 		},
 		{
 			name:           "ViewCreateWork mode - execute button middle",
 			viewMode:       ViewCreateWork,
-			x:              59, // detailsPanelStart (53) + button middle (6)
-			y:              7,
+			x:              58, // detailsPanelStart (51) + button middle (7)
+			y:              10,
 			expectedButton: "execute",
 		},
 		{
 			name:           "ViewCreateWork mode - auto button start",
 			viewMode:       ViewCreateWork,
-			x:              55, // detailsPanelStart (53) + button StartX (2)
-			y:              9,  // formStartY (2) + auto button Y (7)
+			x:              53, // detailsPanelStart (51) + button StartX (2)
+			y:              11, // absoluteY = button.Y (9) + 2
 			expectedButton: "auto",
 		},
 		{
 			name:           "ViewCreateWork mode - cancel button start",
 			viewMode:       ViewCreateWork,
-			x:              55, // detailsPanelStart (53) + button StartX (2)
-			y:              11, // formStartY (2) + cancel button Y (9)
+			x:              53, // detailsPanelStart (51) + button StartX (2)
+			y:              12, // absoluteY = button.Y (10) + 2
 			expectedButton: "cancel",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (wrong Y)",
 			viewMode:       ViewCreateWork,
-			x:              55,
-			y:              8, // Wrong Y coordinate (between execute and auto)
+			x:              53,
+			y:              9, // Wrong Y coordinate (before execute button)
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (past execute end)",
 			viewMode:       ViewCreateWork,
-			x:              65, // Past execute button EndX
-			y:              7,
+			x:              70, // Past execute button EndX (51 + 13 = 64)
+			y:              10,
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (before detailsPanelStart)",
 			viewMode:       ViewCreateWork,
 			x:              50, // Before details panel
-			y:              7,
+			y:              10,
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (after cancel button)",
 			viewMode:       ViewCreateWork,
-			x:              64, // Past cancel button EndX
-			y:              11,
+			x:              70, // Past cancel button EndX
+			y:              12,
 			expectedButton: "",
 		},
 		{
