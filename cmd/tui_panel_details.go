@@ -78,16 +78,30 @@ func (p *IssueDetailsPanel) RenderWithPanel(contentHeight int) string {
 	result := panelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
 
 	// If the result is taller than expected (due to lipgloss wrapping), fix it
-	// by removing extra lines from the INNER content while preserving borders
+	// by removing extra lines from the INNER content while preserving borders and title
 	if lipgloss.Height(result) > contentHeight {
 		lines := strings.Split(result, "\n")
 		extraLines := len(lines) - contentHeight
-		if extraLines > 0 && len(lines) > 2 {
-			// Keep first line (top border), remove extra lines before last line (bottom border)
+		// Need at least 4 lines: top border, title, 1+ content, bottom border
+		if extraLines > 0 && len(lines) > 3 {
+			// Keep first line (top border), second line (title), and last line (bottom border)
+			// Remove extra lines from content area only
 			topBorder := lines[0]
+			titleLine := lines[1]
 			bottomBorder := lines[len(lines)-1]
-			innerContent := lines[1 : len(lines)-1-extraLines]
-			lines = append([]string{topBorder}, innerContent...)
+			// Content is from lines[2] to lines[len-2]
+			contentLines := lines[2 : len(lines)-1]
+			// Calculate how many content lines we can keep
+			keepContentLines := len(contentLines) - extraLines
+			if keepContentLines < 1 {
+				keepContentLines = 1 // Always show at least 1 content line
+			}
+			// Truncate content from the end
+			if keepContentLines < len(contentLines) {
+				contentLines = contentLines[:keepContentLines]
+			}
+			lines = []string{topBorder, titleLine}
+			lines = append(lines, contentLines...)
 			lines = append(lines, bottomBorder)
 			result = strings.Join(lines, "\n")
 		}
