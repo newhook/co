@@ -183,11 +183,6 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	var rightContent strings.Builder
 
 	if selectedTask != nil {
-		rightContent.WriteString(tuiSuccessStyle.Render("Task Details"))
-		rightContent.WriteString("\n")
-		rightContent.WriteString(strings.Repeat("─", halfWidth-2))
-		rightContent.WriteString("\n\n")
-
 		rightContent.WriteString(fmt.Sprintf("ID: %s\n", selectedTask.task.ID))
 		rightContent.WriteString(fmt.Sprintf("Type: %s\n", selectedTask.task.TaskType))
 		rightContent.WriteString(fmt.Sprintf("Status: %s\n", selectedTask.task.Status))
@@ -233,17 +228,18 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 		rightContent.WriteString(tuiDimStyle.Render("Select a task to view details"))
 	}
 
-	// Create the two panels
-	leftPanel := tuiPanelStyle.
-		Width(halfWidth).
-		Height(workPanelHeight - 2).
-		BorderForeground(lipgloss.Color("214")).
-		Render(tuiTitleStyle.Render("Work & Tasks") + "\n" + leftContent.String())
+	// Create the two panels with proper highlighting based on focus
+	leftPanelStyle := tuiPanelStyle.Width(halfWidth).Height(workPanelHeight - 2)
+	if m.workPanelFocused && m.activePanel == PanelLeft {
+		leftPanelStyle = leftPanelStyle.BorderForeground(lipgloss.Color("214"))
+	}
+	leftPanel := leftPanelStyle.Render(tuiTitleStyle.Render("Work & Tasks") + "\n" + leftContent.String())
 
-	rightPanel := tuiPanelStyle.
-		Width(halfWidth).
-		Height(workPanelHeight - 2).
-		Render(tuiTitleStyle.Render("Task Details") + "\n" + rightContent.String())
+	rightPanelStyle := tuiPanelStyle.Width(halfWidth).Height(workPanelHeight - 2)
+	if m.workPanelFocused && m.activePanel == PanelRight {
+		rightPanelStyle = rightPanelStyle.BorderForeground(lipgloss.Color("214"))
+	}
+	rightPanel := rightPanelStyle.Render(tuiTitleStyle.Render("Task Details") + "\n" + rightContent.String())
 
 	// Combine with separator
 	separator := lipgloss.NewStyle().
@@ -264,7 +260,7 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	issuesContentLines := planPanelHeight - 3 // -3 for border (2) + title (1)
 	issuesContent := m.renderIssuesList(issuesContentLines, issuesWidth)
 	issuesPanelStyle := tuiPanelStyle.Width(issuesWidth).Height(planPanelHeight - 2)
-	if m.activePanel == PanelLeft {
+	if !m.workPanelFocused && m.activePanel == PanelLeft {
 		issuesPanelStyle = issuesPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}
 	issuesPanel := issuesPanelStyle.Render(tuiTitleStyle.Render("Issues") + "\n" + issuesContent)
@@ -273,7 +269,7 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	detailsContentLines := planPanelHeight - 3
 	detailsContent := m.renderDetailsPanel(detailsContentLines, detailsWidth)
 	detailsPanelStyle := tuiPanelStyle.Width(detailsWidth).Height(planPanelHeight - 2)
-	if m.activePanel == PanelRight {
+	if !m.workPanelFocused && m.activePanel == PanelRight {
 		detailsPanelStyle = detailsPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}
 	detailsPanel := detailsPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
@@ -1000,15 +996,28 @@ func (m *planModel) detectHoveredIssue(y int) int {
 		return -1
 	}
 
-	// Layout within panel content:
-	// Y=0: Top border
-	// Y=1: "Issues" title
-	// Y=2: filter info line
-	// Y=3: first visible issue
-	// Y=4: second visible issue, etc.
+	// Calculate the Y offset for the issues panel based on focused work mode
+	issuesPanelStartY := 0
+	var contentHeight int
+	if m.focusedWorkID != "" {
+		// In focused work mode, the issues panel is below the work panel
+		totalHeight := m.height - 1 // -1 for status bar
+		workPanelHeight := int(float64(totalHeight) * 0.4)
+		issuesPanelStartY = workPanelHeight + 1 // +1 for separator
+		contentHeight = totalHeight - workPanelHeight - 1
+	} else {
+		contentHeight = m.height - 1 // -1 for status bar
+	}
 
-	// First issue line starts at Y=3
-	const firstIssueY = 3
+	// Layout within panel content:
+	// Y=issuesPanelStartY+0: Top border
+	// Y=issuesPanelStartY+1: "Issues" title
+	// Y=issuesPanelStartY+2: filter info line
+	// Y=issuesPanelStartY+3: first visible issue
+	// Y=issuesPanelStartY+4: second visible issue, etc.
+
+	// First issue line starts at issuesPanelStartY + 3
+	firstIssueY := issuesPanelStartY + 3
 
 	if y < firstIssueY {
 		return -1 // Not over an issue
@@ -1019,7 +1028,6 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	}
 
 	// Calculate visible window (same logic as renderIssuesList)
-	contentHeight := m.height - 1 // -1 for status bar
 	issuesContentLines := contentHeight - 3 // -3 for border (2) + title (1)
 	visibleItems := max(issuesContentLines-1, 1) // -1 for filter line
 
@@ -1038,6 +1046,125 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	}
 
 	return -1
+}
+
+// detectClickedTask determines if a click is on a task in the focused work panel
+// Returns the task ID if clicked on a task, or "" if not over a task
+func (m *planModel) detectClickedTask(x, y int) string {
+	if m.focusedWorkID == "" {
+		return ""
+	}
+
+	// Calculate work panel dimensions
+	totalHeight := m.height - 1 // -1 for status bar
+	workPanelHeight := int(float64(totalHeight) * 0.4)
+	halfWidth := (m.width - 4) / 2 - 1 // left panel width
+
+	// Check if click is within work panel bounds (top section, left half)
+	if y >= workPanelHeight || x > halfWidth+2 {
+		return ""
+	}
+
+	// Find the focused work
+	var focusedWork *workProgress
+	for _, work := range m.workTiles {
+		if work != nil && work.work.ID == m.focusedWorkID {
+			focusedWork = work
+			break
+		}
+	}
+	if focusedWork == nil || len(focusedWork.tasks) == 0 {
+		return ""
+	}
+
+	// Layout in work panel:
+	// Y=0: Top border
+	// Y=1: Panel title "Work & Tasks"
+	// Y=2: Work ID and status
+	// Y=3: Branch
+	// Y=4: Progress
+	// Y=5: Separator
+	// Y=6: "Tasks:" header
+	// Y=7: First task
+	// Y=8: Second task, etc.
+
+	const firstTaskY = 7
+	workPanelContentHeight := workPanelHeight - 3 // -3 for border and title
+	headerLines := 5 // lines used for header info above
+	availableLines := workPanelContentHeight - headerLines - 1
+
+	if y < firstTaskY || y >= firstTaskY+availableLines {
+		return ""
+	}
+
+	// Find selected task index for scroll calculation
+	selectedIndex := -1
+	for i, task := range focusedWork.tasks {
+		if task.task.ID == m.selectedTaskID {
+			selectedIndex = i
+			break
+		}
+	}
+
+	// Calculate scroll window (same as render logic)
+	startIdx := 0
+	if selectedIndex >= availableLines && availableLines > 0 {
+		startIdx = selectedIndex - availableLines/2
+		if startIdx < 0 {
+			startIdx = 0
+		}
+	}
+
+	// Calculate which task line was clicked
+	lineIndex := y - firstTaskY
+	taskIndex := startIdx + lineIndex
+
+	if taskIndex >= 0 && taskIndex < len(focusedWork.tasks) {
+		return focusedWork.tasks[taskIndex].task.ID
+	}
+
+	return ""
+}
+
+// detectClickedPanel determines which panel was clicked in the focused work view
+// Returns "work-left", "work-right", "issues-left", "issues-right", or "" if not in a panel
+func (m *planModel) detectClickedPanel(x, y int) string {
+	if m.focusedWorkID == "" {
+		return ""
+	}
+
+	// Calculate panel boundaries
+	totalHeight := m.height - 1 // -1 for status bar
+	workPanelHeight := int(float64(totalHeight) * 0.4)
+	halfWidth := (m.width - 4) / 2 // Half width including separator area
+
+	// Determine Y section (top = work, bottom = issues)
+	isWorkSection := y < workPanelHeight
+	isIssuesSection := y > workPanelHeight // Skip separator line
+
+	// Determine X section (left or right)
+	isLeftSide := x <= halfWidth
+	isRightSide := x > halfWidth
+
+	if isWorkSection {
+		if isLeftSide {
+			return "work-left"
+		}
+		if isRightSide {
+			return "work-right"
+		}
+	}
+
+	if isIssuesSection {
+		if isLeftSide {
+			return "issues-left"
+		}
+		if isRightSide {
+			return "issues-right"
+		}
+	}
+
+	return ""
 }
 
 // detectDialogButton determines which dialog button is at the given position.

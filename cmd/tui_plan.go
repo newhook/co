@@ -95,6 +95,7 @@ type planModel struct {
 	focusedWorkID      string          // ID of focused work (splits screen)
 	focusFilterActive  bool            // Whether focus filter is active
 	selectedTaskID     string          // ID of selected task in focused work
+	workPanelFocused   bool            // Whether work panel (top) is focused in split view
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -404,10 +405,47 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
-				// Check if clicking on an issue
-				clickedIssue := m.detectHoveredIssue(msg.Y)
-				if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
-					m.beadsCursor = clickedIssue
+				// Handle panel clicking in focused work mode
+				if m.focusedWorkID != "" {
+					clickedPanel := m.detectClickedPanel(msg.X, msg.Y)
+					switch clickedPanel {
+					case "work-left":
+						// Check if clicking on a task
+						clickedTaskID := m.detectClickedTask(msg.X, msg.Y)
+						if clickedTaskID != "" {
+							m.selectedTaskID = clickedTaskID
+						}
+						m.workPanelFocused = true
+						m.activePanel = PanelLeft
+						return m, nil
+					case "work-right":
+						m.workPanelFocused = true
+						m.activePanel = PanelRight
+						return m, nil
+					case "issues-left":
+						// Check if clicking on an issue
+						clickedIssue := m.detectHoveredIssue(msg.Y)
+						if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
+							m.beadsCursor = clickedIssue
+						}
+						m.workPanelFocused = false
+						m.activePanel = PanelLeft
+						return m, nil
+					case "issues-right":
+						m.workPanelFocused = false
+						m.activePanel = PanelRight
+						return m, nil
+					}
+				} else {
+					// Normal mode - just check for issue clicks
+					clickedIssue := m.detectHoveredIssue(msg.Y)
+					if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
+						m.beadsCursor = clickedIssue
+						m.activePanel = PanelLeft
+					} else if msg.X > m.width/2 {
+						// Clicked on right side - switch to details panel
+						m.activePanel = PanelRight
+					}
 				}
 			}
 		}
@@ -757,6 +795,66 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Normal mode key handling
 	switch msg.String() {
+	case "tab":
+		// Tab cycles between panels in focused work mode
+		if m.focusedWorkID != "" {
+			// 4-panel cycle: Work(L) -> Work(R) -> Issues(L) -> Issues(R)
+			if m.workPanelFocused {
+				if m.activePanel == PanelLeft {
+					m.activePanel = PanelRight
+				} else {
+					// Move from work right panel to issues left panel
+					m.workPanelFocused = false
+					m.activePanel = PanelLeft
+				}
+			} else {
+				if m.activePanel == PanelLeft {
+					m.activePanel = PanelRight
+				} else {
+					// Move from issues right panel back to work left panel
+					m.workPanelFocused = true
+					m.activePanel = PanelLeft
+				}
+			}
+		} else {
+			// Normal 2-panel cycle
+			if m.activePanel == PanelLeft {
+				m.activePanel = PanelRight
+			} else {
+				m.activePanel = PanelLeft
+			}
+		}
+		return m, nil
+
+	case "shift+tab":
+		// Shift+Tab cycles backwards
+		if m.focusedWorkID != "" {
+			if m.workPanelFocused {
+				if m.activePanel == PanelRight {
+					m.activePanel = PanelLeft
+				} else {
+					// Move from work left panel to issues right panel
+					m.workPanelFocused = false
+					m.activePanel = PanelRight
+				}
+			} else {
+				if m.activePanel == PanelRight {
+					m.activePanel = PanelLeft
+				} else {
+					// Move from issues left panel back to work right panel
+					m.workPanelFocused = true
+					m.activePanel = PanelRight
+				}
+			}
+		} else {
+			if m.activePanel == PanelRight {
+				m.activePanel = PanelLeft
+			} else {
+				m.activePanel = PanelRight
+			}
+		}
+		return m, nil
+
 	case "h", "left":
 		// Simple left navigation in panels
 		if m.activePanel == PanelRight {
@@ -773,6 +871,10 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "j", "down":
 		// Navigate down in current list
+		if m.focusedWorkID != "" && m.workPanelFocused && m.activePanel == PanelLeft {
+			// Navigate through tasks in work panel
+			return m.navigateTaskDown()
+		}
 		if m.beadsCursor < len(m.beadItems)-1 {
 			m.beadsCursor++
 		}
@@ -780,6 +882,10 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "k", "up":
 		// Navigate up in current list
+		if m.focusedWorkID != "" && m.workPanelFocused && m.activePanel == PanelLeft {
+			// Navigate through tasks in work panel
+			return m.navigateTaskUp()
+		}
 		if m.beadsCursor > 0 {
 			m.beadsCursor--
 		}
@@ -1210,4 +1316,64 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 	// Remove trailing dashes
 	branchName = strings.TrimRight(branchName, "-")
 	return "feat/" + branchName
+}
+
+// navigateTaskDown moves the selection to the next task in the focused work
+func (m *planModel) navigateTaskDown() (tea.Model, tea.Cmd) {
+	// Find the focused work
+	var focusedWork *workProgress
+	for _, work := range m.workTiles {
+		if work != nil && work.work.ID == m.focusedWorkID {
+			focusedWork = work
+			break
+		}
+	}
+	if focusedWork == nil || len(focusedWork.tasks) == 0 {
+		return m, nil
+	}
+
+	// Find current index
+	currentIdx := -1
+	for i, task := range focusedWork.tasks {
+		if task.task.ID == m.selectedTaskID {
+			currentIdx = i
+			break
+		}
+	}
+
+	// Move to next
+	if currentIdx < len(focusedWork.tasks)-1 {
+		m.selectedTaskID = focusedWork.tasks[currentIdx+1].task.ID
+	}
+	return m, nil
+}
+
+// navigateTaskUp moves the selection to the previous task in the focused work
+func (m *planModel) navigateTaskUp() (tea.Model, tea.Cmd) {
+	// Find the focused work
+	var focusedWork *workProgress
+	for _, work := range m.workTiles {
+		if work != nil && work.work.ID == m.focusedWorkID {
+			focusedWork = work
+			break
+		}
+	}
+	if focusedWork == nil || len(focusedWork.tasks) == 0 {
+		return m, nil
+	}
+
+	// Find current index
+	currentIdx := -1
+	for i, task := range focusedWork.tasks {
+		if task.task.ID == m.selectedTaskID {
+			currentIdx = i
+			break
+		}
+	}
+
+	// Move to previous
+	if currentIdx > 0 {
+		m.selectedTaskID = focusedWork.tasks[currentIdx-1].task.ID
+	}
+	return m, nil
 }
