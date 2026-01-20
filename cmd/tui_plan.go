@@ -294,12 +294,15 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.hoveredIssue = -1
 				} else if m.viewMode == ViewWorkOverlay {
 					// When work overlay is open, only detect issues if mouse is below overlay
-					overlayHeight := m.calculateWorkOverlayHeight()
+					// Add 2 for border (top + bottom) since calculateWorkOverlayHeight returns content height
+					overlayHeight := m.calculateWorkOverlayHeight() + 2
 					if msg.Y < overlayHeight {
-						// Mouse is within overlay area - no issue hover
+						// Mouse is within overlay area - detect work tile hover
 						m.hoveredIssue = -1
+						m.workOverlay.DetectHoveredWork(msg.X, msg.Y, overlayHeight)
 					} else {
 						// Mouse is below overlay - detect issues with offset
+						m.workOverlay.ClearHoveredWork()
 						m.hoveredIssue = m.detectHoveredIssueWithOffset(msg.Y, overlayHeight)
 					}
 				} else {
@@ -332,6 +335,33 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 				}
 			} else {
+				// Check for clicks in work overlay
+				if m.viewMode == ViewWorkOverlay {
+					overlayHeight := m.calculateWorkOverlayHeight() + 2 // +2 for borders
+					if msg.Y < overlayHeight {
+						// Click is within overlay area
+						clickedWorkID := m.workOverlay.HandleClick(msg.X, msg.Y, overlayHeight)
+						if clickedWorkID != "" {
+							// Switch to work detail view (same as pressing Enter)
+							m.focusedWorkID = clickedWorkID
+							m.viewMode = ViewNormal
+							m.activePanel = PanelWorkDetails
+							m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
+							m.statusIsError = false
+							m.focusFilterActive = false
+
+							// Set up the work details panel
+							focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
+							m.workDetails.SetFocusedWork(focusedWork)
+							m.workDetails.SetSelectedIndex(0)
+							m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.focusedWorkID))
+
+							return m, m.updateWorkSelectionFilter()
+						}
+						return m, nil
+					}
+				}
+
 				// Check if clicking on dialog buttons
 				clickedDialogButton := m.detectDialogButton(msg.X, msg.Y)
 				if clickedDialogButton == "ok" {
@@ -435,7 +465,14 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				} else {
 					// Normal mode - just check for issue clicks
-					clickedIssue := m.detectHoveredIssue(msg.Y)
+					var clickedIssue int
+					if m.viewMode == ViewWorkOverlay {
+						// Use offset detection when overlay is visible
+						overlayHeight := m.calculateWorkOverlayHeight() + 2
+						clickedIssue = m.detectHoveredIssueWithOffset(msg.Y, overlayHeight)
+					} else {
+						clickedIssue = m.detectHoveredIssue(msg.Y)
+					}
 					if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
 						m.beadsCursor = clickedIssue
 						m.activePanel = PanelLeft
