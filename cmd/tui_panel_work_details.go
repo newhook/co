@@ -181,7 +181,6 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 		availableContentLines = 1
 	}
 
-
 	// === Left side: Work info and items list ===
 	leftContent := p.renderLeftPanel(availableContentLines, leftWidth)
 
@@ -245,18 +244,25 @@ func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 		return content.String()
 	}
 
+	// Account for padding (tuiPanelStyle has Padding(0, 1) = 2 chars total)
+	contentWidth := panelWidth - 2
+
 	// Work header (1 line)
 	workHeader := fmt.Sprintf("%s %s", statusIcon(p.focusedWork.work.Status), p.focusedWork.work.ID)
 	if p.focusedWork.work.Name != "" {
 		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
-		workHeader += " " + nameStyle.Render(p.focusedWork.work.Name)
+		// Truncate name to fit: contentWidth - status icon (2) - space (1) - workID - space (1)
+		maxNameLen := contentWidth - 4 - len(p.focusedWork.work.ID)
+		if maxNameLen > 0 {
+			workHeader += " " + nameStyle.Render(truncateString(p.focusedWork.work.Name, maxNameLen))
+		}
 	}
 	content.WriteString(workHeader + "\n")
-	// Branch info (1 line)
-	fmt.Fprintf(&content, "Branch: %s\n", truncateString(p.focusedWork.work.BranchName, panelWidth-8))
+	// Branch info (1 line) - "Branch: " is 8 chars
+	fmt.Fprintf(&content, "Branch: %s\n", truncateString(p.focusedWork.work.BranchName, contentWidth-8))
 
 	// Separator (1 line)
-	content.WriteString(strings.Repeat("─", panelWidth-2))
+	content.WriteString(strings.Repeat("─", contentWidth))
 	content.WriteString("\n")
 
 	// Calculate available lines for items
@@ -279,16 +285,16 @@ func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 	}
 	endIdx := min(startIdx+availableLines, totalItems)
 
-	// Render visible items
+	// Render visible items (use contentWidth which accounts for padding)
 	for i := startIdx; i < endIdx; i++ {
 		if i == 0 {
 			// Root issue
-			p.renderRootIssueLine(&content, panelWidth)
+			p.renderRootIssueLine(&content, contentWidth)
 		} else {
 			// Task (index i-1 in tasks array)
 			taskIdx := i - 1
 			if taskIdx < len(p.focusedWork.tasks) {
-				p.renderTaskLine(&content, taskIdx, panelWidth)
+				p.renderTaskLine(&content, taskIdx, contentWidth)
 			}
 		}
 	}
@@ -411,6 +417,9 @@ func (p *WorkDetailsPanel) renderRightPanel(panelHeight, panelWidth int) string 
 func (p *WorkDetailsPanel) renderRootIssueDetails(panelWidth int) string {
 	var content strings.Builder
 
+	// Account for padding (tuiPanelStyle has Padding(0, 1) = 2 chars total)
+	contentWidth := panelWidth - 2
+
 	rootID := p.focusedWork.work.RootIssueID
 
 	// Find root bead in workBeads
@@ -434,10 +443,10 @@ func (p *WorkDetailsPanel) renderRootIssueDetails(panelWidth int) string {
 
 	// Display root issue details
 	if rootBead != nil {
-		// Title first (truncated to fit panel width)
+		// Title first (truncated to fit content width with some margin)
 		if rootBead.title != "" {
 			titleStyle := lipgloss.NewStyle().Bold(true)
-			title := truncateString(rootBead.title, panelWidth-4)
+			title := truncateString(rootBead.title, contentWidth-2)
 			content.WriteString(titleStyle.Render(title))
 			content.WriteString("\n")
 		}
@@ -453,7 +462,7 @@ func (p *WorkDetailsPanel) renderRootIssueDetails(panelWidth int) string {
 		// Must remove newlines before styling to prevent multi-line styled blocks
 		if rootBead.description != "" {
 			descOneLine := strings.ReplaceAll(rootBead.description, "\n", " ")
-			desc := truncateString(descOneLine, panelWidth-4)
+			desc := truncateString(descOneLine, contentWidth-2)
 			content.WriteString(tuiDimStyle.Render(desc))
 			content.WriteString("\n")
 		}
@@ -475,6 +484,9 @@ func (p *WorkDetailsPanel) renderRootIssueDetails(panelWidth int) string {
 // renderTaskDetails renders details for a task
 func (p *WorkDetailsPanel) renderTaskDetails(task *taskProgress, panelWidth int) string {
 	var content strings.Builder
+
+	// Account for padding (tuiPanelStyle has Padding(0, 1) = 2 chars total)
+	contentWidth := panelWidth - 2
 
 	content.WriteString(fmt.Sprintf("ID: %s\n", task.task.ID))
 	content.WriteString(fmt.Sprintf("Type: %s\n", task.task.TaskType))
@@ -499,7 +511,8 @@ func (p *WorkDetailsPanel) renderTaskDetails(task *taskProgress, panelWidth int)
 		}
 		beadLine := fmt.Sprintf("  %s %s", statusStr, bead.id)
 		if bead.title != "" {
-			beadLine += ": " + truncateString(bead.title, panelWidth-10)
+			// "  ○ ID: " is about 8 chars prefix
+			beadLine += ": " + truncateString(bead.title, contentWidth-8-len(bead.id))
 		}
 		content.WriteString(beadLine + "\n")
 	}
@@ -510,7 +523,7 @@ func (p *WorkDetailsPanel) renderTaskDetails(task *taskProgress, panelWidth int)
 		content.WriteString("\n")
 		content.WriteString(errorStyle.Render("Error:"))
 		content.WriteString("\n")
-		content.WriteString(truncateString(task.task.ErrorMessage, panelWidth-2))
+		content.WriteString(truncateString(task.task.ErrorMessage, contentWidth))
 	}
 
 	return content.String()
