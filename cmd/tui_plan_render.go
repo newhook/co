@@ -529,17 +529,17 @@ func (m *planModel) detectDialogButton(x, y int) string {
 }
 
 func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string {
-	icon := statusIcon(bead.status)
+	icon := statusIcon(bead.Status)
 
 	// Selection indicator for multi-select
 	var selectionIndicator string
-	if m.selectedBeads[bead.id] {
+	if m.selectedBeads[bead.ID] {
 		selectionIndicator = tuiSelectedCheckStyle.Render("●") + " "
 	}
 
 	// Session indicator - compact "P" (processing) shown after status icon
 	var sessionIndicator string
-	if m.activeBeadSessions[bead.id] {
+	if m.activeBeadSessions[bead.ID] {
 		sessionIndicator = tuiSuccessStyle.Render("P")
 	}
 
@@ -556,11 +556,11 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	}
 
 	// Styled issue ID
-	styledID := issueIDStyle.Render(bead.id)
+	styledID := issueIDStyle.Render(bead.ID)
 
 	// Short type indicator with color
 	var styledType string
-	switch bead.beadType {
+	switch bead.Type {
 	case "task":
 		styledType = typeTaskStyle.Render("T")
 	case "bug":
@@ -597,9 +597,9 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	// Calculate prefix length for normal display
 	var prefixLen int
 	if m.beadsExpanded {
-		prefixLen = 3 + len(bead.id) + 1 + 3 + len(bead.beadType) + 3 // icon + ID + space + [P# type] + spaces
+		prefixLen = 3 + len(bead.ID) + 1 + 3 + len(bead.Type) + 3 // icon + ID + space + [P# type] + spaces
 	} else {
-		prefixLen = 3 + len(bead.id) + 3 // icon + ID + type letter + spaces
+		prefixLen = 3 + len(bead.ID) + 3 // icon + ID + type letter + spaces
 	}
 	if bead.assignedWorkID != "" {
 		prefixLen += len(bead.assignedWorkID) + 3 // [work-id] + space
@@ -609,7 +609,7 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	}
 
 	// Truncate title to fit on one line
-	title := bead.title
+	title := bead.Title
 	maxTitleLen := availableWidth - prefixLen
 	if maxTitleLen < 10 {
 		maxTitleLen = 10 // Minimum space for title
@@ -621,7 +621,7 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	// Build styled line for normal display
 	var line string
 	if m.beadsExpanded {
-		line = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.priority, bead.beadType, sessionIndicator, title)
+		line = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.Priority, bead.Type, sessionIndicator, title)
 	} else {
 		line = fmt.Sprintf("%s%s%s%s %s %s%s %s", selectionIndicator, treePrefix, workIndicator, icon, styledID, styledType, sessionIndicator, title)
 	}
@@ -630,7 +630,7 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	if i == m.beadsCursor || i == m.hoveredIssue {
 		// Get type letter for compact display
 		var typeLetter string
-		switch bead.beadType {
+		switch bead.Type {
 		case "task":
 			typeLetter = "T"
 		case "bug":
@@ -647,13 +647,13 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 
 		// Build selection indicator (plain text)
 		var plainSelectionIndicator string
-		if m.selectedBeads[bead.id] {
+		if m.selectedBeads[bead.ID] {
 			plainSelectionIndicator = "● "
 		}
 
 		// Build session indicator (plain text) - compact "P" after status icon
 		var plainSessionIndicator string
-		if m.activeBeadSessions[bead.id] {
+		if m.activeBeadSessions[bead.ID] {
 			plainSessionIndicator = "P"
 		}
 
@@ -672,9 +672,9 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 		// Build plain text line without any styling (using already truncated title)
 		var plainLine string
 		if m.beadsExpanded {
-			plainLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.id, bead.priority, bead.beadType, plainSessionIndicator, title)
+			plainLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.ID, bead.Priority, bead.Type, plainSessionIndicator, title)
 		} else {
-			plainLine = fmt.Sprintf("%s%s%s%s %s %s%s %s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.id, typeLetter, plainSessionIndicator, title)
+			plainLine = fmt.Sprintf("%s%s%s%s %s %s%s %s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.ID, typeLetter, plainSessionIndicator, title)
 		}
 
 		// Pad to fill width
@@ -685,7 +685,7 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 
 		if i == m.beadsCursor {
 			// Use yellow background for newly created beads, regular blue for others
-			if _, isNew := m.newBeads[bead.id]; isNew {
+			if _, isNew := m.newBeads[bead.ID]; isNew {
 				newSelectedStyle := lipgloss.NewStyle().
 					Bold(true).
 					Foreground(lipgloss.Color("0")).   // Black text
@@ -696,7 +696,7 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 		}
 
 		// Hover style - also check for new beads
-		if _, isNew := m.newBeads[bead.id]; isNew {
+		if _, isNew := m.newBeads[bead.ID]; isNew {
 			newHoverStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("0")).   // Black text
 				Background(lipgloss.Color("228")). // Lighter yellow
@@ -716,12 +716,12 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	}
 
 	// Style new beads - apply yellow only to the title
-	if _, isNew := m.newBeads[bead.id]; isNew {
+	if _, isNew := m.newBeads[bead.ID]; isNew {
 		yellowTitle := tuiNewBeadStyle.Render(title)
 
 		var newLine string
 		if m.beadsExpanded {
-			newLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.priority, bead.beadType, sessionIndicator, yellowTitle)
+			newLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.Priority, bead.Type, sessionIndicator, yellowTitle)
 		} else {
 			newLine = fmt.Sprintf("%s%s%s%s %s %s%s %s", selectionIndicator, treePrefix, workIndicator, icon, styledID, styledType, sessionIndicator, yellowTitle)
 		}

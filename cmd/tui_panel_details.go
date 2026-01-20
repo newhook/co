@@ -87,16 +87,16 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 	bead := p.focusedBead
 
 	content.WriteString(tuiLabelStyle.Render("ID: "))
-	content.WriteString(tuiValueStyle.Render(bead.id))
+	content.WriteString(tuiValueStyle.Render(bead.ID))
 	content.WriteString("  ")
 	content.WriteString(tuiLabelStyle.Render("Type: "))
-	content.WriteString(tuiValueStyle.Render(bead.beadType))
+	content.WriteString(tuiValueStyle.Render(bead.Type))
 	content.WriteString("  ")
 	content.WriteString(tuiLabelStyle.Render("P"))
-	content.WriteString(tuiValueStyle.Render(fmt.Sprintf("%d", bead.priority)))
+	content.WriteString(tuiValueStyle.Render(fmt.Sprintf("%d", bead.Priority)))
 	content.WriteString("  ")
 	content.WriteString(tuiLabelStyle.Render("Status: "))
-	content.WriteString(tuiValueStyle.Render(bead.status))
+	content.WriteString(tuiValueStyle.Render(bead.Status))
 	if p.hasActiveSession {
 		content.WriteString("  ")
 		content.WriteString(tuiSuccessStyle.Render("[Session Active]"))
@@ -109,17 +109,17 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 
 	// Use width-aware wrapping for title
 	titleStyle := tuiValueStyle.Width(p.width - detailsPanelPaddingVal)
-	content.WriteString(titleStyle.Render(bead.title))
+	content.WriteString(titleStyle.Render(bead.Title))
 
 	// Calculate remaining lines for description and children
 	linesUsed := 2 // header + title
 	remainingLines := visibleLines - linesUsed
 
 	// Show description if we have room
-	if bead.description != "" && remainingLines > 2 {
+	if bead.Description != "" && remainingLines > 2 {
 		content.WriteString("\n")
 		descStyle := tuiDimStyle.Width(p.width - detailsPanelPaddingVal)
-		desc := bead.description
+		desc := bead.Description
 		descLines := remainingLines - 2
 		if len(bead.children) > 0 {
 			descLines = min(descLines, 3)
@@ -147,9 +147,9 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 			var childLine string
 			if child, ok := p.childBeadMap[childID]; ok {
 				childLine = fmt.Sprintf("\n  %s %s %s",
-					statusIcon(child.status),
-					issueIDStyle.Render(child.id),
-					child.title)
+					statusIcon(child.Status),
+					issueIDStyle.Render(child.ID),
+					child.Title)
 			} else {
 				childLine = fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID))
 			}

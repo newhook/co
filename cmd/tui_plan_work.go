@@ -356,12 +356,12 @@ func (m *planModel) updateWorkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Create new work - exit overlay and show create dialog
 		if m.beadsCursor < len(m.beadItems) {
 			selectedBead := m.beadItems[m.beadsCursor]
-			m.createWorkBeadIDs = []string{selectedBead.id}
+			m.createWorkBeadIDs = []string{selectedBead.ID}
 			m.viewMode = ViewCreateWork
 			m.selectedWorkTileID = ""
 
 			// Generate initial branch name
-			beads := []*beadsForBranch{{ID: selectedBead.id, Title: selectedBead.title}}
+			beads := []*beadsForBranch{{ID: selectedBead.ID, Title: selectedBead.Title}}
 			initialBranch := generateBranchNameFromBeadsForBranch(beads)
 			m.createWorkBranch.SetValue(initialBranch)
 			m.createWorkBranch.Focus()

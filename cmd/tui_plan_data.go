@@ -59,7 +59,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	assignedBeads, err := m.proj.DB.GetAllAssignedBeads(m.ctx)
 	if err == nil {
 		for i := range items {
-			if workID, ok := assignedBeads[items[i].id]; ok {
+			if workID, ok := assignedBeads[items[i].ID]; ok {
 				items[i].assignedWorkID = workID
 			}
 		}
@@ -83,7 +83,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	// If no tree structure, apply regular sorting
 	hasTree := false
 	for _, item := range items {
-		if item.treeDepth > 0 || item.dependentCount > 0 {
+		if item.treeDepth > 0 || len(item.Dependents) > 0 {
 			hasTree = true
 			break
 		}
@@ -94,11 +94,11 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 		switch filters.sortBy {
 		case "priority":
 			sort.Slice(items, func(i, j int) bool {
-				return items[i].priority < items[j].priority
+				return items[i].Priority < items[j].Priority
 			})
 		case "title":
 			sort.Slice(items, func(i, j int) bool {
-				return items[i].title < items[j].title
+				return items[i].Title < items[j].Title
 			})
 		}
 	}

@@ -71,7 +71,7 @@ func (p *AddToWorkPanel) Render(visibleLines int) string {
 	// Collect selected beads
 	var selectedBeads []beadItem
 	for _, item := range p.beadItems {
-		if p.selectedBeads[item.id] {
+		if p.selectedBeads[item.ID] {
 			selectedBeads = append(selectedBeads, item)
 		}
 	}
@@ -92,10 +92,10 @@ func (p *AddToWorkPanel) Render(visibleLines int) string {
 	// Show which issues we're adding
 	if len(selectedBeads) == 1 {
 		content.WriteString(tuiDimStyle.Render("Issue: "))
-		content.WriteString(issueIDStyle.Render(selectedBeads[0].id))
+		content.WriteString(issueIDStyle.Render(selectedBeads[0].ID))
 		content.WriteString("\n")
 		titleStyle := tuiValueStyle.Width(p.width - 4)
-		content.WriteString(titleStyle.Render(selectedBeads[0].title))
+		content.WriteString(titleStyle.Render(selectedBeads[0].Title))
 		content.WriteString("\n")
 	} else if len(selectedBeads) > 1 {
 		content.WriteString(tuiDimStyle.Render("Issues:\n"))
@@ -105,10 +105,10 @@ func (p *AddToWorkPanel) Render(visibleLines int) string {
 				break
 			}
 			content.WriteString("  ")
-			content.WriteString(issueIDStyle.Render(bead.id))
+			content.WriteString(issueIDStyle.Render(bead.ID))
 			content.WriteString(": ")
-			titleStyle := tuiValueStyle.Width(p.width - 4 - len(bead.id) - 4)
-			content.WriteString(titleStyle.Render(bead.title))
+			titleStyle := tuiValueStyle.Width(p.width - 4 - len(bead.ID) - 4)
+			content.WriteString(titleStyle.Render(bead.Title))
 			content.WriteString("\n")
 		}
 	}

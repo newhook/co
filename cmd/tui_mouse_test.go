@@ -57,7 +57,7 @@ func TestDetectCommandsBarButton(t *testing.T) {
 
 			if tc.hasBeads {
 				m.beadItems = []beadItem{
-					{id: "test-bead-1", title: "Test Bead"},
+					testBeadItem("test-bead-1", "Test Bead", "open", 2, "task"),
 				}
 				m.beadsCursor = 0
 
@@ -198,7 +198,7 @@ func TestDetectDialogButton(t *testing.T) {
 			{ID: "cancel", Y: 9, StartX: 2, EndX: 9},   // "► Cancel" (8 chars), EndX is last valid position
 		},
 		beadItems: []beadItem{
-			{id: "test-bead-1", title: "Test Bead"},
+			testBeadItem("test-bead-1", "Test Bead", "open", 2, "task"),
 		},
 		beadsCursor: 0,
 		activeBeadSessions: make(map[string]bool),

@@ -238,14 +238,14 @@ func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		// Collect selected beads
 		var beadIDs []string
 		for _, item := range m.beadItems {
-			if m.selectedBeads[item.id] {
-				beadIDs = append(beadIDs, item.id)
+			if m.selectedBeads[item.ID] {
+				beadIDs = append(beadIDs, item.ID)
 			}
 		}
 
 		// If no selected beads, use cursor bead
 		if len(beadIDs) == 0 && len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			beadIDs = append(beadIDs, m.beadItems[m.beadsCursor].id)
+			beadIDs = append(beadIDs, m.beadItems[m.beadsCursor].ID)
 		}
 
 		m.viewMode = ViewNormal
@@ -288,14 +288,14 @@ func (m *planModel) updateAddToWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Collect selected beads
 			var beadIDs []string
 			for _, item := range m.beadItems {
-				if m.selectedBeads[item.id] {
-					beadIDs = append(beadIDs, item.id)
+				if m.selectedBeads[item.ID] {
+					beadIDs = append(beadIDs, item.ID)
 				}
 			}
 
 			// If no selected beads, use cursor bead
 			if len(beadIDs) == 0 && len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-				beadIDs = append(beadIDs, m.beadItems[m.beadsCursor].id)
+				beadIDs = append(beadIDs, m.beadItems[m.beadsCursor].ID)
 			}
 
 			if len(beadIDs) == 1 {
@@ -347,7 +347,7 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 	// Collect selected beads
 	var selectedBeads []beadItem
 	for _, item := range m.beadItems {
-		if m.selectedBeads[item.id] {
+		if m.selectedBeads[item.ID] {
 			selectedBeads = append(selectedBeads, item)
 		}
 	}
@@ -360,12 +360,12 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 	// Build the confirmation message
 	var beadsList string
 	if len(selectedBeads) == 1 {
-		beadsList = fmt.Sprintf("  %s\n  %s", selectedBeads[0].id, selectedBeads[0].title)
+		beadsList = fmt.Sprintf("  %s\n  %s", selectedBeads[0].ID, selectedBeads[0].Title)
 	} else if len(selectedBeads) > 1 {
 		beadsList = fmt.Sprintf("  %d issues:\n", len(selectedBeads))
 		for i, bead := range selectedBeads {
 			if i < 5 { // Show first 5 beads
-				beadsList += fmt.Sprintf("  - %s: %s\n", bead.id, bead.title)
+				beadsList += fmt.Sprintf("  - %s: %s\n", bead.ID, bead.Title)
 			}
 		}
 		if len(selectedBeads) > 5 {
@@ -396,7 +396,7 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 func (m *planModel) renderAddToWorkDialogContent() string {
 	beadID := ""
 	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-		beadID = m.beadItems[m.beadsCursor].id
+		beadID = m.beadItems[m.beadsCursor].ID
 	}
 
 	var worksList strings.Builder

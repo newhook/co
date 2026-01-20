@@ -508,13 +508,13 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.beadItems) > 0 {
 			existingIDs := make(map[string]bool)
 			for _, bead := range m.beadItems {
-				existingIDs[bead.id] = true
+				existingIDs[bead.ID] = true
 			}
 			for _, bead := range msg.beads {
 				// Mark as new if not in existing list and not already animated
-				if !existingIDs[bead.id] && m.newBeads[bead.id].IsZero() {
-					m.newBeads[bead.id] = now
-					expireCmds = append(expireCmds, scheduleNewBeadExpire(bead.id))
+				if !existingIDs[bead.ID] && m.newBeads[bead.ID].IsZero() {
+					m.newBeads[bead.ID] = now
+					expireCmds = append(expireCmds, scheduleNewBeadExpire(bead.ID))
 				}
 			}
 		}
@@ -952,7 +952,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Check if we have any selected beads
 			hasSelection := false
 			for _, item := range m.beadItems {
-				if m.selectedBeads[item.id] {
+				if m.selectedBeads[item.ID] {
 					hasSelection = true
 					break
 				}
@@ -1055,14 +1055,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.statusIsError = true
 				return m, nil
 			}
-			m.selectedBeads[bead.id] = !m.selectedBeads[bead.id]
+			m.selectedBeads[bead.ID] = !m.selectedBeads[bead.ID]
 		}
 		return m, nil
 
 	case "p":
 		// Spawn/resume planning session for selected bead
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			beadID := m.beadItems[m.beadsCursor].id
+			beadID := m.beadItems[m.beadsCursor].ID
 			return m, m.spawnPlanSession(beadID)
 		}
 		return m, nil
@@ -1082,14 +1082,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			var branchBeads []*beadsForBranch
 			var alreadyAssigned []string
 			for _, item := range m.beadItems {
-				if m.selectedBeads[item.id] {
+				if m.selectedBeads[item.ID] {
 					if item.assignedWorkID != "" {
-						alreadyAssigned = append(alreadyAssigned, item.id+" ("+item.assignedWorkID+")")
+						alreadyAssigned = append(alreadyAssigned, item.ID+" ("+item.assignedWorkID+")")
 					} else {
-						selectedIDs = append(selectedIDs, item.id)
+						selectedIDs = append(selectedIDs, item.ID)
 						branchBeads = append(branchBeads, &beadsForBranch{
-							ID:    item.id,
-							Title: item.title,
+							ID:    item.ID,
+							Title: item.Title,
 						})
 					}
 				}
@@ -1098,14 +1098,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(selectedIDs) == 0 && len(alreadyAssigned) == 0 {
 				bead := m.beadItems[m.beadsCursor]
 				if bead.assignedWorkID != "" {
-					m.statusMessage = fmt.Sprintf("Cannot create work: %s already assigned to %s", bead.id, bead.assignedWorkID)
+					m.statusMessage = fmt.Sprintf("Cannot create work: %s already assigned to %s", bead.ID, bead.assignedWorkID)
 					m.statusIsError = true
 					return m, nil
 				}
-				selectedIDs = []string{bead.id}
+				selectedIDs = []string{bead.ID}
 				branchBeads = []*beadsForBranch{{
-					ID:    bead.id,
-					Title: bead.title,
+					ID:    bead.ID,
+					Title: bead.Title,
 				}}
 			}
 			// Show error if some selected beads are already assigned
@@ -1132,7 +1132,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		// Add child issue to selected issue
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			m.parentBeadID = m.beadItems[m.beadsCursor].id
+			m.parentBeadID = m.beadItems[m.beadsCursor].ID
 			m.viewMode = ViewAddChildBead
 			m.textInput.Reset()
 			m.textInput.Focus()
@@ -1146,22 +1146,22 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Edit selected issue using the unified bead form
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			bead := m.beadItems[m.beadsCursor]
-			m.editBeadID = bead.id
+			m.editBeadID = bead.ID
 			m.viewMode = ViewEditBead
 			m.textInput.Reset()
-			m.textInput.SetValue(bead.title)
+			m.textInput.SetValue(bead.Title)
 			m.textInput.Focus()
 			m.createDescTextarea.Reset()
-			m.createDescTextarea.SetValue(bead.description)
+			m.createDescTextarea.SetValue(bead.Description)
 			// Find the type index
 			m.createBeadType = 0
 			for i, t := range beadTypes {
-				if t == bead.beadType {
+				if t == bead.Type {
 					m.createBeadType = i
 					break
 				}
 			}
-			m.createBeadPriority = bead.priority
+			m.createBeadPriority = bead.Priority
 			m.createDialogFocus = 0 // Start with title focused
 		}
 		return m, nil
@@ -1170,7 +1170,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Edit selected issue in external editor
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			bead := m.beadItems[m.beadsCursor]
-			return m, m.openInEditor(bead.id)
+			return m, m.openInEditor(bead.ID)
 		}
 		return m, nil
 
@@ -1202,15 +1202,15 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			var beadsToAdd []string
 			hasSelection := false
 			for _, item := range m.beadItems {
-				if m.selectedBeads[item.id] {
+				if m.selectedBeads[item.ID] {
 					hasSelection = true
 					// Check if already assigned
 					if item.assignedWorkID != "" {
-						m.statusMessage = fmt.Sprintf("Issue %s already assigned to %s", item.id, item.assignedWorkID)
+						m.statusMessage = fmt.Sprintf("Issue %s already assigned to %s", item.ID, item.assignedWorkID)
 						m.statusIsError = true
 						return m, nil
 					}
-					beadsToAdd = append(beadsToAdd, item.id)
+					beadsToAdd = append(beadsToAdd, item.ID)
 				}
 			}
 
@@ -1218,11 +1218,11 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if !hasSelection && m.beadsCursor < len(m.beadItems) {
 				bead := m.beadItems[m.beadsCursor]
 				if bead.assignedWorkID != "" {
-					m.statusMessage = fmt.Sprintf("Issue %s already assigned to %s", bead.id, bead.assignedWorkID)
+					m.statusMessage = fmt.Sprintf("Issue %s already assigned to %s", bead.ID, bead.assignedWorkID)
 					m.statusIsError = true
 					return m, nil
 				}
-				beadsToAdd = append(beadsToAdd, bead.id)
+				beadsToAdd = append(beadsToAdd, bead.ID)
 			}
 
 			if len(beadsToAdd) > 0 {
@@ -1301,10 +1301,10 @@ func (m *planModel) syncPanels() {
 	childBeadMap := make(map[string]*beadItem)
 	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 		focusedBead = &m.beadItems[m.beadsCursor]
-		hasActiveSession = m.activeBeadSessions[focusedBead.id]
+		hasActiveSession = m.activeBeadSessions[focusedBead.ID]
 		// Build map for child lookup
 		for i := range m.beadItems {
-			childBeadMap[m.beadItems[i].id] = &m.beadItems[i]
+			childBeadMap[m.beadItems[i].ID] = &m.beadItems[i]
 		}
 	}
 	m.detailsPanel.SetData(focusedBead, hasActiveSession, childBeadMap)

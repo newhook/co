@@ -119,7 +119,7 @@ func (s *StatusBar) Render() string {
 		cursor := s.getBeadsCursor()
 		activeSessions := s.getActiveSessions()
 		if len(beadItems) > 0 && cursor < len(beadItems) {
-			beadID := beadItems[cursor].id
+			beadID := beadItems[cursor].ID
 			if activeSessions[beadID] {
 				pAction = "[p]Resume"
 			}
@@ -180,7 +180,7 @@ func (s *StatusBar) DetectButton(x int) string {
 		cursor := s.getBeadsCursor()
 		activeSessions := s.getActiveSessions()
 		if len(beadItems) > 0 && cursor < len(beadItems) {
-			beadID := beadItems[cursor].id
+			beadID := beadItems[cursor].ID
 			if activeSessions[beadID] {
 				pAction = "[p]Resume"
 			}

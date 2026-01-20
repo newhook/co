@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 )
 
@@ -165,25 +166,20 @@ type workItem struct {
 	rootIssueTitle string
 }
 
-// beadItem represents a bead in the beads panel
+// beadItem represents a bead in the beads panel with TUI-specific display state.
+// It embeds beads.BeadWithDeps to access domain data directly.
 type beadItem struct {
-	id              string
-	title           string
-	status          string
-	priority        int
-	beadType        string   // task, bug, feature, etc.
-	description     string
-	isReady         bool
-	selected        bool     // for multi-select
-	dependencyCount int      // number of issues that block this one
-	dependentCount  int      // number of issues this blocks
-	dependencies    []string // IDs of issues that block this one
-	children        []string // IDs of issues blocked by this one (computed from tree)
+	*beads.BeadWithDeps
+
+	// TUI-specific display state
+	selected          bool     // for multi-select
+	isReady           bool     // computed ready state
 	treeDepth         int      // depth in tree view (0 = root)
 	assignedWorkID    string   // work ID if already assigned to a work (empty = not assigned)
 	isClosedParent    bool     // true if this is a closed bead included for tree context (has visible children)
 	isLastChild       bool     // true if this bead is the last child of its parent
 	treePrefixPattern string   // precomputed tree prefix pattern (e.g., "│ └─")
+	children          []string // IDs of issues blocked by this one (computed from tree)
 }
 
 // beadFilters holds the current filter state for beads

@@ -149,17 +149,17 @@ func (p *IssuesPanel) RenderWithPanel(contentHeight int) string {
 
 // renderBeadLine renders a single bead line
 func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
-	icon := statusIcon(bead.status)
+	icon := statusIcon(bead.Status)
 
 	// Selection indicator for multi-select
 	var selectionIndicator string
-	if p.selectedBeads[bead.id] {
+	if p.selectedBeads[bead.ID] {
 		selectionIndicator = tuiSelectedCheckStyle.Render("●") + " "
 	}
 
 	// Session indicator - compact "P" (processing) shown after status icon
 	var sessionIndicator string
-	if p.activeSessions[bead.id] {
+	if p.activeSessions[bead.ID] {
 		sessionIndicator = tuiSuccessStyle.Render("P")
 	}
 
@@ -176,11 +176,11 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 	}
 
 	// Styled issue ID
-	styledID := issueIDStyle.Render(bead.id)
+	styledID := issueIDStyle.Render(bead.ID)
 
 	// Short type indicator with color
 	var styledType string
-	switch bead.beadType {
+	switch bead.Type {
 	case "task":
 		styledType = typeTaskStyle.Render("T")
 	case "bug":
@@ -217,9 +217,9 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 	// Calculate prefix length for normal display
 	var prefixLen int
 	if p.expanded {
-		prefixLen = 3 + len(bead.id) + 1 + 3 + len(bead.beadType) + 3 // icon + ID + space + [P# type] + spaces
+		prefixLen = 3 + len(bead.ID) + 1 + 3 + len(bead.Type) + 3 // icon + ID + space + [P# type] + spaces
 	} else {
-		prefixLen = 3 + len(bead.id) + 3 // icon + ID + type letter + spaces
+		prefixLen = 3 + len(bead.ID) + 3 // icon + ID + type letter + spaces
 	}
 	if bead.assignedWorkID != "" {
 		prefixLen += len(bead.assignedWorkID) + 3 // [work-id] + space
@@ -229,7 +229,7 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 	}
 
 	// Truncate title to fit on one line
-	title := bead.title
+	title := bead.Title
 	maxTitleLen := availableWidth - prefixLen
 	if maxTitleLen < 10 {
 		maxTitleLen = 10
@@ -241,7 +241,7 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 	// Build styled line for normal display
 	var line string
 	if p.expanded {
-		line = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.priority, bead.beadType, sessionIndicator, title)
+		line = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.Priority, bead.Type, sessionIndicator, title)
 	} else {
 		line = fmt.Sprintf("%s%s%s%s %s %s%s %s", selectionIndicator, treePrefix, workIndicator, icon, styledID, styledType, sessionIndicator, title)
 	}
@@ -250,7 +250,7 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 	if i == p.cursor || i == p.hoveredIssue {
 		// Get type letter for compact display
 		var typeLetter string
-		switch bead.beadType {
+		switch bead.Type {
 		case "task":
 			typeLetter = "T"
 		case "bug":
@@ -267,13 +267,13 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 
 		// Build selection indicator (plain text)
 		var plainSelectionIndicator string
-		if p.selectedBeads[bead.id] {
+		if p.selectedBeads[bead.ID] {
 			plainSelectionIndicator = "● "
 		}
 
 		// Build session indicator (plain text)
 		var plainSessionIndicator string
-		if p.activeSessions[bead.id] {
+		if p.activeSessions[bead.ID] {
 			plainSessionIndicator = "P"
 		}
 
@@ -292,9 +292,9 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 		// Build plain text line without any styling
 		var plainLine string
 		if p.expanded {
-			plainLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.id, bead.priority, bead.beadType, plainSessionIndicator, title)
+			plainLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.ID, bead.Priority, bead.Type, plainSessionIndicator, title)
 		} else {
-			plainLine = fmt.Sprintf("%s%s%s%s %s %s%s %s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.id, typeLetter, plainSessionIndicator, title)
+			plainLine = fmt.Sprintf("%s%s%s%s %s %s%s %s", plainSelectionIndicator, plainTreePrefix, plainWorkIndicator, icon, bead.ID, typeLetter, plainSessionIndicator, title)
 		}
 
 		// Pad to fill width
@@ -305,7 +305,7 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 
 		if i == p.cursor {
 			// Use yellow background for newly created beads
-			if _, isNew := p.newBeads[bead.id]; isNew {
+			if _, isNew := p.newBeads[bead.ID]; isNew {
 				newSelectedStyle := lipgloss.NewStyle().
 					Bold(true).
 					Foreground(lipgloss.Color("0")).
@@ -316,7 +316,7 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 		}
 
 		// Hover style
-		if _, isNew := p.newBeads[bead.id]; isNew {
+		if _, isNew := p.newBeads[bead.ID]; isNew {
 			newHoverStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("0")).
 				Background(lipgloss.Color("228")).
@@ -336,12 +336,12 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 	}
 
 	// Style new beads - apply yellow only to the title
-	if _, isNew := p.newBeads[bead.id]; isNew {
+	if _, isNew := p.newBeads[bead.ID]; isNew {
 		yellowTitle := tuiNewBeadStyle.Render(title)
 
 		var newLine string
 		if p.expanded {
-			newLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.priority, bead.beadType, sessionIndicator, yellowTitle)
+			newLine = fmt.Sprintf("%s%s%s%s %s [P%d %s] %s%s", selectionIndicator, treePrefix, workIndicator, icon, styledID, bead.Priority, bead.Type, sessionIndicator, yellowTitle)
 		} else {
 			newLine = fmt.Sprintf("%s%s%s%s %s %s%s %s", selectionIndicator, treePrefix, workIndicator, icon, styledID, styledType, sessionIndicator, yellowTitle)
 		}
