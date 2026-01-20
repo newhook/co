@@ -33,6 +33,7 @@ type WorkOverlayPanel struct {
 	// Data
 	workTiles          []*workProgress
 	selectedWorkTileID string
+	hoveredWorkID      string
 	loading            bool
 }
 
@@ -282,7 +283,8 @@ func (p *WorkOverlayPanel) Render() string {
 			}
 
 			isSelected := work.work.ID == p.selectedWorkTileID
-			content.WriteString(p.renderWorkTile(work, isSelected))
+			isHovered := work.work.ID == p.hoveredWorkID
+			content.WriteString(p.renderWorkTile(work, isSelected, isHovered))
 		}
 
 		// Scroll indicator
@@ -296,14 +298,25 @@ func (p *WorkOverlayPanel) Render() string {
 }
 
 // renderWorkTile renders a single work tile
-func (p *WorkOverlayPanel) renderWorkTile(work *workProgress, isSelected bool) string {
+func (p *WorkOverlayPanel) renderWorkTile(work *workProgress, isSelected bool, isHovered bool) string {
 	var content strings.Builder
+
+	// Apply hover background
+	hoverStyle := lipgloss.NewStyle()
+	if isHovered {
+		hoverStyle = hoverStyle.Background(lipgloss.Color("238"))
+	}
 
 	// === Line 1: Main info ===
 	var line1 strings.Builder
 
-	if isSelected {
+	if isSelected && isHovered {
+		// Both selected and hovered - use bright indicator
+		line1.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("226")).Bold(true).Render(">"))
+	} else if isSelected {
 		line1.WriteString(tuiSuccessStyle.Render(">"))
+	} else if isHovered {
+		line1.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("247")).Render(">"))
 	} else {
 		line1.WriteString(" ")
 	}
@@ -359,7 +372,11 @@ func (p *WorkOverlayPanel) renderWorkTile(work *workProgress, isSelected bool) s
 		line1.WriteString(timeStyle.Render(fmt.Sprintf("Created %s", timeStr)))
 	}
 
-	content.WriteString(line1.String())
+	line1Str := line1.String()
+	if isHovered && !isSelected {
+		line1Str = hoverStyle.Render(line1Str)
+	}
+	content.WriteString(line1Str)
 	content.WriteString("\n")
 
 	// === Line 2: Branch and progress ===
@@ -411,7 +428,11 @@ func (p *WorkOverlayPanel) renderWorkTile(work *workProgress, isSelected bool) s
 		line2.WriteString(alertStyle.Render(fmt.Sprintf("* %d feedback", work.feedbackCount)))
 	}
 
-	content.WriteString(line2.String())
+	line2Str := line2.String()
+	if isHovered && !isSelected {
+		line2Str = hoverStyle.Render(line2Str)
+	}
+	content.WriteString(line2Str)
 	content.WriteString("\n")
 
 	// === Line 3: Root issue details ===
@@ -441,9 +462,16 @@ func (p *WorkOverlayPanel) renderWorkTile(work *workProgress, isSelected bool) s
 			issueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 			line3.WriteString(issueStyle.Render(fmt.Sprintf("Root: %s", work.work.RootIssueID)))
 		}
-		content.WriteString(line3.String())
+		line3Str := line3.String()
+		if isHovered && !isSelected {
+			line3Str = hoverStyle.Render(line3Str)
+		}
+		content.WriteString(line3Str)
 		content.WriteString("\n")
 	} else {
+		if isHovered && !isSelected {
+			content.WriteString(hoverStyle.Render(""))
+		}
 		content.WriteString("\n")
 	}
 
@@ -492,4 +520,98 @@ func (p *WorkOverlayPanel) NavigateDown() {
 			p.selectedWorkTileID = p.workTiles[currentIdx+1].work.ID
 		}
 	}
+}
+
+// DetectHoveredWork detects which work tile is under the mouse position
+// overlayHeight is the total overlay height including borders (passed from caller)
+func (p *WorkOverlayPanel) DetectHoveredWork(x, y int, overlayHeight int) {
+	if len(p.workTiles) == 0 || p.loading {
+		p.hoveredWorkID = ""
+		return
+	}
+
+	// Layout within overlay (screen coordinates):
+	// Y=0: Top border
+	// Y=1: Header bar
+	// Y=2: First work tile line 1
+	// Y=3: First work tile line 2
+	// Y=4: First work tile line 3
+	// Y=5: Second work tile line 1
+	// Each work tile takes 3 lines
+	const firstWorkY = 2
+
+	// Content height is overlayHeight - 2 (borders)
+	contentHeight := overlayHeight - 2
+
+	// Check bounds: y must be within content area (after header, before bottom border)
+	// Bottom border is at y = overlayHeight - 1
+	if y < firstWorkY || y >= overlayHeight-1 {
+		p.hoveredWorkID = ""
+		return
+	}
+
+	// Calculate available space for work items
+	// contentHeight includes header (1 line) and work content
+	availableLines := contentHeight - 1 // -1 for header
+	worksPerPage := availableLines / 3
+
+	// Find selected index for scroll calculation
+	selectedIndex := -1
+	for i, work := range p.workTiles {
+		if work.work.ID == p.selectedWorkTileID {
+			selectedIndex = i
+			break
+		}
+	}
+
+	// Calculate visible window (same logic as Render)
+	startIdx := 0
+	if selectedIndex >= worksPerPage {
+		startIdx = selectedIndex - worksPerPage/2
+		if startIdx < 0 {
+			startIdx = 0
+		}
+	}
+	endIdx := startIdx + worksPerPage
+	if endIdx > len(p.workTiles) {
+		endIdx = len(p.workTiles)
+		if endIdx-startIdx < worksPerPage && len(p.workTiles) >= worksPerPage {
+			startIdx = endIdx - worksPerPage
+			if startIdx < 0 {
+				startIdx = 0
+			}
+		}
+	}
+
+	// Calculate which work tile the mouse is over
+	workLineOffset := y - firstWorkY
+	workIndex := workLineOffset / 3
+
+	absoluteIndex := startIdx + workIndex
+	if absoluteIndex >= startIdx && absoluteIndex < endIdx && absoluteIndex < len(p.workTiles) {
+		p.hoveredWorkID = p.workTiles[absoluteIndex].work.ID
+	} else {
+		p.hoveredWorkID = ""
+	}
+}
+
+// ClearHoveredWork clears the hovered work state
+func (p *WorkOverlayPanel) ClearHoveredWork() {
+	p.hoveredWorkID = ""
+}
+
+// GetHoveredWorkID returns the currently hovered work ID
+func (p *WorkOverlayPanel) GetHoveredWorkID() string {
+	return p.hoveredWorkID
+}
+
+// HandleClick handles a mouse click and returns the clicked work ID (if any)
+func (p *WorkOverlayPanel) HandleClick(x, y int, overlayHeight int) string {
+	p.DetectHoveredWork(x, y, overlayHeight)
+	if p.hoveredWorkID != "" {
+		// Select the hovered work
+		p.selectedWorkTileID = p.hoveredWorkID
+		return p.hoveredWorkID
+	}
+	return ""
 }
