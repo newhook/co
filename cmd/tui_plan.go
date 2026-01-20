@@ -50,6 +50,17 @@ type planModel struct {
 	width  int
 	height int
 
+	// Panels (self-contained rendering components)
+	statusBar         *StatusBar
+	issuesPanel       *IssuesPanel
+	detailsPanel      *IssueDetailsPanel
+	workOverlay       *WorkOverlayPanel
+	workDetails       *WorkDetailsPanel
+	linearImportPanel *LinearImportPanel
+	beadFormPanel     *BeadFormPanel
+	createWorkPanel   *CreateWorkPanel
+	addToWorkPanel    *AddToWorkPanel
+
 	// Panel state
 	activePanel Panel
 	beadsCursor int
@@ -188,7 +199,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		}
 	}
 
-	return &planModel{
+	m := &planModel{
 		createDescTextarea:   createDescTa,
 		createWorkBranch:     branchInput,
 		linearImportInput:    linearInput,
@@ -213,6 +224,28 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 			sortBy: "default",
 		},
 	}
+
+	// Initialize panels
+	m.statusBar = NewStatusBar()
+	m.issuesPanel = NewIssuesPanel()
+	m.detailsPanel = NewIssueDetailsPanel()
+	m.workOverlay = NewWorkOverlayPanel()
+	m.workDetails = NewWorkDetailsPanel()
+	m.linearImportPanel = NewLinearImportPanel()
+	m.beadFormPanel = NewBeadFormPanel()
+	m.createWorkPanel = NewCreateWorkPanel()
+	m.addToWorkPanel = NewAddToWorkPanel()
+
+	// Set up status bar data providers
+	m.statusBar.SetDataProviders(
+		func() []beadItem { return m.beadItems },
+		func() int { return m.beadsCursor },
+		func() map[string]bool { return m.activeBeadSessions },
+		func() ViewMode { return m.viewMode },
+		func() string { return m.textInput.View() },
+	)
+
+	return m
 }
 
 // SetSize implements SubModel
@@ -1229,8 +1262,156 @@ func (m *planModel) cleanup() {
 	// which is deferred in runTUI. Do not close it here to avoid double-close.
 }
 
+// syncPanels synchronizes data from planModel to the panel components
+func (m *planModel) syncPanels() {
+	// Calculate column widths
+	totalContentWidth := m.width - 4
+	separatorWidth := 3
+	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+	detailsWidth := totalContentWidth - separatorWidth - issuesWidth
+
+	// Sync status bar
+	m.statusBar.SetSize(m.width)
+	m.statusBar.SetStatus(m.statusMessage, m.statusIsError)
+	m.statusBar.SetLoading(m.loading)
+	m.statusBar.SetLastUpdate(m.lastUpdate)
+	m.statusBar.SetHoveredButton(m.hoveredButton)
+
+	// Sync issues panel
+	m.issuesPanel.SetSize(issuesWidth, m.height)
+	m.issuesPanel.SetFocus(m.activePanel == PanelLeft && !m.workPanelFocused)
+	m.issuesPanel.SetData(
+		m.beadItems,
+		m.beadsCursor,
+		m.filters,
+		m.beadsExpanded,
+		m.selectedBeads,
+		m.activeBeadSessions,
+		m.newBeads,
+	)
+	m.issuesPanel.SetWorkContext(m.focusedWorkID, m.focusFilterActive)
+	m.issuesPanel.SetHoveredIssue(m.hoveredIssue)
+
+	// Sync details panel
+	m.detailsPanel.SetSize(detailsWidth, m.height)
+	m.detailsPanel.SetFocus(m.activePanel == PanelRight && !m.workPanelFocused)
+	m.detailsPanel.SetData(m.beadItems, m.beadsCursor, m.activeBeadSessions)
+	m.detailsPanel.SetFormState(
+		m.viewMode,
+		&m.textInput,
+		&m.createDescTextarea,
+		m.createBeadType,
+		m.createBeadPriority,
+		m.createDialogFocus,
+		m.editBeadID,
+		m.parentBeadID,
+	)
+	m.detailsPanel.SetLinearImportState(
+		&m.linearImportInput,
+		m.linearImportCreateDeps,
+		m.linearImportUpdate,
+		m.linearImportDryRun,
+		m.linearImportMaxDepth,
+		m.linearImportFocus,
+		m.linearImporting,
+	)
+	m.detailsPanel.SetCreateWorkState(
+		m.createWorkBeadIDs,
+		&m.createWorkBranch,
+		m.createWorkField,
+		m.createWorkButtonIdx,
+	)
+	m.detailsPanel.SetAddToWorkState(m.availableWorks, m.worksCursor)
+	m.detailsPanel.SetHoveredDialogButton(m.hoveredDialogButton)
+
+	// Sync work overlay
+	m.workOverlay.SetSize(m.width, m.height)
+	m.workOverlay.SetFocus(m.overlayFocused)
+	m.workOverlay.SetData(m.workTiles, m.selectedWorkTileID)
+	m.workOverlay.SetLoading(m.loading)
+
+	// Sync work details (for focused work split view)
+	if m.focusedWorkID != "" {
+		m.workDetails.SetSize(m.width, m.height)
+		m.workDetails.SetFocus(
+			m.workPanelFocused && m.activePanel == PanelLeft,
+			m.workPanelFocused && m.activePanel == PanelRight,
+		)
+		// Find the focused work
+		var focusedWork *workProgress
+		for _, work := range m.workTiles {
+			if work != nil && work.work.ID == m.focusedWorkID {
+				focusedWork = work
+				break
+			}
+		}
+		m.workDetails.SetData(focusedWork, m.selectedTaskID)
+	}
+
+	// Sync Linear import panel
+	m.linearImportPanel.SetSize(detailsWidth, m.height)
+	m.linearImportPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewLinearImportInline)
+	m.linearImportPanel.SetFormState(
+		&m.linearImportInput,
+		m.linearImportCreateDeps,
+		m.linearImportUpdate,
+		m.linearImportDryRun,
+		m.linearImportMaxDepth,
+		m.linearImportFocus,
+		m.linearImporting,
+	)
+	m.linearImportPanel.SetHoveredButton(m.hoveredDialogButton)
+
+	// Sync bead form panel
+	m.beadFormPanel.SetSize(detailsWidth, m.height)
+	m.beadFormPanel.SetFocus(m.activePanel == PanelRight)
+	var beadFormMode BeadFormMode
+	switch m.viewMode {
+	case ViewEditBead:
+		beadFormMode = BeadFormModeEdit
+	case ViewAddChildBead:
+		beadFormMode = BeadFormModeAddChild
+	default:
+		beadFormMode = BeadFormModeCreate
+	}
+	m.beadFormPanel.SetMode(beadFormMode, m.editBeadID, m.parentBeadID)
+	m.beadFormPanel.SetFormState(
+		&m.textInput,
+		&m.createDescTextarea,
+		m.createBeadType,
+		m.createBeadPriority,
+		m.createDialogFocus,
+	)
+	m.beadFormPanel.SetHoveredButton(m.hoveredDialogButton)
+
+	// Sync create work panel
+	m.createWorkPanel.SetSize(detailsWidth, m.height)
+	m.createWorkPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewCreateWork)
+	m.createWorkPanel.SetFormState(
+		m.createWorkBeadIDs,
+		&m.createWorkBranch,
+		m.createWorkField,
+		m.createWorkButtonIdx,
+	)
+	m.createWorkPanel.SetHoveredButton(m.hoveredDialogButton)
+
+	// Sync add to work panel
+	m.addToWorkPanel.SetSize(detailsWidth, m.height)
+	m.addToWorkPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewAddToWork)
+	m.addToWorkPanel.SetData(
+		m.beadItems,
+		m.beadsCursor,
+		m.selectedBeads,
+		m.availableWorks,
+		m.worksCursor,
+	)
+}
+
 // View implements tea.Model
 func (m *planModel) View() string {
+	// Sync data to panels before rendering
+	m.syncPanels()
+
 	// Handle dialogs
 	switch m.viewMode {
 	case ViewCreateBead, ViewCreateBeadInline, ViewAddChildBead, ViewEditBead:
@@ -1259,12 +1440,12 @@ func (m *planModel) View() string {
 		return m.renderHelp()
 	}
 
-	// Render content and status bar
-	statusBar := m.renderCommandsBar()
+	// Render status bar using the panel
+	statusBar := m.statusBar.Render()
 
 	// If work overlay is active, show it as a dropdown at the top
 	if m.viewMode == ViewWorkOverlay {
-		overlay := m.renderWorkOverlayDropdown()
+		overlay := m.workOverlay.Render()
 
 		// Calculate remaining height for content
 		overlayHeight := lipgloss.Height(overlay)
@@ -1277,6 +1458,7 @@ func (m *planModel) View() string {
 			// Temporarily adjust model height for content rendering
 			originalHeight := m.height
 			m.height = remainingHeight
+			m.syncPanels() // Re-sync with new height
 			content = m.renderTwoColumnLayout()
 			m.height = originalHeight
 		} else {

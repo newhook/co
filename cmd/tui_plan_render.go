@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
-	"github.com/newhook/co/internal/db"
 )
 
 const detailsPanelPadding = 4
@@ -32,250 +31,28 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	workPanelHeight := int(float64(totalHeight) * 0.4)
 	planPanelHeight := totalHeight - workPanelHeight - 1 // -1 for separator
 
-	// Find the focused work
-	var focusedWork *workProgress
-	for _, work := range m.workTiles {
-		if work != nil && work.work.ID == m.focusedWorkID {
-			focusedWork = work
-			break
-		}
-	}
+	// Update work details panel size for the work section
+	m.workDetails.SetSize(m.width, workPanelHeight)
 
-	// === Split the Work Panel into two columns ===
-	workPanelContentHeight := workPanelHeight - 3 // -3 for border and title
-	halfWidth := (m.width - 4) / 2 - 1 // -4 for margins, divide by 2, -1 for separator
-
-	// === Left side: Work info and tasks list ===
-	var leftContent strings.Builder
-	var selectedTask *taskProgress
-
-	if focusedWork != nil {
-		// Work header
-		workHeader := fmt.Sprintf("%s %s", statusIcon(focusedWork.work.Status), focusedWork.work.ID)
-		if focusedWork.work.Name != "" {
-			nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
-			workHeader += " " + nameStyle.Render(focusedWork.work.Name)
-		}
-		leftContent.WriteString(workHeader + "\n")
-		leftContent.WriteString(fmt.Sprintf("Branch: %s\n",
-			truncateString(focusedWork.work.BranchName, halfWidth-8)))
-
-		// Progress summary
-		completedTasks := 0
-		for _, task := range focusedWork.tasks {
-			if task.task.Status == db.StatusCompleted {
-				completedTasks++
-			}
-		}
-		percentage := 0
-		if len(focusedWork.tasks) > 0 {
-			percentage = (completedTasks * 100) / len(focusedWork.tasks)
-		}
-
-		progressStyle := lipgloss.NewStyle().Bold(true)
-		if percentage == 100 {
-			progressStyle = progressStyle.Foreground(lipgloss.Color("82"))
-		} else if percentage >= 50 {
-			progressStyle = progressStyle.Foreground(lipgloss.Color("214"))
-		} else {
-			progressStyle = progressStyle.Foreground(lipgloss.Color("247"))
-		}
-		leftContent.WriteString(fmt.Sprintf("Progress: %s (%d/%d)\n",
-			progressStyle.Render(fmt.Sprintf("%d%%", percentage)),
-			completedTasks, len(focusedWork.tasks)))
-
-		// Separator
-		leftContent.WriteString(strings.Repeat("─", halfWidth-2))
-		leftContent.WriteString("\n")
-
-		// Tasks list header
-		leftContent.WriteString(tuiSuccessStyle.Render("Tasks:"))
-		leftContent.WriteString("\n")
-
-		// Calculate scrollable area for tasks
-		headerLines := 5 // lines used for header info above
-		availableLines := workPanelContentHeight - headerLines - 1
-
-		// Auto-select first task if none selected
-		if m.selectedTaskID == "" && len(focusedWork.tasks) > 0 {
-			m.selectedTaskID = focusedWork.tasks[0].task.ID
-		}
-
-		// Find selected task index
-		selectedIndex := -1
-		for i, task := range focusedWork.tasks {
-			if task.task.ID == m.selectedTaskID {
-				selectedIndex = i
-				selectedTask = task
-				break
-			}
-		}
-
-		// Calculate scroll window
-		startIdx := 0
-		if selectedIndex >= availableLines && availableLines > 0 {
-			startIdx = selectedIndex - availableLines/2
-			if startIdx < 0 {
-				startIdx = 0
-			}
-		}
-		endIdx := startIdx + availableLines
-		if endIdx > len(focusedWork.tasks) {
-			endIdx = len(focusedWork.tasks)
-		}
-
-		// Render visible tasks
-		for i := startIdx; i < endIdx; i++ {
-			task := focusedWork.tasks[i]
-
-			// Selection indicator
-			prefix := "  "
-			style := tuiDimStyle
-			if task.task.ID == m.selectedTaskID {
-				prefix = "► "
-				style = tuiSelectedStyle
-			}
-
-			// Status icon and color
-			statusStr := ""
-			statusStyle := lipgloss.NewStyle()
-			switch task.task.Status {
-			case db.StatusCompleted:
-				statusStr = "✓"
-				statusStyle = statusStyle.Foreground(lipgloss.Color("82"))
-			case db.StatusProcessing:
-				statusStr = "●"
-				statusStyle = statusStyle.Foreground(lipgloss.Color("214"))
-			case db.StatusFailed:
-				statusStr = "✗"
-				statusStyle = statusStyle.Foreground(lipgloss.Color("196"))
-			default: // pending/queued
-				statusStr = "○"
-				statusStyle = statusStyle.Foreground(lipgloss.Color("247"))
-			}
-
-			// Task type
-			taskType := "impl"
-			if task.task.TaskType == "estimate" {
-				taskType = "est"
-			} else if task.task.TaskType == "review" {
-				taskType = "rev"
-			}
-
-			// Build task line
-			taskLine := fmt.Sprintf("%s%s %s [%s]",
-				prefix,
-				statusStyle.Render(statusStr),
-				task.task.ID,
-				taskType)
-
-			leftContent.WriteString(style.Render(taskLine))
-			leftContent.WriteString("\n")
-		}
-
-		// Scroll indicator
-		if len(focusedWork.tasks) > availableLines && availableLines > 0 {
-			scrollInfo := fmt.Sprintf("(%d-%d of %d)", startIdx+1, endIdx, len(focusedWork.tasks))
-			leftContent.WriteString(tuiDimStyle.Render(scrollInfo))
-		}
-	} else {
-		leftContent.WriteString("Loading work details...")
-	}
-
-	// === Right side: Task details ===
-	var rightContent strings.Builder
-
-	if selectedTask != nil {
-		rightContent.WriteString(fmt.Sprintf("ID: %s\n", selectedTask.task.ID))
-		rightContent.WriteString(fmt.Sprintf("Type: %s\n", selectedTask.task.TaskType))
-		rightContent.WriteString(fmt.Sprintf("Status: %s\n", selectedTask.task.Status))
-
-		if selectedTask.task.ComplexityBudget > 0 {
-			rightContent.WriteString(fmt.Sprintf("Budget: %d\n", selectedTask.task.ComplexityBudget))
-		}
-
-		// Show task beads
-		rightContent.WriteString(fmt.Sprintf("\nBeads (%d):\n", len(selectedTask.beads)))
-		for i, bead := range selectedTask.beads {
-			if i >= 10 { // Show first 10 beads
-				rightContent.WriteString(fmt.Sprintf("  ... and %d more\n", len(selectedTask.beads)-10))
-				break
-			}
-			statusStr := "○"
-			if bead.status == db.StatusCompleted {
-				statusStr = "✓"
-			} else if bead.status == db.StatusProcessing {
-				statusStr = "●"
-			}
-			beadLine := fmt.Sprintf("  %s %s\n", statusStr, bead.id)
-			if bead.title != "" {
-				beadLine = fmt.Sprintf("  %s %s: %s\n",
-					statusStr,
-					bead.id,
-					truncateString(bead.title, halfWidth-10))
-			}
-			rightContent.WriteString(beadLine)
-		}
-
-		// Show error if failed
-		if selectedTask.task.Status == db.StatusFailed && selectedTask.task.ErrorMessage != "" {
-			errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-			rightContent.WriteString("\n")
-			rightContent.WriteString(errorStyle.Render("Error:"))
-			rightContent.WriteString("\n")
-			rightContent.WriteString(truncateString(selectedTask.task.ErrorMessage, halfWidth-2))
-		}
-	} else if focusedWork != nil && len(focusedWork.tasks) == 0 {
-		rightContent.WriteString(tuiDimStyle.Render("No tasks available"))
-	} else {
-		rightContent.WriteString(tuiDimStyle.Render("Select a task to view details"))
-	}
-
-	// Create the two panels with proper highlighting based on focus
-	leftPanelStyle := tuiPanelStyle.Width(halfWidth).Height(workPanelHeight - 2)
-	if m.workPanelFocused && m.activePanel == PanelLeft {
-		leftPanelStyle = leftPanelStyle.BorderForeground(lipgloss.Color("214"))
-	}
-	leftPanel := leftPanelStyle.Render(tuiTitleStyle.Render("Work & Tasks") + "\n" + leftContent.String())
-
-	rightPanelStyle := tuiPanelStyle.Width(halfWidth).Height(workPanelHeight - 2)
-	if m.workPanelFocused && m.activePanel == PanelRight {
-		rightPanelStyle = rightPanelStyle.BorderForeground(lipgloss.Color("214"))
-	}
-	rightPanel := rightPanelStyle.Render(tuiTitleStyle.Render("Task Details") + "\n" + rightContent.String())
-
-	// Combine with separator
-	separator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Height(workPanelHeight - 2).
-		Render("│")
-
-	workPanel := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, separator, rightPanel)
+	// Render work panel using the workDetails panel
+	workPanel := m.workDetails.Render()
 
 	// === Render Plan Mode Panel (Bottom) ===
-	// Calculate column widths for plan mode section
-	totalContentWidth := m.width - 4 // -4 for outer margins
+	// Update issues and details panel sizes for the reduced height
+	totalContentWidth := m.width - 4
 	separatorWidth := 3
 	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
 	detailsWidth := totalContentWidth - separatorWidth - issuesWidth
 
-	// Render reduced issues panel
-	issuesContentLines := planPanelHeight - 3 // -3 for border (2) + title (1)
-	issuesContent := m.renderIssuesList(issuesContentLines, issuesWidth)
-	issuesPanelStyle := tuiPanelStyle.Width(issuesWidth).Height(planPanelHeight - 2)
-	if !m.workPanelFocused && m.activePanel == PanelLeft {
-		issuesPanelStyle = issuesPanelStyle.BorderForeground(lipgloss.Color("214"))
-	}
-	issuesPanel := issuesPanelStyle.Render(tuiTitleStyle.Render("Issues") + "\n" + issuesContent)
+	// Temporarily update panel sizes for the reduced height
+	m.issuesPanel.SetSize(issuesWidth, planPanelHeight)
+	m.detailsPanel.SetSize(detailsWidth, planPanelHeight)
 
-	// Render reduced details panel
-	detailsContentLines := planPanelHeight - 3
-	detailsContent := m.renderDetailsPanel(detailsContentLines, detailsWidth)
-	detailsPanelStyle := tuiPanelStyle.Width(detailsWidth).Height(planPanelHeight - 2)
-	if !m.workPanelFocused && m.activePanel == PanelRight {
-		detailsPanelStyle = detailsPanelStyle.BorderForeground(lipgloss.Color("214"))
-	}
-	detailsPanel := detailsPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
+	// Render issues panel
+	issuesPanel := m.issuesPanel.RenderWithPanel(planPanelHeight)
+
+	// Render details panel
+	detailsPanel := m.detailsPanel.RenderWithPanel(planPanelHeight)
 
 	// Add vertical separator between columns
 	vertSeparator := lipgloss.NewStyle().
@@ -303,38 +80,12 @@ func (m *planModel) renderTwoColumnLayout() string {
 		return m.renderFocusedWorkSplitView()
 	}
 
-	// Calculate column widths based on ratio
-	// Account for separator (3 chars: " │ ") and panel borders
-	totalContentWidth := m.width - 4 // -4 for outer margins
-	separatorWidth := 3
-
-	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
-	detailsWidth := totalContentWidth - separatorWidth - issuesWidth
-
 	// Calculate content height (total height - status bar)
 	contentHeight := m.height - 1 // -1 for status bar
 
-	// Calculate visible lines for each panel (subtract border and title)
-	issuesContentLines := contentHeight - 3 // -3 for border (2) + title (1)
-	detailsContentLines := contentHeight - 3
-
-	// Render issues panel
-	issuesContent := m.renderIssuesList(issuesContentLines, issuesWidth)
-	issuesPanelStyle := tuiPanelStyle.Width(issuesWidth).Height(contentHeight - 2)
-	// Highlight if active in normal mode, or if overlay mode with issues focused
-	issuesFocused := m.activePanel == PanelLeft || (m.viewMode == ViewWorkOverlay && !m.overlayFocused)
-	if issuesFocused {
-		issuesPanelStyle = issuesPanelStyle.BorderForeground(lipgloss.Color("214")) // Highlight active panel
-	}
-	issuesPanel := issuesPanelStyle.Render(tuiTitleStyle.Render("Issues") + "\n" + issuesContent)
-
-	// Render details panel
-	detailsContent := m.renderDetailsPanel(detailsContentLines, detailsWidth)
-	detailsPanelStyle := tuiPanelStyle.Width(detailsWidth).Height(contentHeight - 2)
-	if m.activePanel == PanelRight {
-		detailsPanelStyle = detailsPanelStyle.BorderForeground(lipgloss.Color("214")) // Highlight active panel
-	}
-	detailsPanel := detailsPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
+	// Use panels for rendering (they're already synced with correct sizes and data)
+	issuesPanel := m.issuesPanel.RenderWithPanel(contentHeight)
+	detailsPanel := m.detailsPanel.RenderWithPanel(contentHeight)
 
 	// Add vertical separator between columns
 	separator := lipgloss.NewStyle().
@@ -922,67 +673,8 @@ func (m *planModel) renderCommandsBar() string {
 
 // detectCommandsBarButton determines which button is at the given X position in the commands bar
 func (m *planModel) detectCommandsBarButton(x int) string {
-	// Commands bar format: "[n]New [e]Edit [a]Child [x]Close [A]ssign [p]Plan [?]Help"
-	// We need to find the position of each command in the rendered bar
-
-	// Account for the status bar's left padding (tuiStatusBarStyle has Padding(0, 1))
-	// This adds 1 character of padding to the left, shifting all content by 1 column
-	if x < 1 {
-		return ""
-	}
-	x = x - 1
-
-	// Get the plain text version of the commands
-	pAction := "[p]Plan"
-	if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-		beadID := m.beadItems[m.beadsCursor].id
-		if m.activeBeadSessions[beadID] {
-			pAction = "[p]Resume"
-		}
-	}
-	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work [A]dd [i]Import %s [?]Help", pAction)
-
-	// Find positions of each button
-	nIdx := strings.Index(commandsPlain, "[n]New")
-	eIdx := strings.Index(commandsPlain, "[e]Edit")
-	aIdx := strings.Index(commandsPlain, "[a]Child")
-	xIdx := strings.Index(commandsPlain, "[x]Close")
-	wIdx := strings.Index(commandsPlain, "[w]Work")
-	AIdx := strings.Index(commandsPlain, "[A]dd")
-	iIdx := strings.Index(commandsPlain, "[i]Import")
-	pIdx := strings.Index(commandsPlain, pAction)
-	helpIdx := strings.Index(commandsPlain, "[?]Help")
-
-	// Check if mouse is over any button (give reasonable width for clickability)
-	if nIdx >= 0 && x >= nIdx && x < nIdx+len("[n]New") {
-		return "n"
-	}
-	if eIdx >= 0 && x >= eIdx && x < eIdx+len("[e]Edit") {
-		return "e"
-	}
-	if aIdx >= 0 && x >= aIdx && x < aIdx+len("[a]Child") {
-		return "a"
-	}
-	if xIdx >= 0 && x >= xIdx && x < xIdx+len("[x]Close") {
-		return "x"
-	}
-	if wIdx >= 0 && x >= wIdx && x < wIdx+len("[w]Work") {
-		return "w"
-	}
-	if AIdx >= 0 && x >= AIdx && x < AIdx+len("[A]dd") {
-		return "A"
-	}
-	if iIdx >= 0 && x >= iIdx && x < iIdx+len("[i]Import") {
-		return "i"
-	}
-	if pIdx >= 0 && x >= pIdx && x < pIdx+len(pAction) {
-		return "p"
-	}
-	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
-		return "?"
-	}
-
-	return ""
+	// Delegate to the status bar panel
+	return m.statusBar.DetectButton(x)
 }
 
 // detectHoveredIssue determines which issue is at the given Y position

@@ -45,6 +45,16 @@ func TestDetectCommandsBarButton(t *testing.T) {
 				activeBeadSessions: make(map[string]bool),
 			}
 
+			// Initialize status bar panel for the test
+			m.statusBar = NewStatusBar()
+			m.statusBar.SetDataProviders(
+				func() []beadItem { return m.beadItems },
+				func() int { return m.beadsCursor },
+				func() map[string]bool { return m.activeBeadSessions },
+				func() ViewMode { return m.viewMode },
+				func() string { return "" },
+			)
+
 			if tc.hasBeads {
 				m.beadItems = []beadItem{
 					{id: "test-bead-1", title: "Test Bead"},
