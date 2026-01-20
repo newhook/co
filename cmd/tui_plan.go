@@ -497,7 +497,12 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case planTickMsg:
 		// Refresh data and continue periodic refresh
-		return m, tea.Batch(m.refreshData(), m.startPeriodicRefresh())
+		cmds := []tea.Cmd{m.refreshData(), m.startPeriodicRefresh()}
+		// Also refresh work tiles if a work is focused (for auto-updating work details)
+		if m.focusedWorkID != "" {
+			cmds = append(cmds, m.loadWorkTiles())
+		}
+		return m, tea.Batch(cmds...)
 
 	case planStatusMsg:
 		m.statusMessage = msg.message
@@ -572,6 +577,13 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.workOverlay.SetWorkTiles(msg.works)
 		m.loading = false
+		// Update work details panel and filter if a work is focused
+		if m.focusedWorkID != "" {
+			focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
+			m.workDetails.SetFocusedWork(focusedWork)
+			// Rebuild the filter to reflect any changes in work beads
+			return m, m.updateWorkSelectionFilter()
+		}
 		return m, nil
 
 	case editorFinishedMsg:
