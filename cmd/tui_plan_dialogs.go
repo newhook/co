@@ -164,3 +164,47 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 
 	return tuiDialogStyle.Render(content)
 }
+
+func (m *planModel) renderDestroyConfirmContent() string {
+	workID := m.focusedWorkID
+	workName := workID
+
+	// Try to get work name from focused work
+	if focusedWork := m.workDetails.GetFocusedWork(); focusedWork != nil && focusedWork.work.Name != "" {
+		workName = focusedWork.work.Name
+	}
+
+	content := fmt.Sprintf(`
+  Destroy Work
+
+  Are you sure you want to destroy:
+  %s
+  %s
+
+  This will:
+  - Remove the git worktree
+  - Delete the work directory
+  - Update database records
+
+  [y] Yes  [n] No
+`, workID, workName)
+
+	return tuiDialogStyle.Render(content)
+}
+
+func (m *planModel) renderPlanDialogContent() string {
+	workID := m.focusedWorkID
+
+	content := fmt.Sprintf(`
+  Plan Work: %s
+
+  Choose how to create tasks:
+
+  [a] Auto-group    Group related beads into tasks
+  [s] Single-bead   One task per bead
+
+  [Esc] Cancel
+`, workID)
+
+	return tuiDialogStyle.Render(content)
+}

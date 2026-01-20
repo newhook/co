@@ -144,39 +144,170 @@ func (m *planModel) loadWorkTiles() tea.Cmd {
 }
 
 // Helper functions for work commands
+
+// destroyWork destroys a work by ID
 func (m *planModel) destroyWork(workID string) tea.Cmd {
 	return func() tea.Msg {
-		// TODO: Implementation would call the actual destroy work logic
-		// For now, just return a simple completion message
-		return planWorkCreatedMsg{
-			workID: workID,
-			beadID: "",
-			err:    fmt.Errorf("destroy work not yet implemented"),
+		if err := DestroyWork(m.ctx, m.proj, workID, io.Discard); err != nil {
+			return workCommandMsg{action: "Destroy work", workID: workID, err: err}
 		}
+		return workCommandMsg{action: "Destroy work", workID: workID}
 	}
 }
 
-func (m *planModel) planWork(workID string) tea.Cmd {
+// destroyFocusedWork destroys the currently focused work (used by confirmation dialog)
+func (m *planModel) destroyFocusedWork() tea.Cmd {
+	return m.destroyWork(m.focusedWorkID)
+}
+
+// planFocusedWork creates tasks for the currently focused work
+func (m *planModel) planFocusedWork(autoGroup bool) tea.Cmd {
+	workID := m.focusedWorkID
 	return func() tea.Msg {
-		// TODO: Implementation would call the actual plan work logic
-		// For now, just return a simple completion message
-		return planWorkCreatedMsg{
-			workID: workID,
-			beadID: "",
-			err:    fmt.Errorf("plan work not yet implemented"),
+		// Use internal function instead of CLI
+		_, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Plan work", workID: workID, err: err}
 		}
+		return workCommandMsg{action: "Plan work", workID: workID}
 	}
 }
 
+// runWork runs a work by ID
 func (m *planModel) runWork(workID string) tea.Cmd {
 	return func() tea.Msg {
-		// TODO: Implementation would call the actual run work logic
-		// For now, just return a simple completion message
-		return planWorkCreatedMsg{
-			workID: workID,
-			beadID: "",
-			err:    fmt.Errorf("run work not yet implemented"),
+		// Use internal function - this runs co run with the work ID
+		_, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Run work", workID: workID, err: err}
 		}
+		return workCommandMsg{action: "Run work", workID: workID}
+	}
+}
+
+// runFocusedWork runs the currently focused work
+func (m *planModel) runFocusedWork() tea.Cmd {
+	return m.runWork(m.focusedWorkID)
+}
+
+// createReviewTask creates a review task for the currently focused work
+func (m *planModel) createReviewTask() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Get work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+
+		// Get existing tasks to generate unique review ID
+		tasks, err := m.proj.DB.GetWorkTasks(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("failed to get work tasks: %w", err)}
+		}
+
+		// Count existing review tasks
+		reviewCount := 0
+		reviewPrefix := fmt.Sprintf("%s.review", workID)
+		for _, task := range tasks {
+			if strings.HasPrefix(task.ID, reviewPrefix) {
+				reviewCount++
+			}
+		}
+
+		// Generate unique review task ID
+		reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
+
+		// Create the review task
+		err = m.proj.DB.CreateTask(m.ctx, reviewTaskID, "review", []string{}, 0, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("failed to create review task: %w", err)}
+		}
+
+		return workCommandMsg{action: "Create review", workID: workID}
+	}
+}
+
+// createPRTask creates a PR task for the currently focused work
+func (m *planModel) createPRTask() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Get work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+
+		// Check if work is completed
+		if work.Status != db.StatusCompleted {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("work %s is not completed (status: %s)", workID, work.Status)}
+		}
+
+		// Check if PR already exists
+		if work.PRURL != "" {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("PR already exists: %s", work.PRURL)}
+		}
+
+		// Generate PR task ID
+		prTaskID := fmt.Sprintf("%s.pr", workID)
+
+		// Create the PR task
+		err = m.proj.DB.CreateTask(m.ctx, prTaskID, "pr", []string{}, 0, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("failed to create PR task: %w", err)}
+		}
+
+		return workCommandMsg{action: "Create PR", workID: workID}
+	}
+}
+
+// openConsole opens a terminal/console tab for the focused work
+func (m *planModel) openConsole() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Get work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Open console", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Open console", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+
+		err = claude.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Open console", workID: workID, err: err}
+		}
+
+		return workCommandMsg{action: "Open console", workID: workID}
+	}
+}
+
+// openClaude opens a Claude Code session tab for the focused work
+func (m *planModel) openClaude() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Get work details
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Open Claude", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Open Claude", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+
+		err = claude.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Open Claude", workID: workID, err: err}
+		}
+
+		return workCommandMsg{action: "Open Claude", workID: workID}
 	}
 }
 

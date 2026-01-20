@@ -211,7 +211,7 @@ func TestDetectDialogButton(t *testing.T) {
 	// - execute: Y=8 content → absoluteY = 8 + 2 = 10
 	// - auto: Y=9 content → absoluteY = 9 + 2 = 11
 	// - cancel: Y=10 content → absoluteY = 10 + 2 = 12
-	// detailsPanelStart = 51 (issuesWidth 46 + separator 3 + margin 2)
+	// detailsPanelStart = 50 (issuesWidth 48 + margin 2, no separator)
 
 	testCases := []struct {
 		name           string
@@ -280,7 +280,7 @@ func TestDetectDialogButton(t *testing.T) {
 		{
 			name:           "ViewLinearImportInline mode - ok button",
 			viewMode:       ViewLinearImportInline,
-			x:              58, // Button position for Linear import
+			x:              57, // Button position for Linear import (adjusted for no separator)
 			y:              16, // Calculated button row Y for Linear import
 			expectedButton: "ok",
 			setupFunc: func() {
@@ -291,21 +291,21 @@ func TestDetectDialogButton(t *testing.T) {
 		{
 			name:           "ViewLinearImportInline mode - cancel button",
 			viewMode:       ViewLinearImportInline,
-			x:              65, // detailsPanelStart (53) + 2 (padding) + 10 (middle of cancel range 8-13)
+			x:              64, // detailsPanelStart (50) + 2 (padding) + 10 (middle of cancel range 8-13)
 			y:              16,
 			expectedButton: "cancel",
 		},
 		{
 			name:           "ViewLinearImportInline mode - wrong Y",
 			viewMode:       ViewLinearImportInline,
-			x:              58,
+			x:              57,
 			y:              15, // Wrong Y for button row
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateBead mode - ok button",
 			viewMode:       ViewCreateBead,
-			x:              58, // OK button position in create bead form
+			x:              57, // OK button position in create bead form (adjusted for no separator)
 			y:              16, // Button row Y for create bead
 			expectedButton: "ok",
 			setupFunc: func() {
@@ -316,7 +316,7 @@ func TestDetectDialogButton(t *testing.T) {
 		{
 			name:           "ViewEditBead mode - ok button",
 			viewMode:       ViewEditBead,
-			x:              58,
+			x:              57, // adjusted for no separator
 			y:              16,
 			expectedButton: "ok",
 			setupFunc: func() {

@@ -15,7 +15,7 @@ type StatusBarContext int
 
 const (
 	StatusBarContextIssues StatusBarContext = iota
-	StatusBarContextWorkOverlay
+	StatusBarContextWorkOverlay // Work overlay is focused
 	StatusBarContextWorkDetail
 )
 
@@ -134,7 +134,7 @@ func (s *StatusBar) Render() string {
 
 	switch s.context {
 	case StatusBarContextWorkOverlay:
-		// Work overlay commands
+		// Work overlay commands (overlay is focused)
 		commands, commandsPlain = s.renderWorkOverlayCommands()
 	case StatusBarContextWorkDetail:
 		// Work detail commands
@@ -202,31 +202,34 @@ func (s *StatusBar) renderIssuesCommands() (string, string) {
 
 // renderWorkOverlayCommands returns commands for the work overlay panel
 func (s *StatusBar) renderWorkOverlayCommands() (string, string) {
-	// Work overlay specific commands
-	cButton := styleButtonWithHover("[c]Create", s.hoveredButton == "c")
+	// Work overlay specific commands when overlay is focused
+	jkButton := styleButtonWithHover("[j/k]Navigate", s.hoveredButton == "jk")
+	tabButton := styleButtonWithHover("[Tab]Issues", s.hoveredButton == "tab")
+	enterButton := styleButtonWithHover("[Enter]Focus", s.hoveredButton == "enter")
 	dButton := styleButtonWithHover("[d]Destroy", s.hoveredButton == "d")
-	pButton := styleButtonWithHover("[p]Plan", s.hoveredButton == "p")
-	rButton := styleButtonWithHover("[r]Run", s.hoveredButton == "r")
-	enterButton := styleButtonWithHover("[Enter]Select", s.hoveredButton == "enter")
 	escButton := styleButtonWithHover("[Esc]Close", s.hoveredButton == "esc")
 	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
 
-	commands := cButton + " " + dButton + " " + pButton + " " + rButton + " " + enterButton + " " + escButton + " " + helpButton
-	commandsPlain := "[c]Create [d]Destroy [p]Plan [r]Run [Enter]Select [Esc]Close [?]Help"
+	commands := jkButton + " " + tabButton + " " + enterButton + " " + dButton + " " + escButton + " " + helpButton
+	commandsPlain := "[j/k]Navigate [Tab]Issues [Enter]Focus [d]Destroy [Esc]Close [?]Help"
 
 	return commands, commandsPlain
 }
 
 // renderWorkDetailCommands returns commands for the work detail panel
 func (s *StatusBar) renderWorkDetailCommands() (string, string) {
-	// Work detail specific commands
+	// Work detail specific commands (destroy is at overlay level, not here)
+	tButton := styleButtonWithHover("[t]erminal", s.hoveredButton == "t")
+	cButton := styleButtonWithHover("[c]laude", s.hoveredButton == "c")
+	pButton := styleButtonWithHover("[p]Plan", s.hoveredButton == "p")
+	rButton := styleButtonWithHover("[r]Run", s.hoveredButton == "r")
+	RButton := styleButtonWithHover("[R]Review", s.hoveredButton == "R")
+	PButton := styleButtonWithHover("[P]PR", s.hoveredButton == "P")
 	escButton := styleButtonWithHover("[Esc]Deselect", s.hoveredButton == "esc")
-	fButton := styleButtonWithHover("[f]Focus", s.hoveredButton == "f")
-	WButton := styleButtonWithHover("[W]Works", s.hoveredButton == "W")
 	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
 
-	commands := escButton + " " + fButton + " " + WButton + " " + helpButton
-	commandsPlain := "[Esc]Deselect [f]Focus [W]Works [?]Help"
+	commands := tButton + " " + cButton + " " + pButton + " " + rButton + " " + RButton + " " + PButton + " " + escButton + " " + helpButton
+	commandsPlain := "[t]erminal [c]laude [p]Plan [r]Run [R]Review [P]PR [Esc]Deselect [?]Help"
 
 	return commands, commandsPlain
 }
@@ -348,21 +351,37 @@ func (s *StatusBar) detectWorkOverlayButton(x int) string {
 
 // detectWorkDetailButton detects button clicks for the work detail panel
 func (s *StatusBar) detectWorkDetailButton(x int) string {
-	commandsPlain := "[Esc]Deselect [f]Focus [W]Works [?]Help"
+	commandsPlain := "[t]erminal [c]laude [p]Plan [r]Run [R]Review [P]PR [Esc]Deselect [?]Help"
 
+	tIdx := strings.Index(commandsPlain, "[t]erminal")
+	cIdx := strings.Index(commandsPlain, "[c]laude")
+	pIdx := strings.Index(commandsPlain, "[p]Plan")
+	rIdx := strings.Index(commandsPlain, "[r]Run")
+	RIdx := strings.Index(commandsPlain, "[R]Review")
+	PIdx := strings.Index(commandsPlain, "[P]PR")
 	escIdx := strings.Index(commandsPlain, "[Esc]Deselect")
-	fIdx := strings.Index(commandsPlain, "[f]Focus")
-	WIdx := strings.Index(commandsPlain, "[W]Works")
 	helpIdx := strings.Index(commandsPlain, "[?]Help")
 
+	if tIdx >= 0 && x >= tIdx && x < tIdx+len("[t]erminal") {
+		return "t"
+	}
+	if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]laude") {
+		return "c"
+	}
+	if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]Plan") {
+		return "p"
+	}
+	if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]Run") {
+		return "r"
+	}
+	if RIdx >= 0 && x >= RIdx && x < RIdx+len("[R]Review") {
+		return "R"
+	}
+	if PIdx >= 0 && x >= PIdx && x < PIdx+len("[P]PR") {
+		return "P"
+	}
 	if escIdx >= 0 && x >= escIdx && x < escIdx+len("[Esc]Deselect") {
 		return "esc"
-	}
-	if fIdx >= 0 && x >= fIdx && x < fIdx+len("[f]Focus") {
-		return "f"
-	}
-	if WIdx >= 0 && x >= WIdx && x < WIdx+len("[W]Works") {
-		return "W"
 	}
 	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
 		return "?"

@@ -198,6 +198,32 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 		}
 	}
 
+	// Ensure root issue is always available for display (it may not be in work_beads if it's an epic)
+	if work.RootIssueID != "" {
+		rootFound := false
+		for _, wb := range wp.workBeads {
+			if wb.id == work.RootIssueID {
+				rootFound = true
+				break
+			}
+		}
+		if !rootFound {
+			// Fetch root issue details directly from beads system
+			if rootBead, err := proj.Beads.GetBead(ctx, work.RootIssueID); err == nil && rootBead != nil {
+				bp := beadProgress{
+					id:          rootBead.ID,
+					title:       rootBead.Title,
+					description: rootBead.Description,
+					beadStatus:  rootBead.Status,
+					priority:    rootBead.Priority,
+					issueType:   rootBead.Type,
+				}
+				// Prepend root issue so it appears first
+				wp.workBeads = append([]beadProgress{bp}, wp.workBeads...)
+			}
+		}
+	}
+
 	// Get unassigned beads for this work (beads not yet assigned to any task)
 	unassignedWorkBeads, err := proj.DB.GetUnassignedWorkBeads(ctx, work.ID)
 	if err == nil {

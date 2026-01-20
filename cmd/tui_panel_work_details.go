@@ -4,8 +4,24 @@ import (
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/db"
+)
+
+// WorkDetailAction represents an action result from the work details panel
+type WorkDetailAction int
+
+const (
+	WorkDetailActionNone WorkDetailAction = iota
+	WorkDetailActionOpenTerminal // Open terminal/console (t)
+	WorkDetailActionOpenClaude   // Open Claude session (c)
+	WorkDetailActionPlan         // Plan work (p)
+	WorkDetailActionRun          // Run work (r)
+	WorkDetailActionReview       // Create review task (R)
+	WorkDetailActionPR           // Create PR task (P)
+	WorkDetailActionNavigateUp   // Navigate up (k/up)
+	WorkDetailActionNavigateDown // Navigate down (j/down)
 )
 
 // WorkDetailsPanel renders the focused work split view showing work and task details.
@@ -529,6 +545,34 @@ func (p *WorkDetailsPanel) NavigateTaskUp() {
 // NavigateTaskDown is an alias for NavigateDown (for compatibility)
 func (p *WorkDetailsPanel) NavigateTaskDown() {
 	p.NavigateDown()
+}
+
+// Update handles key events and returns an action.
+// This follows the same pattern as WorkOverlayPanel for consistency.
+func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
+	// Handle navigation keys
+	switch msg.String() {
+	case "j", "down":
+		p.NavigateDown()
+		return nil, WorkDetailActionNavigateDown
+	case "k", "up":
+		p.NavigateUp()
+		return nil, WorkDetailActionNavigateUp
+	case "t":
+		return nil, WorkDetailActionOpenTerminal
+	case "c":
+		return nil, WorkDetailActionOpenClaude
+	case "p":
+		return nil, WorkDetailActionPlan
+	case "r":
+		return nil, WorkDetailActionRun
+	case "R":
+		return nil, WorkDetailActionReview
+	case "P":
+		return nil, WorkDetailActionPR
+	}
+
+	return nil, WorkDetailActionNone
 }
 
 // DetectClickedItem determines which item was clicked and returns its index

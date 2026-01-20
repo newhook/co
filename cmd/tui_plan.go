@@ -539,6 +539,24 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case workCommandMsg:
+		m.viewMode = ViewNormal
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("%s failed: %v", msg.action, msg.err)
+			m.statusIsError = true
+		} else {
+			m.statusMessage = fmt.Sprintf("%s completed for %s", msg.action, msg.workID)
+			m.statusIsError = false
+			// If work was destroyed, clear the focused work
+			if msg.action == "Destroy work" {
+				m.focusedWorkID = ""
+				m.focusFilterActive = false
+				m.filters.workSelectionBeadIDs = nil
+			}
+		}
+		// Refresh data and work tiles
+		return m, tea.Batch(m.refreshData(), m.loadWorkTiles())
+
 	case workTilesLoadedMsg:
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("Failed to load works: %v", msg.err)
@@ -734,6 +752,13 @@ type newBeadExpireMsg struct {
 	beadID string
 }
 
+// workCommandMsg indicates a work command completed
+type workCommandMsg struct {
+	action string
+	workID string
+	err    error
+}
+
 // newBeadAnimationDuration is how long newly created beads are highlighted
 const newBeadAnimationDuration = 5 * time.Second
 
@@ -916,56 +941,79 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 
-		case WorkOverlayActionCreate:
-			// Create new work - exit overlay and show create dialog
-			if m.beadsCursor < len(m.beadItems) {
-				selectedBead := m.beadItems[m.beadsCursor]
-				// Generate initial branch name
-				beads := []*beadsForBranch{{ID: selectedBead.ID, Title: selectedBead.Title}}
-				initialBranch := generateBranchNameFromBeadsForBranch(beads)
-				m.createWorkPanel.Reset(selectedBead.ID, initialBranch)
-				m.viewMode = ViewCreateWork
-				m.workOverlay.ClearSelection()
-			}
-			return m, cmd
-
 		case WorkOverlayActionDestroy:
 			workID := m.workOverlay.GetSelectedWorkTileID()
 			if workID != "" {
-				m.statusMessage = fmt.Sprintf("Destroying work %s...", workID)
-				m.statusIsError = false
-				return m, m.destroyWork(workID)
-			}
-			return m, cmd
-
-		case WorkOverlayActionPlan:
-			workID := m.workOverlay.GetSelectedWorkTileID()
-			if workID != "" {
-				m.statusMessage = fmt.Sprintf("Planning work %s...", workID)
-				m.statusIsError = false
-				m.viewMode = ViewNormal
-				return m, m.planWork(workID)
-			}
-			return m, cmd
-
-		case WorkOverlayActionRun:
-			workID := m.workOverlay.GetSelectedWorkTileID()
-			if workID != "" {
-				m.statusMessage = fmt.Sprintf("Running work %s...", workID)
-				m.statusIsError = false
-				m.viewMode = ViewNormal
-				return m, m.runWork(workID)
+				// Set focusedWorkID so the confirmation dialog knows what to destroy
+				m.focusedWorkID = workID
+				m.viewMode = ViewDestroyConfirm
 			}
 			return m, cmd
 		}
 
 		return m, cmd
+	case ViewDestroyConfirm:
+		// Handle destroy confirmation dialog
+		switch msg.String() {
+		case "y", "Y":
+			if m.focusedWorkID != "" {
+				m.viewMode = ViewNormal
+				return m, m.destroyFocusedWork()
+			}
+		case "n", "N", "esc":
+			m.viewMode = ViewNormal
+		}
+		return m, nil
+	case ViewPlanDialog:
+		// Handle plan dialog
+		switch msg.String() {
+		case "a", "A":
+			// Auto-group
+			if m.focusedWorkID != "" {
+				m.viewMode = ViewNormal
+				return m, m.planFocusedWork(true)
+			}
+		case "s", "S":
+			// Single-bead tasks
+			if m.focusedWorkID != "" {
+				m.viewMode = ViewNormal
+				return m, m.planFocusedWork(false)
+			}
+		case "esc":
+			m.viewMode = ViewNormal
+		}
+		return m, nil
 	case ViewHelp:
 		m.viewMode = ViewNormal
 		return m, nil
 	}
 
 	// Normal mode key handling
+
+	// Delegate to work details panel when it's active
+	if m.activePanel == PanelWorkDetails && m.focusedWorkID != "" {
+		cmd, action := m.workDetails.Update(msg)
+		switch action {
+		case WorkDetailActionNavigateUp, WorkDetailActionNavigateDown:
+			// Navigation actions - check if selection changed and update filter
+			return m, m.updateWorkSelectionFilter()
+		case WorkDetailActionOpenTerminal:
+			return m, m.openConsole()
+		case WorkDetailActionOpenClaude:
+			return m, m.openClaude()
+		case WorkDetailActionPlan:
+			m.viewMode = ViewPlanDialog
+			return m, cmd
+		case WorkDetailActionRun:
+			return m, m.runFocusedWork()
+		case WorkDetailActionReview:
+			return m, m.createReviewTask()
+		case WorkDetailActionPR:
+			return m, m.createPRTask()
+		}
+		// WorkDetailActionNone - fall through to normal handling
+	}
+
 	switch msg.String() {
 	case "tab", "shift+tab":
 		// In focused work mode: toggle between work details and issues
@@ -993,22 +1041,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "j", "down":
-		// Navigate down in current list
-		if m.activePanel == PanelWorkDetails {
-			// Navigate through tasks in work panel
-			return m.navigateTaskDown()
-		}
+		// Navigate down in current list (work details is handled above)
 		if m.beadsCursor < len(m.beadItems)-1 {
 			m.beadsCursor++
 		}
 		return m, nil
 
 	case "k", "up":
-		// Navigate up in current list
-		if m.activePanel == PanelWorkDetails {
-			// Navigate through tasks in work panel
-			return m.navigateTaskUp()
-		}
+		// Navigate up in current list (work details is handled above)
 		if m.beadsCursor > 0 {
 			m.beadsCursor--
 		}
@@ -1059,10 +1099,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.refreshData()
 
 	case "c":
+		// Filter to closed issues (work details panel handles 'c' for Claude)
 		m.filters.status = "closed"
 		return m, m.refreshData()
 
 	case "r":
+		// Filter to ready issues (work details panel handles 'r' for Run)
 		m.filters.status = "ready"
 		return m, m.refreshData()
 
@@ -1134,7 +1176,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "p":
-		// Spawn/resume planning session for selected bead
+		// Spawn/resume planning session for selected bead (work details panel handles 'p' for Plan)
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			beadID := m.beadItems[m.beadsCursor].ID
 			return m, m.spawnPlanSession(beadID)
@@ -1384,6 +1426,10 @@ func (m *planModel) View() string {
 		return m.renderWithDialog(m.renderLabelFilterDialogContent())
 	case ViewCloseBeadConfirm:
 		return m.renderWithDialog(m.renderCloseBeadConfirmContent())
+	case ViewDestroyConfirm:
+		return m.renderWithDialog(m.renderDestroyConfirmContent())
+	case ViewPlanDialog:
+		return m.renderWithDialog(m.renderPlanDialogContent())
 	case ViewLinearImportInline:
 		// Inline import mode - render normal view with import form in details area
 		// Fall through to normal rendering
@@ -1467,29 +1513,6 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 	return "feat/" + branchName
 }
 
-// navigateTaskDown moves the selection to the next task in the focused work
-func (m *planModel) navigateTaskDown() (tea.Model, tea.Cmd) {
-	prevIndex := m.workDetails.GetSelectedIndex()
-	m.workDetails.NavigateTaskDown()
-	newIndex := m.workDetails.GetSelectedIndex()
-	// Only refresh if selection actually changed
-	if prevIndex != newIndex {
-		return m, m.updateWorkSelectionFilter()
-	}
-	return m, nil
-}
-
-// navigateTaskUp moves the selection to the previous task in the focused work
-func (m *planModel) navigateTaskUp() (tea.Model, tea.Cmd) {
-	prevIndex := m.workDetails.GetSelectedIndex()
-	m.workDetails.NavigateTaskUp()
-	newIndex := m.workDetails.GetSelectedIndex()
-	// Only refresh if selection actually changed
-	if prevIndex != newIndex {
-		return m, m.updateWorkSelectionFilter()
-	}
-	return m, nil
-}
 
 // updateWorkSelectionFilter updates the bead filter based on the current work details selection
 // and triggers a data refresh

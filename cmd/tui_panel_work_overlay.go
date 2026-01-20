@@ -16,12 +16,9 @@ type WorkOverlayAction int
 const (
 	WorkOverlayActionNone WorkOverlayAction = iota
 	WorkOverlayActionCancel
-	WorkOverlayActionSelect       // Select the currently highlighted work
-	WorkOverlayActionCreate       // Create new work
-	WorkOverlayActionDestroy      // Destroy selected work
-	WorkOverlayActionPlan         // Plan selected work
-	WorkOverlayActionRun          // Run selected work
-	WorkOverlayActionToggleFocus  // Toggle focus between overlay and issues
+	WorkOverlayActionSelect      // Select the currently highlighted work (Enter)
+	WorkOverlayActionDestroy     // Destroy selected work (d)
+	WorkOverlayActionToggleFocus // Toggle focus between overlay and issues (Tab)
 )
 
 // WorkOverlayPanel renders the work overlay dropdown with work tiles.
@@ -90,21 +87,9 @@ func (p *WorkOverlayPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkOverlayAction) {
 			p.NavigateUp()
 		}
 		return nil, WorkOverlayActionNone
-	case "c":
-		return nil, WorkOverlayActionCreate
 	case "d":
 		if p.selectedWorkTileID != "" {
 			return nil, WorkOverlayActionDestroy
-		}
-		return nil, WorkOverlayActionNone
-	case "p":
-		if p.selectedWorkTileID != "" {
-			return nil, WorkOverlayActionPlan
-		}
-		return nil, WorkOverlayActionNone
-	case "r":
-		if p.selectedWorkTileID != "" {
-			return nil, WorkOverlayActionRun
 		}
 		return nil, WorkOverlayActionNone
 	case "h", "left":
@@ -247,16 +232,8 @@ func (p *WorkOverlayPanel) Render() string {
 	content.WriteString(headerBar)
 	content.WriteString("\n")
 
-	// Instructions line
-	instructionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("247")).
-		Padding(0, 1)
-	content.WriteString(instructionStyle.Render(
-		"[j/k] Navigate  [Tab] Switch Focus  [Enter] Select  [c] Create  [d] Destroy  [p] Plan  [r] Run"))
-	content.WriteString("\n")
-
 	// Calculate available space for work items
-	availableLines := dropdownHeight - 4
+	availableLines := dropdownHeight - 3
 	worksPerPage := availableLines / 3 // Each work takes 3 lines
 
 	if len(p.workTiles) == 0 {
