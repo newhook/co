@@ -26,9 +26,11 @@ func (m *planModel) renderFixedPanel(title, content string, width, height int) s
 // This shows a horizontal split: Work details on top (40%), Issues/Details below (60%)
 func (m *planModel) renderFocusedWorkSplitView() string {
 	// Calculate heights for split view - use same height as work overlay for consistency
+	// Work overlay sets Height(dropdownHeight) for content, then border adds 2
+	// So total rendered height = dropdownHeight + 2
 	totalHeight := m.height - 1 // -1 for status bar
-	workPanelHeight := m.calculateWorkOverlayHeight()
-	planPanelHeight := totalHeight - workPanelHeight // panels have their own borders
+	workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border (matches overlay)
+	planPanelHeight := totalHeight - workPanelHeight      // panels have their own borders
 
 	// Update work details panel size for the work section
 	m.workDetails.SetSize(m.width, workPanelHeight)
