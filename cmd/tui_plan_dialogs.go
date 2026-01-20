@@ -8,61 +8,6 @@ import (
 
 // Dialog update handlers
 
-// updateBeadForm handles input for create, add-child, and edit bead dialogs.
-// Delegates to beadFormPanel.Update() and handles resulting actions.
-func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	cmd, action := m.beadFormPanel.Update(msg)
-
-	switch action {
-	case BeadFormActionCancel:
-		m.viewMode = ViewNormal
-		return m, cmd
-
-	case BeadFormActionSubmit:
-		result := m.beadFormPanel.GetResult()
-		if result.Title == "" {
-			return m, cmd
-		}
-
-		m.viewMode = ViewNormal
-		m.beadFormPanel.Blur()
-
-		// Determine mode and call appropriate action
-		if result.EditBeadID != "" {
-			// Edit mode
-			return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
-		}
-
-		// Create or add-child mode
-		isEpic := result.BeadType == "epic"
-		return m, m.createBead(result.Title, result.BeadType, result.Priority, isEpic, result.Description, result.ParentID)
-	}
-
-	return m, cmd
-}
-
-// submitBeadForm handles form submission for create, add-child, and edit modes
-// Deprecated: Use updateBeadForm which delegates to panel.Update()
-func (m *planModel) submitBeadForm() (tea.Model, tea.Cmd) {
-	result := m.beadFormPanel.GetResult()
-	if result.Title == "" {
-		return m, nil
-	}
-
-	m.viewMode = ViewNormal
-	m.beadFormPanel.Blur()
-
-	// Determine mode and call appropriate action
-	if result.EditBeadID != "" {
-		// Edit mode
-		return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
-	}
-
-	// Create or add-child mode
-	isEpic := result.BeadType == "epic"
-	return m, m.createBead(result.Title, result.BeadType, result.Priority, isEpic, result.Description, result.ParentID)
-}
-
 func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Esc or Ctrl+G cancels search and clears filter
 	if msg.Type == tea.KeyEsc || msg.String() == "esc" || msg.String() == "escape" || msg.String() == "ctrl+g" {
@@ -218,28 +163,6 @@ func (m *planModel) renderCloseBeadConfirmContent() string {
 `, title, beadsList)
 
 	return tuiDialogStyle.Render(content)
-}
-
-// updateLinearImportInline handles input for the Linear import inline form
-func (m *planModel) updateLinearImportInline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	cmd, action := m.linearImportPanel.Update(msg)
-
-	switch action {
-	case LinearImportActionCancel:
-		m.viewMode = ViewNormal
-		return m, cmd
-
-	case LinearImportActionSubmit:
-		result := m.linearImportPanel.GetResult()
-		if result.IssueIDs != "" {
-			m.viewMode = ViewNormal
-			m.linearImportPanel.SetImporting(true)
-			return m, m.importLinearIssue(result.IssueIDs)
-		}
-		return m, cmd
-	}
-
-	return m, cmd
 }
 
 // updateCreateWorkDialog handles input for the create work dialog.

@@ -348,8 +348,23 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						return m, nil
 					} else {
-						// Submit bead form
-						return m.submitBeadForm()
+						// Submit bead form - inline the logic
+						result := m.beadFormPanel.GetResult()
+						if result.Title == "" {
+							return m, nil
+						}
+						m.viewMode = ViewNormal
+						m.beadFormPanel.Blur()
+
+						// Determine mode and call appropriate action
+						if result.EditBeadID != "" {
+							// Edit mode
+							return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
+						}
+
+						// Create or add-child mode
+						isEpic := result.BeadType == "epic"
+						return m, m.createBead(result.Title, result.BeadType, result.Priority, isEpic, result.Description, result.ParentID)
 					}
 				} else if clickedDialogButton == "cancel" {
 					// Cancel the form
@@ -740,8 +755,35 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle dialog-specific input
 	switch m.viewMode {
 	case ViewCreateBead, ViewCreateBeadInline, ViewAddChildBead, ViewEditBead:
-		// All bead form dialogs use the unified handler
-		return m.updateBeadForm(msg)
+		// Delegate to bead form panel and handle returned action
+		cmd, action := m.beadFormPanel.Update(msg)
+
+		switch action {
+		case BeadFormActionCancel:
+			m.viewMode = ViewNormal
+			return m, cmd
+
+		case BeadFormActionSubmit:
+			result := m.beadFormPanel.GetResult()
+			if result.Title == "" {
+				return m, cmd
+			}
+
+			m.viewMode = ViewNormal
+			m.beadFormPanel.Blur()
+
+			// Determine mode and call appropriate action
+			if result.EditBeadID != "" {
+				// Edit mode
+				return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
+			}
+
+			// Create or add-child mode
+			isEpic := result.BeadType == "epic"
+			return m, m.createBead(result.Title, result.BeadType, result.Priority, isEpic, result.Description, result.ParentID)
+		}
+
+		return m, cmd
 	case ViewCreateWork:
 		return m.updateCreateWorkDialog(msg)
 	case ViewBeadSearch:
@@ -751,7 +793,25 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ViewCloseBeadConfirm:
 		return m.updateCloseBeadConfirm(msg)
 	case ViewLinearImportInline:
-		return m.updateLinearImportInline(msg)
+		// Delegate to linear import panel and handle returned action
+		cmd, action := m.linearImportPanel.Update(msg)
+
+		switch action {
+		case LinearImportActionCancel:
+			m.viewMode = ViewNormal
+			return m, cmd
+
+		case LinearImportActionSubmit:
+			result := m.linearImportPanel.GetResult()
+			if result.IssueIDs != "" {
+				m.viewMode = ViewNormal
+				m.linearImportPanel.SetImporting(true)
+				return m, m.importLinearIssue(result.IssueIDs)
+			}
+			return m, cmd
+		}
+
+		return m, cmd
 	case ViewWorkOverlay:
 		return m.updateWorkOverlay(msg)
 	case ViewHelp:
