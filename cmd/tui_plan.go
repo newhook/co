@@ -316,6 +316,9 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.hoveredDialogButton = m.detectDialogButton(msg.X, msg.Y)
 				if m.hoveredDialogButton != "" {
 					m.hoveredIssue = -1
+				} else if m.viewMode == ViewWorkOverlay {
+					// Don't detect issue hover when work overlay is open
+					m.hoveredIssue = -1
 				} else {
 					// Detect hover over issue lines
 					m.hoveredIssue = m.detectHoveredIssue(msg.Y)
