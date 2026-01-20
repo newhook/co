@@ -77,13 +77,9 @@ type planModel struct {
 	lastUpdate    time.Time
 
 	// Work overlay state
-	workTiles           []*workProgress // Works displayed in overlay
-	selectedWorkTileID  string          // ID of selected work tile
-	focusedWorkID       string          // ID of focused work (splits screen)
-	focusFilterActive   bool            // Whether focus filter is active
-	selectedTaskID      string          // ID of selected task in focused work
-	workPanelFocused    bool            // Whether work panel (top) is focused in split view
-	overlayFocused      bool            // Whether overlay (vs issues below) has focus in overlay mode
+	focusedWorkID     string // ID of focused work (splits screen)
+	focusFilterActive bool   // Whether focus filter is active
+	workPanelFocused  bool   // Whether work panel (top) is focused in split view
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -413,7 +409,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// Check if clicking on a task
 						clickedTaskID := m.detectClickedTask(msg.X, msg.Y)
 						if clickedTaskID != "" {
-							m.selectedTaskID = clickedTaskID
+							m.workDetails.SetSelectedTaskID(clickedTaskID)
 						}
 						m.workPanelFocused = true
 						m.activePanel = PanelLeft
@@ -544,7 +540,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loading = false
 			return m, nil
 		}
-		m.workTiles = msg.works
+		m.workOverlay.SetWorkTiles(msg.works)
 		m.loading = false
 		return m, nil
 
@@ -847,7 +843,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case ViewWorkOverlay:
 		// Handle navigation for non-overlay focused state
-		if !m.overlayFocused {
+		if !m.workOverlay.IsFocused() {
 			switch msg.String() {
 			case "j", "down":
 				if m.beadsCursor < len(m.beadItems)-1 {
@@ -860,12 +856,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "tab":
-				m.overlayFocused = true
+				m.workOverlay.SetFocus(true)
 				return m, nil
 			case "esc":
 				m.viewMode = ViewNormal
-				m.selectedWorkTileID = ""
-				m.overlayFocused = false
+				m.workOverlay.ClearSelection()
+				m.workOverlay.SetFocus(false)
 				return m, nil
 			}
 			return m, nil
@@ -877,15 +873,15 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch action {
 		case WorkOverlayActionCancel:
 			m.viewMode = ViewNormal
-			m.selectedWorkTileID = ""
-			m.overlayFocused = false
+			m.workOverlay.ClearSelection()
+			m.workOverlay.SetFocus(false)
 			return m, cmd
 
 		case WorkOverlayActionSelect:
 			// Set the focused work and return to normal view with split screen
 			m.focusedWorkID = m.workOverlay.GetSelectedWorkTileID()
 			m.viewMode = ViewNormal
-			m.overlayFocused = false
+			m.workOverlay.SetFocus(false)
 			m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 			m.statusIsError = false
 			// Reset focus filter when selecting a new work
@@ -893,7 +889,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case WorkOverlayActionToggleFocus:
-			m.overlayFocused = !m.overlayFocused
+			m.workOverlay.SetFocus(!m.workOverlay.IsFocused())
 			return m, cmd
 
 		case WorkOverlayActionCreate:
@@ -905,7 +901,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				initialBranch := generateBranchNameFromBeadsForBranch(beads)
 				m.createWorkPanel.Reset([]string{selectedBead.ID}, initialBranch)
 				m.viewMode = ViewCreateWork
-				m.selectedWorkTileID = ""
+				m.workOverlay.ClearSelection()
 			}
 			return m, cmd
 
@@ -938,9 +934,6 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
-
-		// Sync selected work tile ID from panel to model
-		m.selectedWorkTileID = m.workOverlay.GetSelectedWorkTileID()
 
 		return m, cmd
 	case ViewHelp:
@@ -1176,8 +1169,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "W":
 		// Show work overlay
 		m.viewMode = ViewWorkOverlay
-		m.overlayFocused = true // Start with overlay focused
-		m.workOverlay.SetFocus(true)
+		m.workOverlay.SetFocus(true) // Start with overlay focused
 		m.loading = true
 		return m, tea.Batch(m.workOverlay.Init(), m.loadWorkTiles())
 
@@ -1390,8 +1382,6 @@ func (m *planModel) syncPanels() {
 
 	// Sync work overlay
 	m.workOverlay.SetSize(m.width, m.height)
-	m.workOverlay.SetFocus(m.overlayFocused)
-	m.workOverlay.SetData(m.workTiles, m.selectedWorkTileID)
 	m.workOverlay.SetLoading(m.loading)
 
 	// Sync work details (for focused work split view)
@@ -1401,15 +1391,8 @@ func (m *planModel) syncPanels() {
 			m.workPanelFocused && m.activePanel == PanelLeft,
 			m.workPanelFocused && m.activePanel == PanelRight,
 		)
-		// Find the focused work
-		var focusedWork *workProgress
-		for _, work := range m.workTiles {
-			if work != nil && work.work.ID == m.focusedWorkID {
-				focusedWork = work
-				break
-			}
-		}
-		m.workDetails.SetData(focusedWork, m.selectedTaskID)
+		focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
+		m.workDetails.SetFocusedWork(focusedWork)
 	}
 
 	// Sync Linear import panel
@@ -1532,60 +1515,12 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 
 // navigateTaskDown moves the selection to the next task in the focused work
 func (m *planModel) navigateTaskDown() (tea.Model, tea.Cmd) {
-	// Find the focused work
-	var focusedWork *workProgress
-	for _, work := range m.workTiles {
-		if work != nil && work.work.ID == m.focusedWorkID {
-			focusedWork = work
-			break
-		}
-	}
-	if focusedWork == nil || len(focusedWork.tasks) == 0 {
-		return m, nil
-	}
-
-	// Find current index
-	currentIdx := -1
-	for i, task := range focusedWork.tasks {
-		if task.task.ID == m.selectedTaskID {
-			currentIdx = i
-			break
-		}
-	}
-
-	// Move to next
-	if currentIdx < len(focusedWork.tasks)-1 {
-		m.selectedTaskID = focusedWork.tasks[currentIdx+1].task.ID
-	}
+	m.workDetails.NavigateTaskDown()
 	return m, nil
 }
 
 // navigateTaskUp moves the selection to the previous task in the focused work
 func (m *planModel) navigateTaskUp() (tea.Model, tea.Cmd) {
-	// Find the focused work
-	var focusedWork *workProgress
-	for _, work := range m.workTiles {
-		if work != nil && work.work.ID == m.focusedWorkID {
-			focusedWork = work
-			break
-		}
-	}
-	if focusedWork == nil || len(focusedWork.tasks) == 0 {
-		return m, nil
-	}
-
-	// Find current index
-	currentIdx := -1
-	for i, task := range focusedWork.tasks {
-		if task.task.ID == m.selectedTaskID {
-			currentIdx = i
-			break
-		}
-	}
-
-	// Move to previous
-	if currentIdx > 0 {
-		m.selectedTaskID = focusedWork.tasks[currentIdx-1].task.ID
-	}
+	m.workDetails.NavigateTaskUp()
 	return m, nil
 }

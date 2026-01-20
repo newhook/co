@@ -140,10 +140,30 @@ func (p *WorkOverlayPanel) IsFocused() bool {
 	return p.focused
 }
 
-// SetData updates the panel's data
-func (p *WorkOverlayPanel) SetData(workTiles []*workProgress, selectedWorkTileID string) {
+// SetWorkTiles updates the work tiles, preserving selection if possible
+func (p *WorkOverlayPanel) SetWorkTiles(workTiles []*workProgress) {
 	p.workTiles = workTiles
-	p.selectedWorkTileID = selectedWorkTileID
+	// Auto-select first work if current selection is invalid
+	if p.selectedWorkTileID != "" {
+		found := false
+		for _, work := range p.workTiles {
+			if work != nil && work.work.ID == p.selectedWorkTileID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			p.selectedWorkTileID = ""
+		}
+	}
+	if p.selectedWorkTileID == "" && len(p.workTiles) > 0 {
+		p.selectedWorkTileID = p.workTiles[0].work.ID
+	}
+}
+
+// ClearSelection clears the selected work tile
+func (p *WorkOverlayPanel) ClearSelection() {
+	p.selectedWorkTileID = ""
 }
 
 // SetLoading updates the loading state
@@ -164,6 +184,16 @@ func (p *WorkOverlayPanel) SetSelectedWorkTileID(id string) {
 // GetWorkTiles returns the work tiles
 func (p *WorkOverlayPanel) GetWorkTiles() []*workProgress {
 	return p.workTiles
+}
+
+// FindWorkByID finds a work by its ID, returns nil if not found
+func (p *WorkOverlayPanel) FindWorkByID(id string) *workProgress {
+	for _, work := range p.workTiles {
+		if work != nil && work.work.ID == id {
+			return work
+		}
+	}
+	return nil
 }
 
 // CalculateHeight returns the height of the overlay dropdown

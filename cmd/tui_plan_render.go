@@ -275,14 +275,7 @@ func (m *planModel) detectClickedTask(x, y int) string {
 		return ""
 	}
 
-	// Find the focused work
-	var focusedWork *workProgress
-	for _, work := range m.workTiles {
-		if work != nil && work.work.ID == m.focusedWorkID {
-			focusedWork = work
-			break
-		}
-	}
+	focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
 	if focusedWork == nil || len(focusedWork.tasks) == 0 {
 		return ""
 	}
@@ -309,8 +302,9 @@ func (m *planModel) detectClickedTask(x, y int) string {
 
 	// Find selected task index for scroll calculation
 	selectedIndex := -1
+	selectedTaskID := m.workDetails.GetSelectedTaskID()
 	for i, task := range focusedWork.tasks {
-		if task.task.ID == m.selectedTaskID {
+		if task.task.ID == selectedTaskID {
 			selectedIndex = i
 			break
 		}

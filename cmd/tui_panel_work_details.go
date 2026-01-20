@@ -43,10 +43,26 @@ func (p *WorkDetailsPanel) SetFocus(leftFocused, rightFocused bool) {
 	p.rightPanelFocused = rightFocused
 }
 
-// SetData updates the panel's data
-func (p *WorkDetailsPanel) SetData(focusedWork *workProgress, selectedTaskID string) {
+// SetFocusedWork updates the focused work, preserving task selection if valid
+func (p *WorkDetailsPanel) SetFocusedWork(focusedWork *workProgress) {
 	p.focusedWork = focusedWork
-	p.selectedTaskID = selectedTaskID
+	// Validate current selection still exists
+	if p.selectedTaskID != "" && focusedWork != nil {
+		found := false
+		for _, task := range focusedWork.tasks {
+			if task.task.ID == p.selectedTaskID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			p.selectedTaskID = ""
+		}
+	}
+	// Auto-select first task if none selected
+	if p.selectedTaskID == "" && focusedWork != nil && len(focusedWork.tasks) > 0 {
+		p.selectedTaskID = focusedWork.tasks[0].task.ID
+	}
 }
 
 // GetSelectedTaskID returns the currently selected task ID
