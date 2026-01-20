@@ -94,6 +94,7 @@ type planModel struct {
 	selectedWorkTileID string          // ID of selected work tile
 	focusedWorkID      string          // ID of focused work (splits screen)
 	focusFilterActive  bool            // Whether focus filter is active
+	selectedTaskID     string          // ID of selected task in focused work
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -756,13 +757,29 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Normal mode key handling
 	switch msg.String() {
+	case "h", "left":
+		// Simple left navigation in panels
+		if m.activePanel == PanelRight {
+			m.activePanel = PanelLeft
+		}
+		return m, nil
+
+	case "l", "right":
+		// Simple right navigation in panels
+		if m.activePanel == PanelLeft {
+			m.activePanel = PanelRight
+		}
+		return m, nil
+
 	case "j", "down":
+		// Navigate down in current list
 		if m.beadsCursor < len(m.beadItems)-1 {
 			m.beadsCursor++
 		}
 		return m, nil
 
 	case "k", "up":
+		// Navigate up in current list
 		if m.beadsCursor > 0 {
 			m.beadsCursor--
 		}
@@ -1118,17 +1135,43 @@ func (m *planModel) View() string {
 		// Inline import mode - render normal view with import form in details area
 		// Fall through to normal rendering
 	case ViewWorkOverlay:
-		// Work overlay mode - show work tiles overlay
-		return m.renderWorkOverlay()
+		// Work overlay mode - show work dropdown at top with normal content below
+		// Fall through to render normal content with overlay
 	case ViewHelp:
 		return m.renderHelp()
 	}
 
-	// Use two-column layout
-	content := m.renderTwoColumnLayout()
+	// Render content and status bar
 	statusBar := m.renderCommandsBar()
 
-	// Combine content and status bar
+	// If work overlay is active, show it as a dropdown at the top
+	if m.viewMode == ViewWorkOverlay {
+		overlay := m.renderWorkOverlayDropdown()
+
+		// Calculate remaining height for content
+		overlayHeight := lipgloss.Height(overlay)
+		statusHeight := lipgloss.Height(statusBar)
+		remainingHeight := m.height - overlayHeight - statusHeight
+
+		// Render content with reduced height
+		var content string
+		if remainingHeight > 4 {
+			// Temporarily adjust model height for content rendering
+			originalHeight := m.height
+			m.height = remainingHeight
+			content = m.renderTwoColumnLayout()
+			m.height = originalHeight
+		} else {
+			// Not enough space, just show a condensed view
+			content = tuiDimStyle.Render("  (Content area - press Esc to close overlay)")
+		}
+
+		// Combine overlay, content and status bar
+		return lipgloss.JoinVertical(lipgloss.Left, overlay, content, statusBar)
+	}
+
+	// Normal view without overlay
+	content := m.renderTwoColumnLayout()
 	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 }
 

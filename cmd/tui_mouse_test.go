@@ -1,14 +1,11 @@
 package cmd
 
 import (
-	"context"
-	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/newhook/co/internal/project"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -133,78 +130,6 @@ func TestDetectCommandsBarButton(t *testing.T) {
 	}
 }
 
-// TestDetectHoveredMode tests the Root mode tab detection
-func TestDetectHoveredMode(t *testing.T) {
-	// Create model
-	ctx := context.Background()
-	proj := &project.Project{}
-	m := newRootModel(ctx, proj)
-	m.activeMode = ModePlan
-
-	// Build PLAIN text version for position detection
-	// Must match exactly what detectHoveredMode uses internally
-	modeName := m.activeMode.Label()
-	tabBar := fmt.Sprintf("=== Claude Örchestratör: %s MODE === [P]lan [W]ork", modeName)
-
-	// Find each mode hotkey
-	modes := []struct {
-		text string
-		mode Mode
-	}{
-		{"[P]lan", ModePlan},
-		{"[W]ork", ModeWork},
-	}
-
-	for _, modeInfo := range modes {
-		modeIdx := strings.Index(tabBar, modeInfo.text)
-
-		if modeIdx < 0 {
-			t.Fatalf("Could not find %s in tab bar: %q", modeInfo.text, tabBar)
-		}
-
-		modeWidth := len(modeInfo.text)
-
-		t.Run(modeInfo.text+" start", func(t *testing.T) {
-			result := m.detectHoveredMode(modeIdx)
-			assert.Equal(t, modeInfo.mode, result, "Start of %s at position %d", modeInfo.text, modeIdx)
-		})
-
-		t.Run(modeInfo.text+" middle", func(t *testing.T) {
-			middlePos := modeIdx + modeWidth/2
-			result := m.detectHoveredMode(middlePos)
-			assert.Equal(t, modeInfo.mode, result, "Middle of %s at position %d", modeInfo.text, middlePos)
-		})
-
-		t.Run(modeInfo.text+" end", func(t *testing.T) {
-			// Test last character (exclusive boundary)
-			result := m.detectHoveredMode(modeIdx + modeWidth - 1)
-			assert.Equal(t, modeInfo.mode, result, "End of %s at position %d", modeInfo.text, modeIdx+modeWidth-1)
-		})
-
-		t.Run(modeInfo.text+" after", func(t *testing.T) {
-			// Test just after the mode hotkey (should not match this mode)
-			afterPos := modeIdx + modeWidth
-			result := m.detectHoveredMode(afterPos)
-			assert.NotEqual(t, modeInfo.mode, result, "After %s at position %d", modeInfo.text, afterPos)
-		})
-	}
-
-	// Test edge cases
-	t.Run("before tabs", func(t *testing.T) {
-		result := m.detectHoveredMode(0)
-		assert.Equal(t, Mode(-1), result, "Position 0 should return -1")
-	})
-
-	t.Run("negative position", func(t *testing.T) {
-		result := m.detectHoveredMode(-5)
-		assert.Equal(t, Mode(-1), result, "Negative position should return -1")
-	})
-
-	t.Run("far beyond bar", func(t *testing.T) {
-		result := m.detectHoveredMode(200)
-		assert.Equal(t, Mode(-1), result, "Far position should return -1")
-	})
-}
 
 // TestButtonRegion tests the ButtonRegion struct and button position tracking
 func TestButtonRegion(t *testing.T) {

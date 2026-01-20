@@ -26,39 +26,47 @@ var (
 
 var tuiCmd = &cobra.Command{
 	Use:   "tui",
-	Short: "Interactive TUI for managing works and beads (lazygit-style)",
-	Long: `A full-featured interactive TUI for managing the Claude Orchestrator.
-
-Features a lazygit-style drill-down interface with 3 depth levels:
-  Depth 0: [Beads] | [Works] | [Work Details]
-  Depth 1: [Works] | [Tasks] | [Task Details]
-  Depth 2: [Tasks] | [Beads] | [Bead Details]
+	Short: "Interactive TUI for managing beads and works",
+	Long: `Interactive TUI for managing beads and works in Claude Orchestrator.
 
 Key bindings:
   Navigation:
-    h, ←        Move left / drill out from leftmost panel
-    l, →        Move right / drill in from middle panel
-    j/k, ↑/↓    Navigate list (syncs child panels when in left panel)
-    Tab, 1-3    Jump to panel at current depth
+    h, ←        Move left (navigate panels)
+    l, →        Move right (navigate panels)
+    j/k, ↑/↓    Navigate list items
+    Tab, 1-3    Jump to specific panel
 
-  Bead Management (at Beads panel, depth 0):
+  Bead Management:
     n           Create new bead
+    e           Create epic
     Space       Toggle selection (for multi-select)
+    Enter       Show bead details
+    x           Close selected bead
     b           Toggle between ready/all beads
-    A           Automated workflow (create + plan + run + review + PR)
+    /           Search beads
+    L           Filter by labels
+    d           Add dependency
+    D           Remove dependency
+    m           Move bead (change priority/status)
+    t           Edit title
+    T           Edit type
+    s           Toggle sync status
 
-  Work Management (at Works panel):
-    c           Create new work (opens branch name dialog)
-    d           Destroy selected work
+  Work Management:
+    W           Open work overlay
+    [f]         Toggle focus filter (when work focused)
+    A           Add issues to focused work
+    c           Create new work (in work overlay)
+    d           Destroy selected work (in work overlay)
     p           Plan work (create tasks from beads)
     r           Run work (execute pending tasks)
-    a           Assign beads to selected work
     R           Create review task for work
     P           Create PR task for work
 
   Other:
     ?           Show help
-    q           Quit`,
+    q           Quit
+    F5          Manual feedback polling (when PR exists)`,
 	Args: cobra.NoArgs,
 	RunE: runTUI,
 }

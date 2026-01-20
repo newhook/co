@@ -475,127 +475,371 @@ func (m *planModel) updateWorkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+
+	case "c":
+		// Create new work - exit overlay and show create dialog
+		if m.beadsCursor < len(m.beadItems) {
+			selectedBead := m.beadItems[m.beadsCursor]
+			m.createWorkBeadIDs = []string{selectedBead.id}
+			m.viewMode = ViewCreateWork
+			m.selectedWorkTileID = ""
+
+			// Generate initial branch name
+			beads := []*beadsForBranch{{ID: selectedBead.id, Title: selectedBead.title}}
+			initialBranch := generateBranchNameFromBeadsForBranch(beads)
+			m.createWorkBranch.SetValue(initialBranch)
+			m.createWorkBranch.Focus()
+			m.createWorkField = 0
+			m.createWorkButtonIdx = 0
+		}
+		return m, nil
+
+	case "d":
+		// Destroy selected work
+		if m.selectedWorkTileID != "" {
+			// TODO: Add confirmation dialog before destroying
+			m.statusMessage = fmt.Sprintf("Destroying work %s...", m.selectedWorkTileID)
+			m.statusIsError = false
+			return m, m.destroyWork(m.selectedWorkTileID)
+		}
+		return m, nil
+
+	case "p":
+		// Plan selected work
+		if m.selectedWorkTileID != "" {
+			m.statusMessage = fmt.Sprintf("Planning work %s...", m.selectedWorkTileID)
+			m.statusIsError = false
+			// Exit overlay and run plan
+			m.viewMode = ViewNormal
+			return m, m.planWork(m.selectedWorkTileID)
+		}
+		return m, nil
+
+	case "r":
+		// Run selected work
+		if m.selectedWorkTileID != "" {
+			m.statusMessage = fmt.Sprintf("Running work %s...", m.selectedWorkTileID)
+			m.statusIsError = false
+			// Exit overlay and run work
+			m.viewMode = ViewNormal
+			return m, m.runWork(m.selectedWorkTileID)
+		}
+		return m, nil
+
+	case "h", "left":
+		// For grid layout in future - move left in grid
+		// For now, just move up
+		return m.updateWorkOverlay(tea.KeyMsg{Type: tea.KeyUp})
+
+	case "l", "right":
+		// For grid layout in future - move right in grid
+		// For now, just move down
+		return m.updateWorkOverlay(tea.KeyMsg{Type: tea.KeyDown})
 	}
 
 	return m, nil
 }
 
-// renderWorkOverlay renders the work tiles overlay
-func (m *planModel) renderWorkOverlay() string {
+// Helper functions for work commands
+func (m *planModel) destroyWork(workID string) tea.Cmd {
+	return func() tea.Msg {
+		// TODO: Implementation would call the actual destroy work logic
+		// For now, just return a simple completion message
+		return planWorkCreatedMsg{
+			workID: workID,
+			beadID: "",
+			err:    fmt.Errorf("destroy work not yet implemented"),
+		}
+	}
+}
+
+func (m *planModel) planWork(workID string) tea.Cmd {
+	return func() tea.Msg {
+		// TODO: Implementation would call the actual plan work logic
+		// For now, just return a simple completion message
+		return planWorkCreatedMsg{
+			workID: workID,
+			beadID: "",
+			err:    fmt.Errorf("plan work not yet implemented"),
+		}
+	}
+}
+
+func (m *planModel) runWork(workID string) tea.Cmd {
+	return func() tea.Msg {
+		// TODO: Implementation would call the actual run work logic
+		// For now, just return a simple completion message
+		return planWorkCreatedMsg{
+			workID: workID,
+			beadID: "",
+			err:    fmt.Errorf("run work not yet implemented"),
+		}
+	}
+}
+
+// renderWorkOverlayDropdown renders the work dropdown panel at the top
+func (m *planModel) renderWorkOverlayDropdown() string {
+	// Calculate dropdown height (about 40% of screen for more details)
+	dropdownHeight := int(float64(m.height) * 0.4)
+	if dropdownHeight < 12 {
+		dropdownHeight = 12
+	} else if dropdownHeight > 25 {
+		dropdownHeight = 25
+	}
+
+	// Create dropdown panel style with shadow effect
+	dropdownStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Height(dropdownHeight).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		BorderLeft(false).
+		BorderRight(false).
+		BorderTop(false).
+		Background(lipgloss.Color("235"))
+
 	if m.loading {
-		loadingStyle := lipgloss.NewStyle().
+		loadingContent := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214")).
 			Bold(true).
-			Align(lipgloss.Center, lipgloss.Center)
-
-		return loadingStyle.
-			Width(m.width).
-			Height(m.height).
+			Align(lipgloss.Center, lipgloss.Center).
+			Width(m.width - 2).
+			Height(dropdownHeight - 2).
 			Render("Loading works...")
+		return dropdownStyle.Render(loadingContent)
 	}
 
-	// Create work tiles grid
-	var tiles []string
-	tileWidth := 30
-	tileHeight := 8
-	tilesPerRow := m.width / (tileWidth + 2)
-	if tilesPerRow < 1 {
-		tilesPerRow = 1
-	}
+	var content strings.Builder
 
-	// Style for tiles
-	normalTileStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Width(tileWidth).
-		Height(tileHeight).
-		Padding(1)
+	// Header bar with close hint
+	headerBar := lipgloss.NewStyle().
+		Background(lipgloss.Color("62")).
+		Foreground(lipgloss.Color("255")).
+		Bold(true).
+		Width(m.width - 2).
+		Padding(0, 1).
+		Render("Work Overview                                                  [Esc] Close")
+	content.WriteString(headerBar)
+	content.WriteString("\n")
 
-	selectedTileStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("214")).
-		Width(tileWidth).
-		Height(tileHeight).
-		Padding(1).
-		Bold(true)
+	// Instructions line
+	instructionStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("247")).
+		Padding(0, 1)
+	content.WriteString(instructionStyle.Render(
+		"[↑↓] Navigate  [Enter] Select & Focus  [c] Create  [d] Destroy  [p] Plan  [r] Run"))
+	content.WriteString("\n")
 
-	for _, work := range m.workTiles {
-		// Build tile content
-		var content strings.Builder
-		content.WriteString(fmt.Sprintf("%s %s\n", statusIcon(work.work.Status), work.work.ID))
-		content.WriteString(fmt.Sprintf("Branch: %s\n", truncateString(work.work.BranchName, tileWidth-4)))
+	// Calculate available space for work items (2 lines per work now)
+	availableLines := dropdownHeight - 4 // -4 for header, instructions, borders
+	worksPerPage := availableLines / 3   // Each work takes 3 lines now
 
-		// Show task and bead counts
-		completedTasks := 0
-		totalTasks := len(work.tasks)
-		for _, task := range work.tasks {
-			if task.task.Status == db.StatusCompleted {
-				completedTasks++
+	if len(m.workTiles) == 0 {
+		// No works message
+		emptyMsg := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Italic(true).
+			Align(lipgloss.Center).
+			Width(m.width - 2).
+			Height(availableLines).
+			Render("No works found. Press 'c' to create a new work.")
+		content.WriteString(emptyMsg)
+	} else {
+		// Find selected index
+		selectedIndex := -1
+		for i, work := range m.workTiles {
+			if work.work.ID == m.selectedWorkTileID {
+				selectedIndex = i
+				break
 			}
 		}
-		content.WriteString(fmt.Sprintf("Tasks: %d/%d\n", completedTasks, totalTasks))
 
-		// Show unassigned beads count if any
-		if work.unassignedBeadCount > 0 {
-			content.WriteString(fmt.Sprintf("Unassigned: %d\n", work.unassignedBeadCount))
+		// Calculate visible window (for works that take multiple lines)
+		startIdx := 0
+		if selectedIndex >= worksPerPage {
+			startIdx = selectedIndex - worksPerPage/2
+			if startIdx < 0 {
+				startIdx = 0
+			}
+		}
+		endIdx := startIdx + worksPerPage
+		if endIdx > len(m.workTiles) {
+			endIdx = len(m.workTiles)
+			if endIdx-startIdx < worksPerPage && len(m.workTiles) >= worksPerPage {
+				startIdx = endIdx - worksPerPage
+				if startIdx < 0 {
+					startIdx = 0
+				}
+			}
 		}
 
-		// Show feedback count if any
-		if work.feedbackCount > 0 {
-			content.WriteString(fmt.Sprintf("Feedback: %d\n", work.feedbackCount))
+		// Render visible works with full details
+		for i := startIdx; i < endIdx; i++ {
+			work := m.workTiles[i]
+			if work == nil {
+				continue
+			}
+
+			isSelected := work.work.ID == m.selectedWorkTileID
+
+			// === Line 1: Main info ===
+			var line1 strings.Builder
+
+			// Selection indicator
+			if isSelected {
+				line1.WriteString(tuiSuccessStyle.Render("►"))
+			} else {
+				line1.WriteString(" ")
+			}
+			line1.WriteString(" ")
+
+			// Status icon
+			line1.WriteString(statusIcon(work.work.Status))
+			line1.WriteString(" ")
+
+			// Work ID
+			idStyle := lipgloss.NewStyle().Bold(true)
+			if isSelected {
+				idStyle = idStyle.Foreground(lipgloss.Color("214"))
+			}
+			line1.WriteString(idStyle.Render(work.work.ID))
+			line1.WriteString(" ")
+
+			// Status text
+			statusTextStyle := lipgloss.NewStyle()
+			switch work.work.Status {
+			case db.StatusCompleted:
+				statusTextStyle = statusTextStyle.Foreground(lipgloss.Color("82")) // Green
+			case db.StatusProcessing:
+				statusTextStyle = statusTextStyle.Foreground(lipgloss.Color("214")) // Orange
+			case db.StatusFailed:
+				statusTextStyle = statusTextStyle.Foreground(lipgloss.Color("196")) // Red
+			default:
+				statusTextStyle = statusTextStyle.Foreground(lipgloss.Color("247")) // Gray
+			}
+			line1.WriteString(statusTextStyle.Render(fmt.Sprintf("[%s]", work.work.Status)))
+			line1.WriteString(" ")
+
+			// Created time (if available)
+			if work.work.CreatedAt.Unix() > 0 {
+				timeAgo := time.Since(work.work.CreatedAt)
+				var timeStr string
+				if timeAgo.Hours() < 1 {
+					timeStr = fmt.Sprintf("%dm ago", int(timeAgo.Minutes()))
+				} else if timeAgo.Hours() < 24 {
+					timeStr = fmt.Sprintf("%dh ago", int(timeAgo.Hours()))
+				} else {
+					days := int(timeAgo.Hours() / 24)
+					timeStr = fmt.Sprintf("%dd ago", days)
+				}
+				timeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+				line1.WriteString(timeStyle.Render(fmt.Sprintf("Created %s", timeStr)))
+			}
+
+			content.WriteString(line1.String())
+			content.WriteString("\n")
+
+			// === Line 2: Branch and progress ===
+			var line2 strings.Builder
+			line2.WriteString("   ")  // Indent
+
+			// Branch name
+			branchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("247"))
+			branch := truncateString(work.work.BranchName, 50)
+			line2.WriteString(branchStyle.Render(fmt.Sprintf("📌 %s", branch)))
+			line2.WriteString("  ")
+
+			// Progress percentage
+			completedTasks := 0
+			for _, task := range work.tasks {
+				if task.task.Status == db.StatusCompleted {
+					completedTasks++
+				}
+			}
+
+			percentage := 0
+			if len(work.tasks) > 0 {
+				percentage = (completedTasks * 100) / len(work.tasks)
+			}
+
+			progressStyle := lipgloss.NewStyle().Bold(true)
+			if percentage == 100 {
+				progressStyle = progressStyle.Foreground(lipgloss.Color("82")) // Green
+			} else if percentage >= 75 {
+				progressStyle = progressStyle.Foreground(lipgloss.Color("226")) // Yellow
+			} else if percentage >= 50 {
+				progressStyle = progressStyle.Foreground(lipgloss.Color("214")) // Orange
+			} else {
+				progressStyle = progressStyle.Foreground(lipgloss.Color("247")) // Gray
+			}
+			line2.WriteString(progressStyle.Render(fmt.Sprintf("%d%%", percentage)))
+			line2.WriteString(" ")
+			line2.WriteString(fmt.Sprintf("(%d/%d tasks)", completedTasks, len(work.tasks)))
+
+			// Warnings/alerts
+			if work.unassignedBeadCount > 0 {
+				warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+				line2.WriteString(" ")
+				line2.WriteString(warningStyle.Render(fmt.Sprintf("⚠ %d unassigned", work.unassignedBeadCount)))
+			}
+			if work.feedbackCount > 0 {
+				alertStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+				line2.WriteString(" ")
+				line2.WriteString(alertStyle.Render(fmt.Sprintf("🔔 %d feedback", work.feedbackCount)))
+			}
+
+			content.WriteString(line2.String())
+			content.WriteString("\n")
+
+			// === Line 3: Root issue details ===
+			if work.work.RootIssueID != "" {
+				var line3 strings.Builder
+				line3.WriteString("   ")  // Indent
+
+				// Try to find the root issue in beads
+				var rootTitle string
+				for _, bead := range work.workBeads {
+					if bead.id == work.work.RootIssueID {
+						rootTitle = bead.title
+						break
+					}
+				}
+
+				if rootTitle == "" && len(work.workBeads) > 0 {
+					// Fallback to first bead if root not found
+					rootTitle = work.workBeads[0].title
+				}
+
+				if rootTitle != "" {
+					issueStyle := lipgloss.NewStyle().
+						Foreground(lipgloss.Color("247")).
+						Italic(true)
+					rootTitle = truncateString(rootTitle, 70)
+					line3.WriteString(issueStyle.Render(fmt.Sprintf("📋 %s", rootTitle)))
+				} else {
+					// Just show the root issue ID
+					issueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+					line3.WriteString(issueStyle.Render(fmt.Sprintf("Root: %s", work.work.RootIssueID)))
+				}
+				content.WriteString(line3.String())
+				content.WriteString("\n")
+			} else {
+				// Add blank line for spacing
+				content.WriteString("\n")
+			}
 		}
 
-		// Apply appropriate style
-		var tileStyle lipgloss.Style
-		if work.work.ID == m.selectedWorkTileID {
-			tileStyle = selectedTileStyle
-		} else {
-			tileStyle = normalTileStyle
+		// Show scroll indicator if needed
+		if len(m.workTiles) > worksPerPage {
+			scrollInfo := fmt.Sprintf("\n  (Showing %d-%d of %d works)", startIdx+1, endIdx, len(m.workTiles))
+			content.WriteString(tuiDimStyle.Render(scrollInfo))
 		}
-
-		tiles = append(tiles, tileStyle.Render(content.String()))
 	}
 
-	// Arrange tiles in grid
-	var rows []string
-	for i := 0; i < len(tiles); i += tilesPerRow {
-		end := i + tilesPerRow
-		if end > len(tiles) {
-			end = len(tiles)
-		}
-		row := lipgloss.JoinHorizontal(lipgloss.Top, tiles[i:end]...)
-		rows = append(rows, row)
-	}
-
-	// Add header
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("214")).
-		MarginBottom(1)
-	header := headerStyle.Render("Work Overlay - Press Enter to select, Esc to cancel")
-
-	// Add instructions if no works
-	if len(m.workTiles) == 0 {
-		emptyStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Align(lipgloss.Center, lipgloss.Center).
-			Width(m.width).
-			Height(m.height - 3)
-		return lipgloss.JoinVertical(lipgloss.Left, header, emptyStyle.Render("No works found"))
-	}
-
-	// Combine everything
-	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
-	fullContent := lipgloss.JoinVertical(lipgloss.Left, header, content)
-
-	// Center the content
-	centeredStyle := lipgloss.NewStyle().
-		Width(m.width).
-		Height(m.height).
-		Align(lipgloss.Center, lipgloss.Center)
-
-	return centeredStyle.Render(fullContent)
+	return dropdownStyle.Render(content.String())
 }
+
 
 // truncateString truncates a string to the specified length
 func truncateString(s string, maxLen int) string {
