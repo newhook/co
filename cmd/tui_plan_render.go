@@ -321,7 +321,9 @@ func (m *planModel) renderTwoColumnLayout() string {
 	// Render issues panel
 	issuesContent := m.renderIssuesList(issuesContentLines, issuesWidth)
 	issuesPanelStyle := tuiPanelStyle.Width(issuesWidth).Height(contentHeight - 2)
-	if m.activePanel == PanelLeft {
+	// Highlight if active in normal mode, or if overlay mode with issues focused
+	issuesFocused := m.activePanel == PanelLeft || (m.viewMode == ViewWorkOverlay && !m.overlayFocused)
+	if issuesFocused {
 		issuesPanelStyle = issuesPanelStyle.BorderForeground(lipgloss.Color("214")) // Highlight active panel
 	}
 	issuesPanel := issuesPanelStyle.Render(tuiTitleStyle.Render("Issues") + "\n" + issuesContent)

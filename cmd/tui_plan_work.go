@@ -445,6 +445,10 @@ func (m *planModel) updateWorkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Navigation - depends on which section has focus
 	switch msg.String() {
+	case "tab":
+		// Also handle tab as string (fallback)
+		m.overlayFocused = !m.overlayFocused
+		return m, nil
 	case "j", "down":
 		if m.overlayFocused {
 			// Move to next work tile
@@ -608,11 +612,16 @@ func (m *planModel) renderWorkOverlayDropdown() string {
 	}
 
 	// Create dropdown panel style with shadow effect
+	// Highlight border when overlay is focused
+	borderColor := "240"
+	if m.overlayFocused {
+		borderColor = "214" // Orange when focused
+	}
 	dropdownStyle := lipgloss.NewStyle().
 		Width(m.width).
 		Height(dropdownHeight).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
+		BorderForeground(lipgloss.Color(borderColor)).
 		BorderBottom(true).
 		BorderLeft(false).
 		BorderRight(false).
@@ -648,7 +657,7 @@ func (m *planModel) renderWorkOverlayDropdown() string {
 		Foreground(lipgloss.Color("247")).
 		Padding(0, 1)
 	content.WriteString(instructionStyle.Render(
-		"[↑↓] Navigate  [Enter] Select & Focus  [c] Create  [d] Destroy  [p] Plan  [r] Run"))
+		"[↑↓] Navigate  [Tab] Switch Focus  [Enter] Select  [c] Create  [d] Destroy  [p] Plan  [r] Run"))
 	content.WriteString("\n")
 
 	// Calculate available space for work items (2 lines per work now)
