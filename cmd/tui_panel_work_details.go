@@ -622,9 +622,11 @@ func (p *WorkDetailsPanel) renderUnassignedBeadDetails(bead beadProgress, panelW
 	// Account for padding (tuiPanelStyle has Padding(0, 1) = 2 chars total)
 	contentWidth := panelWidth - 2
 
-	// Header with warning style
+	// Header with warning style and action hint
 	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	content.WriteString(warningStyle.Render("Unassigned Bead"))
+	content.WriteString(warningStyle.Render("Unassigned Issue"))
+	content.WriteString(" ")
+	content.WriteString(tuiDimStyle.Render("[p] plan [r] run"))
 	content.WriteString("\n\n")
 
 	content.WriteString(fmt.Sprintf("ID: %s\n", bead.id))
