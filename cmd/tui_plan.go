@@ -79,7 +79,6 @@ type planModel struct {
 	// Work overlay state
 	focusedWorkID     string // ID of focused work (splits screen)
 	focusFilterActive bool   // Whether focus filter is active
-	workPanelFocused  bool   // Whether work panel (top) is focused in split view
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -411,12 +410,10 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if clickedTaskID != "" {
 							m.workDetails.SetSelectedTaskID(clickedTaskID)
 						}
-						m.workPanelFocused = true
-						m.activePanel = PanelLeft
+						m.activePanel = PanelWorkDetails
 						return m, nil
 					case "work-right":
-						m.workPanelFocused = true
-						m.activePanel = PanelRight
+						m.activePanel = PanelWorkDetails
 						return m, nil
 					case "issues-left":
 						// Check if clicking on an issue
@@ -424,11 +421,9 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
 							m.beadsCursor = clickedIssue
 						}
-						m.workPanelFocused = false
 						m.activePanel = PanelLeft
 						return m, nil
 					case "issues-right":
-						m.workPanelFocused = false
 						m.activePanel = PanelRight
 						return m, nil
 					}
@@ -741,7 +736,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle escape key globally for deselecting focused work
 	if msg.Type == tea.KeyEsc && m.viewMode == ViewNormal && m.focusedWorkID != "" {
 		m.focusedWorkID = ""
-		m.focusFilterActive = false  // Clear focus filter when deselecting work
+		m.focusFilterActive = false // Clear focus filter when deselecting work
+		m.activePanel = PanelLeft   // Reset focus to issues panel
 		m.statusMessage = "Work deselected"
 		m.statusIsError = false
 		// Refresh to show all issues again
@@ -842,8 +838,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		return m, cmd
 	case ViewWorkOverlay:
-		// Handle navigation for non-overlay focused state
-		if !m.workOverlay.IsFocused() {
+		// Handle navigation when issues panel is focused (not overlay)
+		if m.activePanel != PanelWorkOverlay {
 			switch msg.String() {
 			case "j", "down":
 				if m.beadsCursor < len(m.beadItems)-1 {
@@ -856,16 +852,19 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "tab":
-				m.workOverlay.SetFocus(true)
+				m.activePanel = PanelWorkOverlay
 				return m, nil
 			case "esc":
 				m.viewMode = ViewNormal
 				m.workOverlay.ClearSelection()
-				m.workOverlay.SetFocus(false)
+				m.activePanel = PanelLeft
 				return m, nil
 			}
 			return m, nil
 		}
+
+		// Sync panel focus state before delegating
+		m.workOverlay.SetFocus(true)
 
 		// Delegate to work overlay panel and handle returned action
 		cmd, action := m.workOverlay.Update(msg)
@@ -874,14 +873,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case WorkOverlayActionCancel:
 			m.viewMode = ViewNormal
 			m.workOverlay.ClearSelection()
-			m.workOverlay.SetFocus(false)
+			m.activePanel = PanelLeft
 			return m, cmd
 
 		case WorkOverlayActionSelect:
 			// Set the focused work and return to normal view with split screen
 			m.focusedWorkID = m.workOverlay.GetSelectedWorkTileID()
 			m.viewMode = ViewNormal
-			m.workOverlay.SetFocus(false)
+			m.activePanel = PanelWorkDetails
 			m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 			m.statusIsError = false
 			// Reset focus filter when selecting a new work
@@ -889,7 +888,11 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case WorkOverlayActionToggleFocus:
-			m.workOverlay.SetFocus(!m.workOverlay.IsFocused())
+			if m.activePanel == PanelWorkOverlay {
+				m.activePanel = PanelLeft
+			} else {
+				m.activePanel = PanelWorkOverlay
+			}
 			return m, cmd
 
 		case WorkOverlayActionCreate:
@@ -944,17 +947,14 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Normal mode key handling
 	switch msg.String() {
 	case "tab", "shift+tab":
-		// Tab only cycles between list panels (left panels), not detail panels
-		// In focused work mode: toggle between work tasks list and issues list
-		// In normal mode: no tabbing needed (stays on issues list)
+		// In focused work mode: toggle between work details and issues
 		if m.focusedWorkID != "" {
-			// Toggle between work panel (tasks list) and issues panel (issues list)
-			// Always keep activePanel as PanelLeft (the list panels)
-			m.workPanelFocused = !m.workPanelFocused
-			m.activePanel = PanelLeft
+			if m.activePanel == PanelWorkDetails {
+				m.activePanel = PanelLeft
+			} else {
+				m.activePanel = PanelWorkDetails
+			}
 		}
-		// In normal mode without focused work, tab does nothing
-		// (issue detail is not a tabbing target)
 		return m, nil
 
 	case "h", "left":
@@ -973,7 +973,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "j", "down":
 		// Navigate down in current list
-		if m.focusedWorkID != "" && m.workPanelFocused && m.activePanel == PanelLeft {
+		if m.activePanel == PanelWorkDetails {
 			// Navigate through tasks in work panel
 			return m.navigateTaskDown()
 		}
@@ -984,7 +984,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "k", "up":
 		// Navigate up in current list
-		if m.focusedWorkID != "" && m.workPanelFocused && m.activePanel == PanelLeft {
+		if m.activePanel == PanelWorkDetails {
 			// Navigate through tasks in work panel
 			return m.navigateTaskUp()
 		}
@@ -1123,7 +1123,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "W":
 		// Show work overlay
 		m.viewMode = ViewWorkOverlay
-		m.workOverlay.SetFocus(true) // Start with overlay focused
+		m.activePanel = PanelWorkOverlay
 		m.loading = true
 		return m, tea.Batch(m.workOverlay.Init(), m.loadWorkTiles())
 
@@ -1257,17 +1257,17 @@ func (m *planModel) cleanup() {
 func (m *planModel) syncPanels() {
 	// Calculate column widths
 	totalContentWidth := m.width - 4
-	separatorWidth := 3
-	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
-	detailsWidth := totalContentWidth - separatorWidth - issuesWidth
+	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
+	detailsWidth := totalContentWidth - issuesWidth
 
-	// Determine status bar context based on current focus
+	// Determine status bar context based on focused panel
 	var statusBarCtx StatusBarContext
-	if m.viewMode == ViewWorkOverlay && m.workOverlay.IsFocused() {
+	switch m.activePanel {
+	case PanelWorkOverlay:
 		statusBarCtx = StatusBarContextWorkOverlay
-	} else if m.focusedWorkID != "" && m.workPanelFocused && m.viewMode != ViewWorkOverlay {
+	case PanelWorkDetails:
 		statusBarCtx = StatusBarContextWorkDetail
-	} else {
+	default:
 		statusBarCtx = StatusBarContextIssues
 	}
 
@@ -1281,7 +1281,7 @@ func (m *planModel) syncPanels() {
 
 	// Sync issues panel
 	m.issuesPanel.SetSize(issuesWidth, m.height)
-	m.issuesPanel.SetFocus(m.activePanel == PanelLeft && !m.workPanelFocused)
+	m.issuesPanel.SetFocus(m.activePanel == PanelLeft)
 	m.issuesPanel.SetData(
 		m.beadItems,
 		m.beadsCursor,
@@ -1296,7 +1296,7 @@ func (m *planModel) syncPanels() {
 
 	// Sync details panel
 	m.detailsPanel.SetSize(detailsWidth, m.height)
-	m.detailsPanel.SetFocus(m.activePanel == PanelRight && !m.workPanelFocused)
+	m.detailsPanel.SetFocus(m.activePanel == PanelRight)
 	// Get focused bead and build child lookup map
 	var focusedBead *beadItem
 	var hasActiveSession bool
@@ -1314,15 +1314,15 @@ func (m *planModel) syncPanels() {
 	// Sync work overlay
 	m.workOverlay.SetSize(m.width, m.height)
 	m.workOverlay.SetLoading(m.loading)
+	m.workOverlay.SetFocus(m.activePanel == PanelWorkOverlay)
 
 	// Sync work details (for focused work split view)
 	if m.focusedWorkID != "" {
-		m.workDetails.SetSize(m.width, m.height)
+		// Calculate the correct work panel height (same formula as renderFocusedWorkSplitView)
+		workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+		m.workDetails.SetSize(m.width, workPanelHeight)
 		m.workDetails.SetColumnRatio(m.columnRatio) // Use same ratio as issues panel
-		m.workDetails.SetFocus(
-			m.workPanelFocused && m.activePanel == PanelLeft,
-			m.workPanelFocused && m.activePanel == PanelRight,
-		)
+		m.workDetails.SetFocus(m.activePanel == PanelWorkDetails, false)
 		focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
 		m.workDetails.SetFocusedWork(focusedWork)
 	}
@@ -1381,13 +1381,14 @@ func (m *planModel) View() string {
 		overlay := m.workOverlay.Render()
 
 		// Calculate remaining height for content
+		// Note: renderTwoColumnLayout already subtracts 1 for status bar,
+		// so we only subtract the overlay height here
 		overlayHeight := lipgloss.Height(overlay)
-		statusHeight := lipgloss.Height(statusBar)
-		remainingHeight := m.height - overlayHeight - statusHeight
+		remainingHeight := m.height - overlayHeight
 
 		// Render content with reduced height
 		var content string
-		if remainingHeight > 4 {
+		if remainingHeight > 5 {
 			// Temporarily adjust model height for content rendering
 			originalHeight := m.height
 			m.height = remainingHeight

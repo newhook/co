@@ -20,8 +20,8 @@ type WorkDetailsPanel struct {
 	rightPanelFocused bool
 
 	// Data
-	focusedWork    *workProgress
-	selectedTaskID string
+	focusedWork   *workProgress
+	selectedIndex int // 0 = root issue, 1+ = tasks (task index + 1)
 }
 
 // NewWorkDetailsPanel creates a new WorkDetailsPanel
@@ -50,370 +50,495 @@ func (p *WorkDetailsPanel) SetFocus(leftFocused, rightFocused bool) {
 	p.rightPanelFocused = rightFocused
 }
 
-// SetFocusedWork updates the focused work, preserving task selection if valid
+// SetFocusedWork updates the focused work, preserving selection if valid
 func (p *WorkDetailsPanel) SetFocusedWork(focusedWork *workProgress) {
 	p.focusedWork = focusedWork
 	// Validate current selection still exists
-	if p.selectedTaskID != "" && focusedWork != nil {
-		found := false
-		for _, task := range focusedWork.tasks {
-			if task.task.ID == p.selectedTaskID {
-				found = true
-				break
-			}
+	if focusedWork != nil {
+		maxIndex := len(focusedWork.tasks) // 0 = root, 1..n = tasks
+		if p.selectedIndex > maxIndex {
+			p.selectedIndex = 0 // Reset to root issue
 		}
-		if !found {
-			p.selectedTaskID = ""
-		}
-	}
-	// Auto-select first task if none selected
-	if p.selectedTaskID == "" && focusedWork != nil && len(focusedWork.tasks) > 0 {
-		p.selectedTaskID = focusedWork.tasks[0].task.ID
+	} else {
+		p.selectedIndex = 0
 	}
 }
 
-// GetSelectedTaskID returns the currently selected task ID
+// GetSelectedIndex returns the currently selected index (0 = root issue, 1+ = tasks)
+func (p *WorkDetailsPanel) GetSelectedIndex() int {
+	return p.selectedIndex
+}
+
+// SetSelectedIndex sets the selected index
+func (p *WorkDetailsPanel) SetSelectedIndex(idx int) {
+	p.selectedIndex = idx
+}
+
+// GetSelectedTaskID returns the currently selected task ID, or empty if root issue is selected
 func (p *WorkDetailsPanel) GetSelectedTaskID() string {
-	return p.selectedTaskID
+	if p.selectedIndex == 0 || p.focusedWork == nil {
+		return ""
+	}
+	taskIdx := p.selectedIndex - 1
+	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
+		return p.focusedWork.tasks[taskIdx].task.ID
+	}
+	return ""
 }
 
-// SetSelectedTaskID sets the selected task ID
+// SetSelectedTaskID sets selection to the task with given ID
 func (p *WorkDetailsPanel) SetSelectedTaskID(id string) {
-	p.selectedTaskID = id
+	if p.focusedWork == nil {
+		return
+	}
+	for i, task := range p.focusedWork.tasks {
+		if task.task.ID == id {
+			p.selectedIndex = i + 1 // +1 because 0 is root issue
+			return
+		}
+	}
 }
 
-// Render returns the work details split view
+// Render returns the work details split view (uses p.height from SetSize)
 func (p *WorkDetailsPanel) Render() string {
-	workPanelHeight := p.height
+	return p.RenderWithPanel(p.height)
+}
 
+// RenderWithPanel returns the work details split view with the given total height
+// This matches the IssuesPanel.RenderWithPanel pattern exactly
+func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 	// Calculate column widths using the same formula as issues panel
 	totalContentWidth := p.width - 4
-	separatorWidth := 3
-	leftWidth := int(float64(totalContentWidth-separatorWidth) * p.columnRatio)
-	rightWidth := totalContentWidth - separatorWidth - leftWidth
+	leftWidth := int(float64(totalContentWidth) * p.columnRatio)
+	rightWidth := totalContentWidth - leftWidth
 
-	// === Left side: Work info and tasks list ===
-	leftContent := p.renderLeftPanel(workPanelHeight, leftWidth)
+	// Content lines available inside each sub-panel (excluding border and title)
+	// Same formula as IssuesPanel: contentHeight - 3 for border (2) + title (1)
+	availableContentLines := contentHeight - 3
 
-	// === Right side: Task details ===
-	rightContent := p.renderRightPanel(workPanelHeight, rightWidth)
+	// === Left side: Work info and items list ===
+	leftContent := p.renderLeftPanel(availableContentLines, leftWidth)
 
-	// Create the two panels with proper highlighting
-	leftPanelStyle := tuiPanelStyle.Width(leftWidth).Height(workPanelHeight - 2)
+	// === Right side: Selected item details ===
+	rightContent := p.renderRightPanel(availableContentLines, rightWidth)
+
+	// Pad or truncate content to exactly fit availableContentLines
+	// This ensures the panel height is exactly contentHeight
+	leftContent = padOrTruncateLines(leftContent, availableContentLines)
+	rightContent = padOrTruncateLines(rightContent, availableContentLines)
+
+	// Create the two panels with fixed height (matching IssuesPanel pattern exactly)
+	// IssuesPanel uses: Height(contentHeight - 2)
+	leftPanelStyle := tuiPanelStyle.Width(leftWidth).Height(contentHeight - 2)
 	if p.leftPanelFocused {
 		leftPanelStyle = leftPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}
-	leftPanel := leftPanelStyle.Render(tuiTitleStyle.Render("Work & Tasks") + "\n" + leftContent)
+	leftPanel := leftPanelStyle.Render(tuiTitleStyle.Render("Work") + "\n" + leftContent)
 
-	rightPanelStyle := tuiPanelStyle.Width(rightWidth).Height(workPanelHeight - 2)
+	rightPanelStyle := tuiPanelStyle.Width(rightWidth).Height(contentHeight - 2)
 	if p.rightPanelFocused {
 		rightPanelStyle = rightPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}
-	rightPanel := rightPanelStyle.Render(tuiTitleStyle.Render("Task Details") + "\n" + rightContent)
+	rightPanel := rightPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + rightContent)
 
-	// Combine with separator
-	separator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Height(workPanelHeight - 2).
-		Render("│")
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, separator, rightPanel)
+	// Combine panels (they have their own borders)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 }
 
-// renderLeftPanel renders the left panel with work info and task list
+// padOrTruncateLines ensures the content has exactly targetLines lines
+func padOrTruncateLines(content string, targetLines int) string {
+	lines := strings.Split(content, "\n")
+	// Remove trailing empty line if present (from trailing \n)
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	if len(lines) > targetLines {
+		// Truncate
+		lines = lines[:targetLines]
+	} else if len(lines) < targetLines {
+		// Pad with empty lines
+		for len(lines) < targetLines {
+			lines = append(lines, "")
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderLeftPanel renders the left panel with root issue and task list
 func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 	var content strings.Builder
-	workPanelContentHeight := panelHeight - 3
 
 	if p.focusedWork == nil {
 		content.WriteString("Loading work details...")
 		return content.String()
 	}
 
-	// Work header
+	// Work header (1 line)
 	workHeader := fmt.Sprintf("%s %s", statusIcon(p.focusedWork.work.Status), p.focusedWork.work.ID)
 	if p.focusedWork.work.Name != "" {
 		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
 		workHeader += " " + nameStyle.Render(p.focusedWork.work.Name)
 	}
 	content.WriteString(workHeader + "\n")
-	content.WriteString(fmt.Sprintf("Branch: %s\n",
-		truncateString(p.focusedWork.work.BranchName, panelWidth-8)))
+	// Branch info (1 line)
+	fmt.Fprintf(&content, "Branch: %s\n", truncateString(p.focusedWork.work.BranchName, panelWidth-8))
 
-	// Progress summary
-	completedTasks := 0
-	for _, task := range p.focusedWork.tasks {
-		if task.task.Status == db.StatusCompleted {
-			completedTasks++
-		}
-	}
-	percentage := 0
-	if len(p.focusedWork.tasks) > 0 {
-		percentage = (completedTasks * 100) / len(p.focusedWork.tasks)
-	}
-
-	progressStyle := lipgloss.NewStyle().Bold(true)
-	if percentage == 100 {
-		progressStyle = progressStyle.Foreground(lipgloss.Color("82"))
-	} else if percentage >= 50 {
-		progressStyle = progressStyle.Foreground(lipgloss.Color("214"))
-	} else {
-		progressStyle = progressStyle.Foreground(lipgloss.Color("247"))
-	}
-	content.WriteString(fmt.Sprintf("Progress: %s (%d/%d)\n",
-		progressStyle.Render(fmt.Sprintf("%d%%", percentage)),
-		completedTasks, len(p.focusedWork.tasks)))
-
-	// Separator
+	// Separator (1 line)
 	content.WriteString(strings.Repeat("─", panelWidth-2))
 	content.WriteString("\n")
 
-	// Tasks list header
-	content.WriteString(tuiSuccessStyle.Render("Tasks:"))
-	content.WriteString("\n")
+	// Calculate available lines for items
+	// panelHeight is the total height available after title
+	// Header takes 3 lines (work header, branch, separator)
+	// Reserve 1 line for scroll indicator
+	headerLines := 3
+	availableLines := panelHeight - headerLines - 1
 
-	// Calculate scrollable area
-	headerLines := 5
-	availableLines := workPanelContentHeight - headerLines - 1
-
-	// Auto-select first task if none selected
-	if p.selectedTaskID == "" && len(p.focusedWork.tasks) > 0 {
-		p.selectedTaskID = p.focusedWork.tasks[0].task.ID
-	}
-
-	// Find selected task index
-	selectedIndex := -1
-	for i, task := range p.focusedWork.tasks {
-		if task.task.ID == p.selectedTaskID {
-			selectedIndex = i
-			break
-		}
-	}
+	// Total items: 1 root issue + n tasks
+	totalItems := 1 + len(p.focusedWork.tasks)
 
 	// Calculate scroll window
 	startIdx := 0
-	if selectedIndex >= availableLines && availableLines > 0 {
-		startIdx = selectedIndex - availableLines/2
-		if startIdx < 0 {
-			startIdx = 0
-		}
+	if p.selectedIndex >= availableLines && availableLines > 0 {
+		startIdx = max(0, p.selectedIndex-availableLines/2)
 	}
-	endIdx := startIdx + availableLines
-	if endIdx > len(p.focusedWork.tasks) {
-		endIdx = len(p.focusedWork.tasks)
-	}
+	endIdx := min(startIdx+availableLines, totalItems)
 
-	// Render visible tasks
+	// Render visible items
 	for i := startIdx; i < endIdx; i++ {
-		task := p.focusedWork.tasks[i]
-
-		prefix := "  "
-		style := tuiDimStyle
-		if task.task.ID == p.selectedTaskID {
-			prefix = "► "
-			style = tuiSelectedStyle
+		if i == 0 {
+			// Root issue
+			p.renderRootIssueLine(&content, panelWidth)
+		} else {
+			// Task (index i-1 in tasks array)
+			taskIdx := i - 1
+			if taskIdx < len(p.focusedWork.tasks) {
+				p.renderTaskLine(&content, taskIdx, panelWidth)
+			}
 		}
-
-		// Status icon and color
-		statusStr := ""
-		statusStyle := lipgloss.NewStyle()
-		switch task.task.Status {
-		case db.StatusCompleted:
-			statusStr = "✓"
-			statusStyle = statusStyle.Foreground(lipgloss.Color("82"))
-		case db.StatusProcessing:
-			statusStr = "●"
-			statusStyle = statusStyle.Foreground(lipgloss.Color("214"))
-		case db.StatusFailed:
-			statusStr = "✗"
-			statusStyle = statusStyle.Foreground(lipgloss.Color("196"))
-		default:
-			statusStr = "○"
-			statusStyle = statusStyle.Foreground(lipgloss.Color("247"))
-		}
-
-		// Task type
-		taskType := "impl"
-		if task.task.TaskType == "estimate" {
-			taskType = "est"
-		} else if task.task.TaskType == "review" {
-			taskType = "rev"
-		}
-
-		taskLine := fmt.Sprintf("%s%s %s [%s]",
-			prefix,
-			statusStyle.Render(statusStr),
-			task.task.ID,
-			taskType)
-
-		content.WriteString(style.Render(taskLine))
-		content.WriteString("\n")
 	}
 
 	// Scroll indicator
-	if len(p.focusedWork.tasks) > availableLines && availableLines > 0 {
-		scrollInfo := fmt.Sprintf("(%d-%d of %d)", startIdx+1, endIdx, len(p.focusedWork.tasks))
+	if totalItems > availableLines && availableLines > 0 {
+		scrollInfo := fmt.Sprintf("(%d-%d of %d)", startIdx+1, endIdx, totalItems)
 		content.WriteString(tuiDimStyle.Render(scrollInfo))
 	}
 
 	return content.String()
 }
 
-// renderRightPanel renders the right panel with task details
+// renderRootIssueLine renders the root issue line
+func (p *WorkDetailsPanel) renderRootIssueLine(content *strings.Builder, panelWidth int) {
+	prefix := "  "
+	style := tuiDimStyle
+	if p.selectedIndex == 0 {
+		prefix = "► "
+		style = tuiSelectedStyle
+	}
+
+	// Find root issue info from workBeads
+	rootID := p.focusedWork.work.RootIssueID
+	rootTitle := ""
+	for _, bead := range p.focusedWork.workBeads {
+		if bead.id == rootID {
+			rootTitle = bead.title
+			break
+		}
+	}
+
+	issueIcon := lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Render("◆")
+	line := fmt.Sprintf("%s%s %s", prefix, issueIcon, rootID)
+	if rootTitle != "" {
+		maxTitleLen := panelWidth - len(line) - 4
+		if maxTitleLen > 0 {
+			line += " " + truncateString(rootTitle, maxTitleLen)
+		}
+	}
+
+	content.WriteString(style.Render(line))
+	content.WriteString("\n")
+}
+
+// renderTaskLine renders a task line
+func (p *WorkDetailsPanel) renderTaskLine(content *strings.Builder, taskIdx int, panelWidth int) {
+	task := p.focusedWork.tasks[taskIdx]
+	itemIndex := taskIdx + 1 // +1 because 0 is root issue
+
+	prefix := "  "
+	style := tuiDimStyle
+	if p.selectedIndex == itemIndex {
+		prefix = "► "
+		style = tuiSelectedStyle
+	}
+
+	// Status icon and color
+	statusStr := ""
+	statusStyle := lipgloss.NewStyle()
+	switch task.task.Status {
+	case db.StatusCompleted:
+		statusStr = "✓"
+		statusStyle = statusStyle.Foreground(lipgloss.Color("82"))
+	case db.StatusProcessing:
+		statusStr = "●"
+		statusStyle = statusStyle.Foreground(lipgloss.Color("214"))
+	case db.StatusFailed:
+		statusStr = "✗"
+		statusStyle = statusStyle.Foreground(lipgloss.Color("196"))
+	default:
+		statusStr = "○"
+		statusStyle = statusStyle.Foreground(lipgloss.Color("247"))
+	}
+
+	// Task type
+	taskType := "impl"
+	switch task.task.TaskType {
+	case "estimate":
+		taskType = "est"
+	case "review":
+		taskType = "rev"
+	}
+
+	taskLine := fmt.Sprintf("%s%s %s [%s]",
+		prefix,
+		statusStyle.Render(statusStr),
+		task.task.ID,
+		taskType)
+
+	content.WriteString(style.Render(taskLine))
+	content.WriteString("\n")
+}
+
+// renderRightPanel renders the right panel with selected item details
 func (p *WorkDetailsPanel) renderRightPanel(panelHeight, panelWidth int) string {
 	var content strings.Builder
 
-	// Find selected task
-	var selectedTask *taskProgress
-	if p.focusedWork != nil {
-		for _, task := range p.focusedWork.tasks {
-			if task.task.ID == p.selectedTaskID {
-				selectedTask = task
+	if p.focusedWork == nil {
+		content.WriteString(tuiDimStyle.Render("Loading..."))
+		return content.String()
+	}
+
+	if p.selectedIndex == 0 {
+		// Show root issue details
+		return p.renderRootIssueDetails(panelWidth)
+	}
+
+	// Show task details
+	taskIdx := p.selectedIndex - 1
+	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
+		return p.renderTaskDetails(p.focusedWork.tasks[taskIdx], panelWidth)
+	}
+
+	content.WriteString(tuiDimStyle.Render("Select an item to view details"))
+	return content.String()
+}
+
+// renderRootIssueDetails renders details for the root issue
+func (p *WorkDetailsPanel) renderRootIssueDetails(panelWidth int) string {
+	var content strings.Builder
+
+	rootID := p.focusedWork.work.RootIssueID
+
+	// Find root bead in workBeads
+	var rootBead *beadProgress
+	for i := range p.focusedWork.workBeads {
+		if p.focusedWork.workBeads[i].id == rootID {
+			rootBead = &p.focusedWork.workBeads[i]
+			break
+		}
+	}
+
+	// If not found in workBeads, try unassignedBeads
+	if rootBead == nil {
+		for i := range p.focusedWork.unassignedBeads {
+			if p.focusedWork.unassignedBeads[i].id == rootID {
+				rootBead = &p.focusedWork.unassignedBeads[i]
 				break
 			}
 		}
 	}
 
-	if selectedTask != nil {
-		content.WriteString(fmt.Sprintf("ID: %s\n", selectedTask.task.ID))
-		content.WriteString(fmt.Sprintf("Type: %s\n", selectedTask.task.TaskType))
-		content.WriteString(fmt.Sprintf("Status: %s\n", selectedTask.task.Status))
-
-		if selectedTask.task.ComplexityBudget > 0 {
-			content.WriteString(fmt.Sprintf("Budget: %d\n", selectedTask.task.ComplexityBudget))
+	// Display root issue details
+	if rootBead != nil {
+		// Title first
+		if rootBead.title != "" {
+			titleStyle := lipgloss.NewStyle().Bold(true)
+			content.WriteString(titleStyle.Render(rootBead.title))
+			content.WriteString("\n\n")
 		}
 
-		// Show task beads
-		content.WriteString(fmt.Sprintf("\nBeads (%d):\n", len(selectedTask.beads)))
-		for i, bead := range selectedTask.beads {
-			if i >= 10 {
-				content.WriteString(fmt.Sprintf("  ... and %d more\n", len(selectedTask.beads)-10))
-				break
-			}
-			statusStr := "○"
-			if bead.status == db.StatusCompleted {
-				statusStr = "✓"
-			} else if bead.status == db.StatusProcessing {
-				statusStr = "●"
-			}
-			beadLine := fmt.Sprintf("  %s %s\n", statusStr, bead.id)
-			if bead.title != "" {
-				beadLine = fmt.Sprintf("  %s %s: %s\n",
-					statusStr,
-					bead.id,
-					truncateString(bead.title, panelWidth-10))
-			}
-			content.WriteString(beadLine)
-		}
+		// Metadata line
+		content.WriteString(fmt.Sprintf("%s  Type: %s  P%d  %s\n",
+			rootID,
+			rootBead.issueType,
+			rootBead.priority,
+			rootBead.beadStatus))
 
-		// Show error if failed
-		if selectedTask.task.Status == db.StatusFailed && selectedTask.task.ErrorMessage != "" {
-			errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+		// Description
+		if rootBead.description != "" {
 			content.WriteString("\n")
-			content.WriteString(errorStyle.Render("Error:"))
+			descStyle := tuiDimStyle.Width(panelWidth - 4)
+			content.WriteString(descStyle.Render(rootBead.description))
 			content.WriteString("\n")
-			content.WriteString(truncateString(selectedTask.task.ErrorMessage, panelWidth-2))
 		}
-	} else if p.focusedWork != nil && len(p.focusedWork.tasks) == 0 {
-		content.WriteString(tuiDimStyle.Render("No tasks available"))
 	} else {
-		content.WriteString(tuiDimStyle.Render("Select a task to view details"))
+		// Fallback if bead not found
+		content.WriteString(fmt.Sprintf("Issue: %s\n", rootID))
+		content.WriteString(tuiDimStyle.Render("(Issue details not loaded)"))
+		content.WriteString("\n")
+	}
+
+	// Summary counts
+	content.WriteString(fmt.Sprintf("\nBeads: %d  Tasks: %d\n",
+		len(p.focusedWork.workBeads),
+		len(p.focusedWork.tasks)))
+
+	return content.String()
+}
+
+// renderTaskDetails renders details for a task
+func (p *WorkDetailsPanel) renderTaskDetails(task *taskProgress, panelWidth int) string {
+	var content strings.Builder
+
+	content.WriteString(fmt.Sprintf("ID: %s\n", task.task.ID))
+	content.WriteString(fmt.Sprintf("Type: %s\n", task.task.TaskType))
+	content.WriteString(fmt.Sprintf("Status: %s\n", task.task.Status))
+
+	if task.task.ComplexityBudget > 0 {
+		content.WriteString(fmt.Sprintf("Budget: %d\n", task.task.ComplexityBudget))
+	}
+
+	// Show task beads
+	content.WriteString(fmt.Sprintf("\nBeads (%d):\n", len(task.beads)))
+	for i, bead := range task.beads {
+		if i >= 10 {
+			content.WriteString(fmt.Sprintf("  ... and %d more\n", len(task.beads)-10))
+			break
+		}
+		statusStr := "○"
+		if bead.status == db.StatusCompleted {
+			statusStr = "✓"
+		} else if bead.status == db.StatusProcessing {
+			statusStr = "●"
+		}
+		beadLine := fmt.Sprintf("  %s %s", statusStr, bead.id)
+		if bead.title != "" {
+			beadLine += ": " + truncateString(bead.title, panelWidth-10)
+		}
+		content.WriteString(beadLine + "\n")
+	}
+
+	// Show error if failed
+	if task.task.Status == db.StatusFailed && task.task.ErrorMessage != "" {
+		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+		content.WriteString("\n")
+		content.WriteString(errorStyle.Render("Error:"))
+		content.WriteString("\n")
+		content.WriteString(truncateString(task.task.ErrorMessage, panelWidth-2))
 	}
 
 	return content.String()
 }
 
-// NavigateTaskUp moves selection to the previous task
+// NavigateUp moves selection to the previous item
+func (p *WorkDetailsPanel) NavigateUp() {
+	if p.focusedWork == nil {
+		return
+	}
+	if p.selectedIndex > 0 {
+		p.selectedIndex--
+	}
+}
+
+// NavigateDown moves selection to the next item
+func (p *WorkDetailsPanel) NavigateDown() {
+	if p.focusedWork == nil {
+		return
+	}
+	maxIndex := len(p.focusedWork.tasks) // 0 = root, 1..n = tasks
+	if p.selectedIndex < maxIndex {
+		p.selectedIndex++
+	}
+}
+
+// NavigateTaskUp is an alias for NavigateUp (for compatibility)
 func (p *WorkDetailsPanel) NavigateTaskUp() {
-	if p.focusedWork == nil || len(p.focusedWork.tasks) == 0 {
-		return
-	}
-
-	currentIdx := -1
-	for i, task := range p.focusedWork.tasks {
-		if task.task.ID == p.selectedTaskID {
-			currentIdx = i
-			break
-		}
-	}
-
-	if currentIdx > 0 {
-		p.selectedTaskID = p.focusedWork.tasks[currentIdx-1].task.ID
-	}
+	p.NavigateUp()
 }
 
-// NavigateTaskDown moves selection to the next task
+// NavigateTaskDown is an alias for NavigateDown (for compatibility)
 func (p *WorkDetailsPanel) NavigateTaskDown() {
-	if p.focusedWork == nil || len(p.focusedWork.tasks) == 0 {
-		return
-	}
-
-	currentIdx := -1
-	for i, task := range p.focusedWork.tasks {
-		if task.task.ID == p.selectedTaskID {
-			currentIdx = i
-			break
-		}
-	}
-
-	if currentIdx < len(p.focusedWork.tasks)-1 {
-		p.selectedTaskID = p.focusedWork.tasks[currentIdx+1].task.ID
-	}
+	p.NavigateDown()
 }
 
-// DetectClickedTask determines if a click is on a task
-func (p *WorkDetailsPanel) DetectClickedTask(x, y, screenHeight int) string {
-	if p.focusedWork == nil || len(p.focusedWork.tasks) == 0 {
-		return ""
+// DetectClickedItem determines which item was clicked and returns its index
+func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
+	if p.focusedWork == nil {
+		return -1
 	}
 
-	// Calculate work panel dimensions
-	totalHeight := screenHeight - 1
-	workPanelHeight := int(float64(totalHeight) * 0.4)
+	// Use panel's actual dimensions (set via SetSize)
+	workPanelHeight := p.height
 	halfWidth := (p.width - 4) / 2 - 1
 
 	// Check if click is within work panel bounds
 	if y >= workPanelHeight || x > halfWidth+2 {
-		return ""
+		return -1
 	}
 
-	// Layout in work panel:
+	// Layout in work panel (matching renderLeftPanel):
 	// Y=0: Top border
-	// Y=1: Panel title
-	// Y=2-6: Work info
-	// Y=7: First task
-	const firstTaskY = 7
-	workPanelContentHeight := workPanelHeight - 3
-	headerLines := 5
-	availableLines := workPanelContentHeight - headerLines - 1
+	// Y=1: Panel title "Work"
+	// Y=2: Work header (ID, status)
+	// Y=3: Branch info
+	// Y=4: Separator
+	// Y=5: First item (root issue or task depending on scroll)
+	const firstItemY = 5
 
-	if y < firstTaskY || y >= firstTaskY+availableLines {
-		return ""
+	// Calculate available lines using same logic as renderLeftPanel:
+	// contentHeight = p.height - 2 (lipgloss Height, excluding border)
+	// availableContentHeight = contentHeight - 1 (for title)
+	// headerLines = 3 (work header, branch, separator)
+	// availableLines = availableContentHeight - headerLines - 1 (reserve for scroll)
+	contentHeight := p.height - 2
+	availableContentHeight := contentHeight - 1
+	headerLines := 3
+	availableLines := availableContentHeight - headerLines - 1
+
+	if y < firstItemY || y >= firstItemY+availableLines {
+		return -1
 	}
 
-	// Find selected task index for scroll calculation
-	selectedIndex := -1
-	for i, task := range p.focusedWork.tasks {
-		if task.task.ID == p.selectedTaskID {
-			selectedIndex = i
-			break
-		}
-	}
-
+	// Calculate scroll window (same as renderLeftPanel)
+	totalItems := 1 + len(p.focusedWork.tasks)
 	startIdx := 0
-	if selectedIndex >= availableLines && availableLines > 0 {
-		startIdx = selectedIndex - availableLines/2
+	if p.selectedIndex >= availableLines && availableLines > 0 {
+		startIdx = p.selectedIndex - availableLines/2
 		if startIdx < 0 {
 			startIdx = 0
 		}
 	}
 
-	lineIndex := y - firstTaskY
-	taskIndex := startIdx + lineIndex
+	lineIndex := y - firstItemY
+	itemIndex := startIdx + lineIndex
 
-	if taskIndex >= 0 && taskIndex < len(p.focusedWork.tasks) {
-		return p.focusedWork.tasks[taskIndex].task.ID
+	if itemIndex >= 0 && itemIndex < totalItems {
+		return itemIndex
 	}
 
+	return -1
+}
+
+// DetectClickedTask returns the task ID if a task was clicked, empty string otherwise
+func (p *WorkDetailsPanel) DetectClickedTask(x, y int) string {
+	itemIndex := p.DetectClickedItem(x, y)
+	if itemIndex <= 0 {
+		return "" // -1 = no click, 0 = root issue
+	}
+	taskIdx := itemIndex - 1
+	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
+		return p.focusedWork.tasks[taskIdx].task.ID
+	}
 	return ""
 }

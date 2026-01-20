@@ -25,25 +25,25 @@ func (m *planModel) renderFixedPanel(title, content string, width, height int) s
 // renderFocusedWorkSplitView renders the split view when a work is focused
 // This shows a horizontal split: Work details on top (40%), Issues/Details below (60%)
 func (m *planModel) renderFocusedWorkSplitView() string {
-	// Calculate heights for split view - use same height as work overlay for consistency
-	// Work overlay sets Height(dropdownHeight) for content, then border adds 2
-	// So total rendered height = dropdownHeight + 2
+	// Calculate heights for split view
 	totalHeight := m.height - 1 // -1 for status bar
-	workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border (matches overlay)
-	planPanelHeight := totalHeight - workPanelHeight      // panels have their own borders
 
-	// Update work details panel size for the work section
+	// Calculate work panel height
+	// calculateWorkOverlayHeight returns content height (12-25)
+	// Add 2 for border to get total panel height
+	// WorkDetailsPanel.Render() uses Height(p.height-2), so rendered = p.height
+	workPanelHeight := m.calculateWorkOverlayHeight() + 2
+	planPanelHeight := totalHeight - workPanelHeight
+
+	// Update work details panel size and render (same pattern as IssuesPanel)
 	m.workDetails.SetSize(m.width, workPanelHeight)
-
-	// Render work panel using the workDetails panel
-	workPanel := m.workDetails.Render()
+	workPanel := m.workDetails.RenderWithPanel(workPanelHeight)
 
 	// === Render Plan Mode Panel (Bottom) ===
 	// Update issues and details panel sizes for the reduced height
 	totalContentWidth := m.width - 4
-	separatorWidth := 3
-	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
-	detailsWidth := totalContentWidth - separatorWidth - issuesWidth
+	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
+	detailsWidth := totalContentWidth - issuesWidth
 
 	// Temporarily update panel sizes for the reduced height
 	m.issuesPanel.SetSize(issuesWidth, planPanelHeight)
@@ -68,14 +68,8 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 		detailsPanel = m.detailsPanel.RenderWithPanel(planPanelHeight)
 	}
 
-	// Add vertical separator between columns
-	vertSeparator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Height(planPanelHeight).
-		Render("│")
-
-	// Combine plan mode columns
-	planSection := lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, vertSeparator, detailsPanel)
+	// Combine plan mode columns (panels have their own borders)
+	planSection := lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, detailsPanel)
 
 	// Combine everything vertically (panel borders provide visual separation)
 	return lipgloss.JoinVertical(lipgloss.Left, workPanel, planSection)
@@ -108,14 +102,8 @@ func (m *planModel) renderTwoColumnLayout() string {
 		rightPanel = m.detailsPanel.RenderWithPanel(contentHeight)
 	}
 
-	// Add vertical separator between columns
-	separator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Height(contentHeight).
-		Render("│")
-
-	// Combine columns horizontally
-	return lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, separator, rightPanel)
+	// Combine columns horizontally (panels have their own borders)
+	return lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, rightPanel)
 }
 
 // detectCommandsBarButton determines which button is at the given X position in the commands bar
@@ -130,12 +118,11 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	// Check if mouse X is within the issues panel
 	// Calculate column widths (same as renderTwoColumnLayout)
 	totalContentWidth := m.width - 4 // -4 for outer margins
-	separatorWidth := 3
-	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
 
 	// Check if mouse is in the issues panel (left side)
 	// Be generous with the boundary - include the entire panel width plus some margin
-	maxIssueX := issuesWidth + separatorWidth + 2 // Include panel width, separator, and padding
+	maxIssueX := issuesWidth + 2 // Include panel width and padding
 	if m.mouseX > maxIssueX {
 		return -1
 	}
@@ -145,10 +132,11 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	var contentHeight int
 	if m.focusedWorkID != "" {
 		// In focused work mode, the issues panel is below the work panel
+		// Use the same height calculation as renderFocusedWorkSplitView
 		totalHeight := m.height - 1 // -1 for status bar
-		workPanelHeight := int(float64(totalHeight) * 0.4)
-		issuesPanelStartY = workPanelHeight + 1 // +1 for separator
-		contentHeight = totalHeight - workPanelHeight - 1
+		workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+		issuesPanelStartY = workPanelHeight
+		contentHeight = totalHeight - workPanelHeight
 	} else {
 		contentHeight = m.height - 1 // -1 for status bar
 	}
@@ -207,10 +195,9 @@ func (m *planModel) calculateWorkOverlayHeight() int {
 func (m *planModel) detectHoveredIssueWithOffset(y int, overlayHeight int) int {
 	// Check if mouse X is within the issues panel
 	totalContentWidth := m.width - 4
-	separatorWidth := 3
-	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
 
-	maxIssueX := issuesWidth + separatorWidth + 2
+	maxIssueX := issuesWidth + 2
 	if m.mouseX > maxIssueX {
 		return -1
 	}
@@ -261,70 +248,8 @@ func (m *planModel) detectClickedTask(x, y int) string {
 	if m.focusedWorkID == "" {
 		return ""
 	}
-
-	// Calculate work panel dimensions
-	totalHeight := m.height - 1 // -1 for status bar
-	workPanelHeight := int(float64(totalHeight) * 0.4)
-	halfWidth := (m.width - 4) / 2 - 1 // left panel width
-
-	// Check if click is within work panel bounds (top section, left half)
-	if y >= workPanelHeight || x > halfWidth+2 {
-		return ""
-	}
-
-	focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
-	if focusedWork == nil || len(focusedWork.tasks) == 0 {
-		return ""
-	}
-
-	// Layout in work panel:
-	// Y=0: Top border
-	// Y=1: Panel title "Work & Tasks"
-	// Y=2: Work ID and status
-	// Y=3: Branch
-	// Y=4: Progress
-	// Y=5: Separator
-	// Y=6: "Tasks:" header
-	// Y=7: First task
-	// Y=8: Second task, etc.
-
-	const firstTaskY = 7
-	workPanelContentHeight := workPanelHeight - 3 // -3 for border and title
-	headerLines := 5 // lines used for header info above
-	availableLines := workPanelContentHeight - headerLines - 1
-
-	if y < firstTaskY || y >= firstTaskY+availableLines {
-		return ""
-	}
-
-	// Find selected task index for scroll calculation
-	selectedIndex := -1
-	selectedTaskID := m.workDetails.GetSelectedTaskID()
-	for i, task := range focusedWork.tasks {
-		if task.task.ID == selectedTaskID {
-			selectedIndex = i
-			break
-		}
-	}
-
-	// Calculate scroll window (same as render logic)
-	startIdx := 0
-	if selectedIndex >= availableLines && availableLines > 0 {
-		startIdx = selectedIndex - availableLines/2
-		if startIdx < 0 {
-			startIdx = 0
-		}
-	}
-
-	// Calculate which task line was clicked
-	lineIndex := y - firstTaskY
-	taskIndex := startIdx + lineIndex
-
-	if taskIndex >= 0 && taskIndex < len(focusedWork.tasks) {
-		return focusedWork.tasks[taskIndex].task.ID
-	}
-
-	return ""
+	// Delegate to the work details panel which owns the layout logic
+	return m.workDetails.DetectClickedTask(x, y)
 }
 
 // detectClickedPanel determines which panel was clicked in the focused work view
@@ -334,14 +259,13 @@ func (m *planModel) detectClickedPanel(x, y int) string {
 		return ""
 	}
 
-	// Calculate panel boundaries
-	totalHeight := m.height - 1 // -1 for status bar
-	workPanelHeight := int(float64(totalHeight) * 0.4)
-	halfWidth := (m.width - 4) / 2 // Half width including separator area
+	// Calculate panel boundaries using same formula as renderFocusedWorkSplitView
+	workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+	halfWidth := (m.width - 4) / 2                        // Half width
 
 	// Determine Y section (top = work, bottom = issues)
 	isWorkSection := y < workPanelHeight
-	isIssuesSection := y > workPanelHeight // Skip separator line
+	isIssuesSection := y >= workPanelHeight
 
 	// Determine X section (left or right)
 	isLeftSide := x <= halfWidth
@@ -389,11 +313,10 @@ func (m *planModel) detectDialogButton(x, y int) string {
 
 	// Calculate the details panel boundaries
 	totalContentWidth := m.width - 4
-	separatorWidth := 3
-	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
 
-	// Details panel starts after issues panel + separator
-	detailsPanelStart := issuesWidth + separatorWidth + 2 // +2 for left margin
+	// Details panel starts after issues panel
+	detailsPanelStart := issuesWidth + 2 // +2 for left margin
 
 	// Check if mouse is in the details panel
 	if x < detailsPanelStart {
