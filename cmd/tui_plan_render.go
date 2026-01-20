@@ -51,9 +51,12 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 
 	if focusedWork != nil {
 		// Work header
-		leftContent.WriteString(fmt.Sprintf("%s %s\n",
-			statusIcon(focusedWork.work.Status),
-			focusedWork.work.ID))
+		workHeader := fmt.Sprintf("%s %s", statusIcon(focusedWork.work.Status), focusedWork.work.ID)
+		if focusedWork.work.Name != "" {
+			nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
+			workHeader += " " + nameStyle.Render(focusedWork.work.Name)
+		}
+		leftContent.WriteString(workHeader + "\n")
 		leftContent.WriteString(fmt.Sprintf("Branch: %s\n",
 			truncateString(focusedWork.work.BranchName, halfWidth-8)))
 
@@ -1039,6 +1042,69 @@ func (m *planModel) detectHoveredIssue(y int) int {
 
 	// Calculate which issue line was clicked
 	lineIndex := y - firstIssueY
+	absoluteIndex := start + lineIndex
+
+	if absoluteIndex >= 0 && absoluteIndex < end && absoluteIndex < len(m.beadItems) {
+		return absoluteIndex
+	}
+
+	return -1
+}
+
+// calculateWorkOverlayHeight returns the height of the work overlay dropdown
+func (m *planModel) calculateWorkOverlayHeight() int {
+	dropdownHeight := int(float64(m.height) * 0.4)
+	if dropdownHeight < 12 {
+		dropdownHeight = 12
+	} else if dropdownHeight > 25 {
+		dropdownHeight = 25
+	}
+	return dropdownHeight
+}
+
+// detectHoveredIssueWithOffset detects issue hover when content is offset by overlay
+func (m *planModel) detectHoveredIssueWithOffset(y int, overlayHeight int) int {
+	// Check if mouse X is within the issues panel
+	totalContentWidth := m.width - 4
+	separatorWidth := 3
+	issuesWidth := int(float64(totalContentWidth-separatorWidth) * m.columnRatio)
+
+	maxIssueX := issuesWidth + separatorWidth + 2
+	if m.mouseX > maxIssueX {
+		return -1
+	}
+
+	// Calculate the adjusted Y position relative to the content below overlay
+	// The content starts at overlayHeight
+	adjustedY := y - overlayHeight
+
+	// Layout within panel content (same as detectHoveredIssue):
+	// Y=0: Top border
+	// Y=1: "Issues" title
+	// Y=2: filter info line
+	// Y=3: first visible issue
+	const firstIssueY = 3
+
+	if adjustedY < firstIssueY {
+		return -1
+	}
+
+	if len(m.beadItems) == 0 {
+		return -1
+	}
+
+	// Calculate content height (reduced by overlay)
+	contentHeight := m.height - overlayHeight - 1 // -1 for status bar
+	issuesContentLines := contentHeight - 3
+	visibleItems := max(issuesContentLines-1, 1)
+
+	start := 0
+	if m.beadsCursor >= visibleItems {
+		start = m.beadsCursor - visibleItems + 1
+	}
+	end := min(start+visibleItems, len(m.beadItems))
+
+	lineIndex := adjustedY - firstIssueY
 	absoluteIndex := start + lineIndex
 
 	if absoluteIndex >= 0 && absoluteIndex < end && absoluteIndex < len(m.beadItems) {

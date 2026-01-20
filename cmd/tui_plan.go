@@ -90,12 +90,13 @@ type planModel struct {
 	worksCursor    int        // Cursor position in works list
 
 	// Work overlay state
-	workTiles          []*workProgress // Works displayed in overlay
-	selectedWorkTileID string          // ID of selected work tile
-	focusedWorkID      string          // ID of focused work (splits screen)
-	focusFilterActive  bool            // Whether focus filter is active
-	selectedTaskID     string          // ID of selected task in focused work
-	workPanelFocused   bool            // Whether work panel (top) is focused in split view
+	workTiles           []*workProgress // Works displayed in overlay
+	selectedWorkTileID  string          // ID of selected work tile
+	focusedWorkID       string          // ID of focused work (splits screen)
+	focusFilterActive   bool            // Whether focus filter is active
+	selectedTaskID      string          // ID of selected task in focused work
+	workPanelFocused    bool            // Whether work panel (top) is focused in split view
+	overlayFocused      bool            // Whether overlay (vs issues below) has focus in overlay mode
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -317,8 +318,15 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.hoveredDialogButton != "" {
 					m.hoveredIssue = -1
 				} else if m.viewMode == ViewWorkOverlay {
-					// Don't detect issue hover when work overlay is open
-					m.hoveredIssue = -1
+					// When work overlay is open, only detect issues if mouse is below overlay
+					overlayHeight := m.calculateWorkOverlayHeight()
+					if msg.Y < overlayHeight {
+						// Mouse is within overlay area - no issue hover
+						m.hoveredIssue = -1
+					} else {
+						// Mouse is below overlay - detect issues with offset
+						m.hoveredIssue = m.detectHoveredIssueWithOffset(msg.Y, overlayHeight)
+					}
 				} else {
 					// Detect hover over issue lines
 					m.hoveredIssue = m.detectHoveredIssue(msg.Y)
@@ -1029,6 +1037,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "W":
 		// Show work overlay
 		m.viewMode = ViewWorkOverlay
+		m.overlayFocused = true // Start with overlay focused
 		m.loading = true
 		return m, m.loadWorkTiles()
 

@@ -421,13 +421,19 @@ func (m *planModel) updateWorkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Exit work overlay without selection
 		m.viewMode = ViewNormal
 		m.selectedWorkTileID = ""
+		m.overlayFocused = false
+		return m, nil
+	case tea.KeyTab:
+		// Toggle focus between overlay and issues below
+		m.overlayFocused = !m.overlayFocused
 		return m, nil
 	case tea.KeyEnter:
-		// Select a work tile if one is hovered/selected
-		if m.selectedWorkTileID != "" {
+		// Select a work tile if one is hovered/selected (only when overlay focused)
+		if m.overlayFocused && m.selectedWorkTileID != "" {
 			// Set the focused work and return to normal view with split screen
 			m.focusedWorkID = m.selectedWorkTileID
 			m.viewMode = ViewNormal
+			m.overlayFocused = false
 			m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 			m.statusIsError = false
 			// Reset focus filter when selecting a new work
@@ -437,41 +443,55 @@ func (m *planModel) updateWorkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Navigation through work tiles
+	// Navigation - depends on which section has focus
 	switch msg.String() {
 	case "j", "down":
-		// Move to next work tile
-		if len(m.workTiles) > 0 {
-			currentIdx := -1
-			for i, work := range m.workTiles {
-				if work.work.ID == m.selectedWorkTileID {
-					currentIdx = i
-					break
+		if m.overlayFocused {
+			// Move to next work tile
+			if len(m.workTiles) > 0 {
+				currentIdx := -1
+				for i, work := range m.workTiles {
+					if work.work.ID == m.selectedWorkTileID {
+						currentIdx = i
+						break
+					}
+				}
+				if currentIdx < len(m.workTiles)-1 {
+					if currentIdx == -1 {
+						m.selectedWorkTileID = m.workTiles[0].work.ID
+					} else {
+						m.selectedWorkTileID = m.workTiles[currentIdx+1].work.ID
+					}
 				}
 			}
-			if currentIdx < len(m.workTiles)-1 {
-				if currentIdx == -1 {
-					m.selectedWorkTileID = m.workTiles[0].work.ID
-				} else {
-					m.selectedWorkTileID = m.workTiles[currentIdx+1].work.ID
-				}
+		} else {
+			// Navigate issues below the overlay
+			if m.beadsCursor < len(m.beadItems)-1 {
+				m.beadsCursor++
 			}
 		}
 		return m, nil
 	case "k", "up":
-		// Move to previous work tile
-		if len(m.workTiles) > 0 {
-			currentIdx := -1
-			for i, work := range m.workTiles {
-				if work.work.ID == m.selectedWorkTileID {
-					currentIdx = i
-					break
+		if m.overlayFocused {
+			// Move to previous work tile
+			if len(m.workTiles) > 0 {
+				currentIdx := -1
+				for i, work := range m.workTiles {
+					if work.work.ID == m.selectedWorkTileID {
+						currentIdx = i
+						break
+					}
+				}
+				if currentIdx > 0 {
+					m.selectedWorkTileID = m.workTiles[currentIdx-1].work.ID
+				} else if currentIdx == -1 && len(m.workTiles) > 0 {
+					m.selectedWorkTileID = m.workTiles[len(m.workTiles)-1].work.ID
 				}
 			}
-			if currentIdx > 0 {
-				m.selectedWorkTileID = m.workTiles[currentIdx-1].work.ID
-			} else if currentIdx == -1 && len(m.workTiles) > 0 {
-				m.selectedWorkTileID = m.workTiles[len(m.workTiles)-1].work.ID
+		} else {
+			// Navigate issues below the overlay
+			if m.beadsCursor > 0 {
+				m.beadsCursor--
 			}
 		}
 		return m, nil
@@ -705,6 +725,13 @@ func (m *planModel) renderWorkOverlayDropdown() string {
 			}
 			line1.WriteString(idStyle.Render(work.work.ID))
 			line1.WriteString(" ")
+
+			// Friendly name (if set)
+			if work.work.Name != "" {
+				nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
+				line1.WriteString(nameStyle.Render(work.work.Name))
+				line1.WriteString(" ")
+			}
 
 			// Status text
 			statusTextStyle := lipgloss.NewStyle()
