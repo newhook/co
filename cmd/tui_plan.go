@@ -405,10 +405,13 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					clickedPanel := m.detectClickedPanel(msg.X, msg.Y)
 					switch clickedPanel {
 					case "work-left":
-						// Check if clicking on a task
-						clickedTaskID := m.detectClickedTask(msg.X, msg.Y)
-						if clickedTaskID != "" {
-							m.workDetails.SetSelectedTaskID(clickedTaskID)
+						// Check if clicking on a task or root issue
+						clickedItem := m.workDetails.DetectClickedItem(msg.X, msg.Y)
+						if clickedItem >= 0 {
+							m.workDetails.SetSelectedIndex(clickedItem)
+							m.activePanel = PanelWorkDetails
+							// Update filter to show beads for clicked item
+							return m, m.updateWorkSelectionFilter()
 						}
 						m.activePanel = PanelWorkDetails
 						return m, nil
@@ -475,6 +478,15 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMessage = msg.err.Error()
 			m.statusIsError = true
+		}
+
+		// Ensure cursor stays within bounds after filter changes
+		if m.beadsCursor >= len(m.beadItems) {
+			if len(m.beadItems) > 0 {
+				m.beadsCursor = len(m.beadItems) - 1
+			} else {
+				m.beadsCursor = 0
+			}
 		}
 
 		// Don't clear status message on success - let it persist until next action
@@ -736,8 +748,9 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle escape key globally for deselecting focused work
 	if msg.Type == tea.KeyEsc && m.viewMode == ViewNormal && m.focusedWorkID != "" {
 		m.focusedWorkID = ""
-		m.focusFilterActive = false // Clear focus filter when deselecting work
-		m.activePanel = PanelLeft   // Reset focus to issues panel
+		m.focusFilterActive = false              // Clear focus filter when deselecting work
+		m.filters.workSelectionBeadIDs = nil     // Clear work selection filter
+		m.activePanel = PanelLeft                // Reset focus to issues panel
 		m.statusMessage = "Work deselected"
 		m.statusIsError = false
 		// Refresh to show all issues again
@@ -885,7 +898,15 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.statusIsError = false
 			// Reset focus filter when selecting a new work
 			m.focusFilterActive = false
-			return m, cmd
+
+			// Set up the work selection filter with the work's beads
+			// First, ensure workDetails has the focused work so we can get bead IDs
+			focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
+			m.workDetails.SetFocusedWork(focusedWork)
+			m.workDetails.SetSelectedIndex(0) // Start with root issue selected
+
+			// Now update the filter and refresh
+			return m, m.updateWorkSelectionFilter()
 
 		case WorkOverlayActionToggleFocus:
 			if m.activePanel == PanelWorkOverlay {
@@ -1448,12 +1469,71 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 
 // navigateTaskDown moves the selection to the next task in the focused work
 func (m *planModel) navigateTaskDown() (tea.Model, tea.Cmd) {
+	prevIndex := m.workDetails.GetSelectedIndex()
 	m.workDetails.NavigateTaskDown()
+	newIndex := m.workDetails.GetSelectedIndex()
+	// Only refresh if selection actually changed
+	if prevIndex != newIndex {
+		return m, m.updateWorkSelectionFilter()
+	}
 	return m, nil
 }
 
 // navigateTaskUp moves the selection to the previous task in the focused work
 func (m *planModel) navigateTaskUp() (tea.Model, tea.Cmd) {
+	prevIndex := m.workDetails.GetSelectedIndex()
 	m.workDetails.NavigateTaskUp()
+	newIndex := m.workDetails.GetSelectedIndex()
+	// Only refresh if selection actually changed
+	if prevIndex != newIndex {
+		return m, m.updateWorkSelectionFilter()
+	}
 	return m, nil
+}
+
+// updateWorkSelectionFilter updates the bead filter based on the current work details selection
+// and triggers a data refresh
+func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
+	if m.focusedWorkID == "" {
+		// No work focused, clear the filter
+		m.filters.workSelectionBeadIDs = nil
+		return nil
+	}
+
+	focusedWork := m.workDetails.GetFocusedWork()
+	if focusedWork == nil {
+		m.filters.workSelectionBeadIDs = nil
+		return nil
+	}
+
+	// Build the filter map based on what's selected
+	m.filters.workSelectionBeadIDs = make(map[string]bool)
+
+	if m.workDetails.IsTaskSelected() {
+		// Task selected - show only the beads directly assigned to that task
+		beadIDs := m.workDetails.GetSelectedBeadIDs()
+		for _, id := range beadIDs {
+			m.filters.workSelectionBeadIDs[id] = true
+		}
+	} else {
+		// Root issue selected - show root issue and all work beads
+		// This includes the root and all beads assigned to this work
+		for _, bp := range focusedWork.workBeads {
+			m.filters.workSelectionBeadIDs[bp.id] = true
+		}
+		// Also ensure root issue is included (it may not be in workBeads if it's an epic)
+		if focusedWork.work.RootIssueID != "" {
+			m.filters.workSelectionBeadIDs[focusedWork.work.RootIssueID] = true
+		}
+	}
+
+	if len(m.filters.workSelectionBeadIDs) == 0 {
+		m.filters.workSelectionBeadIDs = nil
+		return nil
+	}
+
+	// Reset cursor to top when filter changes
+	m.beadsCursor = 0
+
+	return m.refreshData()
 }

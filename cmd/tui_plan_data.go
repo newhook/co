@@ -49,8 +49,15 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error) {
 	mainRepoPath := m.proj.MainRepoPath()
 
+	// If work selection filter is active, fetch all beads (both open and closed)
+	// so we can show the complete view of selected task/work
+	effectiveFilters := filters
+	if len(filters.workSelectionBeadIDs) > 0 {
+		effectiveFilters.status = "" // Fetch all statuses
+	}
+
 	// Use the shared fetchBeadsWithFilters function
-	items, err := fetchBeadsWithFilters(m.ctx, m.proj.Beads, mainRepoPath, filters)
+	items, err := fetchBeadsWithFilters(m.ctx, m.proj.Beads, mainRepoPath, effectiveFilters)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +72,18 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 		}
 	}
 
-	// Apply focus filter if active
-	if m.focusFilterActive && m.focusedWorkID != "" {
+	// Apply work selection filter if set (takes precedence over focus filter)
+	// This filters to show only beads from the selected task or root issue
+	if len(filters.workSelectionBeadIDs) > 0 {
+		var filteredItems []beadItem
+		for _, item := range items {
+			if filters.workSelectionBeadIDs[item.ID] {
+				filteredItems = append(filteredItems, item)
+			}
+		}
+		items = filteredItems
+	} else if m.focusFilterActive && m.focusedWorkID != "" {
+		// Apply focus filter if active (only when work selection filter is not set)
 		var filteredItems []beadItem
 		for _, item := range items {
 			// Include only items assigned to the focused work

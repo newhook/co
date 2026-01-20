@@ -125,13 +125,15 @@ var (
 			Bold(true)
 )
 
-// Panel represents which panel position is currently focused (relative to current depth)
+// Panel represents which panel is currently focused
 type Panel int
 
 const (
-	PanelLeft   Panel = iota // Left panel at current depth
-	PanelMiddle              // Middle panel at current depth
-	PanelRight               // Right panel (details) at current depth
+	PanelLeft        Panel = iota // Left panel (issues)
+	PanelMiddle                   // Middle panel at current depth (used by tui.go)
+	PanelRight                    // Right panel (details/forms)
+	PanelWorkDetails              // Work details in split view
+	PanelWorkOverlay              // Work overlay tiles
 )
 
 // ViewMode represents the current view mode
@@ -187,6 +189,10 @@ type beadFilters struct {
 	label      string // filter by label (empty = no filter)
 	searchText string // fuzzy search text
 	sortBy     string // "default", "priority", "created", "title"
+
+	// Work selection filter - when set, only show beads with these IDs
+	// This is set when a task or root issue is selected in work details panel
+	workSelectionBeadIDs map[string]bool
 }
 
 // beadTypes is the list of valid bead types

@@ -69,6 +69,11 @@ func (p *WorkDetailsPanel) GetSelectedIndex() int {
 	return p.selectedIndex
 }
 
+// GetFocusedWork returns the currently focused work, or nil if none
+func (p *WorkDetailsPanel) GetFocusedWork() *workProgress {
+	return p.focusedWork
+}
+
 // SetSelectedIndex sets the selected index
 func (p *WorkDetailsPanel) SetSelectedIndex(idx int) {
 	p.selectedIndex = idx
@@ -84,6 +89,42 @@ func (p *WorkDetailsPanel) GetSelectedTaskID() string {
 		return p.focusedWork.tasks[taskIdx].task.ID
 	}
 	return ""
+}
+
+// GetSelectedBeadIDs returns the bead IDs that should be shown based on current selection.
+// - If root issue is selected (index 0): returns all work beads (root + dependents)
+// - If a task is selected: returns only the beads assigned to that task
+// Returns nil if no work is focused.
+func (p *WorkDetailsPanel) GetSelectedBeadIDs() []string {
+	if p.focusedWork == nil {
+		return nil
+	}
+
+	if p.selectedIndex == 0 {
+		// Root issue selected - return all work beads
+		var beadIDs []string
+		for _, bp := range p.focusedWork.workBeads {
+			beadIDs = append(beadIDs, bp.id)
+		}
+		return beadIDs
+	}
+
+	// Task selected - return only task's beads
+	taskIdx := p.selectedIndex - 1
+	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
+		var beadIDs []string
+		for _, bp := range p.focusedWork.tasks[taskIdx].beads {
+			beadIDs = append(beadIDs, bp.id)
+		}
+		return beadIDs
+	}
+
+	return nil
+}
+
+// IsTaskSelected returns true if a task is currently selected (vs root issue)
+func (p *WorkDetailsPanel) IsTaskSelected() bool {
+	return p.selectedIndex > 0
 }
 
 // SetSelectedTaskID sets selection to the task with given ID
@@ -107,6 +148,11 @@ func (p *WorkDetailsPanel) Render() string {
 // RenderWithPanel returns the work details split view with the given total height
 // This matches the IssuesPanel.RenderWithPanel pattern exactly
 func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
+	// Ensure minimum content height to prevent layout issues
+	if contentHeight < 6 {
+		contentHeight = 6
+	}
+
 	// Calculate column widths using the same formula as issues panel
 	totalContentWidth := p.width - 4
 	leftWidth := int(float64(totalContentWidth) * p.columnRatio)
@@ -115,6 +161,10 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 	// Content lines available inside each sub-panel (excluding border and title)
 	// Same formula as IssuesPanel: contentHeight - 3 for border (2) + title (1)
 	availableContentLines := contentHeight - 3
+	if availableContentLines < 1 {
+		availableContentLines = 1
+	}
+
 
 	// === Left side: Work info and items list ===
 	leftContent := p.renderLeftPanel(availableContentLines, leftWidth)
@@ -123,7 +173,6 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 	rightContent := p.renderRightPanel(availableContentLines, rightWidth)
 
 	// Pad or truncate content to exactly fit availableContentLines
-	// This ensures the panel height is exactly contentHeight
 	leftContent = padOrTruncateLines(leftContent, availableContentLines)
 	rightContent = padOrTruncateLines(rightContent, availableContentLines)
 
@@ -141,12 +190,17 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 	}
 	rightPanel := rightPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + rightContent)
 
-	// Combine panels (they have their own borders)
+	// Combine panels horizontally
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 }
 
 // padOrTruncateLines ensures the content has exactly targetLines lines
 func padOrTruncateLines(content string, targetLines int) string {
+	// Ensure targetLines is at least 1 to prevent issues
+	if targetLines < 1 {
+		targetLines = 1
+	}
+
 	lines := strings.Split(content, "\n")
 	// Remove trailing empty line if present (from trailing \n)
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
@@ -195,6 +249,9 @@ func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 	// Reserve 1 line for scroll indicator
 	headerLines := 3
 	availableLines := panelHeight - headerLines - 1
+	if availableLines < 1 {
+		availableLines = 1
+	}
 
 	// Total items: 1 root issue + n tasks
 	totalItems := 1 + len(p.focusedWork.tasks)
@@ -361,38 +418,40 @@ func (p *WorkDetailsPanel) renderRootIssueDetails(panelWidth int) string {
 
 	// Display root issue details
 	if rootBead != nil {
-		// Title first
+		// Title first (truncated to fit panel width)
 		if rootBead.title != "" {
 			titleStyle := lipgloss.NewStyle().Bold(true)
-			content.WriteString(titleStyle.Render(rootBead.title))
-			content.WriteString("\n\n")
+			title := truncateString(rootBead.title, panelWidth-4)
+			content.WriteString(titleStyle.Render(title))
+			content.WriteString("\n")
 		}
 
 		// Metadata line
-		content.WriteString(fmt.Sprintf("%s  Type: %s  P%d  %s\n",
+		fmt.Fprintf(&content, "%s  Type: %s  P%d  %s\n",
 			rootID,
 			rootBead.issueType,
 			rootBead.priority,
-			rootBead.beadStatus))
+			rootBead.beadStatus)
 
-		// Description
+		// Description (truncate to single line to avoid layout issues)
+		// Must remove newlines before styling to prevent multi-line styled blocks
 		if rootBead.description != "" {
-			content.WriteString("\n")
-			descStyle := tuiDimStyle.Width(panelWidth - 4)
-			content.WriteString(descStyle.Render(rootBead.description))
+			descOneLine := strings.ReplaceAll(rootBead.description, "\n", " ")
+			desc := truncateString(descOneLine, panelWidth-4)
+			content.WriteString(tuiDimStyle.Render(desc))
 			content.WriteString("\n")
 		}
 	} else {
 		// Fallback if bead not found
-		content.WriteString(fmt.Sprintf("Issue: %s\n", rootID))
+		fmt.Fprintf(&content, "Issue: %s\n", rootID)
 		content.WriteString(tuiDimStyle.Render("(Issue details not loaded)"))
 		content.WriteString("\n")
 	}
 
 	// Summary counts
-	content.WriteString(fmt.Sprintf("\nBeads: %d  Tasks: %d\n",
+	fmt.Fprintf(&content, "Beads: %d  Tasks: %d\n",
 		len(p.focusedWork.workBeads),
-		len(p.focusedWork.tasks)))
+		len(p.focusedWork.tasks))
 
 	return content.String()
 }

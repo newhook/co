@@ -104,7 +104,10 @@ func (p *IssuesPanel) Render(visibleLines int) string {
 	if p.filters.label != "" {
 		filterInfo += fmt.Sprintf(" | Label: %s", p.filters.label)
 	}
-	if p.focusFilterActive && p.focusedWorkID != "" {
+	// Show work selection filter indicator (takes precedence over focus filter)
+	if len(p.filters.workSelectionBeadIDs) > 0 {
+		filterInfo = fmt.Sprintf("[%d beads] %s", len(p.filters.workSelectionBeadIDs), filterInfo)
+	} else if p.focusFilterActive && p.focusedWorkID != "" {
 		filterInfo = fmt.Sprintf("[FOCUS: %s] %s", p.focusedWorkID, filterInfo)
 	}
 
