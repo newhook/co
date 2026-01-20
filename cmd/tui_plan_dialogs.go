@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -10,172 +9,58 @@ import (
 // Dialog update handlers
 
 // updateBeadForm handles input for create, add-child, and edit bead dialogs.
-// The mode is determined by:
-//   - editBeadID set → edit mode
-//   - parentBeadID set → add child mode
-//   - neither set → create mode
+// Delegates to beadFormPanel.Update() and handles resulting actions.
 func (m *planModel) updateBeadForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Check escape/cancel keys
-	if msg.Type == tea.KeyEsc || msg.String() == "esc" {
+	cmd, action := m.beadFormPanel.Update(msg)
+
+	switch action {
+	case BeadFormActionCancel:
 		m.viewMode = ViewNormal
-		m.textInput.Blur()
-		m.createDescTextarea.Blur()
-		m.editBeadID = ""
-		m.parentBeadID = ""
-		return m, nil
-	}
-
-	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> ok(4) -> cancel(5) -> title(0)
-	if msg.Type == tea.KeyTab || msg.String() == "tab" {
-		// Leave current focus
-		if m.createDialogFocus == 0 {
-			m.textInput.Blur()
-		} else if m.createDialogFocus == 3 {
-			m.createDescTextarea.Blur()
-		}
-
-		m.createDialogFocus = (m.createDialogFocus + 1) % 6
-
-		// Enter new focus
-		if m.createDialogFocus == 0 {
-			m.textInput.Focus()
-		} else if m.createDialogFocus == 3 {
-			m.createDescTextarea.Focus()
-		}
-		return m, nil
-	}
-
-	// Shift+Tab goes backwards
-	if msg.Type == tea.KeyShiftTab {
-		// Leave current focus
-		if m.createDialogFocus == 0 {
-			m.textInput.Blur()
-		} else if m.createDialogFocus == 3 {
-			m.createDescTextarea.Blur()
-		}
-
-		m.createDialogFocus--
-		if m.createDialogFocus < 0 {
-			m.createDialogFocus = 5
-		}
-
-		// Enter new focus
-		if m.createDialogFocus == 0 {
-			m.textInput.Focus()
-		} else if m.createDialogFocus == 3 {
-			m.createDescTextarea.Focus()
-		}
-		return m, nil
-	}
-
-	// Enter key handling depends on focused element
-	if msg.String() == "enter" {
-		switch m.createDialogFocus {
-		case 0, 1, 2: // Title, type, or priority - submit form
-			return m.submitBeadForm()
-		case 4: // Ok button - submit form
-			return m.submitBeadForm()
-		case 5: // Cancel button - cancel form
-			m.viewMode = ViewNormal
-			m.textInput.Blur()
-			m.createDescTextarea.Blur()
-			m.editBeadID = ""
-			m.parentBeadID = ""
-			return m, nil
-		}
-		// For description textarea (3), Enter adds a newline (handled below)
-	}
-
-	// Ctrl+Enter submits from description textarea
-	if msg.String() == "ctrl+enter" && m.createDialogFocus == 3 {
-		return m.submitBeadForm()
-	}
-
-	// Handle input based on focused element
-	switch m.createDialogFocus {
-	case 0: // Title input
-		var cmd tea.Cmd
-		m.textInput, cmd = m.textInput.Update(msg)
 		return m, cmd
 
-	case 1: // Type selector
-		switch msg.String() {
-		case "j", "down", "right":
-			m.createBeadType = (m.createBeadType + 1) % len(beadTypes)
-		case "k", "up", "left":
-			m.createBeadType--
-			if m.createBeadType < 0 {
-				m.createBeadType = len(beadTypes) - 1
-			}
+	case BeadFormActionSubmit:
+		result := m.beadFormPanel.GetResult()
+		if result.Title == "" {
+			return m, cmd
 		}
-		return m, nil
 
-	case 2: // Priority
-		switch msg.String() {
-		case "j", "down", "right", "-":
-			if m.createBeadPriority < 4 {
-				m.createBeadPriority++
-			}
-		case "k", "up", "left", "+", "=":
-			if m.createBeadPriority > 0 {
-				m.createBeadPriority--
-			}
+		m.viewMode = ViewNormal
+		m.beadFormPanel.Blur()
+
+		// Determine mode and call appropriate action
+		if result.EditBeadID != "" {
+			// Edit mode
+			return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
 		}
-		return m, nil
 
-	case 3: // Description textarea
-		var cmd tea.Cmd
-		m.createDescTextarea, cmd = m.createDescTextarea.Update(msg)
-		return m, cmd
-
-	case 4: // Ok button - Space can also activate it
-		if msg.String() == " " {
-			return m.submitBeadForm()
-		}
-		return m, nil
-
-	case 5: // Cancel button - Space can also activate it
-		if msg.String() == " " {
-			m.viewMode = ViewNormal
-			m.textInput.Blur()
-			m.createDescTextarea.Blur()
-			m.editBeadID = ""
-			m.parentBeadID = ""
-			return m, nil
-		}
-		return m, nil
+		// Create or add-child mode
+		isEpic := result.BeadType == "epic"
+		return m, m.createBead(result.Title, result.BeadType, result.Priority, isEpic, result.Description, result.ParentID)
 	}
 
-	return m, nil
+	return m, cmd
 }
 
 // submitBeadForm handles form submission for create, add-child, and edit modes
+// Deprecated: Use updateBeadForm which delegates to panel.Update()
 func (m *planModel) submitBeadForm() (tea.Model, tea.Cmd) {
-	title := strings.TrimSpace(m.textInput.Value())
-	if title == "" {
+	result := m.beadFormPanel.GetResult()
+	if result.Title == "" {
 		return m, nil
 	}
 
-	beadType := beadTypes[m.createBeadType]
-	description := strings.TrimSpace(m.createDescTextarea.Value())
-
 	m.viewMode = ViewNormal
-	m.textInput.Blur()
-	m.createDescTextarea.Reset()
+	m.beadFormPanel.Blur()
 
 	// Determine mode and call appropriate action
-	if m.editBeadID != "" {
+	if result.EditBeadID != "" {
 		// Edit mode
-		beadID := m.editBeadID
-		m.editBeadID = ""
-		return m, m.saveBeadEdit(beadID, title, description, beadType)
+		return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
 	}
 
 	// Create or add-child mode
-	isEpic := beadType == "epic"
-	parentID := m.parentBeadID
-	m.parentBeadID = ""
-	return m, m.createBead(title, beadType, m.createBeadPriority, isEpic, description, parentID)
+	isEpic := result.BeadType == "epic"
+	return m, m.createBead(result.Title, result.BeadType, result.Priority, isEpic, result.Description, result.ParentID)
 }
 
 func (m *planModel) updateBeadSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -262,16 +147,6 @@ func (m *planModel) updateCloseBeadConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 	}
 	return m, nil
-}
-
-// indentLines adds a prefix to each line of a multi-line string.
-// This is used to properly align textarea components within dialogs.
-func indentLines(s, prefix string) string {
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = prefix + line
-	}
-	return strings.Join(lines, "\n")
 }
 
 // Dialog render helpers
@@ -363,6 +238,145 @@ func (m *planModel) updateLinearImportInline(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		}
 		return m, cmd
 	}
+
+	return m, cmd
+}
+
+// updateCreateWorkDialog handles input for the create work dialog.
+// Delegates to createWorkPanel.Update() and handles resulting actions.
+func (m *planModel) updateCreateWorkDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cmd, action := m.createWorkPanel.Update(msg)
+
+	switch action {
+	case CreateWorkActionCancel:
+		m.viewMode = ViewNormal
+		return m, cmd
+
+	case CreateWorkActionExecute:
+		result := m.createWorkPanel.GetResult()
+		if result.BranchName == "" {
+			m.statusMessage = "Branch name cannot be empty"
+			m.statusIsError = true
+			return m, nil
+		}
+		m.viewMode = ViewNormal
+		// Clear selections after work creation
+		m.selectedBeads = make(map[string]bool)
+		return m, m.executeCreateWork(result.BeadIDs, result.BranchName, false)
+
+	case CreateWorkActionAuto:
+		result := m.createWorkPanel.GetResult()
+		if result.BranchName == "" {
+			m.statusMessage = "Branch name cannot be empty"
+			m.statusIsError = true
+			return m, nil
+		}
+		m.viewMode = ViewNormal
+		// Clear selections after work creation
+		m.selectedBeads = make(map[string]bool)
+		return m, m.executeCreateWork(result.BeadIDs, result.BranchName, true)
+	}
+
+	return m, cmd
+}
+
+// updateWorkOverlay handles input when in work overlay mode.
+// Delegates to workOverlay.Update() and handles resulting actions.
+func (m *planModel) updateWorkOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle navigation for non-overlay focused state
+	if !m.overlayFocused {
+		switch msg.String() {
+		case "j", "down":
+			if m.beadsCursor < len(m.beadItems)-1 {
+				m.beadsCursor++
+			}
+			return m, nil
+		case "k", "up":
+			if m.beadsCursor > 0 {
+				m.beadsCursor--
+			}
+			return m, nil
+		case "tab":
+			m.overlayFocused = true
+			return m, nil
+		case "esc":
+			m.viewMode = ViewNormal
+			m.selectedWorkTileID = ""
+			m.overlayFocused = false
+			return m, nil
+		}
+		return m, nil
+	}
+
+	cmd, action := m.workOverlay.Update(msg)
+
+	switch action {
+	case WorkOverlayActionCancel:
+		m.viewMode = ViewNormal
+		m.selectedWorkTileID = ""
+		m.overlayFocused = false
+		return m, cmd
+
+	case WorkOverlayActionSelect:
+		// Set the focused work and return to normal view with split screen
+		m.focusedWorkID = m.workOverlay.GetSelectedWorkTileID()
+		m.viewMode = ViewNormal
+		m.overlayFocused = false
+		m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
+		m.statusIsError = false
+		// Reset focus filter when selecting a new work
+		m.focusFilterActive = false
+		return m, cmd
+
+	case WorkOverlayActionToggleFocus:
+		m.overlayFocused = !m.overlayFocused
+		return m, cmd
+
+	case WorkOverlayActionCreate:
+		// Create new work - exit overlay and show create dialog
+		if m.beadsCursor < len(m.beadItems) {
+			selectedBead := m.beadItems[m.beadsCursor]
+			// Generate initial branch name
+			beads := []*beadsForBranch{{ID: selectedBead.ID, Title: selectedBead.Title}}
+			initialBranch := generateBranchNameFromBeadsForBranch(beads)
+			m.createWorkPanel.Reset([]string{selectedBead.ID}, initialBranch)
+			m.viewMode = ViewCreateWork
+			m.selectedWorkTileID = ""
+		}
+		return m, cmd
+
+	case WorkOverlayActionDestroy:
+		workID := m.workOverlay.GetSelectedWorkTileID()
+		if workID != "" {
+			m.statusMessage = fmt.Sprintf("Destroying work %s...", workID)
+			m.statusIsError = false
+			return m, m.destroyWork(workID)
+		}
+		return m, cmd
+
+	case WorkOverlayActionPlan:
+		workID := m.workOverlay.GetSelectedWorkTileID()
+		if workID != "" {
+			m.statusMessage = fmt.Sprintf("Planning work %s...", workID)
+			m.statusIsError = false
+			m.viewMode = ViewNormal
+			return m, m.planWork(workID)
+		}
+		return m, cmd
+
+	case WorkOverlayActionRun:
+		workID := m.workOverlay.GetSelectedWorkTileID()
+		if workID != "" {
+			m.statusMessage = fmt.Sprintf("Running work %s...", workID)
+			m.statusIsError = false
+			m.viewMode = ViewNormal
+			return m, m.runWork(workID)
+		}
+		return m, cmd
+	}
+
+	// Sync selected work tile ID from panel to model
+	m.selectedWorkTileID = m.workOverlay.GetSelectedWorkTileID()
 
 	return m, cmd
 }

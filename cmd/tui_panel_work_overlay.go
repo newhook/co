@@ -5,8 +5,23 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/db"
+)
+
+// WorkOverlayAction represents an action result from the panel
+type WorkOverlayAction int
+
+const (
+	WorkOverlayActionNone WorkOverlayAction = iota
+	WorkOverlayActionCancel
+	WorkOverlayActionSelect       // Select the currently highlighted work
+	WorkOverlayActionCreate       // Create new work
+	WorkOverlayActionDestroy      // Destroy selected work
+	WorkOverlayActionPlan         // Plan selected work
+	WorkOverlayActionRun          // Run selected work
+	WorkOverlayActionToggleFocus  // Toggle focus between overlay and issues
 )
 
 // WorkOverlayPanel renders the work overlay dropdown with work tiles.
@@ -30,6 +45,83 @@ func NewWorkOverlayPanel() *WorkOverlayPanel {
 		width:  80,
 		height: 24,
 	}
+}
+
+// Init initializes the panel
+func (p *WorkOverlayPanel) Init() tea.Cmd {
+	// Auto-select first work if none selected
+	if p.selectedWorkTileID == "" && len(p.workTiles) > 0 {
+		p.selectedWorkTileID = p.workTiles[0].work.ID
+	}
+	return nil
+}
+
+// Reset resets the panel state
+func (p *WorkOverlayPanel) Reset() {
+	p.selectedWorkTileID = ""
+	p.loading = false
+}
+
+// Update handles key events and returns an action
+func (p *WorkOverlayPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkOverlayAction) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		return nil, WorkOverlayActionCancel
+	case tea.KeyTab:
+		return nil, WorkOverlayActionToggleFocus
+	case tea.KeyEnter:
+		if p.focused && p.selectedWorkTileID != "" {
+			return nil, WorkOverlayActionSelect
+		}
+		return nil, WorkOverlayActionNone
+	}
+
+	// Navigation
+	switch msg.String() {
+	case "tab":
+		return nil, WorkOverlayActionToggleFocus
+	case "j", "down":
+		if p.focused {
+			p.NavigateDown()
+		}
+		return nil, WorkOverlayActionNone
+	case "k", "up":
+		if p.focused {
+			p.NavigateUp()
+		}
+		return nil, WorkOverlayActionNone
+	case "c":
+		return nil, WorkOverlayActionCreate
+	case "d":
+		if p.selectedWorkTileID != "" {
+			return nil, WorkOverlayActionDestroy
+		}
+		return nil, WorkOverlayActionNone
+	case "p":
+		if p.selectedWorkTileID != "" {
+			return nil, WorkOverlayActionPlan
+		}
+		return nil, WorkOverlayActionNone
+	case "r":
+		if p.selectedWorkTileID != "" {
+			return nil, WorkOverlayActionRun
+		}
+		return nil, WorkOverlayActionNone
+	case "h", "left":
+		// For grid layout in future - for now, same as up
+		if p.focused {
+			p.NavigateUp()
+		}
+		return nil, WorkOverlayActionNone
+	case "l", "right":
+		// For grid layout in future - for now, same as down
+		if p.focused {
+			p.NavigateDown()
+		}
+		return nil, WorkOverlayActionNone
+	}
+
+	return nil, WorkOverlayActionNone
 }
 
 // SetSize updates the panel dimensions
@@ -130,7 +222,7 @@ func (p *WorkOverlayPanel) Render() string {
 		Foreground(lipgloss.Color("247")).
 		Padding(0, 1)
 	content.WriteString(instructionStyle.Render(
-		"[↑↓] Navigate  [Tab] Switch Focus  [Enter] Select  [c] Create  [d] Destroy  [p] Plan  [r] Run"))
+		"[j/k] Navigate  [Tab] Switch Focus  [Enter] Select  [c] Create  [d] Destroy  [p] Plan  [r] Run"))
 	content.WriteString("\n")
 
 	// Calculate available space for work items
@@ -204,7 +296,7 @@ func (p *WorkOverlayPanel) renderWorkTile(work *workProgress, isSelected bool) s
 	var line1 strings.Builder
 
 	if isSelected {
-		line1.WriteString(tuiSuccessStyle.Render("►"))
+		line1.WriteString(tuiSuccessStyle.Render(">"))
 	} else {
 		line1.WriteString(" ")
 	}
@@ -270,7 +362,7 @@ func (p *WorkOverlayPanel) renderWorkTile(work *workProgress, isSelected bool) s
 	// Branch name
 	branchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("247"))
 	branch := truncateString(work.work.BranchName, 50)
-	line2.WriteString(branchStyle.Render(fmt.Sprintf("📌 %s", branch)))
+	line2.WriteString(branchStyle.Render(fmt.Sprintf("@ %s", branch)))
 	line2.WriteString("  ")
 
 	// Progress percentage
@@ -304,12 +396,12 @@ func (p *WorkOverlayPanel) renderWorkTile(work *workProgress, isSelected bool) s
 	if work.unassignedBeadCount > 0 {
 		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 		line2.WriteString(" ")
-		line2.WriteString(warningStyle.Render(fmt.Sprintf("⚠ %d unassigned", work.unassignedBeadCount)))
+		line2.WriteString(warningStyle.Render(fmt.Sprintf("! %d unassigned", work.unassignedBeadCount)))
 	}
 	if work.feedbackCount > 0 {
 		alertStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 		line2.WriteString(" ")
-		line2.WriteString(alertStyle.Render(fmt.Sprintf("🔔 %d feedback", work.feedbackCount)))
+		line2.WriteString(alertStyle.Render(fmt.Sprintf("* %d feedback", work.feedbackCount)))
 	}
 
 	content.WriteString(line2.String())
@@ -337,7 +429,7 @@ func (p *WorkOverlayPanel) renderWorkTile(work *workProgress, isSelected bool) s
 				Foreground(lipgloss.Color("247")).
 				Italic(true)
 			rootTitle = truncateString(rootTitle, 70)
-			line3.WriteString(issueStyle.Render(fmt.Sprintf("📋 %s", rootTitle)))
+			line3.WriteString(issueStyle.Render(fmt.Sprintf("# %s", rootTitle)))
 		} else {
 			issueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 			line3.WriteString(issueStyle.Render(fmt.Sprintf("Root: %s", work.work.RootIssueID)))

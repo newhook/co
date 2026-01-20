@@ -487,7 +487,7 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		// Start from top of details panel (Y=1 for title, Y=2 for content start)
 		formStartY := 2
 		linesBeforeButtons := 1 // header
-		if m.parentBeadID != "" {
+		if m.beadFormPanel.GetMode() == BeadFormModeAddChild {
 			linesBeforeButtons++ // parent info line
 		}
 		linesBeforeButtons += 1  // blank line

@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/stretchr/testify/assert"
 )
@@ -203,10 +202,9 @@ func TestDetectDialogButton(t *testing.T) {
 		beadsCursor:          0,
 		activeBeadSessions:   make(map[string]bool),
 		selectedBeads:        make(map[string]bool),
-		createWorkBranch:     textinput.New(),
 		textInput:            textinput.New(),
-		createDescTextarea:   textarea.New(),
 		linearImportPanel:    NewLinearImportPanel(),
+		beadFormPanel:        NewBeadFormPanel(),
 	}
 
 	// Button positions from panel:
@@ -312,10 +310,7 @@ func TestDetectDialogButton(t *testing.T) {
 			expectedButton: "ok",
 			setupFunc: func() {
 				// Set up for create bead mode
-				m.textInput = textinput.New()
-				m.createDescTextarea = textarea.New()
-				m.createBeadType = 0 // task
-				m.createBeadPriority = 2
+				m.beadFormPanel.Reset()
 			},
 		},
 		{
@@ -326,11 +321,7 @@ func TestDetectDialogButton(t *testing.T) {
 			expectedButton: "ok",
 			setupFunc: func() {
 				// Set up for edit bead mode
-				m.textInput = textinput.New()
-				m.createDescTextarea = textarea.New()
-				m.createBeadType = 0 // task
-				m.createBeadPriority = 2
-				m.editBeadID = "test-bead-1"
+				m.beadFormPanel.SetEditMode("test-bead-1", "Test Bead", "Description", "task", 2)
 			},
 		},
 		{

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -72,28 +71,10 @@ type planModel struct {
 	// UI state
 	viewMode      ViewMode
 	spinner       spinner.Model
-	textInput     textinput.Model
+	textInput     textinput.Model // Used for search and label filter dialogs
 	statusMessage string
 	statusIsError bool
 	lastUpdate    time.Time
-
-	// Create bead state
-	createBeadType     int            // 0=task, 1=bug, 2=feature
-	createBeadPriority int            // 0-4, default 2
-	createDialogFocus  int            // 0=title, 1=type, 2=priority, 3=description
-	createDescTextarea textarea.Model // Textarea for description
-
-	// Add child bead state
-	parentBeadID string // ID of parent when adding child
-
-	// Edit bead state (editBeadID is set when editing, uses shared form fields)
-	editBeadID string // ID of bead being edited
-
-	// Create work dialog state
-	createWorkBeadIDs   []string        // Bead IDs for work creation (supports multi-select)
-	createWorkBranch    textinput.Model // Editable branch name
-	createWorkField     int             // 0=branch, 1=buttons
-	createWorkButtonIdx int             // 0=Execute, 1=Auto, 2=Cancel
 
 	// Work overlay state
 	workTiles           []*workProgress // Works displayed in overlay
@@ -149,20 +130,9 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 
 	ti := textinput.New()
-	ti.Placeholder = "Enter title..."
+	ti.Placeholder = "Search..."
 	ti.CharLimit = 100
 	ti.Width = 40
-
-	createDescTa := textarea.New()
-	createDescTa.Placeholder = "Enter description (optional)..."
-	createDescTa.CharLimit = 2000
-	createDescTa.SetWidth(60)
-	createDescTa.SetHeight(4)
-
-	branchInput := textinput.New()
-	branchInput.Placeholder = "Branch name..."
-	branchInput.CharLimit = 100
-	branchInput.Width = 60
 
 	// Initialize beads database watcher
 	beadsDBPath := filepath.Join(proj.Root, "main", ".beads", "beads.db")
@@ -180,23 +150,20 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	}
 
 	m := &planModel{
-		createDescTextarea: createDescTa,
-		createWorkBranch:   branchInput,
 		ctx:                ctx,
-		proj:                 proj,
-		width:                80,
-		height:               24,
-		activePanel:          PanelLeft,
-		spinner:              s,
-		textInput:            ti,
-		activeBeadSessions:   make(map[string]bool),
-		selectedBeads:        make(map[string]bool),
-		newBeads:             make(map[string]time.Time),
-		createBeadPriority:   2,
-		zj:                   zellij.New(),
-		columnRatio:  0.4, // Default 40/60 split (issues/details)
-		hoveredIssue: -1,  // No issue hovered initially
-		beadsWatcher: beadsWatcher,
+		proj:               proj,
+		width:              80,
+		height:             24,
+		activePanel:        PanelLeft,
+		spinner:            s,
+		textInput:          ti,
+		activeBeadSessions: make(map[string]bool),
+		selectedBeads:      make(map[string]bool),
+		newBeads:           make(map[string]time.Time),
+		zj:                 zellij.New(),
+		columnRatio:        0.4, // Default 40/60 split (issues/details)
+		hoveredIssue:       -1,  // No issue hovered initially
+		beadsWatcher:       beadsWatcher,
 		filters: beadFilters{
 			status: "open",
 			sortBy: "default",
@@ -389,40 +356,37 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.viewMode == ViewLinearImportInline {
 						m.linearImportPanel.Blur()
 					} else if m.viewMode == ViewCreateWork {
-						m.createWorkBranch.Blur()
+						m.createWorkPanel.Blur()
 					} else {
-						m.textInput.Blur()
-						m.createDescTextarea.Blur()
-						m.editBeadID = ""
-						m.parentBeadID = ""
+						m.beadFormPanel.Blur()
 					}
 					m.viewMode = ViewNormal
 					return m, nil
 				} else if clickedDialogButton == "execute" {
 					// Handle execute button for work creation
 					if m.viewMode == ViewCreateWork {
-						branchName := strings.TrimSpace(m.createWorkBranch.Value())
-						if branchName == "" {
+						result := m.createWorkPanel.GetResult()
+						if result.BranchName == "" {
 							m.statusMessage = "Branch name cannot be empty"
 							m.statusIsError = true
 							return m, nil
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, false)
+						return m, m.executeCreateWork(result.BeadIDs, result.BranchName, false)
 					}
 				} else if clickedDialogButton == "auto" {
 					// Handle auto button for work creation
 					if m.viewMode == ViewCreateWork {
-						branchName := strings.TrimSpace(m.createWorkBranch.Value())
-						if branchName == "" {
+						result := m.createWorkPanel.GetResult()
+						if result.BranchName == "" {
 							m.statusMessage = "Branch name cannot be empty"
 							m.statusIsError = true
 							return m, nil
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(m.createWorkBeadIDs, branchName, true)
+						return m, m.executeCreateWork(result.BeadIDs, result.BranchName, true)
 					}
 				}
 
@@ -896,13 +860,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		// Create new bead inline
 		m.viewMode = ViewCreateBeadInline
-		m.textInput.Reset()
-		m.textInput.Focus()
-		m.createBeadType = 0
-		m.createBeadPriority = 2
-		m.createDialogFocus = 0 // Start with title focused
-		m.createDescTextarea.Reset()
-		return m, nil
+		m.beadFormPanel.Reset()
+		return m, m.beadFormPanel.Init()
 
 	case "x":
 		// Close selected bead(s)
@@ -1029,8 +988,9 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Show work overlay
 		m.viewMode = ViewWorkOverlay
 		m.overlayFocused = true // Start with overlay focused
+		m.workOverlay.SetFocus(true)
 		m.loading = true
-		return m, m.loadWorkTiles()
+		return m, tea.Batch(m.workOverlay.Init(), m.loadWorkTiles())
 
 	case "w":
 		// Create work from selected bead(s) - show dialog
@@ -1076,27 +1036,20 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			m.createWorkBeadIDs = selectedIDs
 			// Generate proposed branch name from all selected beads
 			branchName := generateBranchNameFromBeadsForBranch(branchBeads)
-			m.createWorkBranch.SetValue(branchName)
-			m.createWorkBranch.Focus()
-			m.createWorkField = 0
-			m.createWorkButtonIdx = 0
+			m.createWorkPanel.Reset(selectedIDs, branchName)
 			m.viewMode = ViewCreateWork
+			return m, m.createWorkPanel.Init()
 		}
 		return m, nil
 
 	case "a":
 		// Add child issue to selected issue
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
-			m.parentBeadID = m.beadItems[m.beadsCursor].ID
+			m.beadFormPanel.SetAddChildMode(m.beadItems[m.beadsCursor].ID)
 			m.viewMode = ViewAddChildBead
-			m.textInput.Reset()
-			m.textInput.Focus()
-			m.createBeadType = 0
-			m.createBeadPriority = 2
-			m.createDialogFocus = 0 // Start with title focused
+			return m, m.beadFormPanel.Init()
 		}
 		return m, nil
 
@@ -1104,23 +1057,9 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Edit selected issue using the unified bead form
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			bead := m.beadItems[m.beadsCursor]
-			m.editBeadID = bead.ID
+			m.beadFormPanel.SetEditMode(bead.ID, bead.Title, bead.Description, bead.Type, bead.Priority)
 			m.viewMode = ViewEditBead
-			m.textInput.Reset()
-			m.textInput.SetValue(bead.Title)
-			m.textInput.Focus()
-			m.createDescTextarea.Reset()
-			m.createDescTextarea.SetValue(bead.Description)
-			// Find the type index
-			m.createBeadType = 0
-			for i, t := range beadTypes {
-				if t == bead.Type {
-					m.createBeadType = i
-					break
-				}
-			}
-			m.createBeadPriority = bead.Priority
-			m.createDialogFocus = 0 // Start with title focused
+			return m, m.beadFormPanel.Init()
 		}
 		return m, nil
 
@@ -1145,7 +1084,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.viewMode = ViewLinearImportInline
 		m.linearImportPanel.Reset()
-		return m, nil
+		return m, m.linearImportPanel.Init()
 
 	case "A":
 		// Add selected issue(s) to the focused work
@@ -1292,34 +1231,11 @@ func (m *planModel) syncPanels() {
 	// Sync bead form panel
 	m.beadFormPanel.SetSize(detailsWidth, m.height)
 	m.beadFormPanel.SetFocus(m.activePanel == PanelRight)
-	var beadFormMode BeadFormMode
-	switch m.viewMode {
-	case ViewEditBead:
-		beadFormMode = BeadFormModeEdit
-	case ViewAddChildBead:
-		beadFormMode = BeadFormModeAddChild
-	default:
-		beadFormMode = BeadFormModeCreate
-	}
-	m.beadFormPanel.SetMode(beadFormMode, m.editBeadID, m.parentBeadID)
-	m.beadFormPanel.SetFormState(
-		&m.textInput,
-		&m.createDescTextarea,
-		m.createBeadType,
-		m.createBeadPriority,
-		m.createDialogFocus,
-	)
 	m.beadFormPanel.SetHoveredButton(m.hoveredDialogButton)
 
 	// Sync create work panel
 	m.createWorkPanel.SetSize(detailsWidth, m.height)
 	m.createWorkPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewCreateWork)
-	m.createWorkPanel.SetFormState(
-		m.createWorkBeadIDs,
-		&m.createWorkBranch,
-		m.createWorkField,
-		m.createWorkButtonIdx,
-	)
 	m.createWorkPanel.SetHoveredButton(m.hoveredDialogButton)
 }
 
