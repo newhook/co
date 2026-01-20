@@ -377,10 +377,9 @@ func (p *WorkDetailsPanel) renderRootIssueLine(content *strings.Builder, panelWi
 		prefix = "► "
 		style = tuiSelectedStyle
 	} else if isHovered {
-		// Apply hover style (gray background, white text, bold)
+		// Apply hover style (orange foreground for visibility)
 		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255")).
-			Background(lipgloss.Color("240")).
+			Foreground(lipgloss.Color("214")).
 			Bold(true)
 	}
 
@@ -421,10 +420,9 @@ func (p *WorkDetailsPanel) renderTaskLine(content *strings.Builder, taskIdx int,
 		prefix = "► "
 		style = tuiSelectedStyle
 	} else if isHovered {
-		// Apply hover style (gray background, white text, bold)
+		// Apply hover style (orange foreground for visibility)
 		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255")).
-			Background(lipgloss.Color("240")).
+			Foreground(lipgloss.Color("214")).
 			Bold(true)
 	}
 
@@ -484,10 +482,9 @@ func (p *WorkDetailsPanel) renderUnassignedBeadLine(content *strings.Builder, be
 		prefix = "► "
 		style = tuiSelectedStyle
 	} else if isHovered {
-		// Apply hover style (gray background, white text, bold)
+		// Apply hover style (orange foreground for visibility)
 		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255")).
-			Background(lipgloss.Color("240")).
+			Foreground(lipgloss.Color("214")).
 			Bold(true)
 	}
 
@@ -766,44 +763,65 @@ func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
 
 	// Use panel's actual dimensions (set via SetSize)
 	workPanelHeight := p.height
-	halfWidth := (p.width - 4) / 2 - 1
 
-	// Check if click is within work panel bounds
-	if y >= workPanelHeight || x > halfWidth+2 {
+	// Calculate left panel width using same formula as render
+	totalContentWidth := p.width - 4
+	leftWidth := int(float64(totalContentWidth) * p.columnRatio)
+
+	// Check if click is within left panel bounds (where items are displayed)
+	if x > leftWidth+2 {
 		return -1
 	}
 
-	// Layout in work panel (matching renderLeftPanel):
+	// Check if y is within panel height
+	if y >= workPanelHeight {
+		return -1
+	}
+
+	// Calculate header lines - this matches renderLeftPanel logic
+	// Header: work header (1) + branch (1) + separator (1) = 3
+	// Plus orchestrator line (1) if work is processing or has active tasks
+	headerLines := 3
+	hasActiveTask := false
+	for _, task := range p.focusedWork.tasks {
+		if task.task.Status == db.StatusProcessing {
+			hasActiveTask = true
+			break
+		}
+	}
+	if p.focusedWork.work.Status == db.StatusProcessing || hasActiveTask {
+		headerLines = 4
+	}
+
+	// Layout in work panel:
 	// Y=0: Top border
 	// Y=1: Panel title "Work"
-	// Y=2: Work header (ID, status)
-	// Y=3: Branch info
-	// Y=4: Separator
-	// Y=5: First item (root issue or task depending on scroll)
-	const firstItemY = 5
+	// Y=2+: Header lines (work header, branch, [orchestrator], separator)
+	// Y=2+headerLines: First item
+	firstItemY := 2 + headerLines
 
-	// Calculate available lines using same logic as renderLeftPanel:
-	// contentHeight = p.height - 2 (lipgloss Height, excluding border)
-	// availableContentHeight = contentHeight - 1 (for title)
-	// headerLines = 3 (work header, branch, separator)
-	// availableLines = availableContentHeight - headerLines - 1 (reserve for scroll)
-	contentHeight := p.height - 2
-	availableContentHeight := contentHeight - 1
-	headerLines := 3
-	availableLines := availableContentHeight - headerLines - 1
+	// Calculate available lines (same logic as renderLeftPanel)
+	contentHeight := p.height - 2 // excludes border
+	availableContentLines := contentHeight - 3
+	if availableContentLines < 1 {
+		availableContentLines = 1
+	}
+	availableLines := availableContentLines - headerLines
+	if availableLines < 1 {
+		availableLines = 1
+	}
 
 	if y < firstItemY || y >= firstItemY+availableLines {
 		return -1
 	}
 
+	// Total items: root issue + tasks + unassigned beads
+	totalItems := 1 + len(p.focusedWork.tasks) + len(p.focusedWork.unassignedBeads)
+
 	// Calculate scroll window (same as renderLeftPanel)
-	totalItems := 1 + len(p.focusedWork.tasks)
 	startIdx := 0
 	if p.selectedIndex >= availableLines && availableLines > 0 {
-		startIdx = p.selectedIndex - availableLines/2
-		if startIdx < 0 {
-			startIdx = 0
-		}
+		startIdx = max(0, p.selectedIndex-availableLines/2)
 	}
 
 	lineIndex := y - firstItemY
