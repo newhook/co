@@ -32,6 +32,9 @@ type WorkTabsBar struct {
 	hoveredTabID       string
 	orchestratorHealth map[string]bool // workID -> orchestrator alive
 
+	// Panel state
+	activePanel Panel // Which panel is currently focused
+
 	// Spinner for running works
 	spinner spinner.Model
 
@@ -83,6 +86,11 @@ func (b *WorkTabsBar) SetHoveredTabID(id string) {
 // SetOrchestratorHealth sets the orchestrator health for a work
 func (b *WorkTabsBar) SetOrchestratorHealth(healthMap map[string]bool) {
 	b.orchestratorHealth = healthMap
+}
+
+// SetActivePanel sets which panel is currently active
+func (b *WorkTabsBar) SetActivePanel(panel Panel) {
+	b.activePanel = panel
 }
 
 // UpdateSpinner updates the spinner animation frame
@@ -158,13 +166,18 @@ func (b *WorkTabsBar) Render() string {
 	currentX := 0
 
 	// Ribbon as simple box (no triangles)
+	// Show focus indicator when work tabs panel is active
+	ribbonText := " Ørchestratör "
+	if b.activePanel == PanelWorkTabs {
+		ribbonText = "► Ørchestratör ◄"
+	}
 	ribbonStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ribbonFg).
 		Background(ribbonBg)
 
-	content += ribbonStyle.Render(" Ørchestratör ")
-	currentX += 14
+	content += ribbonStyle.Render(ribbonText)
+	currentX += len(ribbonText)
 
 	// Space before tabs
 	spaceStyle := lipgloss.NewStyle().Background(barBg)

@@ -135,6 +135,7 @@ const (
 	PanelMiddle                   // Middle panel at current depth (used by tui.go)
 	PanelRight                    // Right panel (details/forms)
 	PanelWorkDetails              // Work details in split view
+	PanelWorkTabs                 // Work tabs bar for work selection
 )
 
 // ViewMode represents the current view mode

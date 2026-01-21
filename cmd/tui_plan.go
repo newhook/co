@@ -364,6 +364,9 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check for clicks on tabs bar
 			tabsBarHeight := m.workTabsBar.Height()
 			if tabsBarHeight > 0 && msg.Y < tabsBarHeight {
+				// Set focus to work tabs panel when clicking on it
+				m.activePanel = PanelWorkTabs
+
 				clickedWorkID := m.workTabsBar.HandleClick(msg.X)
 				if clickedWorkID != "" {
 					// Focus the clicked work
@@ -380,7 +383,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Focus the new work
 					m.focusedWorkID = clickedWorkID
 					m.viewMode = ViewNormal
-					m.activePanel = PanelWorkDetails
+					// Keep focus on work tabs instead of immediately jumping to work details
+					m.activePanel = PanelWorkTabs
 					m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 					m.statusIsError = false
 
@@ -1048,6 +1052,49 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Normal mode key handling
 
+	// Delegate to work tabs panel when it's active
+	if m.activePanel == PanelWorkTabs && len(m.workTiles) > 0 {
+		// Handle navigation in work tabs
+		switch msg.String() {
+		case "h", "left":
+			// Move to previous work tab
+			currentIndex := -1
+			for i, work := range m.workTiles {
+				if work != nil && work.work.ID == m.focusedWorkID {
+					currentIndex = i
+					break
+				}
+			}
+			if currentIndex > 0 {
+				// Select previous work
+				return m.doSelectWorkAtIndex(currentIndex - 1)
+			}
+			return m, nil
+
+		case "l", "right":
+			// Move to next work tab
+			currentIndex := -1
+			for i, work := range m.workTiles {
+				if work != nil && work.work.ID == m.focusedWorkID {
+					currentIndex = i
+					break
+				}
+			}
+			if currentIndex >= 0 && currentIndex < len(m.workTiles)-1 {
+				// Select next work
+				return m.doSelectWorkAtIndex(currentIndex + 1)
+			}
+			return m, nil
+
+		case "enter":
+			// If a work is focused but we're on the tabs bar, ensure we switch to work details
+			if m.focusedWorkID != "" {
+				m.activePanel = PanelWorkDetails
+			}
+			return m, nil
+		}
+	}
+
 	// Delegate to work details panel when it's active
 	if m.activePanel == PanelWorkDetails && m.focusedWorkID != "" {
 		cmd, action := m.workDetails.Update(msg)
@@ -1092,9 +1139,26 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "tab", "shift+tab":
-		// In focused work mode: toggle between work details and issues
-		if m.focusedWorkID != "" {
+	case "tab":
+		// In focused work mode: cycle forward through work tabs, work details, and issues
+		if m.focusedWorkID != "" && len(m.workTiles) > 0 {
+			switch m.activePanel {
+			case PanelWorkTabs:
+				m.activePanel = PanelWorkDetails
+				// Reset the cleared flag and restore work selection filter when entering work details
+				if m.workSelectionCleared {
+					m.workSelectionCleared = false
+					return m, m.updateWorkSelectionFilter()
+				}
+			case PanelWorkDetails:
+				m.activePanel = PanelLeft // Issues panel
+			case PanelLeft:
+				m.activePanel = PanelWorkTabs
+			default:
+				m.activePanel = PanelWorkTabs
+			}
+		} else if m.focusedWorkID != "" {
+			// No work tiles, just toggle between work details and issues
 			if m.activePanel == PanelWorkDetails {
 				m.activePanel = PanelLeft
 			} else {
@@ -1104,6 +1168,39 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.workSelectionCleared = false
 					return m, m.updateWorkSelectionFilter()
 				}
+			}
+		}
+		return m, nil
+
+	case "shift+tab":
+		// In focused work mode: cycle backward through work tabs, work details, and issues
+		if m.focusedWorkID != "" && len(m.workTiles) > 0 {
+			switch m.activePanel {
+			case PanelWorkTabs:
+				m.activePanel = PanelLeft // Issues panel
+			case PanelWorkDetails:
+				m.activePanel = PanelWorkTabs
+			case PanelLeft:
+				m.activePanel = PanelWorkDetails
+				// Reset the cleared flag and restore work selection filter when entering work details
+				if m.workSelectionCleared {
+					m.workSelectionCleared = false
+					return m, m.updateWorkSelectionFilter()
+				}
+			default:
+				m.activePanel = PanelLeft
+			}
+		} else if m.focusedWorkID != "" {
+			// No work tiles, just toggle between work details and issues
+			if m.activePanel == PanelLeft {
+				m.activePanel = PanelWorkDetails
+				// Reset the cleared flag and restore work selection filter
+				if m.workSelectionCleared {
+					m.workSelectionCleared = false
+					return m, m.updateWorkSelectionFilter()
+				}
+			} else {
+				m.activePanel = PanelLeft
 			}
 		}
 		return m, nil
@@ -1464,6 +1561,7 @@ func (m *planModel) syncPanels() {
 
 	// Sync work tabs bar
 	m.workTabsBar.SetSize(m.width)
+	m.workTabsBar.SetActivePanel(m.activePanel)
 	// Note: Work tiles are set asynchronously when work tiles are loaded
 	m.workTabsBar.SetFocusedWorkID(m.focusedWorkID)
 	// Note: Orchestrator health is set asynchronously when work tiles are loaded
@@ -1666,7 +1764,10 @@ func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
 	// Select the work
 	m.focusedWorkID = work.work.ID
 	m.viewMode = ViewNormal
-	m.activePanel = PanelWorkDetails
+	// If we're already on work tabs, stay there, otherwise go to work details
+	if m.activePanel != PanelWorkTabs {
+		m.activePanel = PanelWorkDetails
+	}
 	m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 	m.statusIsError = false
 
