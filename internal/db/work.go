@@ -148,7 +148,7 @@ func (db *DB) CreateWorkAndSchedulePush(ctx context.Context, id, name, worktreeP
 			ID:             taskID,
 			WorkID:         id,
 			TaskType:       TaskTypeGitPush,
-			ScheduledAt:    time.Now(),
+			ScheduledAt:    time.Now().Add(OptimisticExecutionDelay),
 			Status:         TaskStatusPending,
 			Metadata:       string(metadataJSON),
 			AttemptCount:   0,

@@ -81,7 +81,7 @@ func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *b
 		tasksToSchedule = append(tasksToSchedule, db.ScheduledTaskParams{
 			WorkID:         workID,
 			TaskType:       db.TaskTypeGitHubComment,
-			ScheduledAt:    time.Now(),
+			ScheduledAt:    time.Now().Add(db.OptimisticExecutionDelay),
 			Metadata:       commentMetadata,
 			IdempotencyKey: commentIdempotencyKey,
 			MaxAttempts:    db.DefaultMaxAttempts,
@@ -102,7 +102,7 @@ func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *b
 			tasksToSchedule = append(tasksToSchedule, db.ScheduledTaskParams{
 				WorkID:      workID,
 				TaskType:    db.TaskTypeGitHubResolveThread,
-				ScheduledAt: time.Now(),
+				ScheduledAt: time.Now().Add(db.OptimisticExecutionDelay),
 				Metadata: map[string]string{
 					"pr_url":     feedback.PRURL,
 					"comment_id": *feedback.SourceID,

@@ -40,6 +40,12 @@ const (
 // Default max attempts for retry tasks
 const DefaultMaxAttempts = 5
 
+// OptimisticExecutionDelay is how long to wait before the scheduler picks up
+// a task that was scheduled with optimistic execution. This prevents a race
+// condition where both the optimistic execution and the scheduler try to
+// execute the same task concurrently.
+const OptimisticExecutionDelay = 30 * time.Second
+
 // Task statuses
 const (
 	TaskStatusPending   = "pending"
