@@ -204,7 +204,7 @@ func handleCommentResolutionTask(ctx context.Context, proj *project.Project, wor
 }
 
 // TriggerPRFeedbackCheck schedules an immediate PR feedback check.
-// This is called from the TUI when the user presses F5.
+// This is called from the TUI when the user presses 'f' in the work details panel.
 func TriggerPRFeedbackCheck(ctx context.Context, proj *project.Project, workID string) error {
 	logging.Debug("triggering immediate PR feedback check", "work_id", workID)
 

@@ -359,3 +359,14 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 		return workCommandMsg{action: fmt.Sprintf("Orchestrator %s", status), workID: workID}
 	}
 }
+
+// checkPRFeedback triggers an immediate PR feedback check for the focused work
+func (m *planModel) checkPRFeedback() tea.Cmd {
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		if err := TriggerPRFeedbackCheck(m.ctx, m.proj, workID); err != nil {
+			return workCommandMsg{action: "Check PR feedback", workID: workID, err: err}
+		}
+		return workCommandMsg{action: "PR feedback check triggered", workID: workID}
+	}
+}
