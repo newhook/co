@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 // Panel padding: tuiPanelStyle has Padding(0, 1) = 2 chars horizontal padding total
@@ -193,24 +194,30 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 	// Show description if we have room
 	if bead.Description != "" && remainingLines > 2 {
 		content.WriteString("\n")
-		// Truncate description to fit within inner width
+		// Word wrap description to fit within inner width
 		desc := bead.Description
 		descLines := remainingLines - 2
 		if len(bead.children) > 0 {
 			descLines = min(descLines, 3)
 		}
-		maxLen := descLines * innerWidth
-		if len(desc) > maxLen && maxLen > 0 {
-			desc = desc[:maxLen] + "..."
+		// Word wrap the description to innerWidth
+		wrapped := wordwrap.String(desc, innerWidth)
+		wrappedLines := strings.Split(wrapped, "\n")
+		// Limit to descLines
+		if len(wrappedLines) > descLines {
+			wrappedLines = wrappedLines[:descLines]
+			// Add ellipsis to last line if truncated
+			lastLine := wrappedLines[len(wrappedLines)-1]
+			if lipgloss.Width(lastLine)+3 <= innerWidth {
+				wrappedLines[len(wrappedLines)-1] = lastLine + "..."
+			} else {
+				wrappedLines[len(wrappedLines)-1] = truncate.StringWithTail(lastLine, uint(innerWidth), "...")
+			}
 		}
-		// Ensure each line fits within innerWidth
-		descStr := tuiDimStyle.Render(desc)
-		if lipgloss.Width(descStr) > innerWidth {
-			descStr = truncate.StringWithTail(descStr, uint(innerWidth), "...")
-		}
+		descStr := tuiDimStyle.Render(strings.Join(wrappedLines, "\n"))
 		content.WriteString(descStr)
-		linesUsed++
-		remainingLines--
+		linesUsed += len(wrappedLines)
+		remainingLines -= len(wrappedLines)
 	}
 
 	// Show children (issues blocked by this one)
