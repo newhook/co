@@ -1129,6 +1129,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.createPRTask()
 		case WorkDetailActionRestartOrchestrator:
 			return m, m.restartOrchestrator()
+		case WorkDetailActionCheckFeedback:
+			return m, m.checkPRFeedback()
 		}
 		// WorkDetailActionNone - fall through to normal handling
 	}
