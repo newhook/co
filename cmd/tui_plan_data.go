@@ -53,23 +53,27 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	logging.Debug("loadBeadsWithFilters called",
 		"status", filters.status,
 		"searchText", filters.searchText,
-		"workSelectionBeadIDs_count", len(filters.workSelectionBeadIDs))
+		"task", filters.task,
+		"children", filters.children)
 
-	// If work selection filter is active, fetch all beads (both open and closed)
-	// so we can show the complete view of selected task/work
-	effectiveFilters := filters
-	if len(filters.workSelectionBeadIDs) > 0 {
-		effectiveFilters.status = "" // Fetch all statuses
+	// Handle task filter - show beads assigned to a specific task
+	if filters.task != "" {
+		return m.loadBeadsForTask(filters)
+	}
+
+	// Handle children filter - show children (dependents) of a specific bead
+	if filters.children != "" {
+		return m.loadBeadsForChildren(filters)
 	}
 
 	// Use the shared fetchBeadsWithFilters function
-	items, err := fetchBeadsWithFilters(m.ctx, m.proj.Beads, mainRepoPath, effectiveFilters)
+	items, err := fetchBeadsWithFilters(m.ctx, m.proj.Beads, mainRepoPath, filters)
 	if err != nil {
 		return nil, err
 	}
 
 	logging.Debug("after fetchBeadsWithFilters",
-		"effectiveStatus", effectiveFilters.status,
+		"status", filters.status,
 		"items_count", len(items))
 
 	// Fetch assigned beads from database and populate assignedWorkID
@@ -82,64 +86,7 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 		}
 	}
 
-	// Apply work selection filter if set (takes precedence over focus filter)
-	// This filters to show only beads from the selected task or root issue
-	if len(filters.workSelectionBeadIDs) > 0 {
-		var filteredItems []beadItem
-		for _, item := range items {
-			if filters.workSelectionBeadIDs[item.ID] {
-				filteredItems = append(filteredItems, item)
-			}
-		}
-		items = filteredItems
-
-		logging.Debug("after work selection filter",
-			"items_count", len(items))
-
-		// Apply status filter on top of work selection filter
-		// This allows filtering work beads by status (e.g., show only open beads in work)
-		if filters.status != "" && filters.status != "all" {
-			var statusFiltered []beadItem
-			for _, item := range items {
-				if filters.status == "open" {
-					// "open" means all non-closed statuses
-					if item.Status != "closed" {
-						statusFiltered = append(statusFiltered, item)
-					}
-				} else if filters.status == "ready" {
-					// "ready" means open and unblocked
-					if item.isReady {
-						statusFiltered = append(statusFiltered, item)
-					}
-				} else if item.Status == filters.status {
-					statusFiltered = append(statusFiltered, item)
-				}
-			}
-			items = statusFiltered
-
-			logging.Debug("after status filter in work selection",
-				"status", filters.status,
-				"items_count", len(items))
-		}
-
-		// Apply search text filter on top of work selection filter
-		if filters.searchText != "" {
-			searchLower := strings.ToLower(filters.searchText)
-			var searchFiltered []beadItem
-			for _, item := range items {
-				if strings.Contains(strings.ToLower(item.ID), searchLower) ||
-					strings.Contains(strings.ToLower(item.Title), searchLower) ||
-					strings.Contains(strings.ToLower(item.Description), searchLower) {
-					searchFiltered = append(searchFiltered, item)
-				}
-			}
-			items = searchFiltered
-
-			logging.Debug("after search filter in work selection",
-				"searchText", filters.searchText,
-				"items_count", len(items))
-		}
-	} else if m.focusFilterActive && m.focusedWorkID != "" {
+	if m.focusFilterActive && m.focusedWorkID != "" {
 		// Apply focus filter if active (only when work selection filter is not set)
 		var filteredItems []beadItem
 		for _, item := range items {
@@ -176,6 +123,111 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 			})
 		}
 	}
+
+	return items, nil
+}
+
+// loadBeadsForTask loads beads assigned to a specific task.
+// This fetches all beads for the task regardless of status filter.
+func (m *planModel) loadBeadsForTask(filters beadFilters) ([]beadItem, error) {
+	// Get bead IDs assigned to this task from the database
+	beadIDs, err := m.proj.DB.GetTaskBeads(m.ctx, filters.task)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task beads: %w", err)
+	}
+
+	logging.Debug("loadBeadsForTask",
+		"task", filters.task,
+		"beadIDs", beadIDs)
+
+	if len(beadIDs) == 0 {
+		return nil, nil
+	}
+
+	// Fetch the beads from the beads client (uses cache)
+	var items []beadItem
+	for _, beadID := range beadIDs {
+		bead, err := m.proj.Beads.GetBead(m.ctx, beadID)
+		if err != nil || bead == nil {
+			continue
+		}
+		items = append(items, beadItem{
+			BeadWithDeps: bead,
+		})
+	}
+
+	// Apply search text filter if set
+	if filters.searchText != "" {
+		searchLower := strings.ToLower(filters.searchText)
+		var filtered []beadItem
+		for _, item := range items {
+			if strings.Contains(strings.ToLower(item.ID), searchLower) ||
+				strings.Contains(strings.ToLower(item.Title), searchLower) ||
+				strings.Contains(strings.ToLower(item.Description), searchLower) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+
+	// Build tree structure from dependencies
+	items = buildBeadTree(m.ctx, items, m.proj.Beads)
+
+	logging.Debug("loadBeadsForTask result",
+		"items_count", len(items))
+
+	return items, nil
+}
+
+// loadBeadsForChildren loads children (dependents) of a specific bead.
+// This fetches all dependents regardless of status filter.
+func (m *planModel) loadBeadsForChildren(filters beadFilters) ([]beadItem, error) {
+	// Get the parent bead to find its dependents
+	parentBead, err := m.proj.Beads.GetBead(m.ctx, filters.children)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bead: %w", err)
+	}
+	if parentBead == nil {
+		return nil, nil
+	}
+
+	logging.Debug("loadBeadsForChildren",
+		"parent", filters.children,
+		"dependents_count", len(parentBead.Dependents))
+
+	// Also include the parent bead itself
+	items := []beadItem{{BeadWithDeps: parentBead}}
+
+	// Fetch each dependent bead
+	for _, dep := range parentBead.Dependents {
+		bead, err := m.proj.Beads.GetBead(m.ctx, dep.IssueID)
+		if err != nil || bead == nil {
+			continue
+		}
+		items = append(items, beadItem{
+			BeadWithDeps: bead,
+		})
+	}
+
+	// Apply search text filter if set
+	if filters.searchText != "" {
+		searchLower := strings.ToLower(filters.searchText)
+		var filtered []beadItem
+		for _, item := range items {
+			if strings.Contains(strings.ToLower(item.ID), searchLower) ||
+				strings.Contains(strings.ToLower(item.Title), searchLower) ||
+				strings.Contains(strings.ToLower(item.Description), searchLower) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+
+	// Build tree structure from dependencies
+	items = buildBeadTree(m.ctx, items, m.proj.Beads)
+
+	logging.Debug("loadBeadsForChildren result",
+		"items_count", len(items))
 
 	return items, nil
 }

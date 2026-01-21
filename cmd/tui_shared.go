@@ -190,9 +190,9 @@ type beadFilters struct {
 	searchText string // fuzzy search text
 	sortBy     string // "default", "priority", "created", "title"
 
-	// Work selection filter - when set, only show beads with these IDs
-	// This is set when a task or root issue is selected in work details panel
-	workSelectionBeadIDs map[string]bool
+	// Entity-based filters (override status filter when set)
+	task     string // task ID - show beads assigned to this task
+	children string // bead ID - show children (dependents) of this bead
 }
 
 // beadTypes is the list of valid bead types

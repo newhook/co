@@ -97,18 +97,32 @@ func (p *IssuesPanel) GetHoveredIssue() int {
 
 // Render returns the issues panel content (without border/panel styling)
 func (p *IssuesPanel) Render(visibleLines int) string {
-	filterInfo := fmt.Sprintf("Filter: %s | Sort: %s", p.filters.status, p.filters.sortBy)
-	if p.filters.searchText != "" {
-		filterInfo += fmt.Sprintf(" | Search: %s", p.filters.searchText)
-	}
-	if p.filters.label != "" {
-		filterInfo += fmt.Sprintf(" | Label: %s", p.filters.label)
-	}
-	// Show work selection filter indicator (takes precedence over focus filter)
-	if len(p.filters.workSelectionBeadIDs) > 0 {
-		filterInfo = fmt.Sprintf("[%d beads] %s", len(p.filters.workSelectionBeadIDs), filterInfo)
-	} else if p.focusFilterActive && p.focusedWorkID != "" {
-		filterInfo = fmt.Sprintf("[FOCUS: %s] %s", p.focusedWorkID, filterInfo)
+	var filterInfo string
+
+	// When task or children filter is active, show simplified filter info
+	// (status filter is not applied in these modes)
+	if p.filters.task != "" {
+		filterInfo = fmt.Sprintf("[task:%s]", p.filters.task)
+		if p.filters.searchText != "" {
+			filterInfo += fmt.Sprintf(" | Search: %s", p.filters.searchText)
+		}
+	} else if p.filters.children != "" {
+		filterInfo = fmt.Sprintf("[children:%s]", p.filters.children)
+		if p.filters.searchText != "" {
+			filterInfo += fmt.Sprintf(" | Search: %s", p.filters.searchText)
+		}
+	} else {
+		// Normal filter display
+		filterInfo = fmt.Sprintf("Filter: %s | Sort: %s", p.filters.status, p.filters.sortBy)
+		if p.filters.searchText != "" {
+			filterInfo += fmt.Sprintf(" | Search: %s", p.filters.searchText)
+		}
+		if p.filters.label != "" {
+			filterInfo += fmt.Sprintf(" | Label: %s", p.filters.label)
+		}
+		if p.focusFilterActive && p.focusedWorkID != "" {
+			filterInfo = fmt.Sprintf("[FOCUS: %s] %s", p.focusedWorkID, filterInfo)
+		}
 	}
 
 	var content strings.Builder

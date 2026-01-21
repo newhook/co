@@ -642,7 +642,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.action == "Destroy work" {
 				m.focusedWorkID = ""
 				m.focusFilterActive = false
-				m.filters.workSelectionBeadIDs = nil
+				m.filters.task = ""
+				m.filters.children = ""
 			}
 		}
 		// Refresh data and work tiles
@@ -885,9 +886,10 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle escape key globally for deselecting focused work
 	if msg.Type == tea.KeyEsc && m.viewMode == ViewNormal && m.focusedWorkID != "" {
 		m.focusedWorkID = ""
-		m.focusFilterActive = false              // Clear focus filter when deselecting work
-		m.filters.workSelectionBeadIDs = nil     // Clear work selection filter
-		m.activePanel = PanelLeft                // Reset focus to issues panel
+		m.focusFilterActive = false   // Clear focus filter when deselecting work
+		m.filters.task = ""           // Clear work selection filter
+		m.filters.children = ""
+		m.activePanel = PanelLeft     // Reset focus to issues panel
 		m.statusMessage = "Work deselected"
 		m.statusIsError = false
 		// Refresh to show all issues again
@@ -1243,9 +1245,11 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			"key", "*",
 			"activePanel", m.activePanel,
 			"focusedWorkID", m.focusedWorkID,
-			"workSelectionBeadIDs_count", len(m.filters.workSelectionBeadIDs))
+			"task", m.filters.task,
+			"children", m.filters.children)
 		m.filters.status = "all"
-		m.filters.workSelectionBeadIDs = nil
+		m.filters.task = ""
+		m.filters.children = ""
 		m.workSelectionCleared = true // Prevent auto-restore on refresh
 		return m, m.refreshData()
 
@@ -1254,7 +1258,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			"key", "o",
 			"activePanel", m.activePanel,
 			"focusedWorkID", m.focusedWorkID,
-			"workSelectionBeadIDs_count", len(m.filters.workSelectionBeadIDs))
+			"task", m.filters.task,
+			"children", m.filters.children)
 		m.filters.status = "open"
 		return m, m.refreshData()
 
@@ -1264,7 +1269,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			"key", "c",
 			"activePanel", m.activePanel,
 			"focusedWorkID", m.focusedWorkID,
-			"workSelectionBeadIDs_count", len(m.filters.workSelectionBeadIDs))
+			"task", m.filters.task,
+			"children", m.filters.children)
 		m.filters.status = "closed"
 		return m, m.refreshData()
 
@@ -1274,7 +1280,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			"key", "r",
 			"activePanel", m.activePanel,
 			"focusedWorkID", m.focusedWorkID,
-			"workSelectionBeadIDs_count", len(m.filters.workSelectionBeadIDs))
+			"task", m.filters.task,
+			"children", m.filters.children)
 		m.filters.status = "ready"
 		return m, m.refreshData()
 
@@ -1688,46 +1695,34 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 // updateWorkSelectionFilter updates the bead filter based on the current work details selection
 // and triggers a data refresh
 func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
+	// Clear existing entity filters
+	m.filters.task = ""
+	m.filters.children = ""
+
 	if m.focusedWorkID == "" {
-		// No work focused, clear the filter
-		m.filters.workSelectionBeadIDs = nil
 		return nil
 	}
 
 	focusedWork := m.workDetails.GetFocusedWork()
 	if focusedWork == nil {
-		m.filters.workSelectionBeadIDs = nil
 		return nil
 	}
-
-	// Build the filter map based on what's selected
-	m.filters.workSelectionBeadIDs = make(map[string]bool)
 
 	if m.workDetails.IsTaskSelected() {
-		// Task selected - show only the beads directly assigned to that task
-		beadIDs := m.workDetails.GetSelectedBeadIDs()
-		for _, id := range beadIDs {
-			m.filters.workSelectionBeadIDs[id] = true
+		// Task selected - set task filter to show beads assigned to that task
+		selectedTaskID := m.workDetails.GetSelectedTaskID()
+		if selectedTaskID != "" {
+			m.filters.task = selectedTaskID
+			logging.Debug("updateWorkSelectionFilter - task selected",
+				"task", selectedTaskID)
 		}
 	} else {
-		// Root issue selected - show root issue and all work beads
-		// This includes the root and all beads assigned to this work
-		logging.Debug("updateWorkSelectionFilter - root selected",
-			"workBeads_count", len(focusedWork.workBeads),
-			"rootIssueID", focusedWork.work.RootIssueID)
-		for _, bp := range focusedWork.workBeads {
-			logging.Debug("adding workBead to filter", "id", bp.id)
-			m.filters.workSelectionBeadIDs[bp.id] = true
-		}
-		// Also ensure root issue is included (it may not be in workBeads if it's an epic)
+		// Root issue selected - set children filter to show dependents
 		if focusedWork.work.RootIssueID != "" {
-			m.filters.workSelectionBeadIDs[focusedWork.work.RootIssueID] = true
+			m.filters.children = focusedWork.work.RootIssueID
+			logging.Debug("updateWorkSelectionFilter - root selected",
+				"children", focusedWork.work.RootIssueID)
 		}
-	}
-
-	if len(m.filters.workSelectionBeadIDs) == 0 {
-		m.filters.workSelectionBeadIDs = nil
-		return nil
 	}
 
 	// Reset cursor to top when filter changes
