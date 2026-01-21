@@ -202,6 +202,69 @@ func (db *DB) CompleteWork(ctx context.Context, id, prURL string) error {
 	return nil
 }
 
+// CompleteWorkAndScheduleFeedback atomically marks a work as completed and schedules
+// PR feedback polling if a PR URL is provided. This ensures feedback polling is set up
+// exactly when the PR is created, using a transaction to prevent race conditions.
+func (db *DB) CompleteWorkAndScheduleFeedback(ctx context.Context, id, prURL string, prFeedbackInterval, commentResolutionInterval time.Duration) error {
+	tx, err := db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := db.queries.WithTx(tx)
+
+	// Complete the work
+	now := time.Now()
+	rows, err := qtx.CompleteWork(ctx, sqlc.CompleteWorkParams{
+		PrUrl:       prURL,
+		CompletedAt: nullTime(now),
+		ID:          id,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to complete work %s: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found", id)
+	}
+
+	// If PR URL provided, schedule feedback polling tasks
+	if prURL != "" {
+		// Schedule PR feedback check
+		prFeedbackCheckTime := now.Add(prFeedbackInterval)
+		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+			ID:          uuid.New().String(),
+			WorkID:      id,
+			TaskType:    TaskTypePRFeedback,
+			ScheduledAt: prFeedbackCheckTime,
+			Status:      TaskStatusPending,
+			Metadata:    "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+		}
+
+		// Schedule comment resolution check
+		commentResolutionCheckTime := now.Add(commentResolutionInterval)
+		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+			ID:          uuid.New().String(),
+			WorkID:      id,
+			TaskType:    TaskTypeCommentResolution,
+			ScheduledAt: commentResolutionCheckTime,
+			Status:      TaskStatusPending,
+			Metadata:    "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
 // FailWork marks a work as failed with an error message.
 func (db *DB) FailWork(ctx context.Context, id, errMsg string) error {
 	now := time.Now()

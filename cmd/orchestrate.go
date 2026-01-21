@@ -185,12 +185,16 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 					}
 				}
 
-				if err := proj.DB.CompleteWork(ctx, workID, prURL); err != nil {
+				// Use transactional function to complete work and schedule feedback polling atomically
+				prFeedbackInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
+				commentResolutionInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
+				if err := proj.DB.CompleteWorkAndScheduleFeedback(ctx, workID, prURL, prFeedbackInterval, commentResolutionInterval); err != nil {
 					fmt.Printf("Warning: failed to mark work as completed: %v\n", err)
 				} else {
 					fmt.Printf("\n=== Work %s completed ===\n", workID)
 					if prURL != "" {
 						fmt.Printf("PR: %s\n", prURL)
+						fmt.Println("PR feedback polling scheduled")
 					}
 					// Refresh work status
 					work, _ = proj.DB.GetWork(ctx, workID)
