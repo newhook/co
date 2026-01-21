@@ -520,7 +520,7 @@ func (c *Client) ListBeads(ctx context.Context, status string) ([]Bead, error) {
 // GetReadyBeads returns all open beads where all dependencies are satisfied.
 func (c *Client) GetReadyBeads(ctx context.Context) ([]Bead, error) {
 	// Get all open beads
-	ids, err := c.queries.GetIssueIDsByStatus(ctx, "open")
+	ids, err := c.queries.GetIssueIDsByStatus(ctx, StatusOpen)
 	if err != nil {
 		return nil, fmt.Errorf("fetching open bead IDs: %w", err)
 	}
@@ -545,7 +545,7 @@ func (c *Client) GetReadyBeads(ctx context.Context) ([]Bead, error) {
 		// Check if all blocking dependencies are satisfied
 		isReady := true
 		for _, dep := range result.Dependencies[id] {
-			if dep.Type == "blocks" && dep.Status != "closed" {
+			if dep.Type == "blocks" && dep.Status != StatusClosed {
 				isReady = false
 				break
 			}

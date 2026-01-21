@@ -74,7 +74,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 			}
 
 			// Only mark as completed if bead is actually closed
-			if bead.Status == "closed" {
+			if bead.Status == beads.StatusClosed {
 				if err := proj.DB.CompleteTaskBead(ctx, id, beadID); err != nil {
 					fmt.Printf("Warning: failed to mark bead %s as completed: %v\n", beadID, err)
 				} else {

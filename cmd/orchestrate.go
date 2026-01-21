@@ -434,7 +434,7 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 		expectedExternalRef := fmt.Sprintf("review-%s", reviewTask.ID)
 		for _, issue := range rootChildrenIssues {
 			if issue.ID != work.RootIssueID &&
-				(issue.Status == "" || issue.Status == "ready" || issue.Status == "open") &&
+				beads.IsWorkableStatus(issue.Status) &&
 				issue.ExternalRef == expectedExternalRef {
 				beadsToFix = append(beadsToFix, issue)
 			}
@@ -458,7 +458,7 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 					// Filter for any new open beads (not just review-created ones)
 					for _, issue := range rootChildrenIssues {
 						if issue.ID != work.RootIssueID &&
-							(issue.Status == "" || issue.Status == "ready" || issue.Status == "open") {
+							beads.IsWorkableStatus(issue.Status) {
 							// Check if this bead is already in a task
 							inTask, _ := proj.DB.IsBeadInTask(ctx, work.ID, issue.ID)
 							if !inTask {
@@ -657,7 +657,7 @@ func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project,
 			continue
 		}
 
-		if bead != nil && bead.Status == "CLOSED" {
+		if bead != nil && bead.Status == beads.StatusClosed {
 			closedBeadIDs = append(closedBeadIDs, *feedback.BeadID)
 		}
 	}

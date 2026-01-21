@@ -215,7 +215,7 @@ func fetchBeadsWithFilters(ctx context.Context, beadsClient *beads.Client, mainR
 	// Other values are passed directly as status filter
 	statusFilter := ""
 	filterOutClosed := false
-	if filters.status == "open" {
+	if filters.status == beads.StatusOpen {
 		// Fetch all and filter out closed
 		statusFilter = ""
 		filterOutClosed = true
@@ -231,7 +231,7 @@ func fetchBeadsWithFilters(ctx context.Context, beadsClient *beads.Client, mainR
 	if filterOutClosed {
 		filtered := make([]beads.Bead, 0, len(issuesList))
 		for _, issue := range issuesList {
-			if issue.Status != "closed" {
+			if issue.Status != beads.StatusClosed {
 				filtered = append(filtered, issue)
 			}
 		}
@@ -477,7 +477,7 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Beads filter keys (only at depth 0 when beads panel active)
 	case "o": // Show open issues
 		if m.isBeadsPanelActive() {
-			m.filters.status = "open"
+			m.filters.status = beads.StatusOpen
 			m.beadsCursor = 0
 			return m, m.fetchData()
 		}
@@ -530,7 +530,7 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		// "c" on beads panel shows closed issues
 		if m.isBeadsPanelActive() {
-			m.filters.status = "closed"
+			m.filters.status = beads.StatusClosed
 			m.beadsCursor = 0
 			return m, m.fetchData()
 		}
@@ -601,7 +601,7 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		if m.isBeadsPanelActive() && len(m.beadItems) > 0 {
 			bead := m.beadItems[m.beadsCursor]
-			if bead.Status == "open" {
+			if bead.Status == beads.StatusOpen {
 				m.viewMode = ViewCloseBeadConfirm
 			}
 		}
@@ -611,7 +611,7 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "X":
 		if m.isBeadsPanelActive() && len(m.beadItems) > 0 {
 			bead := m.beadItems[m.beadsCursor]
-			if bead.Status == "closed" {
+			if bead.Status == beads.StatusClosed {
 				return m, m.reopenBead(bead.ID)
 			}
 		}
@@ -1641,7 +1641,7 @@ func (m tuiModel) renderBeadItemDetails(bead beadItem, width int) string {
 	}
 
 	b.WriteString(tuiLabelStyle.Render("Status: "))
-	if bead.Status == "open" {
+	if bead.Status == beads.StatusOpen {
 		b.WriteString(statusProcessing.Render(bead.Status))
 	} else {
 		b.WriteString(statusCompleted.Render(bead.Status))

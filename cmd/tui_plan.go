@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/beads/watcher"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
@@ -1260,7 +1261,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			"focusedWorkID", m.focusedWorkID,
 			"task", m.filters.task,
 			"children", m.filters.children)
-		m.filters.status = "open"
+		m.filters.status = beads.StatusOpen
 		return m, m.refreshData()
 
 	case "c":
@@ -1271,7 +1272,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			"focusedWorkID", m.focusedWorkID,
 			"task", m.filters.task,
 			"children", m.filters.children)
-		m.filters.status = "closed"
+		m.filters.status = beads.StatusClosed
 		return m, m.refreshData()
 
 	case "r":
