@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
@@ -516,13 +518,6 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 		return nil, err
 	}
 
-	// Push branch and set upstream
-	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
-		worktree.RemoveForce(mainRepoPath, worktreePath)
-		os.RemoveAll(workDir)
-		return nil, err
-	}
-
 	// Initialize mise in worktree if needed
 	if err := mise.InitializeWithOutput(worktreePath, output); err != nil {
 		// Non-fatal warning
@@ -536,11 +531,36 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 		fmt.Fprintf(output, "Warning: failed to get worker name: %v\n", err)
 	}
 
-	// Create work record in database
+	// Create work record in database FIRST (transactional outbox pattern)
+	// This ensures the work record exists before attempting the push
 	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID); err != nil {
 		worktree.RemoveForce(mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return nil, fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Schedule git push task with idempotency key for retry support
+	idempotencyKey := fmt.Sprintf("git-push-%s-%s", workID, branchName)
+	_, err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeGitPush, time.Now(), map[string]string{
+		"branch": branchName,
+		"dir":    worktreePath,
+	}, idempotencyKey, db.DefaultMaxAttempts)
+	if err != nil {
+		logging.Warn("failed to schedule git push task", "error", err, "work_id", workID)
+	}
+
+	// Attempt immediate push (optimistic execution)
+	// If this succeeds, we mark the scheduled task as completed
+	// If this fails, the scheduler will retry the push with exponential backoff
+	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
+		logging.Warn("Initial git push failed, scheduler will retry", "error", err, "work_id", workID, "branch", branchName)
+		// Don't return error - work is created, scheduler will handle the push
+		fmt.Fprintf(output, "Warning: initial push failed, will retry in background: %v\n", err)
+	} else {
+		// Push succeeded - mark the scheduled task as completed via idempotency key
+		if err := proj.DB.MarkTaskCompletedByIdempotencyKey(ctx, idempotencyKey); err != nil {
+			logging.Warn("failed to mark git push task as completed", "error", err, "work_id", workID)
+		}
 	}
 
 	return &WorkCreateResult{
