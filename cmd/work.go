@@ -564,14 +564,13 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	}, nil
 }
 
-// CreateWorkFromBeads creates a work unit from one or more bead IDs.
+// CreateWorkFromBeads creates a work unit from a single bead ID.
 // It expands epics and transitive dependencies, generates a branch name from the bead titles,
 // and adds all beads to the work.
-// The first bead ID is used as the root issue for the work.
 // This is the core logic that can be called from both the CLI and TUI.
-func CreateWorkFromBeads(ctx context.Context, proj *project.Project, beadIDs []string, baseBranch string, opts ...WorkCreateOptions) (*WorkCreateResult, error) {
-	if len(beadIDs) == 0 {
-		return nil, fmt.Errorf("no bead IDs provided")
+func CreateWorkFromBeads(ctx context.Context, proj *project.Project, beadID string, baseBranch string, opts ...WorkCreateOptions) (*WorkCreateResult, error) {
+	if beadID == "" {
+		return nil, fmt.Errorf("no bead ID provided")
 	}
 
 	// Apply options
@@ -581,22 +580,12 @@ func CreateWorkFromBeads(ctx context.Context, proj *project.Project, beadIDs []s
 	}
 
 	mainRepoPath := proj.MainRepoPath()
-	rootBeadID := beadIDs[0] // First bead becomes the root issue
+	rootBeadID := beadID // This bead becomes the root issue
 
-	// Expand all beads (handles epics and transitive deps)
-	var allExpandedIDs []string
-	seenIDs := make(map[string]bool)
-	for _, beadID := range beadIDs {
-		expandedIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
-		if err != nil {
-			return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
-		}
-		for _, id := range expandedIDs {
-			if !seenIDs[id] {
-				seenIDs[id] = true
-				allExpandedIDs = append(allExpandedIDs, id)
-			}
-		}
+	// Expand the bead (handles epics and transitive deps)
+	allExpandedIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 	}
 
 	if len(allExpandedIDs) == 0 {

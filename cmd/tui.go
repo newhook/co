@@ -835,18 +835,13 @@ func (m tuiModel) updateCreateWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "b":
-		// Use selected beads to auto-generate branch name
-		var selectedIDs []string
-		for id, selected := range m.selectedBeads {
-			if selected {
-				selectedIDs = append(selectedIDs, id)
-			}
-		}
-		if len(selectedIDs) > 0 {
+		// Create work from cursor bead
+		if m.isBeadsPanelActive() && len(m.beadItems) > 0 {
+			beadID := m.beadItems[m.beadsCursor].ID
 			m.viewMode = ViewNormal
-			return m, m.createWorkWithBeads(selectedIDs)
+			return m, m.createWorkFromBead(beadID)
 		}
-		m.statusMessage = "No beads selected"
+		m.statusMessage = "No bead under cursor"
 		m.statusIsError = true
 		return m, nil
 	}
@@ -1071,13 +1066,13 @@ func (m tuiModel) createWork(branchName string) tea.Cmd {
 	}
 }
 
-func (m tuiModel) createWorkWithBeads(beadIDs []string) tea.Cmd {
+func (m tuiModel) createWorkFromBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		result, err := CreateWorkFromBeads(m.ctx, m.proj, beadIDs, "main", WorkCreateOptions{Silent: true})
+		result, err := CreateWorkFromBeads(m.ctx, m.proj, beadID, "main", WorkCreateOptions{Silent: true})
 		if err != nil {
 			return tuiCommandMsg{action: "Create work", err: err}
 		}
-		return tuiCommandMsg{action: fmt.Sprintf("Created work %s (from beads)", result.WorkID)}
+		return tuiCommandMsg{action: fmt.Sprintf("Created work %s", result.WorkID)}
 	}
 }
 
@@ -1167,21 +1162,16 @@ func (m tuiModel) runSelectedWork() (tea.Model, tea.Cmd) {
 }
 
 func (m tuiModel) runAutomatedWorkflow() (tea.Model, tea.Cmd) {
-	// Get selected beads
-	var selectedIDs []string
-	for id, selected := range m.selectedBeads {
-		if selected {
-			selectedIDs = append(selectedIDs, id)
-		}
-	}
-	if len(selectedIDs) == 0 {
-		m.statusMessage = "No beads selected for automated workflow"
+	// Use cursor bead for automated workflow
+	if !m.isBeadsPanelActive() || len(m.beadItems) == 0 {
+		m.statusMessage = "No bead under cursor for automated workflow"
 		m.statusIsError = true
 		return m, nil
 	}
+	beadID := m.beadItems[m.beadsCursor].ID
 
 	return m, func() tea.Msg {
-		result, err := CreateWorkFromBeads(m.ctx, m.proj, selectedIDs, "main", WorkCreateOptions{Silent: true})
+		result, err := CreateWorkFromBeads(m.ctx, m.proj, beadID, "main", WorkCreateOptions{Silent: true})
 		if err != nil {
 			return tuiCommandMsg{action: "Automated workflow", err: err}
 		}
