@@ -196,9 +196,9 @@ func (m *planModel) renderPlanDialogContent() string {
 	workID := m.focusedWorkID
 
 	content := fmt.Sprintf(`
-  Plan Work: %s
+  Run Work: %s
 
-  Choose how to create tasks:
+  Choose how to group tasks:
 
   [a] Auto-group    Group related beads into tasks
   [s] Single-bead   One task per bead

@@ -78,9 +78,8 @@ type planModel struct {
 	lastUpdate    time.Time
 
 	// Work overlay state
-	focusedWorkID           string // ID of focused work (splits screen)
-	focusFilterActive       bool   // Whether focus filter is active
-	workSelectionCleared    bool   // User manually cleared work selection filter (don't auto-restore)
+	focusedWorkID        string // ID of focused work (splits screen)
+	workSelectionCleared bool   // User manually cleared work selection filter (don't auto-restore)
 	pendingWorkSelectIndex  int    // Index of work to select after tiles load (-1 = none)
 
 	// Multi-select state
@@ -381,7 +380,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.activePanel = PanelWorkDetails
 							m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 							m.statusIsError = false
-							m.focusFilterActive = false
 
 							// Set up the work details panel
 							focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
@@ -641,7 +639,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// If work was destroyed, clear the focused work
 			if msg.action == "Destroy work" {
 				m.focusedWorkID = ""
-				m.focusFilterActive = false
 				m.filters.task = ""
 				m.filters.children = ""
 			}
@@ -886,10 +883,9 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle escape key globally for deselecting focused work
 	if msg.Type == tea.KeyEsc && m.viewMode == ViewNormal && m.focusedWorkID != "" {
 		m.focusedWorkID = ""
-		m.focusFilterActive = false   // Clear focus filter when deselecting work
-		m.filters.task = ""           // Clear work selection filter
+		m.filters.task = ""     // Clear work selection filter
 		m.filters.children = ""
-		m.activePanel = PanelLeft     // Reset focus to issues panel
+		m.activePanel = PanelLeft // Reset focus to issues panel
 		m.statusMessage = "Work deselected"
 		m.statusIsError = false
 		// Refresh to show all issues again
@@ -1041,8 +1037,6 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.activePanel = PanelWorkDetails
 			m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 			m.statusIsError = false
-			// Reset focus filter when selecting a new work
-			m.focusFilterActive = false
 
 			// Set up the work selection filter with the work's beads
 			// First, ensure workDetails has the focused work so we can get bead IDs
@@ -1089,19 +1083,19 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case ViewPlanDialog:
-		// Handle plan dialog
+		// Handle run dialog (choose task grouping)
 		switch msg.String() {
 		case "a", "A":
 			// Auto-group
 			if m.focusedWorkID != "" {
 				m.viewMode = ViewNormal
-				return m, m.planFocusedWork(true)
+				return m, m.runFocusedWork(true)
 			}
 		case "s", "S":
 			// Single-bead tasks
 			if m.focusedWorkID != "" {
 				m.viewMode = ViewNormal
-				return m, m.planFocusedWork(false)
+				return m, m.runFocusedWork(false)
 			}
 		case "esc":
 			m.viewMode = ViewNormal
@@ -1125,11 +1119,9 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openConsole()
 		case WorkDetailActionOpenClaude:
 			return m, m.openClaude()
-		case WorkDetailActionPlan:
+		case WorkDetailActionRun:
 			m.viewMode = ViewPlanDialog
 			return m, cmd
-		case WorkDetailActionRun:
-			return m, m.runFocusedWork()
 		case WorkDetailActionReview:
 			return m, m.createReviewTask()
 		case WorkDetailActionPR:
@@ -1297,23 +1289,6 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.refreshData()
 
-	case "f":
-		// Toggle focus filter (only works if a work is focused)
-		if m.focusedWorkID != "" {
-			m.focusFilterActive = !m.focusFilterActive
-			if m.focusFilterActive {
-				m.statusMessage = fmt.Sprintf("Focus filter enabled for work %s", m.focusedWorkID)
-			} else {
-				m.statusMessage = "Focus filter disabled"
-			}
-			m.statusIsError = false
-			return m, m.refreshData()
-		} else {
-			m.statusMessage = "Focus filter requires a focused work (press 'W' to select a work)"
-			m.statusIsError = true
-		}
-		return m, nil
-
 	case "v":
 		m.beadsExpanded = !m.beadsExpanded
 		return m, nil
@@ -1359,13 +1334,6 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.spawnPlanSession(beadID)
 		}
 		return m, nil
-
-	case "W":
-		// Show work overlay
-		m.viewMode = ViewWorkOverlay
-		m.activePanel = PanelWorkOverlay
-		m.loading = true
-		return m, tea.Batch(m.workOverlay.Init(), m.loadWorkTiles())
 
 	case "w":
 		// Create work from cursor bead - show dialog
@@ -1430,7 +1398,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "A":
 		// Add selected issue(s) to the focused work
 		if m.focusedWorkID == "" {
-			m.statusMessage = "Select a work first (press 'W' to open work overlay)"
+			m.statusMessage = "Select a work first (press '0' to open work overlay)"
 			m.statusIsError = true
 			return m, nil
 		}
@@ -1531,7 +1499,7 @@ func (m *planModel) syncPanels() {
 		m.activeBeadSessions,
 		m.newBeads,
 	)
-	m.issuesPanel.SetWorkContext(m.focusedWorkID, m.focusFilterActive)
+	m.issuesPanel.SetWorkContext(m.focusedWorkID)
 	m.issuesPanel.SetHoveredIssue(m.hoveredIssue)
 
 	// Sync details panel
@@ -1773,7 +1741,6 @@ func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
 	m.activePanel = PanelWorkDetails
 	m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 	m.statusIsError = false
-	m.focusFilterActive = false
 
 	// Set up the work details panel
 	m.workDetails.SetFocusedWork(work)
