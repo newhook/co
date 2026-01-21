@@ -462,13 +462,21 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Handle panel clicking in focused work mode
 				if m.focusedWorkID != "" {
 					clickedPanel := m.detectClickedPanel(msg.X, msg.Y)
+					logging.Debug("click in focused work mode",
+						"mouseX", msg.X,
+						"mouseY", msg.Y,
+						"clickedPanel", clickedPanel)
 					switch clickedPanel {
 					case "work-left":
 						// Check if clicking on a task or root issue
 						clickedItem := m.workDetails.DetectClickedItem(msg.X, msg.Y)
+						logging.Debug("work-left click detection",
+							"clickedItem", clickedItem)
 						if clickedItem >= 0 {
 							m.workDetails.SetSelectedIndex(clickedItem)
 							m.activePanel = PanelWorkDetails
+							logging.Debug("set selected index",
+								"newIndex", clickedItem)
 							// Update filter to show beads for clicked item
 							return m, m.updateWorkSelectionFilter()
 						}

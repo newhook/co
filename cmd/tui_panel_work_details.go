@@ -757,7 +757,15 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 
 // DetectClickedItem determines which item was clicked and returns its index
 func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
+	logging.Debug("DetectClickedItem called",
+		"x", x,
+		"y", y,
+		"panelWidth", p.width,
+		"panelHeight", p.height,
+		"hasFocusedWork", p.focusedWork != nil)
+
 	if p.focusedWork == nil {
+		logging.Debug("DetectClickedItem: no focused work")
 		return -1
 	}
 
@@ -768,13 +776,20 @@ func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
 	totalContentWidth := p.width - 4
 	leftWidth := int(float64(totalContentWidth) * p.columnRatio)
 
+	logging.Debug("DetectClickedItem bounds",
+		"leftWidth", leftWidth,
+		"workPanelHeight", workPanelHeight,
+		"columnRatio", p.columnRatio)
+
 	// Check if click is within left panel bounds (where items are displayed)
 	if x > leftWidth+2 {
+		logging.Debug("DetectClickedItem: x out of bounds", "x", x, "maxX", leftWidth+2)
 		return -1
 	}
 
 	// Check if y is within panel height
 	if y >= workPanelHeight {
+		logging.Debug("DetectClickedItem: y out of bounds", "y", y, "maxY", workPanelHeight)
 		return -1
 	}
 
@@ -811,7 +826,17 @@ func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
 		availableLines = 1
 	}
 
+	logging.Debug("DetectClickedItem layout",
+		"headerLines", headerLines,
+		"firstItemY", firstItemY,
+		"availableLines", availableLines,
+		"yInRange", y >= firstItemY && y < firstItemY+availableLines)
+
 	if y < firstItemY || y >= firstItemY+availableLines {
+		logging.Debug("DetectClickedItem: y not in item range",
+			"y", y,
+			"firstItemY", firstItemY,
+			"lastItemY", firstItemY+availableLines-1)
 		return -1
 	}
 
@@ -826,6 +851,13 @@ func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
 
 	lineIndex := y - firstItemY
 	itemIndex := startIdx + lineIndex
+
+	logging.Debug("DetectClickedItem result",
+		"lineIndex", lineIndex,
+		"startIdx", startIdx,
+		"itemIndex", itemIndex,
+		"totalItems", totalItems,
+		"inBounds", itemIndex >= 0 && itemIndex < totalItems)
 
 	if itemIndex >= 0 && itemIndex < totalItems {
 		return itemIndex
