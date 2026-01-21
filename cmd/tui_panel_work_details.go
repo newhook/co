@@ -454,6 +454,8 @@ func (p *WorkDetailsPanel) renderTaskLine(content *strings.Builder, taskIdx int,
 		taskType = "est"
 	case "review":
 		taskType = "rev"
+	case "pr":
+		taskType = "pr"
 	}
 
 	content.WriteString(prefix)
