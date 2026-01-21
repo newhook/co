@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -11,12 +12,31 @@ import (
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
+	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
 )
 
 // StartSchedulerWatcher starts a goroutine that watches for scheduled tasks.
-// It polls the scheduler table and executes tasks when they're due.
+// It uses the tracking database watcher to detect changes and executes tasks when they're due.
 func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID string) {
-	logging.Info("Starting scheduler watcher", "work_id", workID)
+	logging.Info("Starting scheduler watcher with database events", "work_id", workID)
+
+	// Initialize tracking database watcher
+	trackingDBPath := filepath.Join(proj.Root, ".co", "tracking.db")
+	watcher, err := trackingwatcher.New(trackingwatcher.DefaultConfig(trackingDBPath))
+	if err != nil {
+		logging.Error("Failed to create tracking watcher, falling back to polling", "error", err)
+		// Fall back to polling-based approach
+		go startSchedulerPolling(ctx, proj, workID)
+		return
+	}
+
+	if err := watcher.Start(); err != nil {
+		logging.Error("Failed to start tracking watcher, falling back to polling", "error", err)
+		watcher.Stop()
+		// Fall back to polling-based approach
+		go startSchedulerPolling(ctx, proj, workID)
+		return
+	}
 
 	go func() {
 		// Recover from any panics
@@ -24,6 +44,7 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 			if r := recover(); r != nil {
 				logging.Error("scheduler watcher panicked", "error", r)
 			}
+			watcher.Stop()
 		}()
 
 		logging.Debug("Scheduler watcher started", "work_id", workID)
@@ -56,12 +77,16 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 			logging.Debug("No PR URL yet, skipping initial scheduling (will be scheduled when PR is created)", "work_id", workID)
 		}
 
-		// Poll the scheduler table at configured interval
-		schedulerPollInterval := proj.Config.Scheduler.GetSchedulerPollInterval()
-		ticker := time.NewTicker(schedulerPollInterval)
-		defer ticker.Stop()
+		// Subscribe to watcher events
+		sub := watcher.Broker().Subscribe(ctx)
 
-		logging.Debug("Starting scheduler polling loop", "work_id", workID, "poll_interval", schedulerPollInterval)
+		logging.Debug("Starting scheduler event-driven loop", "work_id", workID)
+
+		// Also set up a timer to check for due tasks periodically (as a safety net)
+		// This ensures tasks don't get stuck if they become due between DB changes
+		checkInterval := 30 * time.Second
+		checkTimer := time.NewTimer(checkInterval)
+		defer checkTimer.Stop()
 
 		lastLogTime := time.Now()
 		for {
@@ -69,65 +94,101 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 			case <-ctx.Done():
 				logging.Debug("Scheduler watcher stopping due to context cancellation", "work_id", workID)
 				return
-			case <-ticker.C:
-				// Get pending tasks for this work
-				tasks, err := proj.DB.GetScheduledTasksForWork(ctx, workID)
-				if err != nil {
-					logging.Warn("failed to get scheduled tasks", "error", err)
-					continue
+
+			case event, ok := <-sub:
+				if !ok {
+					logging.Debug("Watcher subscription closed", "work_id", workID)
+					return
 				}
 
-				// Log periodically that we're still polling (every minute)
+				// Handle database change event
+				if event.Payload.Type == trackingwatcher.DBChanged {
+					logging.Debug("Database changed, checking scheduled tasks", "work_id", workID)
+					processDueTasks(ctx, proj, workID)
+				}
+
+			case <-checkTimer.C:
+				// Periodic check as a safety net
 				if time.Since(lastLogTime) > time.Minute {
-					logging.Debug("Scheduler still polling", "work_id", workID, "pending_tasks", len(tasks))
+					logging.Debug("Scheduler periodic check", "work_id", workID)
 					lastLogTime = time.Now()
 				}
-
-				// Process any tasks that are due
-				for _, task := range tasks {
-					if task.ScheduledAt.After(time.Now()) {
-						// Not due yet
-						continue
-					}
-
-					logging.Info("Executing scheduled task", "task_id", task.ID, "task_type", task.TaskType, "work_id", workID, "scheduled_at", task.ScheduledAt.Format(time.RFC3339))
-
-					// Mark as executing
-					if err := proj.DB.MarkTaskExecuting(ctx, task.ID); err != nil {
-						logging.Warn("failed to mark task as executing", "error", err)
-						continue
-					}
-
-					// Execute based on task type
-					var taskErr error
-					switch task.TaskType {
-					case db.TaskTypePRFeedback:
-						logging.Debug("Handling PR feedback task", "task_id", task.ID, "work_id", workID)
-						handlePRFeedbackTask(ctx, proj, workID, task)
-					case db.TaskTypeCommentResolution:
-						logging.Debug("Handling comment resolution task", "task_id", task.ID, "work_id", workID)
-						handleCommentResolutionTask(ctx, proj, workID, task)
-					case db.TaskTypeGitPush:
-						logging.Debug("Handling git push task", "task_id", task.ID, "work_id", workID)
-						taskErr = handleGitPushTask(ctx, proj, workID, task)
-					case db.TaskTypeGitHubComment:
-						logging.Debug("Handling GitHub comment task", "task_id", task.ID, "work_id", workID)
-						taskErr = handleGitHubCommentTask(ctx, proj, workID, task)
-					case db.TaskTypeGitHubResolveThread:
-						logging.Debug("Handling GitHub resolve thread task", "task_id", task.ID, "work_id", workID)
-						taskErr = handleGitHubResolveThreadTask(ctx, proj, workID, task)
-					default:
-						taskErr = fmt.Errorf("unknown task type: %s", task.TaskType)
-					}
-
-					// Handle task result for one-shot tasks
-					if taskErr != nil {
-						handleTaskError(ctx, proj, task, taskErr.Error())
-					}
-				}
+				processDueTasks(ctx, proj, workID)
+				checkTimer.Reset(checkInterval)
 			}
 		}
 	}()
+}
+
+// startSchedulerPolling is a fallback function that uses polling when watcher fails
+func startSchedulerPolling(ctx context.Context, proj *project.Project, workID string) {
+	logging.Info("Starting scheduler with polling fallback", "work_id", workID)
+
+	schedulerPollInterval := proj.Config.Scheduler.GetSchedulerPollInterval()
+	ticker := time.NewTicker(schedulerPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			processDueTasks(ctx, proj, workID)
+		}
+	}
+}
+
+// processDueTasks checks for and executes any scheduled tasks that are due
+func processDueTasks(ctx context.Context, proj *project.Project, workID string) {
+	// Get pending tasks for this work
+	tasks, err := proj.DB.GetScheduledTasksForWork(ctx, workID)
+	if err != nil {
+		logging.Warn("failed to get scheduled tasks", "error", err)
+		return
+	}
+
+	// Process any tasks that are due
+	for _, task := range tasks {
+		if task.ScheduledAt.After(time.Now()) {
+			// Not due yet
+			continue
+		}
+
+		logging.Info("Executing scheduled task", "task_id", task.ID, "task_type", task.TaskType, "work_id", workID, "scheduled_at", task.ScheduledAt.Format(time.RFC3339))
+
+		// Mark as executing
+		if err := proj.DB.MarkTaskExecuting(ctx, task.ID); err != nil {
+			logging.Warn("failed to mark task as executing", "error", err)
+			continue
+		}
+
+		// Execute based on task type
+		var taskErr error
+		switch task.TaskType {
+		case db.TaskTypePRFeedback:
+			logging.Debug("Handling PR feedback task", "task_id", task.ID, "work_id", workID)
+			handlePRFeedbackTask(ctx, proj, workID, task)
+		case db.TaskTypeCommentResolution:
+			logging.Debug("Handling comment resolution task", "task_id", task.ID, "work_id", workID)
+			handleCommentResolutionTask(ctx, proj, workID, task)
+		case db.TaskTypeGitPush:
+			logging.Debug("Handling git push task", "task_id", task.ID, "work_id", workID)
+			taskErr = handleGitPushTask(ctx, proj, workID, task)
+		case db.TaskTypeGitHubComment:
+			logging.Debug("Handling GitHub comment task", "task_id", task.ID, "work_id", workID)
+			taskErr = handleGitHubCommentTask(ctx, proj, workID, task)
+		case db.TaskTypeGitHubResolveThread:
+			logging.Debug("Handling GitHub resolve thread task", "task_id", task.ID, "work_id", workID)
+			taskErr = handleGitHubResolveThreadTask(ctx, proj, workID, task)
+		default:
+			taskErr = fmt.Errorf("unknown task type: %s", task.TaskType)
+		}
+
+		// Handle task result for one-shot tasks
+		if taskErr != nil {
+			handleTaskError(ctx, proj, task, taskErr.Error())
+		}
+	}
 }
 
 // handlePRFeedbackTask handles a scheduled PR feedback check.
