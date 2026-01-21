@@ -29,10 +29,10 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	totalHeight := m.height - 1 // -1 for status bar
 
 	// Calculate work panel height
-	// calculateWorkOverlayHeight returns content height (12-25)
+	// calculateWorkPanelHeight returns content height (12-25)
 	// Add 2 for border to get total panel height
 	// WorkDetailsPanel.Render() uses Height(p.height-2), so rendered = p.height
-	workPanelHeight := m.calculateWorkOverlayHeight() + 2
+	workPanelHeight := m.calculateWorkPanelHeight() + 2
 	planPanelHeight := totalHeight - workPanelHeight
 
 	// Update work details panel size and render (same pattern as IssuesPanel)
@@ -78,8 +78,7 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 // renderTwoColumnLayout renders the issues and details panels side-by-side
 func (m *planModel) renderTwoColumnLayout() string {
 	// Check if a work is focused - if so, render split view
-	// But not when work overlay is open - the overlay takes precedence
-	if m.focusedWorkID != "" && m.viewMode != ViewWorkOverlay {
+	if m.focusedWorkID != "" {
 		return m.renderFocusedWorkSplitView()
 	}
 
@@ -137,7 +136,7 @@ func (m *planModel) detectHoveredIssue(y int) int {
 		// In focused work mode, the issues panel is below the work panel
 		// Use the same height calculation as renderFocusedWorkSplitView
 		totalHeight := m.height - 1 - tabsBarHeight // -1 for status bar, - tabs bar
-		workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
 		issuesPanelStartY = tabsBarHeight + workPanelHeight
 		contentHeight = totalHeight - workPanelHeight
 	} else {
@@ -183,8 +182,8 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	return -1
 }
 
-// calculateWorkOverlayHeight returns the height of the work overlay dropdown
-func (m *planModel) calculateWorkOverlayHeight() int {
+// calculateWorkPanelHeight returns the height of the work details panel
+func (m *planModel) calculateWorkPanelHeight() int {
 	dropdownHeight := int(float64(m.height) * 0.4)
 	if dropdownHeight < 12 {
 		dropdownHeight = 12
@@ -194,8 +193,8 @@ func (m *planModel) calculateWorkOverlayHeight() int {
 	return dropdownHeight
 }
 
-// detectHoveredIssueWithOffset detects issue hover when content is offset by overlay
-func (m *planModel) detectHoveredIssueWithOffset(y int, overlayHeight int) int {
+// detectHoveredIssueWithOffset detects issue hover when content is offset by work panel
+func (m *planModel) detectHoveredIssueWithOffset(y int, offsetHeight int) int {
 	// Check if mouse X is within the issues panel
 	totalContentWidth := m.width - 4
 	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
@@ -205,9 +204,9 @@ func (m *planModel) detectHoveredIssueWithOffset(y int, overlayHeight int) int {
 		return -1
 	}
 
-	// Calculate the adjusted Y position relative to the content below overlay
-	// The content starts at overlayHeight
-	adjustedY := y - overlayHeight
+	// Calculate the adjusted Y position relative to the content below work panel
+	// The content starts at offsetHeight
+	adjustedY := y - offsetHeight
 
 	// Layout within panel content (same as detectHoveredIssue):
 	// Y=0: Top border
@@ -224,8 +223,8 @@ func (m *planModel) detectHoveredIssueWithOffset(y int, overlayHeight int) int {
 		return -1
 	}
 
-	// Calculate content height (reduced by overlay)
-	contentHeight := m.height - overlayHeight - 1 // -1 for status bar
+	// Calculate content height (reduced by work panel)
+	contentHeight := m.height - offsetHeight - 1 // -1 for status bar
 	issuesContentLines := contentHeight - 3
 	visibleItems := max(issuesContentLines-1, 1)
 
@@ -263,7 +262,7 @@ func (m *planModel) detectClickedPanel(x, y int) string {
 	}
 
 	// Calculate panel boundaries using same formula as renderFocusedWorkSplitView
-	workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+	workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
 	halfWidth := (m.width - 4) / 2                        // Half width
 
 	// Determine Y section (top = work, bottom = issues)
@@ -642,6 +641,7 @@ func (m *planModel) renderHelp() string {
   Navigation
   ────────────────────────────
   j/k, ↑/↓      Navigate list
+  1-9           Select work by position
   p             Start/Resume planning session
 
   Issue Management

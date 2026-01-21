@@ -135,7 +135,6 @@ const (
 	PanelMiddle                   // Middle panel at current depth (used by tui.go)
 	PanelRight                    // Right panel (details/forms)
 	PanelWorkDetails              // Work details in split view
-	PanelWorkOverlay              // Work overlay tiles
 )
 
 // ViewMode represents the current view mode
@@ -157,7 +156,6 @@ const (
 	ViewLabelFilter
 	ViewLinearImportInline // Import from Linear (inline in details panel)
 	ViewHelp
-	ViewWorkOverlay // Work overlay system showing work tiles
 )
 
 // workItem represents a work unit for selection

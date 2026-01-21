@@ -747,7 +747,6 @@ func (p *WorkDetailsPanel) NavigateTaskDown() {
 }
 
 // Update handles key events and returns an action.
-// This follows the same pattern as WorkOverlayPanel for consistency.
 func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 	switch msg.String() {
 	case "j", "down":
