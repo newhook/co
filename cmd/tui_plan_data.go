@@ -5,7 +5,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/newhook/co/internal/beads"
@@ -339,12 +338,6 @@ func (m *planModel) openInEditor(beadID string) tea.Cmd {
 	})
 }
 
-// startPeriodicRefresh starts the periodic refresh timer
-func (m *planModel) startPeriodicRefresh() tea.Cmd {
-	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
-		return planTickMsg(t)
-	})
-}
 
 // importLinearIssue imports Linear issues (supports multiple IDs/URLs)
 func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {

@@ -228,7 +228,7 @@ func (m *planModel) FocusChanged(focused bool) tea.Cmd {
 	if focused {
 		// Refresh data when gaining focus
 		m.loading = true
-		cmds := []tea.Cmd{m.refreshData(), m.startPeriodicRefresh()}
+		cmds := []tea.Cmd{m.refreshData()}
 		// Load work tiles if a work is focused
 		if m.focusedWorkID != "" {
 			cmds = append(cmds, m.loadWorkTiles())
@@ -249,7 +249,6 @@ func (m *planModel) Init() tea.Cmd {
 		m.spinner.Tick,
 		m.workTabsBar.GetSpinner().Tick, // Tick the tabs bar spinner
 		m.refreshData(),
-		m.startPeriodicRefresh(),
 		m.loadWorkTiles(), // Load work tiles for the tabs bar
 	}
 
@@ -698,12 +697,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case planTickMsg:
-		// Refresh data and continue periodic refresh
-		// Always refresh work tiles for the tabs bar
-		cmds := []tea.Cmd{m.refreshData(), m.startPeriodicRefresh(), m.loadWorkTiles()}
-		return m, tea.Batch(cmds...)
-
 	case planStatusMsg:
 		m.statusMessage = msg.message
 		m.statusIsError = msg.isError
@@ -935,9 +928,6 @@ type planStatusMsg struct {
 	message string
 	isError bool
 }
-
-// planTickMsg triggers periodic refresh
-type planTickMsg time.Time
 
 // planSessionSpawnedMsg indicates a planning session was spawned or resumed
 type planSessionSpawnedMsg struct {
