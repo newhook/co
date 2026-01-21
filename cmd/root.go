@@ -13,6 +13,9 @@ var (
 	// rootCtx holds the signal-cancellable context for the application
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
+
+	// flagNoMouse disables mouse support in the TUI
+	flagNoMouse bool
 )
 
 var rootCmd = &cobra.Command{
@@ -38,7 +41,7 @@ var rootCmd = &cobra.Command{
 		}
 		defer proj.Close()
 
-		if err := runRootTUI(ctx, proj, true); err != nil {
+		if err := runRootTUI(ctx, proj, !flagNoMouse); err != nil {
 			return fmt.Errorf("error running TUI: %w", err)
 		}
 		return nil
@@ -60,6 +63,10 @@ func GetContext() context.Context {
 }
 
 func init() {
+	// Add TUI flags to root command (when run without subcommand)
+	rootCmd.Flags().BoolVar(&flagNoMouse, "no-mouse", false, "disable mouse support in the TUI")
+
+	// Add subcommands
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(completeCmd)
 	rootCmd.AddCommand(statusCmd)
