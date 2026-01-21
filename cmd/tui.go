@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -1064,26 +1063,21 @@ func (m tuiModel) updateLabelFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // Command functions
 func (m tuiModel) createWork(branchName string) tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command("co", "work", "create", branchName)
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", "", WorkCreateOptions{Silent: true})
 		if err != nil {
-			return tuiCommandMsg{action: "Create work", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Create work", err: err}
 		}
-		return tuiCommandMsg{action: "Create work"}
+		return tuiCommandMsg{action: fmt.Sprintf("Created work %s", result.WorkID)}
 	}
 }
 
 func (m tuiModel) createWorkWithBeads(beadIDs []string) tea.Cmd {
 	return func() tea.Msg {
-		// Use --bead flag to auto-generate branch name (without --auto for full automation)
-		cmd := exec.Command("co", "work", "create", "--bead="+strings.Join(beadIDs, ","))
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
+		result, err := CreateWorkFromBeads(m.ctx, m.proj, beadIDs, "main", WorkCreateOptions{Silent: true})
 		if err != nil {
-			return tuiCommandMsg{action: "Create work", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Create work", err: err}
 		}
-		return tuiCommandMsg{action: "Create work (from beads)"}
+		return tuiCommandMsg{action: fmt.Sprintf("Created work %s (from beads)", result.WorkID)}
 	}
 }
 
@@ -1132,32 +1126,28 @@ func (m tuiModel) destroyWork(workID string) tea.Cmd {
 
 func (m tuiModel) planWork(workID string, autoGroup bool) tea.Cmd {
 	return func() tea.Msg {
-		args := []string{"plan", "--work", workID}
-		if autoGroup {
-			args = append(args, "--auto-group")
-		}
-		cmd := exec.Command("co", args...)
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
+		result, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup, io.Discard)
 		if err != nil {
-			return tuiCommandMsg{action: "Plan work", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Plan work", err: err}
 		}
-		return tuiCommandMsg{action: "Plan work"}
+		return tuiCommandMsg{action: fmt.Sprintf("Plan work (%d tasks created)", result.TasksCreated)}
 	}
 }
 
 func (m tuiModel) assignBeadsToWork(workID string, beadIDs []string) tea.Cmd {
 	return func() tea.Msg {
-		// Plan with specific beads
-		args := []string{"plan", "--work", workID}
-		args = append(args, strings.Join(beadIDs, ","))
-		cmd := exec.Command("co", args...)
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
+		// First add beads to the work
+		_, err := AddBeadsToWork(m.ctx, m.proj, workID, beadIDs)
 		if err != nil {
-			return tuiCommandMsg{action: "Assign beads", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Assign beads", err: err}
 		}
-		return tuiCommandMsg{action: "Assign beads"}
+
+		// Then plan tasks from the newly added beads
+		result, err := PlanWorkTasks(m.ctx, m.proj, workID, false, io.Discard)
+		if err != nil {
+			return tuiCommandMsg{action: "Assign beads", err: fmt.Errorf("beads added but task planning failed: %w", err)}
+		}
+		return tuiCommandMsg{action: fmt.Sprintf("Assigned %d beads (%d tasks created)", len(beadIDs), result.TasksCreated)}
 	}
 }
 
@@ -1168,13 +1158,18 @@ func (m tuiModel) runSelectedWork() (tea.Model, tea.Cmd) {
 	workID := m.works[m.worksCursor].work.ID
 
 	return m, func() tea.Msg {
-		cmd := exec.Command("co", "run", workID)
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
+		result, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
 		if err != nil {
-			return tuiCommandMsg{action: "Run work", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Run work", err: err}
 		}
-		return tuiCommandMsg{action: "Run work"}
+		msg := fmt.Sprintf("Run work %s", result.WorkID)
+		if result.TasksCreated > 0 {
+			msg += fmt.Sprintf(" (%d tasks created)", result.TasksCreated)
+		}
+		if result.OrchestratorSpawned {
+			msg += " - orchestrator started"
+		}
+		return tuiCommandMsg{action: msg}
 	}
 }
 
@@ -1193,13 +1188,11 @@ func (m tuiModel) runAutomatedWorkflow() (tea.Model, tea.Cmd) {
 	}
 
 	return m, func() tea.Msg {
-		cmd := exec.Command("co", "work", "create", "--bead="+strings.Join(selectedIDs, ","))
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
+		result, err := CreateWorkFromBeads(m.ctx, m.proj, selectedIDs, "main", WorkCreateOptions{Silent: true})
 		if err != nil {
-			return tuiCommandMsg{action: "Automated workflow", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Automated workflow", err: err}
 		}
-		return tuiCommandMsg{action: "Automated workflow started"}
+		return tuiCommandMsg{action: fmt.Sprintf("Automated workflow started (work %s)", result.WorkID)}
 	}
 }
 
@@ -1210,13 +1203,11 @@ func (m tuiModel) createReviewTask() (tea.Model, tea.Cmd) {
 	workID := m.works[m.worksCursor].work.ID
 
 	return m, func() tea.Msg {
-		cmd := exec.Command("co", "work", "review", workID)
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
+		result, err := CreateReviewTask(m.ctx, m.proj, workID)
 		if err != nil {
-			return tuiCommandMsg{action: "Create review", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Create review", err: err}
 		}
-		return tuiCommandMsg{action: "Review task created"}
+		return tuiCommandMsg{action: fmt.Sprintf("Review task created: %s", result.TaskID)}
 	}
 }
 
@@ -1227,13 +1218,14 @@ func (m tuiModel) createPRTask() (tea.Model, tea.Cmd) {
 	workID := m.works[m.worksCursor].work.ID
 
 	return m, func() tea.Msg {
-		cmd := exec.Command("co", "work", "pr", workID)
-		cmd.Dir = m.proj.Root
-		output, err := cmd.CombinedOutput()
+		result, err := CreatePRTask(m.ctx, m.proj, workID)
 		if err != nil {
-			return tuiCommandMsg{action: "Create PR", err: fmt.Errorf("%w: %s", err, output)}
+			return tuiCommandMsg{action: "Create PR", err: err}
 		}
-		return tuiCommandMsg{action: "PR task created"}
+		if result.PRExists {
+			return tuiCommandMsg{action: fmt.Sprintf("PR already exists: %s", result.PRURL)}
+		}
+		return tuiCommandMsg{action: fmt.Sprintf("PR task created: %s", result.TaskID)}
 	}
 }
 
