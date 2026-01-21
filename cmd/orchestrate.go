@@ -66,6 +66,32 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("=== Orchestrating work: %s ===\n", workID)
 	fmt.Printf("Worktree: %s\n", work.WorktreePath)
 	fmt.Printf("Branch: %s (base: %s)\n", work.BranchName, work.BaseBranch)
+	if work.Auto {
+		fmt.Printf("Mode: Automated workflow\n")
+	}
+
+	// If this is an automated workflow work and no tasks exist yet, set up the automated workflow
+	if work.Auto {
+		tasks, err := proj.DB.GetWorkTasks(ctx, workID)
+		if err != nil {
+			return fmt.Errorf("failed to check for existing tasks: %w", err)
+		}
+
+		// Only set up automated workflow if no tasks exist yet
+		if len(tasks) == 0 {
+			fmt.Println("\nSetting up automated workflow...")
+
+			// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
+			mainRepoPath := proj.MainRepoPath()
+			err := CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, os.Stdout)
+			if err != nil {
+				return fmt.Errorf("failed to create estimate task: %w", err)
+			}
+
+			// The orchestrator loop will handle executing the tasks
+			fmt.Println("Automated workflow tasks created. Starting execution...")
+		}
+	}
 
 	// Reset any stuck processing tasks from a previous run
 	// When the orchestrator restarts, any tasks that were processing are now orphaned

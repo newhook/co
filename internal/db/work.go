@@ -30,6 +30,7 @@ func workToLocal(w *sqlc.Work) *Work {
 		PRURL:         w.PrUrl,
 		ErrorMessage:  w.ErrorMessage,
 		CreatedAt:     w.CreatedAt,
+		Auto:          w.Auto,
 	}
 	if w.StartedAt.Valid {
 		work.StartedAt = &w.StartedAt.Time
@@ -56,10 +57,11 @@ type Work struct {
 	StartedAt     *time.Time
 	CompletedAt   *time.Time
 	CreatedAt     time.Time
+	Auto          bool
 }
 
 // CreateWork creates a new work unit.
-func (db *DB) CreateWork(ctx context.Context, id, name, worktreePath, branchName, baseBranch, rootIssueID string) error {
+func (db *DB) CreateWork(ctx context.Context, id, name, worktreePath, branchName, baseBranch, rootIssueID string, auto bool) error {
 	// Use transaction to create work and initialize counter atomically
 	tx, err := db.Begin()
 	if err != nil {
@@ -76,6 +78,7 @@ func (db *DB) CreateWork(ctx context.Context, id, name, worktreePath, branchName
 		BranchName:   branchName,
 		BaseBranch:   baseBranch,
 		RootIssueID:  rootIssueID,
+		Auto:         auto,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create work %s: %w", id, err)
@@ -96,7 +99,7 @@ func (db *DB) CreateWork(ctx context.Context, id, name, worktreePath, branchName
 // CreateWorkAndSchedulePush creates a work record and schedules a git push task atomically.
 // This implements the transactional outbox pattern to ensure both operations succeed or fail together.
 // Returns the idempotency key for the scheduled push task.
-func (db *DB) CreateWorkAndSchedulePush(ctx context.Context, id, name, worktreePath, branchName, baseBranch, rootIssueID string) (string, error) {
+func (db *DB) CreateWorkAndSchedulePush(ctx context.Context, id, name, worktreePath, branchName, baseBranch, rootIssueID string, auto bool) (string, error) {
 	tx, err := db.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to begin transaction: %w", err)
@@ -113,6 +116,7 @@ func (db *DB) CreateWorkAndSchedulePush(ctx context.Context, id, name, worktreeP
 		BranchName:   branchName,
 		BaseBranch:   baseBranch,
 		RootIssueID:  rootIssueID,
+		Auto:         auto,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create work %s: %w", id, err)

@@ -32,7 +32,7 @@ func TestAutoWorkflowMetadata_ManualReviewSkipsAutomatedWorkflow(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work and review task
-	err := testDB.CreateWork(ctx, "work-1", "Test Work", "/tmp/test", "feat/test", "main", "")
+	err := testDB.CreateWork(ctx, "work-1", "Test Work", "/tmp/test", "feat/test", "main", "", false)
 	require.NoError(t, err)
 
 	reviewTaskID := "work-1.review-1"
@@ -63,7 +63,7 @@ func TestAutoWorkflowMetadata_AutomatedReviewContinuesWorkflow(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work and review task (no auto_workflow metadata = automated)
-	err := testDB.CreateWork(ctx, "work-1", "Test Work", "/tmp/test", "feat/test", "main", "")
+	err := testDB.CreateWork(ctx, "work-1", "Test Work", "/tmp/test", "feat/test", "main", "", false)
 	require.NoError(t, err)
 
 	reviewTaskID := "work-1.review-1"
@@ -92,7 +92,7 @@ func TestAutoWorkflowMetadata_ExplicitTrueAlsoContinuesWorkflow(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work and review task
-	err := testDB.CreateWork(ctx, "work-1", "Test Work", "/tmp/test", "feat/test", "main", "")
+	err := testDB.CreateWork(ctx, "work-1", "Test Work", "/tmp/test", "feat/test", "main", "", false)
 	require.NoError(t, err)
 
 	reviewTaskID := "work-1.review-1"

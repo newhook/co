@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -384,4 +386,159 @@ func CalculateGridDimensions(numItems, screenWidth, screenHeight int) GridConfig
 		CellWidth:  cellWidth,
 		CellHeight: cellHeight,
 	}
+}
+
+// fetchBeadsWithFilters fetches and filters beads based on provided filters
+func fetchBeadsWithFilters(ctx context.Context, beadsClient *beads.Client, mainRepoPath string, filters beadFilters) ([]beadItem, error) {
+	// For "ready" status, use bd ready command
+	if filters.status == "ready" {
+		return fetchReadyBeads(ctx, beadsClient, filters)
+	}
+
+	// List issues with optional status filter
+	// "open" means all non-closed statuses (open, in_progress, blocked, deferred)
+	// "all" means no filter
+	// Other values are passed directly as status filter
+	statusFilter := ""
+	filterOutClosed := false
+	if filters.status == beads.StatusOpen {
+		// Fetch all and filter out closed
+		statusFilter = ""
+		filterOutClosed = true
+	} else if filters.status != "" && filters.status != "all" {
+		statusFilter = filters.status
+	}
+	issuesList, err := beadsClient.ListBeads(ctx, statusFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter out closed issues if "open" filter was requested
+	if filterOutClosed {
+		filtered := make([]beads.Bead, 0, len(issuesList))
+		for _, issue := range issuesList {
+			if issue.Status != beads.StatusClosed {
+				filtered = append(filtered, issue)
+			}
+		}
+		issuesList = filtered
+	}
+
+	// TODO: Apply label filter if needed (requires additional query support)
+
+	// Get ready issues to mark which ones are ready
+	readyIssues, _ := beadsClient.GetReadyBeads(ctx)
+	readySet := make(map[string]bool)
+	for _, issue := range readyIssues {
+		readySet[issue.ID] = true
+	}
+
+	// Fetch dependency/dependent counts for all issues
+	issueIDs := make([]string, 0, len(issuesList))
+	for _, issue := range issuesList {
+		issueIDs = append(issueIDs, issue.ID)
+	}
+	depsResult, err := beadsClient.GetBeadsWithDeps(ctx, issueIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	var items []beadItem
+	for _, issue := range issuesList {
+		// Apply search filter
+		if filters.searchText != "" {
+			searchLower := strings.ToLower(filters.searchText)
+			if !strings.Contains(strings.ToLower(issue.ID), searchLower) &&
+				!strings.Contains(strings.ToLower(issue.Title), searchLower) &&
+				!strings.Contains(strings.ToLower(issue.Description), searchLower) {
+				continue
+			}
+		}
+
+		beadWithDeps := depsResult.GetBead(issue.ID)
+		if beadWithDeps == nil {
+			// Fallback: create BeadWithDeps from the issue
+			bead := issue
+			beadWithDeps = &beads.BeadWithDeps{Bead: &bead}
+		}
+		items = append(items, beadItem{
+			BeadWithDeps: beadWithDeps,
+			isReady:      readySet[issue.ID],
+		})
+	}
+
+	// Apply sorting
+	items = sortBeadItems(items, filters.sortBy)
+
+	return items, nil
+}
+
+func fetchReadyBeads(ctx context.Context, beadsClient *beads.Client, filters beadFilters) ([]beadItem, error) {
+	// Get ready issues
+	readyIssues, err := beadsClient.GetReadyBeads(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch dependency/dependent counts for ready issues
+	issueIDs := make([]string, 0, len(readyIssues))
+	for _, issue := range readyIssues {
+		issueIDs = append(issueIDs, issue.ID)
+	}
+	depsResult, err := beadsClient.GetBeadsWithDeps(ctx, issueIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	var items []beadItem
+	for _, issue := range readyIssues {
+		// Apply search filter
+		if filters.searchText != "" {
+			searchLower := strings.ToLower(filters.searchText)
+			if !strings.Contains(strings.ToLower(issue.ID), searchLower) &&
+				!strings.Contains(strings.ToLower(issue.Title), searchLower) &&
+				!strings.Contains(strings.ToLower(issue.Description), searchLower) {
+				continue
+			}
+		}
+
+		beadWithDeps := depsResult.GetBead(issue.ID)
+		if beadWithDeps == nil {
+			// Fallback: create BeadWithDeps from the issue
+			bead := issue
+			beadWithDeps = &beads.BeadWithDeps{Bead: &bead}
+		}
+		items = append(items, beadItem{
+			BeadWithDeps: beadWithDeps,
+			isReady:      true,
+		})
+	}
+
+	// Apply sorting
+	items = sortBeadItems(items, filters.sortBy)
+
+	return items, nil
+}
+
+func sortBeadItems(items []beadItem, sortBy string) []beadItem {
+	switch sortBy {
+	case "priority":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].Priority < items[j].Priority
+		})
+	case "title":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].Title < items[j].Title
+		})
+	case "triage":
+		// Triage sort: priority first, then by type (bug > task > feature)
+		sort.Slice(items, func(i, j int) bool {
+			if items[i].Priority != items[j].Priority {
+				return items[i].Priority < items[j].Priority
+			}
+			typeOrder := map[string]int{"bug": 0, "task": 1, "feature": 2}
+			return typeOrder[items[i].Type] < typeOrder[items[j].Type]
+		})
+	}
+	return items
 }

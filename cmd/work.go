@@ -280,7 +280,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create work record in database with the root issue ID (the original bead that was expanded)
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID); err != nil {
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID, flagAutoRun); err != nil {
 		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
@@ -461,6 +461,8 @@ type WorkCreateResult struct {
 type WorkCreateOptions struct {
 	// Silent suppresses progress output (useful for TUI contexts).
 	Silent bool
+	// Auto indicates if this work should run in automated workflow mode.
+	Auto bool
 }
 
 // CreateWorkWithBranch creates a new work unit with the given branch name and root issue.
@@ -532,7 +534,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 
 	// Create work record and schedule git push atomically (transactional outbox pattern)
 	// This ensures both the work record and scheduled task exist together
-	idempotencyKey, err := proj.DB.CreateWorkAndSchedulePush(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID)
+	idempotencyKey, err := proj.DB.CreateWorkAndSchedulePush(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID, opt.Auto)
 	if err != nil {
 		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
@@ -562,6 +564,71 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 		BaseBranch:   baseBranch,
 		RootIssueID:  rootIssueID,
 	}, nil
+}
+
+// CreateWorkFromBeads creates a work unit from a single bead ID.
+// It expands epics and transitive dependencies, generates a branch name from the bead titles,
+// and adds all beads to the work.
+// This is the core logic that can be called from both the CLI and TUI.
+func CreateWorkFromBeads(ctx context.Context, proj *project.Project, beadID string, baseBranch string, opts ...WorkCreateOptions) (*WorkCreateResult, error) {
+	if beadID == "" {
+		return nil, fmt.Errorf("no bead ID provided")
+	}
+
+	// Apply options
+	var opt WorkCreateOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+	rootBeadID := beadID // This bead becomes the root issue
+
+	// Expand the bead (handles epics and transitive deps)
+	allExpandedIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
+	}
+
+	if len(allExpandedIDs) == 0 {
+		return nil, fmt.Errorf("no beads found after expansion")
+	}
+
+	// Get issue details for branch name generation
+	issuesResult, err := proj.Beads.GetBeadsWithDeps(ctx, allExpandedIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get issue details: %w", err)
+	}
+
+	// Convert to slice of issue pointers for branch name generation
+	var groupIssues []*beads.Bead
+	for _, issueID := range allExpandedIDs {
+		if issue, ok := issuesResult.Beads[issueID]; ok {
+			issueCopy := issue
+			groupIssues = append(groupIssues, &issueCopy)
+		}
+	}
+
+	// Generate branch name from issue titles
+	branchName := generateBranchNameFromIssues(groupIssues)
+	branchName, err = ensureUniqueBranchName(ctx, mainRepoPath, branchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
+	}
+
+	// Create the work with the generated branch name
+	result, err := CreateWorkWithBranch(ctx, proj, branchName, baseBranch, rootBeadID, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add all expanded beads to the work
+	if err := addBeadsToWork(ctx, proj, result.WorkID, allExpandedIDs); err != nil {
+		// Work was created but beads failed to add - still return the result with error
+		return result, fmt.Errorf("work created but failed to add beads: %w", err)
+	}
+
+	return result, nil
 }
 
 // DestroyWork destroys a work unit and all its resources.
@@ -623,7 +690,7 @@ func runAutomatedWorkflowForWork(proj *project.Project, workID, worktreePath str
 	mainRepoPath := proj.MainRepoPath()
 
 	// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
-	err := createEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, w)
+	err := CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, w)
 	if err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
@@ -931,6 +998,54 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// CreatePRTaskResult contains the result of creating a PR task.
+type CreatePRTaskResult struct {
+	TaskID string
+	// PRExists is true if a PR already exists for this work
+	PRExists bool
+	PRURL    string
+}
+
+// CreatePRTask creates a PR task for a work unit.
+// The work must be completed before a PR task can be created.
+// Returns an error if the work is not completed, or PRExists=true if a PR already exists.
+func CreatePRTask(ctx context.Context, proj *project.Project, workID string) (*CreatePRTaskResult, error) {
+	// Get work details
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	// Check if work is completed
+	if work.Status != db.StatusCompleted {
+		return nil, fmt.Errorf("work %s is not completed (status: %s)", workID, work.Status)
+	}
+
+	// Check if PR already exists
+	if work.PRURL != "" {
+		return &CreatePRTaskResult{
+			PRExists: true,
+			PRURL:    work.PRURL,
+		}, nil
+	}
+
+	// Generate task ID for PR creation
+	// Use a special ".pr" suffix for PR tasks
+	prTaskID := fmt.Sprintf("%s.pr", workID)
+
+	// Create a PR creation task
+	if err := proj.DB.CreateTask(ctx, prTaskID, "pr", []string{}, 0, workID); err != nil {
+		return nil, fmt.Errorf("failed to create PR task: %w", err)
+	}
+
+	return &CreatePRTaskResult{
+		TaskID: prTaskID,
+	}, nil
+}
+
 func runWorkPR(cmd *cobra.Command, args []string) error {
 	// Find project
 	ctx := GetContext()
@@ -951,46 +1066,29 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get work details
-	work, err := proj.DB.GetWork(ctx, workID)
+	// Create PR task using the shared function
+	result, err := CreatePRTask(ctx, proj, workID)
 	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
-	}
-	if work == nil {
-		return fmt.Errorf("work %s not found", workID)
-	}
-
-	// Check if work is completed
-	if work.Status != db.StatusCompleted {
-		return fmt.Errorf("work %s is not completed (status: %s)", workID, work.Status)
+		return err
 	}
 
 	// Check if PR already exists
-	if work.PRURL != "" {
-		fmt.Printf("PR already exists for work %s: %s\n", workID, work.PRURL)
+	if result.PRExists {
+		fmt.Printf("PR already exists for work %s: %s\n", workID, result.PRURL)
 		return nil
 	}
 
-	// Generate task ID for PR creation
-	// Use a special ".pr" suffix for PR tasks
-	prTaskID := fmt.Sprintf("%s.pr", workID)
-
-	// Create a PR creation task
-	err = proj.DB.CreateTask(ctx, prTaskID, "pr", []string{}, 0, workID)
-	if err != nil {
-		return fmt.Errorf("failed to create PR task: %w", err)
-	}
-
-	fmt.Printf("Created PR task: %s\n", prTaskID)
+	fmt.Printf("Created PR task: %s\n", result.TaskID)
 
 	// Auto-run the PR task
 	fmt.Printf("Running PR task...\n")
-	if err := processTask(proj, prTaskID); err != nil {
+	if err := processTask(proj, result.TaskID); err != nil {
 		return err
 	}
 
 	// Close the root issue now that PR has been created
-	if work.RootIssueID != "" {
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err == nil && work != nil && work.RootIssueID != "" {
 		fmt.Printf("Closing root issue %s...\n", work.RootIssueID)
 		if err := beads.Close(ctx, work.RootIssueID, proj.MainRepoPath()); err != nil {
 			fmt.Printf("Warning: failed to close root issue %s: %v\n", work.RootIssueID, err)
@@ -998,6 +1096,52 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// CreateReviewTaskResult contains the result of creating a review task.
+type CreateReviewTaskResult struct {
+	TaskID string
+}
+
+// CreateReviewTask creates a review task for a work unit.
+// Review tasks examine code changes for quality and security issues.
+// Returns the task ID of the created review task.
+func CreateReviewTask(ctx context.Context, proj *project.Project, workID string) (*CreateReviewTaskResult, error) {
+	// Verify work exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	// Get existing tasks to count reviews
+	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work tasks: %w", err)
+	}
+
+	// Count existing review tasks to generate unique ID
+	reviewCount := 0
+	reviewPrefix := fmt.Sprintf("%s.review", workID)
+	for _, task := range tasks {
+		if strings.HasPrefix(task.ID, reviewPrefix) {
+			reviewCount++
+		}
+	}
+
+	// Generate unique review task ID (e.g., w-xxx.review-1, w-xxx.review-2)
+	reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
+
+	// Create the review task
+	if err := proj.DB.CreateTask(ctx, reviewTaskID, "review", []string{}, 0, workID); err != nil {
+		return nil, fmt.Errorf("failed to create review task: %w", err)
+	}
+
+	return &CreateReviewTaskResult{
+		TaskID: reviewTaskID,
+	}, nil
 }
 
 func runWorkReview(cmd *cobra.Command, args []string) error {
@@ -1038,29 +1182,12 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 			break
 		}
 
-		// Generate unique task ID for review
-		tasks, err := proj.DB.GetWorkTasks(ctx, workID)
+		// Create a review task using the shared function
+		result, err := CreateReviewTask(ctx, proj, workID)
 		if err != nil {
-			return fmt.Errorf("failed to get work tasks: %w", err)
+			return err
 		}
-
-		// Count existing review tasks to generate unique ID
-		reviewCount := 0
-		reviewPrefix := fmt.Sprintf("%s.review", workID)
-		for _, task := range tasks {
-			if strings.HasPrefix(task.ID, reviewPrefix) {
-				reviewCount++
-			}
-		}
-
-		// Generate unique review task ID (e.g., w-xxx.review-1, w-xxx.review-2)
-		reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
-
-		// Create a review task
-		err = proj.DB.CreateTask(ctx, reviewTaskID, "review", []string{}, 0, workID)
-		if err != nil {
-			return fmt.Errorf("failed to create review task: %w", err)
-		}
+		reviewTaskID := result.TaskID
 
 		fmt.Printf("Created review task: %s\n", reviewTaskID)
 

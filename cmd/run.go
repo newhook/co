@@ -129,7 +129,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	// If --auto, create estimate task and run full automated workflow
 	if flagRunAuto {
 		// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
-		err := createEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, os.Stdout)
+		err := CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, os.Stdout)
 		if err != nil {
 			return fmt.Errorf("failed to create estimate task: %w", err)
 		}
@@ -162,11 +162,11 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// createEstimateTaskFromWorkBeads creates an estimate task from unassigned work beads.
+// CreateEstimateTaskFromWorkBeads creates an estimate task from unassigned work beads.
 // This is used in --auto mode where the full automated workflow includes estimation.
 // After the estimate task completes, handlePostEstimation creates implement tasks.
 // Progress messages are written to w. Pass io.Discard to suppress output.
-func createEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project, workID, _ string, w io.Writer) error {
+func CreateEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project, workID, _ string, w io.Writer) error {
 	// Get unassigned beads
 	unassigned, err := proj.DB.GetUnassignedWorkBeads(ctx, workID)
 	if err != nil {

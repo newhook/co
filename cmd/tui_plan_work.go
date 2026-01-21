@@ -85,7 +85,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		}
 
 		// Create work with branch name (silent to avoid console output in TUI)
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", beadID, WorkCreateOptions{Silent: true})
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", beadID, WorkCreateOptions{Silent: true, Auto: auto})
 		if err != nil {
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
@@ -96,18 +96,10 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
 		}
 
-		// Spawn the orchestrator for this work (or run automated workflow if auto)
-		if auto {
-			// Run automated workflow in a separate goroutine since it's long-running
-			go func() {
-				_ = runAutomatedWorkflowForWork(m.proj, result.WorkID, result.WorktreePath, io.Discard)
-			}()
-		} else {
-			// Spawn the orchestrator
-			if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
-				// Non-fatal: work was created but orchestrator failed to spawn
-				return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
-			}
+		// Spawn the orchestrator for this work
+		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
+			// Non-fatal: work was created but orchestrator failed to spawn
+			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
 		}
 
 		return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}
