@@ -3,12 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
@@ -100,6 +99,7 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 					}
 
 					// Execute based on task type
+					var taskErr error
 					switch task.TaskType {
 					case db.TaskTypePRFeedback:
 						logging.Debug("Handling PR feedback task", "task_id", task.ID, "work_id", workID)
@@ -109,16 +109,20 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 						handleCommentResolutionTask(ctx, proj, workID, task)
 					case db.TaskTypeGitPush:
 						logging.Debug("Handling git push task", "task_id", task.ID, "work_id", workID)
-						handleGitPushTask(ctx, proj, workID, task)
+						taskErr = handleGitPushTask(ctx, proj, workID, task)
 					case db.TaskTypeGitHubComment:
 						logging.Debug("Handling GitHub comment task", "task_id", task.ID, "work_id", workID)
-						handleGitHubCommentTask(ctx, proj, workID, task)
+						taskErr = handleGitHubCommentTask(ctx, proj, workID, task)
 					case db.TaskTypeGitHubResolveThread:
 						logging.Debug("Handling GitHub resolve thread task", "task_id", task.ID, "work_id", workID)
-						handleGitHubResolveThreadTask(ctx, proj, workID, task)
+						taskErr = handleGitHubResolveThreadTask(ctx, proj, workID, task)
 					default:
-						logging.Warn("unknown task type", "task_type", task.TaskType)
-						proj.DB.MarkTaskFailed(ctx, task.ID, fmt.Sprintf("Unknown task type: %s", task.TaskType))
+						taskErr = fmt.Errorf("unknown task type: %s", task.TaskType)
+					}
+
+					// Handle task result for one-shot tasks
+					if taskErr != nil {
+						handleTaskError(ctx, proj, task, taskErr.Error())
 					}
 				}
 			}
@@ -215,7 +219,8 @@ func TriggerPRFeedbackCheck(ctx context.Context, proj *project.Project, workID s
 }
 
 // handleGitPushTask handles a scheduled git push task with retry support.
-func handleGitPushTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) {
+// Returns nil on success, error on failure (caller handles retry/completion).
+func handleGitPushTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) error {
 	// Get branch and directory from metadata
 	branch := task.Metadata["branch"]
 	dir := task.Metadata["dir"]
@@ -224,29 +229,20 @@ func handleGitPushTask(ctx context.Context, proj *project.Project, workID string
 		// Try to get from work
 		work, err := proj.DB.GetWork(ctx, workID)
 		if err != nil || work == nil {
-			handleTaskError(ctx, proj, task, "failed to get work for git push: work not found")
-			return
+			return fmt.Errorf("failed to get work for git push: work not found")
 		}
 		branch = work.BranchName
 		dir = work.WorktreePath
 	}
 
 	if branch == "" || dir == "" {
-		handleTaskError(ctx, proj, task, "git push task missing branch or dir metadata")
-		return
+		return fmt.Errorf("git push task missing branch or dir metadata")
 	}
 
 	logging.Info("Executing git push", "branch", branch, "dir", dir, "attempt", task.AttemptCount+1)
 
-	// Execute git push -u origin <branch>
-	cmd := exec.CommandContext(ctx, "git", "push", "--set-upstream", "origin", branch)
-	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		errMsg := fmt.Sprintf("git push failed: %v\n%s", err, string(output))
-		handleTaskError(ctx, proj, task, errMsg)
-		return
+	if err := git.PushSetUpstreamInDir(ctx, branch, dir); err != nil {
+		return err
 	}
 
 	logging.Info("Git push succeeded", "branch", branch, "work_id", workID)
@@ -255,54 +251,39 @@ func handleGitPushTask(ctx context.Context, proj *project.Project, workID string
 	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
 		logging.Warn("failed to mark git push task as completed", "error", err)
 	}
+	return nil
 }
 
 // handleGitHubCommentTask handles a scheduled GitHub comment posting task.
-func handleGitHubCommentTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) {
+// Returns nil on success, error on failure (caller handles retry/completion).
+func handleGitHubCommentTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) error {
 	// Get comment details from metadata
 	prURL := task.Metadata["pr_url"]
 	body := task.Metadata["body"]
 	replyToID := task.Metadata["reply_to_id"]
 
 	if prURL == "" || body == "" {
-		handleTaskError(ctx, proj, task, "GitHub comment task missing pr_url or body metadata")
-		return
+		return fmt.Errorf("GitHub comment task missing pr_url or body metadata")
 	}
 
 	logging.Info("Posting GitHub comment", "pr_url", prURL, "attempt", task.AttemptCount+1)
 
-	// Parse PR URL to get owner/repo/pr_number
-	// Expected format: https://github.com/owner/repo/pull/123
-	parts := strings.Split(prURL, "/")
-	if len(parts) < 7 || parts[5] != "pull" {
-		handleTaskError(ctx, proj, task, fmt.Sprintf("invalid PR URL format: %s", prURL))
-		return
-	}
-
-	owner := parts[3]
-	repo := parts[4]
-	prNumber := parts[6]
-
-	var cmd *exec.Cmd
+	ghClient := github.NewClient()
+	var err error
 	if replyToID != "" {
 		// Reply to a specific review comment thread
-		cmd = exec.CommandContext(ctx, "gh", "api", "-X", "POST",
-			fmt.Sprintf("/repos/%s/%s/pulls/%s/comments/%s/replies", owner, repo, prNumber, replyToID),
-			"--field", fmt.Sprintf("body=%s", body),
-			"--header", "Accept: application/vnd.github.v3+json")
+		commentID, convErr := strconv.Atoi(replyToID)
+		if convErr != nil {
+			return fmt.Errorf("invalid reply_to_id: %s", replyToID)
+		}
+		err = ghClient.PostReviewReply(ctx, prURL, commentID, body)
 	} else {
 		// Post a general PR comment
-		cmd = exec.CommandContext(ctx, "gh", "api", "-X", "POST",
-			fmt.Sprintf("/repos/%s/%s/issues/%s/comments", owner, repo, prNumber),
-			"--field", fmt.Sprintf("body=%s", body),
-			"--header", "Accept: application/vnd.github.v3+json")
+		err = ghClient.PostPRComment(ctx, prURL, body)
 	}
 
-	output, err := cmd.CombinedOutput()
 	if err != nil {
-		errMsg := fmt.Sprintf("GitHub comment failed: %v\n%s", err, string(output))
-		handleTaskError(ctx, proj, task, errMsg)
-		return
+		return fmt.Errorf("GitHub comment failed: %w", err)
 	}
 
 	logging.Info("GitHub comment posted successfully", "pr_url", prURL, "work_id", workID)
@@ -311,32 +292,30 @@ func handleGitHubCommentTask(ctx context.Context, proj *project.Project, workID 
 	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
 		logging.Warn("failed to mark GitHub comment task as completed", "error", err)
 	}
+	return nil
 }
 
 // handleGitHubResolveThreadTask handles a scheduled GitHub thread resolution task.
-func handleGitHubResolveThreadTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) {
+// Returns nil on success, error on failure (caller handles retry/completion).
+func handleGitHubResolveThreadTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) error {
 	// Get thread details from metadata
 	prURL := task.Metadata["pr_url"]
 	commentIDStr := task.Metadata["comment_id"]
 
 	if prURL == "" || commentIDStr == "" {
-		handleTaskError(ctx, proj, task, "GitHub resolve thread task missing pr_url or comment_id metadata")
-		return
+		return fmt.Errorf("GitHub resolve thread task missing pr_url or comment_id metadata")
 	}
 
 	commentID, err := strconv.Atoi(commentIDStr)
 	if err != nil {
-		handleTaskError(ctx, proj, task, fmt.Sprintf("invalid comment_id: %s", commentIDStr))
-		return
+		return fmt.Errorf("invalid comment_id: %s", commentIDStr)
 	}
 
 	logging.Info("Resolving GitHub thread", "pr_url", prURL, "comment_id", commentID, "attempt", task.AttemptCount+1)
 
 	ghClient := github.NewClient()
 	if err := ghClient.ResolveReviewThread(ctx, prURL, commentID); err != nil {
-		errMsg := fmt.Sprintf("GitHub resolve thread failed: %v", err)
-		handleTaskError(ctx, proj, task, errMsg)
-		return
+		return fmt.Errorf("GitHub resolve thread failed: %w", err)
 	}
 
 	logging.Info("GitHub thread resolved successfully", "pr_url", prURL, "comment_id", commentID, "work_id", workID)
@@ -345,6 +324,7 @@ func handleGitHubResolveThreadTask(ctx context.Context, proj *project.Project, w
 	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
 		logging.Warn("failed to mark GitHub resolve thread task as completed", "error", err)
 	}
+	return nil
 }
 
 // handleTaskError handles an error for a task, rescheduling with backoff if appropriate.

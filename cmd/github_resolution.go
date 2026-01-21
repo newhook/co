@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -16,8 +15,8 @@ import (
 
 // ResolveFeedbackForBeads posts resolution comments on GitHub for closed beads.
 // It checks the provided beads and posts resolution comments for any associated
-// unresolved feedback items. Uses the transactional outbox pattern: marks feedback
-// as resolved first, schedules comment tasks, then attempts optimistic execution.
+// unresolved feedback items. Uses the transactional outbox pattern: atomically marks
+// feedback as resolved and schedules comment tasks, then attempts optimistic execution.
 func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *beads.Client, workID string, closedBeadIDs []string) error {
 	if len(closedBeadIDs) == 0 {
 		return nil
@@ -67,29 +66,67 @@ func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *b
 
 		isReviewComment := strings.Contains(feedback.Source, "Review:") && *feedback.SourceID != ""
 
-		// Mark feedback as resolved in database FIRST (transactional outbox pattern)
-		// This ensures idempotency - if we crash after this, we won't try to resolve again
-		if err := database.MarkFeedbackResolved(ctx, feedback.ID); err != nil {
-			fmt.Printf("Warning: failed to mark feedback %s as resolved: %v\n", feedback.ID, err)
-			continue
-		}
+		// Build the list of tasks to schedule
+		var tasksToSchedule []db.ScheduledTaskParams
 
-		// Schedule GitHub comment task with idempotency key
+		// GitHub comment task
 		commentIdempotencyKey := fmt.Sprintf("github-comment-%s-%s", workID, feedback.ID)
-		metadata := map[string]string{
+		commentMetadata := map[string]string{
 			"pr_url": feedback.PRURL,
 			"body":   resolutionMessage,
 		}
 		if isReviewComment {
-			metadata["reply_to_id"] = *feedback.SourceID
+			commentMetadata["reply_to_id"] = *feedback.SourceID
 		}
-		_, schedErr := database.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeGitHubComment, time.Now(), metadata, commentIdempotencyKey, db.DefaultMaxAttempts)
-		if schedErr != nil {
-			logging.Warn("failed to schedule github comment task", "error", schedErr, "work_id", workID, "feedback_id", feedback.ID)
+		tasksToSchedule = append(tasksToSchedule, db.ScheduledTaskParams{
+			WorkID:         workID,
+			TaskType:       db.TaskTypeGitHubComment,
+			ScheduledAt:    time.Now(),
+			Metadata:       commentMetadata,
+			IdempotencyKey: commentIdempotencyKey,
+			MaxAttempts:    db.DefaultMaxAttempts,
+		})
+
+		// For review comments, also add thread resolution task
+		var resolveIdempotencyKey string
+		var commentID int
+		if isReviewComment {
+			var convErr error
+			commentID, convErr = strconv.Atoi(*feedback.SourceID)
+			if convErr != nil {
+				fmt.Printf("Warning: invalid comment ID %s: %v\n", *feedback.SourceID, convErr)
+				continue
+			}
+
+			resolveIdempotencyKey = fmt.Sprintf("github-resolve-%s-%s", workID, feedback.ID)
+			tasksToSchedule = append(tasksToSchedule, db.ScheduledTaskParams{
+				WorkID:      workID,
+				TaskType:    db.TaskTypeGitHubResolveThread,
+				ScheduledAt: time.Now(),
+				Metadata: map[string]string{
+					"pr_url":     feedback.PRURL,
+					"comment_id": *feedback.SourceID,
+				},
+				IdempotencyKey: resolveIdempotencyKey,
+				MaxAttempts:    db.DefaultMaxAttempts,
+			})
+		}
+
+		// Atomically mark feedback resolved and schedule all tasks in a single transaction
+		if err := database.MarkFeedbackResolvedAndScheduleTasks(ctx, feedback.ID, tasksToSchedule); err != nil {
+			fmt.Printf("Warning: failed to mark feedback %s as resolved and schedule tasks: %v\n", feedback.ID, err)
+			continue
 		}
 
 		// Attempt immediate comment post (optimistic execution)
-		commentErr := postGitHubComment(ctx, feedback.PRURL, resolutionMessage, isReviewComment, feedback.SourceID)
+		ghClient := github.NewClient()
+		var commentErr error
+		if isReviewComment {
+			sourceID, _ := strconv.Atoi(*feedback.SourceID)
+			commentErr = ghClient.PostReviewReply(ctx, feedback.PRURL, sourceID, resolutionMessage)
+		} else {
+			commentErr = ghClient.PostPRComment(ctx, feedback.PRURL, resolutionMessage)
+		}
 		if commentErr != nil {
 			logging.Warn("Initial GitHub comment failed, scheduler will retry", "error", commentErr, "work_id", workID, "bead_id", *feedback.BeadID)
 			fmt.Printf("Warning: initial comment post failed, will retry in background: %v\n", commentErr)
@@ -101,26 +138,8 @@ func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *b
 			fmt.Printf("Successfully posted resolution comment for bead %s on GitHub\n", *feedback.BeadID)
 		}
 
-		// For review comments, also schedule thread resolution
+		// For review comments, also attempt immediate thread resolution
 		if isReviewComment {
-			commentID, convErr := strconv.Atoi(*feedback.SourceID)
-			if convErr != nil {
-				fmt.Printf("Warning: invalid comment ID %s: %v\n", *feedback.SourceID, convErr)
-				continue
-			}
-
-			// Schedule GitHub resolve thread task
-			resolveIdempotencyKey := fmt.Sprintf("github-resolve-%s-%s", workID, feedback.ID)
-			_, schedErr := database.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeGitHubResolveThread, time.Now(), map[string]string{
-				"pr_url":     feedback.PRURL,
-				"comment_id": *feedback.SourceID,
-			}, resolveIdempotencyKey, db.DefaultMaxAttempts)
-			if schedErr != nil {
-				logging.Warn("failed to schedule github resolve thread task", "error", schedErr, "work_id", workID, "feedback_id", feedback.ID)
-			}
-
-			// Attempt immediate thread resolution (optimistic execution)
-			ghClient := github.NewClient()
 			if resolveErr := ghClient.ResolveReviewThread(ctx, feedback.PRURL, commentID); resolveErr != nil {
 				logging.Warn("Initial GitHub thread resolution failed, scheduler will retry", "error", resolveErr, "work_id", workID, "comment_id", commentID)
 				fmt.Printf("Warning: initial thread resolution failed, will retry in background: %v\n", resolveErr)
@@ -134,39 +153,5 @@ func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *b
 		}
 	}
 
-	return nil
-}
-
-// postGitHubComment posts a comment to a GitHub PR.
-// If isReviewComment is true and replyToID is provided, it replies to a specific comment thread.
-func postGitHubComment(ctx context.Context, prURL string, body string, isReviewComment bool, replyToID *string) error {
-	parts := strings.Split(prURL, "/")
-	if len(parts) < 7 || parts[5] != "pull" {
-		return fmt.Errorf("invalid PR URL format: %s", prURL)
-	}
-
-	owner := parts[3]
-	repo := parts[4]
-	prNumber := parts[6]
-
-	var cmd *exec.Cmd
-	if isReviewComment && replyToID != nil && *replyToID != "" {
-		// For review comments, reply to the specific comment thread
-		cmd = exec.CommandContext(ctx, "gh", "api", "-X", "POST",
-			fmt.Sprintf("/repos/%s/%s/pulls/%s/comments/%s/replies", owner, repo, prNumber, *replyToID),
-			"--field", fmt.Sprintf("body=%s", body),
-			"--header", "Accept: application/vnd.github.v3+json")
-	} else {
-		// Post a general PR comment
-		cmd = exec.CommandContext(ctx, "gh", "api", "-X", "POST",
-			fmt.Sprintf("/repos/%s/%s/issues/%s/comments", owner, repo, prNumber),
-			"--field", fmt.Sprintf("body=%s", body),
-			"--header", "Accept: application/vnd.github.v3+json")
-	}
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to post comment: %w\n%s", err, string(output))
-	}
 	return nil
 }

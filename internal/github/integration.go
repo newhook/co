@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -219,15 +218,19 @@ func (i *Integration) CreateBeadFromFeedback(ctx context.Context, beadDir string
 }
 
 // AddBeadToWork adds a bead to a work using the work_beads table.
-func (i *Integration) AddBeadToWork(ctx context.Context, workID, beadID string) error {
+// The beadsClient is used to verify the bead exists.
+func (i *Integration) AddBeadToWork(ctx context.Context, beadsClient *beads.Client, workID, beadID string) error {
 	// This would typically be done through the database, but since we're using
 	// the bd CLI as the source of truth, we need to ensure the bead is properly
 	// tracked in the work_beads table. This is handled by the orchestrator.
 	// For now, we'll just verify the bead exists.
 
-	cmd := exec.CommandContext(ctx, "bd", "show", beadID)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("bead %s not found: %w", beadID, err)
+	bead, err := beadsClient.GetBead(ctx, beadID)
+	if err != nil {
+		return fmt.Errorf("failed to check bead %s: %w", beadID, err)
+	}
+	if bead == nil {
+		return fmt.Errorf("bead %s not found", beadID)
 	}
 
 	return nil
@@ -288,26 +291,27 @@ func (i *Integration) CheckForNewFeedback(ctx context.Context, prURL string, las
 }
 
 // ResolveFeedback marks feedback as resolved when its associated bead is completed.
-func (i *Integration) ResolveFeedback(ctx context.Context, beadID string) error {
+// The beadsClient is used to check the bead's status.
+func (i *Integration) ResolveFeedback(ctx context.Context, beadsClient *beads.Client, beadID string) error {
 	// Check if the bead is closed
-	cmd := exec.CommandContext(ctx, "bd", "show", beadID)
-	output, err := cmd.Output()
+	bead, err := beadsClient.GetBead(ctx, beadID)
 	if err != nil {
 		return fmt.Errorf("failed to check bead status: %w", err)
 	}
+	if bead == nil {
+		return fmt.Errorf("bead %s not found", beadID)
+	}
 
-	// Check if the output indicates the bead is closed
-	outputStr := string(output)
-	if strings.Contains(outputStr, "CLOSED") || strings.Contains(outputStr, "✓") {
-		// Bead is closed, feedback is resolved
+	// Check if the bead is closed
+	if bead.Status == "closed" {
 		return nil
 	}
 
-	return fmt.Errorf("bead %s is not closed", beadID)
+	return fmt.Errorf("bead %s is not closed (status: %s)", beadID, bead.Status)
 }
 
 // CreateBeadsForWork creates beads for all unprocessed feedback for a work.
-func (i *Integration) CreateBeadsForWork(ctx context.Context, beadDir, workID, prURL, rootIssueID string) ([]string, error) {
+func (i *Integration) CreateBeadsForWork(ctx context.Context, beadDir string, beadsClient *beads.Client, workID, prURL, rootIssueID string) ([]string, error) {
 	// Fetch all feedback
 	beadInfos, err := i.ProcessPRFeedback(ctx, prURL, rootIssueID)
 	if err != nil {
@@ -328,7 +332,7 @@ func (i *Integration) CreateBeadsForWork(ctx context.Context, beadDir, workID, p
 		createdBeadIDs = append(createdBeadIDs, beadID)
 
 		// Add bead to work
-		if err := i.AddBeadToWork(ctx, workID, beadID); err != nil {
+		if err := i.AddBeadToWork(ctx, beadsClient, workID, beadID); err != nil {
 			fmt.Printf("Failed to add bead %s to work %s: %v\n", beadID, workID, err)
 		}
 	}

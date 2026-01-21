@@ -222,7 +222,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	} else {
 		// Generate branch name from issue titles
 		branchName = generateBranchNameFromIssues(groupIssues)
-		branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+		branchName, err = ensureUniqueBranchName(ctx, mainRepoPath, branchName)
 		if err != nil {
 			return fmt.Errorf("failed to find unique branch name: %w", err)
 		}
@@ -257,14 +257,14 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	worktreePath := filepath.Join(workDir, "tree")
 
 	// Create worktree with new branch
-	if err := worktree.Create(mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
+	if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
 		os.RemoveAll(workDir)
 		return err
 	}
 
 	// Push branch and set upstream
-	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
-		worktree.RemoveForce(mainRepoPath, worktreePath)
+	if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
+		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return err
 	}
@@ -282,14 +282,14 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	// Create work record in database with the root issue ID (the original bead that was expanded)
 	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID); err != nil {
-		worktree.RemoveForce(mainRepoPath, worktreePath)
+		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 
 	// Add beads to work_beads
 	if err := addBeadsToWork(ctx, proj, workID, expandedIssueIDs); err != nil {
-		worktree.RemoveForce(mainRepoPath, worktreePath)
+		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to add beads to work: %w", err)
 	}
@@ -488,7 +488,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 
 	// Ensure unique branch name
 	var err error
-	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+	branchName, err = ensureUniqueBranchName(ctx, mainRepoPath, branchName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
 	}
@@ -513,7 +513,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	worktreePath := filepath.Join(workDir, "tree")
 
 	// Create worktree with new branch
-	if err := worktree.Create(mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
+	if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
 		os.RemoveAll(workDir)
 		return nil, err
 	}
@@ -534,7 +534,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	// Create work record in database FIRST (transactional outbox pattern)
 	// This ensures the work record exists before attempting the push
 	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID); err != nil {
-		worktree.RemoveForce(mainRepoPath, worktreePath)
+		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return nil, fmt.Errorf("failed to create work record: %w", err)
 	}
@@ -552,7 +552,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	// Attempt immediate push (optimistic execution)
 	// If this succeeds, we mark the scheduled task as completed
 	// If this fails, the scheduler will retry the push with exponential backoff
-	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
+	if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
 		logging.Warn("Initial git push failed, scheduler will retry", "error", err, "work_id", workID, "branch", branchName)
 		// Don't return error - work is created, scheduler will handle the push
 		fmt.Fprintf(output, "Warning: initial push failed, will retry in background: %v\n", err)
@@ -605,7 +605,7 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 
 	// Remove git worktree if it exists
 	if work.WorktreePath != "" {
-		if err := worktree.RemoveForce(proj.MainRepoPath(), work.WorktreePath); err != nil {
+		if err := worktree.RemoveForce(ctx, proj.MainRepoPath(), work.WorktreePath); err != nil {
 			// Warn but continue - worktree might not exist
 		}
 	}

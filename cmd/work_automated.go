@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -146,40 +145,21 @@ func collectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, beads
 
 // ensureUniqueBranchName checks if a branch already exists and appends a suffix if needed.
 // Returns a unique branch name that doesn't conflict with existing branches.
-func ensureUniqueBranchName(repoPath, baseName string) (string, error) {
+func ensureUniqueBranchName(ctx context.Context, repoPath, baseName string) (string, error) {
 	// Check if the base name is available
-	if !branchExists(repoPath, baseName) {
+	if !git.BranchExists(ctx, repoPath, baseName) {
 		return baseName, nil
 	}
 
 	// Try appending suffixes until we find an available name
 	for i := 2; i <= 100; i++ {
 		candidate := fmt.Sprintf("%s-%d", baseName, i)
-		if !branchExists(repoPath, candidate) {
+		if !git.BranchExists(ctx, repoPath, candidate) {
 			return candidate, nil
 		}
 	}
 
 	return "", fmt.Errorf("could not find unique branch name after 100 attempts (base: %s)", baseName)
-}
-
-// branchExists checks if a branch exists locally or remotely.
-func branchExists(repoPath, branchName string) bool {
-	// Check local branches
-	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
-	cmd.Dir = repoPath
-	if cmd.Run() == nil {
-		return true
-	}
-
-	// Check remote branches
-	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branchName)
-	cmd.Dir = repoPath
-	if cmd.Run() == nil {
-		return true
-	}
-
-	return false
 }
 
 // collectIssueIDsForAutomatedWorkflow collects all issue IDs to include in the workflow.
@@ -271,7 +251,7 @@ func runWorkCreateWithBeads(proj *project.Project, beadID string, baseBranch str
 	}
 
 	branchName := generateBranchNameFromIssue(rootIssue.Bead)
-	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+	branchName, err = ensureUniqueBranchName(ctx, mainRepoPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to find unique branch name: %w", err)
 	}
@@ -297,14 +277,14 @@ func runWorkCreateWithBeads(proj *project.Project, beadID string, baseBranch str
 	}
 
 	// Create worktree with new branch
-	if err := worktree.Create(mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
+	if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
 		os.RemoveAll(workDir)
 		return err
 	}
 
 	// Push branch and set upstream
-	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
-		worktree.RemoveForce(mainRepoPath, worktreePath)
+	if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
+		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return err
 	}
@@ -322,7 +302,7 @@ func runWorkCreateWithBeads(proj *project.Project, beadID string, baseBranch str
 
 	// Create work record in database with the root issue ID
 	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID); err != nil {
-		worktree.RemoveForce(mainRepoPath, worktreePath)
+		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
@@ -381,7 +361,7 @@ func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch strin
 	}
 
 	branchName := generateBranchNameFromIssue(rootIssue.Bead)
-	branchName, err = ensureUniqueBranchName(mainRepoPath, branchName)
+	branchName, err = ensureUniqueBranchName(ctx, mainRepoPath, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to find unique branch name: %w", err)
 	}
@@ -407,14 +387,14 @@ func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch strin
 	}
 
 	// Create worktree with new branch
-	if err := worktree.Create(mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
+	if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
 		os.RemoveAll(workDir)
 		return err
 	}
 
 	// Push branch and set upstream
-	if err := git.PushSetUpstreamInDir(branchName, worktreePath); err != nil {
-		worktree.RemoveForce(mainRepoPath, worktreePath)
+	if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
+		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return err
 	}
@@ -432,7 +412,7 @@ func runAutomatedWorkflow(proj *project.Project, beadID string, baseBranch strin
 
 	// Create work record in database with the root issue ID
 	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID); err != nil {
-		worktree.RemoveForce(mainRepoPath, worktreePath)
+		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}

@@ -95,7 +95,7 @@ func runProjDestroy(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// List worktrees
-	worktrees, err := worktree.List(proj.MainRepoPath())
+	worktrees, err := worktree.List(ctx, proj.MainRepoPath())
 	if err != nil {
 		return fmt.Errorf("failed to list worktrees: %w", err)
 	}
@@ -131,7 +131,7 @@ func runProjDestroy(cmd *cobra.Command, args []string) error {
 	// Remove all worktrees
 	for _, wt := range taskWorktrees {
 		fmt.Printf("Removing worktree %s...\n", wt.Path)
-		if err := worktree.RemoveForce(proj.MainRepoPath(), wt.Path); err != nil {
+		if err := worktree.RemoveForce(ctx, proj.MainRepoPath(), wt.Path); err != nil {
 			fmt.Printf("Warning: failed to remove worktree %s: %v\n", wt.Path, err)
 		}
 	}
@@ -165,7 +165,7 @@ func runProjStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Path: %s\n", proj.MainRepoPath())
 
 	// List worktrees
-	worktrees, err := worktree.List(proj.MainRepoPath())
+	worktrees, err := worktree.List(ctx, proj.MainRepoPath())
 	if err != nil {
 		return fmt.Errorf("failed to list worktrees: %w", err)
 	}
