@@ -127,18 +127,21 @@ func (m *planModel) detectHoveredIssue(y int) int {
 		return -1
 	}
 
+	// Account for tabs bar at the top
+	tabsBarHeight := m.workTabsBar.Height()
+
 	// Calculate the Y offset for the issues panel based on focused work mode
-	issuesPanelStartY := 0
+	issuesPanelStartY := tabsBarHeight
 	var contentHeight int
 	if m.focusedWorkID != "" {
 		// In focused work mode, the issues panel is below the work panel
 		// Use the same height calculation as renderFocusedWorkSplitView
-		totalHeight := m.height - 1 // -1 for status bar
+		totalHeight := m.height - 1 - tabsBarHeight // -1 for status bar, - tabs bar
 		workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
-		issuesPanelStartY = workPanelHeight
+		issuesPanelStartY = tabsBarHeight + workPanelHeight
 		contentHeight = totalHeight - workPanelHeight
 	} else {
-		contentHeight = m.height - 1 // -1 for status bar
+		contentHeight = m.height - 1 - tabsBarHeight // -1 for status bar
 	}
 
 	// Layout within panel content:
