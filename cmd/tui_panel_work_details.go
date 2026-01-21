@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -285,15 +286,97 @@ func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 	workHeader := fmt.Sprintf("%s %s", statusIcon(p.focusedWork.work.Status), p.focusedWork.work.ID)
 	if p.focusedWork.work.Name != "" {
 		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
-		// Truncate name to fit: contentWidth - status icon (2) - space (1) - workID - space (1)
+		// Calculate available space for name
 		maxNameLen := contentWidth - 4 - len(p.focusedWork.work.ID)
+
+		// Add creation time (if it will fit)
+		var timeStr string
+		if p.focusedWork.work.CreatedAt.Unix() > 0 {
+			timeAgo := time.Since(p.focusedWork.work.CreatedAt)
+			if timeAgo.Hours() < 1 {
+				timeStr = fmt.Sprintf(" (%dm ago)", int(timeAgo.Minutes()))
+			} else if timeAgo.Hours() < 24 {
+				timeStr = fmt.Sprintf(" (%dh ago)", int(timeAgo.Hours()))
+			} else {
+				days := int(timeAgo.Hours() / 24)
+				timeStr = fmt.Sprintf(" (%dd ago)", days)
+			}
+			maxNameLen -= len(timeStr)
+		}
+
 		if maxNameLen > 0 {
 			workHeader += " " + nameStyle.Render(truncateString(p.focusedWork.work.Name, maxNameLen))
+		}
+
+		// Add time string at the end
+		if timeStr != "" {
+			timeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+			workHeader += timeStyle.Render(timeStr)
+		}
+	} else {
+		// If no name, just show creation time
+		if p.focusedWork.work.CreatedAt.Unix() > 0 {
+			timeAgo := time.Since(p.focusedWork.work.CreatedAt)
+			var timeStr string
+			if timeAgo.Hours() < 1 {
+				timeStr = fmt.Sprintf(" (%dm ago)", int(timeAgo.Minutes()))
+			} else if timeAgo.Hours() < 24 {
+				timeStr = fmt.Sprintf(" (%dh ago)", int(timeAgo.Hours()))
+			} else {
+				days := int(timeAgo.Hours() / 24)
+				timeStr = fmt.Sprintf(" (%dd ago)", days)
+			}
+			timeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+			workHeader += timeStyle.Render(timeStr)
 		}
 	}
 	content.WriteString(workHeader + "\n")
 	// Branch info (1 line) - "Branch: " is 8 chars
 	fmt.Fprintf(&content, "Branch: %s\n", truncateString(p.focusedWork.work.BranchName, contentWidth-8))
+
+	// Progress percentage and warnings (1 line)
+	var progressLine strings.Builder
+
+	// Calculate progress
+	completedTasks := 0
+	for _, task := range p.focusedWork.tasks {
+		if task.task.Status == db.StatusCompleted {
+			completedTasks++
+		}
+	}
+	percentage := 0
+	if len(p.focusedWork.tasks) > 0 {
+		percentage = (completedTasks * 100) / len(p.focusedWork.tasks)
+	}
+
+	// Progress percentage
+	progressStyle := lipgloss.NewStyle().Bold(true)
+	if percentage == 100 {
+		progressStyle = progressStyle.Foreground(lipgloss.Color("82"))
+	} else if percentage >= 75 {
+		progressStyle = progressStyle.Foreground(lipgloss.Color("226"))
+	} else if percentage >= 50 {
+		progressStyle = progressStyle.Foreground(lipgloss.Color("214"))
+	} else {
+		progressStyle = progressStyle.Foreground(lipgloss.Color("247"))
+	}
+	progressLine.WriteString("Progress: ")
+	progressLine.WriteString(progressStyle.Render(fmt.Sprintf("%d%%", percentage)))
+	progressLine.WriteString(fmt.Sprintf(" (%d/%d tasks)", completedTasks, len(p.focusedWork.tasks)))
+
+	// Warning badges
+	if p.focusedWork.unassignedBeadCount > 0 {
+		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+		progressLine.WriteString("  ")
+		progressLine.WriteString(warningStyle.Render(fmt.Sprintf("⚠ %d unassigned", p.focusedWork.unassignedBeadCount)))
+	}
+	if p.focusedWork.feedbackCount > 0 {
+		alertStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+		progressLine.WriteString("  ")
+		progressLine.WriteString(alertStyle.Render(fmt.Sprintf("● %d feedback", p.focusedWork.feedbackCount)))
+	}
+
+	content.WriteString(progressLine.String() + "\n")
 
 	// Orchestrator health (1 line) - only show if work is processing or has active tasks
 	hasActiveTask := false
@@ -303,7 +386,8 @@ func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 			break
 		}
 	}
-	headerLines := 3
+	// Base header lines: work header (1), branch (1), progress (1), separator (1) = 4
+	headerLines := 4
 	if p.focusedWork.work.Status == db.StatusProcessing || hasActiveTask {
 		if p.orchestratorHealthy {
 			healthStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
@@ -313,7 +397,7 @@ func (p *WorkDetailsPanel) renderLeftPanel(panelHeight, panelWidth int) string {
 			content.WriteString(healthStyle.Render("✗ Orchestrator dead [o] restart"))
 		}
 		content.WriteString("\n")
-		headerLines = 4
+		headerLines = 5 // Add one for orchestrator health line
 	}
 
 	// Separator (1 line)
@@ -573,7 +657,94 @@ func (p *WorkDetailsPanel) renderRootIssueDetails(panelWidth int) string {
 	// Account for padding (tuiPanelStyle has Padding(0, 1) = 2 chars total)
 	contentWidth := panelWidth - 2
 
+	// == Work Overview Section ==
+	overviewStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
+	content.WriteString(overviewStyle.Render("Work Overview"))
+	content.WriteString("\n")
+	content.WriteString(strings.Repeat("─", contentWidth))
+	content.WriteString("\n")
+
+	// Work metadata
+	statusStyle := lipgloss.NewStyle()
+	switch p.focusedWork.work.Status {
+	case db.StatusCompleted:
+		statusStyle = statusStyle.Foreground(lipgloss.Color("82"))
+	case db.StatusProcessing:
+		statusStyle = statusStyle.Foreground(lipgloss.Color("214"))
+	case db.StatusFailed:
+		statusStyle = statusStyle.Foreground(lipgloss.Color("196"))
+	default:
+		statusStyle = statusStyle.Foreground(lipgloss.Color("247"))
+	}
+	content.WriteString(fmt.Sprintf("Status: %s\n", statusStyle.Render(p.focusedWork.work.Status)))
+
+	// Creation time
+	if p.focusedWork.work.CreatedAt.Unix() > 0 {
+		timeAgo := time.Since(p.focusedWork.work.CreatedAt)
+		var timeStr string
+		if timeAgo.Hours() < 1 {
+			timeStr = fmt.Sprintf("%d minutes ago", int(timeAgo.Minutes()))
+		} else if timeAgo.Hours() < 24 {
+			timeStr = fmt.Sprintf("%d hours ago", int(timeAgo.Hours()))
+		} else {
+			days := int(timeAgo.Hours() / 24)
+			timeStr = fmt.Sprintf("%d days ago", days)
+		}
+		content.WriteString(fmt.Sprintf("Created: %s\n", timeStr))
+	}
+
+	// Progress
+	completedTasks := 0
+	for _, task := range p.focusedWork.tasks {
+		if task.task.Status == db.StatusCompleted {
+			completedTasks++
+		}
+	}
+	percentage := 0
+	if len(p.focusedWork.tasks) > 0 {
+		percentage = (completedTasks * 100) / len(p.focusedWork.tasks)
+	}
+
+	progressStyle := lipgloss.NewStyle().Bold(true)
+	if percentage == 100 {
+		progressStyle = progressStyle.Foreground(lipgloss.Color("82"))
+	} else if percentage >= 75 {
+		progressStyle = progressStyle.Foreground(lipgloss.Color("226"))
+	} else if percentage >= 50 {
+		progressStyle = progressStyle.Foreground(lipgloss.Color("214"))
+	} else {
+		progressStyle = progressStyle.Foreground(lipgloss.Color("247"))
+	}
+	content.WriteString("Progress: ")
+	content.WriteString(progressStyle.Render(fmt.Sprintf("%d%%", percentage)))
+	content.WriteString(fmt.Sprintf(" (%d/%d tasks completed)\n", completedTasks, len(p.focusedWork.tasks)))
+
+	// Alerts/Warnings
+	if p.focusedWork.unassignedBeadCount > 0 || p.focusedWork.feedbackCount > 0 {
+		content.WriteString("\n")
+		alertHeaderStyle := lipgloss.NewStyle().Bold(true)
+		content.WriteString(alertHeaderStyle.Render("Alerts:"))
+		content.WriteString("\n")
+
+		if p.focusedWork.unassignedBeadCount > 0 {
+			warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+			content.WriteString(warningStyle.Render(fmt.Sprintf("  ⚠ %d unassigned bead(s) need attention\n", p.focusedWork.unassignedBeadCount)))
+		}
+		if p.focusedWork.feedbackCount > 0 {
+			alertStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+			content.WriteString(alertStyle.Render(fmt.Sprintf("  ● %d pending PR feedback item(s)\n", p.focusedWork.feedbackCount)))
+		}
+	}
+
+	content.WriteString("\n")
+
+	// == Root Issue Section ==
 	rootID := p.focusedWork.work.RootIssueID
+	issueHeaderStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	content.WriteString(issueHeaderStyle.Render("Root Issue"))
+	content.WriteString("\n")
+	content.WriteString(strings.Repeat("─", contentWidth))
+	content.WriteString("\n")
 
 	// Find root bead in workBeads
 	var rootBead *beadProgress
@@ -611,11 +782,15 @@ func (p *WorkDetailsPanel) renderRootIssueDetails(panelWidth int) string {
 			rootBead.priority,
 			rootBead.beadStatus)
 
-		// Description (truncate to single line to avoid layout issues)
-		// Must remove newlines before styling to prevent multi-line styled blocks
+		// Description (truncate to avoid layout issues)
 		if rootBead.description != "" {
-			descOneLine := strings.ReplaceAll(rootBead.description, "\n", " ")
-			desc := truncateString(descOneLine, contentWidth-2)
+			content.WriteString("\n")
+			content.WriteString("Description:\n")
+			// Keep multiline but truncate to reasonable length
+			desc := rootBead.description
+			if len(desc) > 300 {
+				desc = desc[:297] + "..."
+			}
 			content.WriteString(tuiDimStyle.Render(desc))
 			content.WriteString("\n")
 		}
@@ -626,10 +801,41 @@ func (p *WorkDetailsPanel) renderRootIssueDetails(panelWidth int) string {
 		content.WriteString("\n")
 	}
 
-	// Summary counts
-	fmt.Fprintf(&content, "Beads: %d  Tasks: %d\n",
-		len(p.focusedWork.workBeads),
-		len(p.focusedWork.tasks))
+	// Summary statistics
+	content.WriteString("\n")
+	summaryHeaderStyle := lipgloss.NewStyle().Bold(true)
+	content.WriteString(summaryHeaderStyle.Render("Statistics:"))
+	content.WriteString("\n")
+	fmt.Fprintf(&content, "  Total Beads: %d\n", len(p.focusedWork.workBeads))
+	fmt.Fprintf(&content, "  Total Tasks: %d\n", len(p.focusedWork.tasks))
+
+	// Count task types
+	var estimateTasks, implementTasks, reviewTasks int
+	for _, task := range p.focusedWork.tasks {
+		switch task.task.TaskType {
+		case "estimate":
+			estimateTasks++
+		case "implement":
+			implementTasks++
+		case "review":
+			reviewTasks++
+		}
+	}
+	if estimateTasks > 0 || reviewTasks > 0 {
+		content.WriteString("  Task Breakdown: ")
+		parts := []string{}
+		if estimateTasks > 0 {
+			parts = append(parts, fmt.Sprintf("%d estimate", estimateTasks))
+		}
+		if implementTasks > 0 {
+			parts = append(parts, fmt.Sprintf("%d implement", implementTasks))
+		}
+		if reviewTasks > 0 {
+			parts = append(parts, fmt.Sprintf("%d review", reviewTasks))
+		}
+		content.WriteString(strings.Join(parts, ", "))
+		content.WriteString("\n")
+	}
 
 	return content.String()
 }
