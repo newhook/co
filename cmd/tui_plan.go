@@ -284,6 +284,12 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle hover detection for motion events
 		if msg.Action == tea.MouseActionMotion {
+			logging.Debug("mouse motion event",
+				"x", msg.X,
+				"y", msg.Y,
+				"viewMode", m.viewMode,
+				"focusedWorkID", m.focusedWorkID,
+				"statusBarY", statusBarY)
 			if msg.Y == statusBarY {
 				m.hoveredButton = m.detectCommandsBarButton(msg.X)
 				m.hoveredIssue = -1
@@ -294,6 +300,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Detect hover over dialog buttons if in form mode
 				m.hoveredDialogButton = m.detectDialogButton(msg.X, msg.Y)
 				if m.hoveredDialogButton != "" {
+					logging.Debug("hover: dialog button detected", "button", m.hoveredDialogButton)
 					m.hoveredIssue = -1
 					m.hoveredWorkItem = -1
 				} else if m.viewMode == ViewWorkOverlay {
