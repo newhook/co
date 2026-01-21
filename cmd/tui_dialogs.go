@@ -248,6 +248,7 @@ func (m tuiModel) renderHelp() string {
   ────────────────────────────
   n             Create new bead
   e             Create new epic (feature)
+  w             Create work from cursor bead
   x             Close selected bead
   X             Reopen selected bead
   Space         Toggle bead selection
@@ -266,12 +267,12 @@ func (m tuiModel) renderHelp() string {
 
   Work Management (at Works panel)
   ────────────────────────────
-  c             Create new work
   d             Destroy selected work
   r             Run work (create tasks + start)
   a             Assign beads to work
-  v             Create review task
-  p             Create PR task
+  p             Plan tasks (choose grouping strategy)
+  R             Create review task
+  P             Create PR task
 
   General
   ────────────────────────────

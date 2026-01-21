@@ -524,7 +524,14 @@ func (m tuiModel) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// Work actions (available when Works panel is active)
+	// Work actions
+	case "w":
+		// Create work from cursor bead
+		if m.isBeadsPanelActive() && len(m.beadItems) > 0 {
+			beadID := m.beadItems[m.beadsCursor].ID
+			return m, m.createWorkFromBead(beadID)
+		}
+		return m, nil
 	case "c":
 		// "c" on beads panel shows closed issues
 		if m.isBeadsPanelActive() {
@@ -833,16 +840,6 @@ func (m tuiModel) updateCreateWork(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewNormal
 			return m, m.createWork(branchName)
 		}
-		return m, nil
-	case "b":
-		// Create work from cursor bead
-		if m.isBeadsPanelActive() && len(m.beadItems) > 0 {
-			beadID := m.beadItems[m.beadsCursor].ID
-			m.viewMode = ViewNormal
-			return m, m.createWorkFromBead(beadID)
-		}
-		m.statusMessage = "No bead under cursor"
-		m.statusIsError = true
 		return m, nil
 	}
 
