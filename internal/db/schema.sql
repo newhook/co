@@ -17,7 +17,8 @@ CREATE TABLE works (
     error_message TEXT NOT NULL DEFAULT '',
     started_at DATETIME,
     completed_at DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    auto BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX idx_works_status ON works(status);

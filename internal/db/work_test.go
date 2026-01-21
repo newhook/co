@@ -20,7 +20,7 @@ func TestDeleteWork(t *testing.T) {
 	baseBranch := "main"
 	worktreePath := "/tmp/test-work/tree"
 
-	err := db.CreateWork(ctx, workID, "", worktreePath, branchName, baseBranch, "root-issue-1")
+	err := db.CreateWork(ctx, workID, "", worktreePath, branchName, baseBranch, "root-issue-1", false)
 	require.NoError(t, err, "Failed to create work")
 
 	// Create tasks for the work
@@ -87,7 +87,7 @@ func TestAddWorkBeads(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1", false)
 	require.NoError(t, err)
 
 	// Add beads to work
@@ -106,7 +106,7 @@ func TestAddWorkBeadsDuplicateError(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1", false)
 	require.NoError(t, err)
 
 	// Add initial beads
@@ -126,7 +126,7 @@ func TestAddWorkBeadsEmptyList(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1", false)
 	require.NoError(t, err)
 
 	// Add empty list - should succeed with no effect
@@ -144,7 +144,7 @@ func TestAddWorkBeadsMultipleBatches(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work first
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-issue-1", false)
 	require.NoError(t, err)
 
 	// Add beads in multiple batches
@@ -165,7 +165,7 @@ func TestWorkRootIssueID(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work with a root issue ID
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-bead-123")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "root-bead-123", false)
 	require.NoError(t, err)
 
 	// Verify root issue ID was stored
@@ -181,7 +181,7 @@ func TestWorkRootIssueIDEmpty(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a work without a root issue ID (empty string)
-	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "")
+	err := db.CreateWork(ctx, "w-test", "", "/tmp/tree", "feature/test", "main", "", false)
 	require.NoError(t, err)
 
 	// Verify empty root issue ID
@@ -197,9 +197,9 @@ func TestListWorksWithRootIssueID(t *testing.T) {
 	ctx := context.Background()
 
 	// Create works with different root issue IDs
-	err := db.CreateWork(ctx, "w-test1", "", "/tmp/tree1", "feature/test1", "main", "bead-1")
+	err := db.CreateWork(ctx, "w-test1", "", "/tmp/tree1", "feature/test1", "main", "bead-1", false)
 	require.NoError(t, err)
-	err = db.CreateWork(ctx, "w-test2", "", "/tmp/tree2", "feature/test2", "main", "bead-2")
+	err = db.CreateWork(ctx, "w-test2", "", "/tmp/tree2", "feature/test2", "main", "bead-2", false)
 	require.NoError(t, err)
 
 	// List all works
@@ -223,7 +223,7 @@ func TestWorkStatusTransitionToCompleted(t *testing.T) {
 
 	// Create a work
 	workID := "w-test"
-	err := db.CreateWork(ctx, workID, "", "/tmp/tree", "feature/test", "main", "root-issue-1")
+	err := db.CreateWork(ctx, workID, "", "/tmp/tree", "feature/test", "main", "root-issue-1", false)
 	require.NoError(t, err)
 
 	// Verify initial status is pending
@@ -290,7 +290,7 @@ func TestWorkStatusTransitionToCompletedWithoutPR(t *testing.T) {
 
 	// Create and start a work
 	workID := "w-test"
-	err := db.CreateWork(ctx, workID, "", "/tmp/tree", "feature/test", "main", "")
+	err := db.CreateWork(ctx, workID, "", "/tmp/tree", "feature/test", "main", "", false)
 	require.NoError(t, err)
 	err = db.StartWork(ctx, workID, "test-session", "test-tab")
 	require.NoError(t, err)
@@ -320,7 +320,7 @@ func TestIsWorkCompletedWithNoTasks(t *testing.T) {
 
 	// Create a work without any tasks
 	workID := "w-test"
-	err := db.CreateWork(context.Background(), workID, "", "/tmp/tree", "feature/test", "main", "")
+	err := db.CreateWork(context.Background(), workID, "", "/tmp/tree", "feature/test", "main", "", false)
 	require.NoError(t, err)
 
 	// Work with no tasks should not be considered completed
@@ -336,7 +336,7 @@ func TestIsWorkCompletedWithPartialCompletion(t *testing.T) {
 
 	// Create a work with multiple tasks
 	workID := "w-test"
-	err := db.CreateWork(ctx, workID, "", "/tmp/tree", "feature/test", "main", "")
+	err := db.CreateWork(ctx, workID, "", "/tmp/tree", "feature/test", "main", "", false)
 	require.NoError(t, err)
 
 	// Create three tasks

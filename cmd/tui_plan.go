@@ -448,7 +448,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(result.BeadID, result.BranchName)
+						return m, m.executeCreateWork(result.BeadID, result.BranchName, false)
 					}
 				} else if clickedDialogButton == "auto" {
 					// Handle auto button for work creation
@@ -461,7 +461,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(result.BeadID, result.BranchName)
+						return m, m.executeCreateWork(result.BeadID, result.BranchName, true)
 					}
 				}
 
@@ -944,7 +944,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewNormal
 			// Clear selections after work creation
 			m.selectedBeads = make(map[string]bool)
-			return m, m.executeCreateWork(result.BeadID, result.BranchName)
+			return m, m.executeCreateWork(result.BeadID, result.BranchName, false)
 
 		case CreateWorkActionAuto:
 			result := m.createWorkPanel.GetResult()
@@ -956,7 +956,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewNormal
 			// Clear selections after work creation
 			m.selectedBeads = make(map[string]bool)
-			return m, m.executeCreateWork(result.BeadID, result.BranchName)
+			return m, m.executeCreateWork(result.BeadID, result.BranchName, true)
 		}
 
 		return m, cmd

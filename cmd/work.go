@@ -280,7 +280,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create work record in database with the root issue ID (the original bead that was expanded)
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID); err != nil {
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID, flagAutoRun); err != nil {
 		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
@@ -461,6 +461,8 @@ type WorkCreateResult struct {
 type WorkCreateOptions struct {
 	// Silent suppresses progress output (useful for TUI contexts).
 	Silent bool
+	// Auto indicates if this work should run in automated workflow mode.
+	Auto bool
 }
 
 // CreateWorkWithBranch creates a new work unit with the given branch name and root issue.
@@ -532,7 +534,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 
 	// Create work record and schedule git push atomically (transactional outbox pattern)
 	// This ensures both the work record and scheduled task exist together
-	idempotencyKey, err := proj.DB.CreateWorkAndSchedulePush(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID)
+	idempotencyKey, err := proj.DB.CreateWorkAndSchedulePush(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID, opt.Auto)
 	if err != nil {
 		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
@@ -688,7 +690,7 @@ func runAutomatedWorkflowForWork(proj *project.Project, workID, worktreePath str
 	mainRepoPath := proj.MainRepoPath()
 
 	// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
-	err := createEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, w)
+	err := CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, w)
 	if err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}

@@ -72,7 +72,7 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 
 // executeCreateWork creates a work unit with the given branch name.
 // This calls internal logic directly instead of shelling out to the CLI.
-func (m *planModel) executeCreateWork(beadID string, branchName string) tea.Cmd {
+func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
 		// Expand the bead (handles epics and transitive deps)
 		allIssueIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
@@ -85,7 +85,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string) tea.Cmd 
 		}
 
 		// Create work with branch name (silent to avoid console output in TUI)
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", beadID, WorkCreateOptions{Silent: true})
+		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", beadID, WorkCreateOptions{Silent: true, Auto: auto})
 		if err != nil {
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}

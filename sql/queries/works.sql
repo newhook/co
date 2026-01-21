@@ -1,6 +1,6 @@
 -- name: CreateWork :exec
-INSERT INTO works (id, status, name, worktree_path, branch_name, base_branch, root_issue_id)
-VALUES (?, 'pending', ?, ?, ?, ?, ?);
+INSERT INTO works (id, status, name, worktree_path, branch_name, base_branch, root_issue_id, auto)
+VALUES (?, 'pending', ?, ?, ?, ?, ?, ?);
 
 -- name: StartWork :execrows
 UPDATE works
@@ -37,7 +37,8 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       auto
 FROM works
 WHERE id = ?;
 
@@ -54,7 +55,8 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       auto
 FROM works
 ORDER BY created_at DESC;
 
@@ -71,7 +73,8 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       auto
 FROM works
 WHERE status = ?
 ORDER BY created_at DESC;
@@ -94,7 +97,8 @@ SELECT id, status,
        error_message,
        started_at,
        completed_at,
-       created_at
+       created_at,
+       auto
 FROM works
 WHERE worktree_path LIKE ?
 LIMIT 1;
