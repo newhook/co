@@ -78,9 +78,10 @@ type planModel struct {
 	lastUpdate    time.Time
 
 	// Work overlay state
-	focusedWorkID        string // ID of focused work (splits screen)
-	focusFilterActive    bool   // Whether focus filter is active
-	workSelectionCleared bool   // User manually cleared work selection filter (don't auto-restore)
+	focusedWorkID           string // ID of focused work (splits screen)
+	focusFilterActive       bool   // Whether focus filter is active
+	workSelectionCleared    bool   // User manually cleared work selection filter (don't auto-restore)
+	pendingWorkSelectIndex  int    // Index of work to select after tiles load (-1 = none)
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -148,21 +149,22 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	}
 
 	m := &planModel{
-		ctx:                ctx,
-		proj:               proj,
-		width:              80,
-		height:             24,
-		activePanel:        PanelLeft,
-		spinner:            s,
-		textInput:          ti,
-		activeBeadSessions: make(map[string]bool),
-		selectedBeads:      make(map[string]bool),
-		newBeads:           make(map[string]time.Time),
-		zj:                 zellij.New(),
-		columnRatio:        0.4, // Default 40/60 split (issues/details)
-		hoveredIssue:       -1,  // No issue hovered initially
-		hoveredWorkItem:    -1,  // No work item hovered initially
-		beadsWatcher:       beadsWatcher,
+		ctx:                    ctx,
+		proj:                   proj,
+		width:                  80,
+		height:                 24,
+		activePanel:            PanelLeft,
+		spinner:                s,
+		textInput:              ti,
+		activeBeadSessions:     make(map[string]bool),
+		selectedBeads:          make(map[string]bool),
+		newBeads:               make(map[string]time.Time),
+		zj:                     zellij.New(),
+		columnRatio:            0.4, // Default 40/60 split (issues/details)
+		hoveredIssue:           -1,  // No issue hovered initially
+		hoveredWorkItem:        -1,  // No work item hovered initially
+		pendingWorkSelectIndex: -1,  // No pending work selection
+		beadsWatcher:           beadsWatcher,
 		filters: beadFilters{
 			status: "open",
 			sortBy: "default",
@@ -652,10 +654,19 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusIsError = true
 			m.viewMode = ViewNormal
 			m.loading = false
+			m.pendingWorkSelectIndex = -1 // Clear pending selection on error
 			return m, nil
 		}
 		m.workOverlay.SetWorkTiles(msg.works)
 		m.loading = false
+
+		// Check for pending work selection (from [0-9] hotkey)
+		if m.pendingWorkSelectIndex >= 0 {
+			pendingIndex := m.pendingWorkSelectIndex
+			m.pendingWorkSelectIndex = -1 // Clear pending selection
+			return m.doSelectWorkAtIndex(pendingIndex)
+		}
+
 		// Update work details panel and filter if a work is focused
 		if m.focusedWorkID != "" {
 			focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
@@ -977,6 +988,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		return m, cmd
 	case ViewWorkOverlay:
+		// Handle [1-9] keys to select work by index (works from any sub-panel)
+		if key := msg.String(); len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+			digit := int(key[0] - '0')
+			return m.selectWorkByIndex(digit)
+		}
+
 		// Handle navigation when issues panel is focused (not overlay)
 		if m.activePanel != PanelWorkOverlay {
 			switch msg.String() {
@@ -1119,6 +1136,20 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.restartOrchestrator()
 		}
 		// WorkDetailActionNone - fall through to normal handling
+	}
+
+	// Handle '0' to open work overlay
+	if msg.String() == "0" {
+		m.viewMode = ViewWorkOverlay
+		m.activePanel = PanelWorkOverlay
+		m.loading = true
+		return m, tea.Batch(m.workOverlay.Init(), m.loadWorkTiles())
+	}
+
+	// Handle [1-9] keys to select work by index (works from issues panel and work details panel)
+	if key := msg.String(); len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+		digit := int(key[0] - '0')
+		return m.selectWorkByIndex(digit)
 	}
 
 	switch msg.String() {
@@ -1703,4 +1734,57 @@ func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
 	m.beadsCursor = 0
 
 	return m.refreshData()
+}
+
+// selectWorkByIndex selects a work by its index in the work tiles array.
+// Key mapping: 1-9 map to indices 0-8.
+// Returns a command to load work tiles if they're not loaded yet.
+func (m *planModel) selectWorkByIndex(digit int) (tea.Model, tea.Cmd) {
+	// Map digit to index: 1->0, 2->1, ..., 9->8
+	index := digit - 1
+
+	works := m.workOverlay.GetWorkTiles()
+
+	// If no works loaded yet, load them first and store pending selection
+	if len(works) == 0 {
+		m.loading = true
+		m.pendingWorkSelectIndex = index
+		return m, m.loadWorkTiles()
+	}
+
+	return m.doSelectWorkAtIndex(index)
+}
+
+// doSelectWorkAtIndex performs the actual work selection at a given index.
+// This is called either directly from selectWorkByIndex or after work tiles are loaded.
+func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
+	works := m.workOverlay.GetWorkTiles()
+
+	// Check if index is valid
+	if index >= len(works) {
+		m.statusMessage = fmt.Sprintf("No work at position %d (have %d works)", index+1, len(works))
+		m.statusIsError = true
+		return m, nil
+	}
+
+	work := works[index]
+	if work == nil {
+		return m, nil
+	}
+
+	// Select the work (same logic as WorkOverlayActionSelect)
+	m.focusedWorkID = work.work.ID
+	m.viewMode = ViewNormal
+	m.activePanel = PanelWorkDetails
+	m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
+	m.statusIsError = false
+	m.focusFilterActive = false
+
+	// Set up the work details panel
+	m.workDetails.SetFocusedWork(work)
+	m.workDetails.SetSelectedIndex(0)
+	m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.focusedWorkID))
+
+	// Update the filter and refresh
+	return m, m.updateWorkSelectionFilter()
 }
