@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -426,6 +427,86 @@ func (db *DB) MarkFeedbackResolved(ctx context.Context, feedbackID string) error
 	err := db.queries.MarkPRFeedbackResolved(ctx, feedbackID)
 	if err != nil {
 		return fmt.Errorf("failed to mark feedback as resolved: %w", err)
+	}
+
+	return nil
+}
+
+// ScheduledTaskParams contains the parameters for scheduling a task.
+type ScheduledTaskParams struct {
+	WorkID         string
+	TaskType       string
+	ScheduledAt    time.Time
+	Metadata       map[string]string
+	IdempotencyKey string
+	MaxAttempts    int
+}
+
+// MarkFeedbackResolvedAndScheduleTasks atomically marks feedback as resolved
+// and schedules the associated GitHub tasks in a single transaction.
+// This implements the transactional outbox pattern correctly.
+func (db *DB) MarkFeedbackResolvedAndScheduleTasks(ctx context.Context, feedbackID string, tasks []ScheduledTaskParams) error {
+	tx, err := db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := db.queries.WithTx(tx)
+
+	// Mark feedback as resolved
+	if err := qtx.MarkPRFeedbackResolved(ctx, feedbackID); err != nil {
+		return fmt.Errorf("failed to mark feedback as resolved: %w", err)
+	}
+
+	// Schedule all tasks
+	for _, task := range tasks {
+		// Check if task with this idempotency key already exists
+		if task.IdempotencyKey != "" {
+			existing, err := qtx.GetTaskByIdempotencyKey(ctx, sql.NullString{String: task.IdempotencyKey, Valid: true})
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to check existing task: %w", err)
+			}
+			if existing.ID != "" {
+				// Task already exists, skip
+				continue
+			}
+		}
+
+		id := uuid.New().String()
+
+		metadataJSON := "{}"
+		if task.Metadata != nil {
+			data, err := json.Marshal(task.Metadata)
+			if err != nil {
+				return fmt.Errorf("failed to marshal metadata: %w", err)
+			}
+			metadataJSON = string(data)
+		}
+
+		maxAttempts := task.MaxAttempts
+		if maxAttempts <= 0 {
+			maxAttempts = DefaultMaxAttempts
+		}
+
+		err := qtx.CreateScheduledTaskWithRetry(ctx, sqlc.CreateScheduledTaskWithRetryParams{
+			ID:             id,
+			WorkID:         task.WorkID,
+			TaskType:       task.TaskType,
+			ScheduledAt:    task.ScheduledAt,
+			Status:         TaskStatusPending,
+			Metadata:       metadataJSON,
+			AttemptCount:   0,
+			MaxAttempts:    int64(maxAttempts),
+			IdempotencyKey: sql.NullString{String: task.IdempotencyKey, Valid: task.IdempotencyKey != ""},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to schedule task: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,12 +19,12 @@ type Worktree struct {
 // Create creates a new worktree at worktreePath from repoPath with a new branch.
 // If baseBranch is non-empty, the new branch is created from that base.
 // Uses: git -C <repo> worktree add <path> -b <branch> [<base>]
-func Create(repoPath, worktreePath, branch, baseBranch string) error {
+func Create(ctx context.Context, repoPath, worktreePath, branch, baseBranch string) error {
 	args := []string{"-C", repoPath, "worktree", "add", worktreePath, "-b", branch}
 	if baseBranch != "" {
 		args = append(args, baseBranch)
 	}
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create worktree: %w\n%s", err, output)
 	}
@@ -32,8 +33,8 @@ func Create(repoPath, worktreePath, branch, baseBranch string) error {
 
 // RemoveForce forcefully removes a worktree even if it has uncommitted changes.
 // Uses: git -C <repo> worktree remove --force <path>
-func RemoveForce(repoPath, worktreePath string) error {
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "remove", "--force", worktreePath)
+func RemoveForce(ctx context.Context, repoPath, worktreePath string) error {
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "remove", "--force", worktreePath)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to force remove worktree: %w\n%s", err, output)
 	}
@@ -42,8 +43,8 @@ func RemoveForce(repoPath, worktreePath string) error {
 
 // List returns all worktrees for the given repository.
 // Uses: git -C <repo> worktree list --porcelain
-func List(repoPath string) ([]Worktree, error) {
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "list", "--porcelain")
+func List(ctx context.Context, repoPath string) ([]Worktree, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "list", "--porcelain")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list worktrees: %w", err)

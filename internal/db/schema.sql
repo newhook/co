@@ -193,12 +193,15 @@ CREATE INDEX idx_pr_feedback_resolution ON pr_feedback(bead_id, resolved_at);
 CREATE TABLE scheduler (
     id TEXT PRIMARY KEY,
     work_id TEXT NOT NULL,
-    task_type TEXT NOT NULL, -- 'pr_feedback', 'comment_resolution', etc.
+    task_type TEXT NOT NULL, -- 'pr_feedback', 'comment_resolution', 'git_push', 'github_comment', 'github_resolve_thread', etc.
     scheduled_at DATETIME NOT NULL,
     executed_at DATETIME,
     status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'executing', 'completed', 'failed'
     error_message TEXT,
     metadata TEXT NOT NULL DEFAULT '{}', -- JSON metadata
+    attempt_count INTEGER NOT NULL DEFAULT 0, -- Number of attempts made
+    max_attempts INTEGER NOT NULL DEFAULT 5, -- Maximum retry attempts
+    idempotency_key TEXT, -- Unique key for deduplication
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
@@ -208,3 +211,4 @@ CREATE INDEX idx_scheduler_work_id ON scheduler(work_id);
 CREATE INDEX idx_scheduler_status ON scheduler(status);
 CREATE INDEX idx_scheduler_scheduled_at ON scheduler(scheduled_at);
 CREATE INDEX idx_scheduler_task_type ON scheduler(work_id, task_type);
+CREATE UNIQUE INDEX idx_scheduler_idempotency_key ON scheduler(idempotency_key) WHERE idempotency_key IS NOT NULL;

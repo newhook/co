@@ -13,23 +13,38 @@ import (
 
 // ScheduledTask represents a scheduled task in the database.
 type ScheduledTask struct {
-	ID          string
-	WorkID      string
-	TaskType    string
-	ScheduledAt time.Time
-	ExecutedAt  *time.Time
-	Status      string
-	ErrorMessage *string
-	Metadata    map[string]string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             string
+	WorkID         string
+	TaskType       string
+	ScheduledAt    time.Time
+	ExecutedAt     *time.Time
+	Status         string
+	ErrorMessage   *string
+	Metadata       map[string]string
+	AttemptCount   int
+	MaxAttempts    int
+	IdempotencyKey *string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Task types for the scheduler
 const (
-	TaskTypePRFeedback        = "pr_feedback"
-	TaskTypeCommentResolution = "comment_resolution"
+	TaskTypePRFeedback          = "pr_feedback"
+	TaskTypeCommentResolution   = "comment_resolution"
+	TaskTypeGitPush             = "git_push"
+	TaskTypeGitHubComment       = "github_comment"
+	TaskTypeGitHubResolveThread = "github_resolve_thread"
 )
+
+// Default max attempts for retry tasks
+const DefaultMaxAttempts = 5
+
+// OptimisticExecutionDelay is how long to wait before the scheduler picks up
+// a task that was scheduled with optimistic execution. This prevents a race
+// condition where both the optimistic execution and the scheduler try to
+// execute the same task concurrently.
+const OptimisticExecutionDelay = 30 * time.Second
 
 // Task statuses
 const (
@@ -217,13 +232,15 @@ func (db *DB) CleanupOldTasks(ctx context.Context, olderThan time.Duration) erro
 // Helper function to convert SQLC Scheduler to local ScheduledTask
 func schedulerToLocal(s *sqlc.Scheduler) *ScheduledTask {
 	task := &ScheduledTask{
-		ID:          s.ID,
-		WorkID:      s.WorkID,
-		TaskType:    s.TaskType,
-		ScheduledAt: s.ScheduledAt,
-		Status:      s.Status,
-		CreatedAt:   s.CreatedAt,
-		UpdatedAt:   s.UpdatedAt,
+		ID:           s.ID,
+		WorkID:       s.WorkID,
+		TaskType:     s.TaskType,
+		ScheduledAt:  s.ScheduledAt,
+		Status:       s.Status,
+		AttemptCount: int(s.AttemptCount),
+		MaxAttempts:  int(s.MaxAttempts),
+		CreatedAt:    s.CreatedAt,
+		UpdatedAt:    s.UpdatedAt,
 	}
 
 	if s.ExecutedAt.Valid {
@@ -234,6 +251,10 @@ func schedulerToLocal(s *sqlc.Scheduler) *ScheduledTask {
 		task.ErrorMessage = &s.ErrorMessage.String
 	}
 
+	if s.IdempotencyKey.Valid {
+		task.IdempotencyKey = &s.IdempotencyKey.String
+	}
+
 	// Parse metadata JSON
 	task.Metadata = make(map[string]string)
 	if s.Metadata != "" && s.Metadata != "{}" {
@@ -241,4 +262,127 @@ func schedulerToLocal(s *sqlc.Scheduler) *ScheduledTask {
 	}
 
 	return task
+}
+
+// ScheduleTaskWithRetry schedules a new task with retry support and an idempotency key.
+// If a task with the same idempotency key already exists, it returns that task instead.
+func (db *DB) ScheduleTaskWithRetry(ctx context.Context, workID, taskType string, scheduledAt time.Time, metadata map[string]string, idempotencyKey string, maxAttempts int) (*ScheduledTask, error) {
+	// Check if task with this idempotency key already exists
+	if idempotencyKey != "" {
+		existing, err := db.GetTaskByIdempotencyKey(ctx, idempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
+		}
+	}
+
+	id := uuid.New().String()
+
+	metadataJSON := "{}"
+	if metadata != nil {
+		data, err := json.Marshal(metadata)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+		metadataJSON = string(data)
+	}
+
+	if maxAttempts <= 0 {
+		maxAttempts = DefaultMaxAttempts
+	}
+
+	err := db.queries.CreateScheduledTaskWithRetry(ctx, sqlc.CreateScheduledTaskWithRetryParams{
+		ID:             id,
+		WorkID:         workID,
+		TaskType:       taskType,
+		ScheduledAt:    scheduledAt,
+		Status:         TaskStatusPending,
+		Metadata:       metadataJSON,
+		AttemptCount:   0,
+		MaxAttempts:    int64(maxAttempts),
+		IdempotencyKey: sql.NullString{String: idempotencyKey, Valid: idempotencyKey != ""},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to schedule task with retry: %w", err)
+	}
+
+	var idempotencyKeyPtr *string
+	if idempotencyKey != "" {
+		idempotencyKeyPtr = &idempotencyKey
+	}
+
+	return &ScheduledTask{
+		ID:             id,
+		WorkID:         workID,
+		TaskType:       taskType,
+		ScheduledAt:    scheduledAt,
+		Status:         TaskStatusPending,
+		Metadata:       metadata,
+		AttemptCount:   0,
+		MaxAttempts:    maxAttempts,
+		IdempotencyKey: idempotencyKeyPtr,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}, nil
+}
+
+// GetTaskByIdempotencyKey retrieves a task by its idempotency key.
+func (db *DB) GetTaskByIdempotencyKey(ctx context.Context, idempotencyKey string) (*ScheduledTask, error) {
+	task, err := db.queries.GetTaskByIdempotencyKey(ctx, sql.NullString{String: idempotencyKey, Valid: true})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get task by idempotency key: %w", err)
+	}
+	return schedulerToLocal(&task), nil
+}
+
+// ShouldRetry returns true if the task should be retried based on attempt count.
+func (task *ScheduledTask) ShouldRetry() bool {
+	return task.AttemptCount < task.MaxAttempts
+}
+
+// RescheduleWithBackoff reschedules a failed task with exponential backoff.
+// The backoff formula is: baseDelay * 2^attemptCount (capped at maxDelay).
+func (db *DB) RescheduleWithBackoff(ctx context.Context, taskID string, errorMessage string) error {
+	// Get the current task to check attempt count
+	task, err := db.queries.GetScheduledTaskByID(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// Calculate exponential backoff: 30s, 1m, 2m, 4m, 8m (capped at 10m)
+	baseDelay := 30 * time.Second
+	maxDelay := 10 * time.Minute
+
+	backoffMultiplier := 1 << uint(task.AttemptCount) // 2^attemptCount
+	delay := time.Duration(backoffMultiplier) * baseDelay
+	if delay > maxDelay {
+		delay = maxDelay
+	}
+
+	nextScheduledAt := time.Now().Add(delay)
+
+	err = db.queries.IncrementAttemptAndReschedule(ctx, sqlc.IncrementAttemptAndRescheduleParams{
+		ScheduledAt:  nextScheduledAt,
+		ErrorMessage: sql.NullString{String: errorMessage, Valid: errorMessage != ""},
+		ID:           taskID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to reschedule task with backoff: %w", err)
+	}
+
+	return nil
+}
+
+// MarkTaskCompletedByIdempotencyKey marks a task as completed using its idempotency key.
+func (db *DB) MarkTaskCompletedByIdempotencyKey(ctx context.Context, idempotencyKey string) error {
+	err := db.queries.MarkTaskCompletedByIdempotencyKey(ctx, sql.NullString{String: idempotencyKey, Valid: true})
+	if err != nil {
+		return fmt.Errorf("failed to mark task as completed by idempotency key: %w", err)
+	}
+	return nil
 }

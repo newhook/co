@@ -1,13 +1,14 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 )
 
 // PushSetUpstreamInDir pushes the specified branch and sets upstream tracking.
-func PushSetUpstreamInDir(branch, dir string) error {
-	cmd := exec.Command("git", "push", "--set-upstream", "origin", branch)
+func PushSetUpstreamInDir(ctx context.Context, branch, dir string) error {
+	cmd := exec.CommandContext(ctx, "git", "push", "--set-upstream", "origin", branch)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -18,8 +19,8 @@ func PushSetUpstreamInDir(branch, dir string) error {
 }
 
 // PullInDir pulls the latest changes in a specific directory.
-func PullInDir(dir string) error {
-	cmd := exec.Command("git", "pull")
+func PullInDir(ctx context.Context, dir string) error {
+	cmd := exec.CommandContext(ctx, "git", "pull")
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -27,4 +28,28 @@ func PullInDir(dir string) error {
 		return fmt.Errorf("failed to pull: %w", err)
 	}
 	return nil
+}
+
+// Clone clones a repository from source to dest.
+func Clone(ctx context.Context, source, dest string) error {
+	cmd := exec.CommandContext(ctx, "git", "clone", source, dest)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to clone repository: %w\n%s", err, output)
+	}
+	return nil
+}
+
+// BranchExists checks if a branch exists locally or remotely.
+func BranchExists(ctx context.Context, repoPath, branchName string) bool {
+	// Check local branches
+	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
+	cmd.Dir = repoPath
+	if cmd.Run() == nil {
+		return true
+	}
+
+	// Check remote branches
+	cmd = exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branchName)
+	cmd.Dir = repoPath
+	return cmd.Run() == nil
 }

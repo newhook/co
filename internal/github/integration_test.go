@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/newhook/co/internal/beads"
 )
 
 func TestNewIntegration(t *testing.T) {
@@ -144,10 +146,12 @@ func TestAddBeadToWork(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Add existing bead", func(t *testing.T) {
-		// This test requires bd CLI and existing beads
-		t.Skip("Skipping test that requires bd CLI and existing data")
+		// This test requires a beads.Client and existing beads
+		t.Skip("Skipping test that requires beads.Client and existing data")
 
-		err := integration.AddBeadToWork(ctx, "w-abc", "beads-123")
+		// Would need: beadsClient, _ := beads.NewClient(ctx, beads.DefaultClientConfig(dbPath))
+		var beadsClient *beads.Client // nil for skipped test
+		err := integration.AddBeadToWork(ctx, beadsClient, "w-abc", "beads-123")
 		// The actual implementation just verifies the bead exists
 		// Real work addition is handled by the orchestrator
 		if err != nil {
@@ -157,10 +161,11 @@ func TestAddBeadToWork(t *testing.T) {
 	})
 
 	t.Run("Add non-existent bead", func(t *testing.T) {
-		// This should always fail
-		t.Skip("Skipping test that requires bd CLI")
+		// This test requires a beads.Client
+		t.Skip("Skipping test that requires beads.Client")
 
-		err := integration.AddBeadToWork(ctx, "w-abc", "beads-nonexistent")
+		var beadsClient *beads.Client // nil for skipped test
+		err := integration.AddBeadToWork(ctx, beadsClient, "w-abc", "beads-nonexistent")
 		if err == nil {
 			t.Error("Expected error for non-existent bead")
 		}
@@ -191,10 +196,11 @@ func TestResolveFeedback(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Resolve closed bead", func(t *testing.T) {
-		// This test requires bd CLI and a closed bead
-		t.Skip("Skipping test that requires bd CLI and existing data")
+		// This test requires a beads.Client and a closed bead
+		t.Skip("Skipping test that requires beads.Client and existing data")
 
-		err := integration.ResolveFeedback(ctx, "beads-123")
+		var beadsClient *beads.Client // nil for skipped test
+		err := integration.ResolveFeedback(ctx, beadsClient, "beads-123")
 		// Will fail if bead doesn't exist or isn't closed
 		if err != nil {
 			t.Logf("Error (expected if bead doesn't exist or isn't closed): %v", err)
@@ -202,10 +208,11 @@ func TestResolveFeedback(t *testing.T) {
 	})
 
 	t.Run("Resolve open bead", func(t *testing.T) {
-		// This test requires bd CLI and an open bead
-		t.Skip("Skipping test that requires bd CLI and existing data")
+		// This test requires a beads.Client and an open bead
+		t.Skip("Skipping test that requires beads.Client and existing data")
 
-		err := integration.ResolveFeedback(ctx, "beads-456")
+		var beadsClient *beads.Client // nil for skipped test
+		err := integration.ResolveFeedback(ctx, beadsClient, "beads-456")
 		// Should fail if bead is still open
 		if err == nil {
 			t.Error("Expected error for open bead")
@@ -221,10 +228,11 @@ func TestCreateBeadsForWork(t *testing.T) {
 	rootIssueID := "beads-123"
 
 	t.Run("Create beads for work", func(t *testing.T) {
-		// This test requires GitHub API access and bd CLI
-		t.Skip("Skipping test that requires GitHub API and bd CLI")
+		// This test requires GitHub API access and beads.Client
+		t.Skip("Skipping test that requires GitHub API and beads.Client")
 
-		beadIDs, err := integration.CreateBeadsForWork(ctx, t.TempDir(), workID, prURL, rootIssueID)
+		var beadsClient *beads.Client // nil for skipped test
+		beadIDs, err := integration.CreateBeadsForWork(ctx, t.TempDir(), beadsClient, workID, prURL, rootIssueID)
 		if err == nil {
 			if beadIDs == nil {
 				t.Error("Expected bead IDs (even if empty), got nil")

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/mise"
 )
@@ -186,9 +186,8 @@ func setupRepo(ctx context.Context, source, mainPath string) (string, error) {
 
 	if isGitHubURL(source) {
 		// Clone from GitHub
-		cmd := exec.Command("git", "clone", source, mainPath)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("failed to clone repository: %w\n%s", err, output)
+		if err := git.Clone(ctx, source, mainPath); err != nil {
+			return "", err
 		}
 		repoType = RepoTypeGitHub
 	} else {
