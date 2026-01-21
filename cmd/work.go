@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
@@ -531,22 +530,13 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 		fmt.Fprintf(output, "Warning: failed to get worker name: %v\n", err)
 	}
 
-	// Create work record in database FIRST (transactional outbox pattern)
-	// This ensures the work record exists before attempting the push
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID); err != nil {
+	// Create work record and schedule git push atomically (transactional outbox pattern)
+	// This ensures both the work record and scheduled task exist together
+	idempotencyKey, err := proj.DB.CreateWorkAndSchedulePush(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID)
+	if err != nil {
 		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return nil, fmt.Errorf("failed to create work record: %w", err)
-	}
-
-	// Schedule git push task with idempotency key for retry support
-	idempotencyKey := fmt.Sprintf("git-push-%s-%s", workID, branchName)
-	_, err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeGitPush, time.Now(), map[string]string{
-		"branch": branchName,
-		"dir":    worktreePath,
-	}, idempotencyKey, db.DefaultMaxAttempts)
-	if err != nil {
-		logging.Warn("failed to schedule git push task", "error", err, "work_id", workID)
 	}
 
 	// Attempt immediate push (optimistic execution)

@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/newhook/co/internal/db/sqlc"
 )
 
@@ -89,6 +91,80 @@ func (db *DB) CreateWork(ctx context.Context, id, name, worktreePath, branchName
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	return nil
+}
+
+// CreateWorkAndSchedulePush creates a work record and schedules a git push task atomically.
+// This implements the transactional outbox pattern to ensure both operations succeed or fail together.
+// Returns the idempotency key for the scheduled push task.
+func (db *DB) CreateWorkAndSchedulePush(ctx context.Context, id, name, worktreePath, branchName, baseBranch, rootIssueID string) (string, error) {
+	tx, err := db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := db.queries.WithTx(tx)
+
+	// Create work record
+	err = qtx.CreateWork(ctx, sqlc.CreateWorkParams{
+		ID:           id,
+		Name:         name,
+		WorktreePath: worktreePath,
+		BranchName:   branchName,
+		BaseBranch:   baseBranch,
+		RootIssueID:  rootIssueID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create work %s: %w", id, err)
+	}
+
+	// Initialize task counter for this work
+	err = qtx.InitializeTaskCounter(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize task counter for work %s: %w", id, err)
+	}
+
+	// Schedule git push task with idempotency key
+	idempotencyKey := fmt.Sprintf("git-push-%s-%s", id, branchName)
+
+	// Check if task already exists (shouldn't happen for new work, but safe to check)
+	existing, err := qtx.GetTaskByIdempotencyKey(ctx, sql.NullString{String: idempotencyKey, Valid: true})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("failed to check existing task: %w", err)
+	}
+	if existing.ID == "" {
+		// Create the scheduled task
+		taskID := uuid.New().String()
+		metadata := map[string]string{
+			"branch": branchName,
+			"dir":    worktreePath,
+		}
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+
+		err = qtx.CreateScheduledTaskWithRetry(ctx, sqlc.CreateScheduledTaskWithRetryParams{
+			ID:             taskID,
+			WorkID:         id,
+			TaskType:       TaskTypeGitPush,
+			ScheduledAt:    time.Now(),
+			Status:         TaskStatusPending,
+			Metadata:       string(metadataJSON),
+			AttemptCount:   0,
+			MaxAttempts:    int64(DefaultMaxAttempts),
+			IdempotencyKey: sql.NullString{String: idempotencyKey, Valid: true},
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to schedule git push task: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return idempotencyKey, nil
 }
 
 // StartWork marks a work as processing with session info.
