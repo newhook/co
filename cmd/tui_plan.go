@@ -330,8 +330,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// Mouse is in work details area
 						m.hoveredIssue = -1
 						m.hoveredWorkItem = m.workDetails.DetectHoveredItem(msg.X, msg.Y)
-						logging.Debug("detected work item hover",
-							"hoveredWorkItem", m.hoveredWorkItem)
 					} else {
 						// Mouse is in issues area - detect issues with offset
 						m.hoveredWorkItem = -1
@@ -1530,10 +1528,6 @@ func (m *planModel) syncPanels() {
 		focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
 		m.workDetails.SetFocusedWork(focusedWork)
 		m.workDetails.SetHoveredItem(m.hoveredWorkItem)
-		if m.hoveredWorkItem >= 0 {
-			logging.Debug("syncPanels: setting hovered work item",
-				"hoveredWorkItem", m.hoveredWorkItem)
-		}
 	}
 
 	// Sync Linear import panel

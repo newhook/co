@@ -7,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/logging"
 )
 
 // WorkDetailAction represents an action result from the work details panel
@@ -372,15 +371,8 @@ func (p *WorkDetailsPanel) renderRootIssueLine(content *strings.Builder, panelWi
 	isHovered := p.hoveredIndex == 0
 
 	prefix := "  "
-	style := tuiDimStyle
 	if isSelected {
 		prefix = "► "
-		style = tuiSelectedStyle
-	} else if isHovered {
-		// Apply hover style (orange foreground for visibility)
-		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Bold(true)
 	}
 
 	// Find root issue info from workBeads
@@ -393,16 +385,39 @@ func (p *WorkDetailsPanel) renderRootIssueLine(content *strings.Builder, panelWi
 		}
 	}
 
-	issueIcon := lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Render("◆")
-	line := fmt.Sprintf("%s%s %s", prefix, issueIcon, rootID)
+	// Build the icon - style depends on hover/selected state
+	var issueIcon string
+	if isSelected || isHovered {
+		// Use plain icon when applying full line style
+		issueIcon = "◆"
+	} else {
+		// Styled icon for normal display
+		issueIcon = lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Render("◆")
+	}
+
+	// Build text portion (ID and title)
+	textPortion := rootID
 	if rootTitle != "" {
-		maxTitleLen := panelWidth - len(line) - 4
+		// Calculate max title length: panelWidth - prefix(2) - icon(1) - spaces(2) - ID - buffer
+		maxTitleLen := panelWidth - 2 - 1 - 2 - len(rootID) - 4
 		if maxTitleLen > 0 {
-			line += " " + truncateString(rootTitle, maxTitleLen)
+			textPortion += " " + truncateString(rootTitle, maxTitleLen)
 		}
 	}
 
-	content.WriteString(style.Render(line))
+	content.WriteString(prefix)
+	if isSelected {
+		// Full selected style on icon + text
+		content.WriteString(tuiSelectedStyle.Render(issueIcon + " " + textPortion))
+	} else if isHovered {
+		// Orange text for hover on icon + text
+		hoverStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+		content.WriteString(hoverStyle.Render(issueIcon + " " + textPortion))
+	} else {
+		// Normal: styled icon + dim text
+		content.WriteString(issueIcon + " ")
+		content.WriteString(tuiDimStyle.Render(textPortion))
+	}
 	content.WriteString("\n")
 }
 
@@ -415,33 +430,21 @@ func (p *WorkDetailsPanel) renderTaskLine(content *strings.Builder, taskIdx int,
 	isHovered := p.hoveredIndex == itemIndex
 
 	prefix := "  "
-	style := tuiDimStyle
 	if isSelected {
 		prefix = "► "
-		style = tuiSelectedStyle
-	} else if isHovered {
-		// Apply hover style (orange foreground for visibility)
-		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Bold(true)
 	}
 
-	// Status icon and color
+	// Status icon (plain or styled depending on hover/selected state)
 	statusStr := ""
-	statusStyle := lipgloss.NewStyle()
 	switch task.task.Status {
 	case db.StatusCompleted:
 		statusStr = "✓"
-		statusStyle = statusStyle.Foreground(lipgloss.Color("82"))
 	case db.StatusProcessing:
 		statusStr = "●"
-		statusStyle = statusStyle.Foreground(lipgloss.Color("214"))
 	case db.StatusFailed:
 		statusStr = "✗"
-		statusStyle = statusStyle.Foreground(lipgloss.Color("196"))
 	default:
 		statusStr = "○"
-		statusStyle = statusStyle.Foreground(lipgloss.Color("247"))
 	}
 
 	// Task type
@@ -453,13 +456,33 @@ func (p *WorkDetailsPanel) renderTaskLine(content *strings.Builder, taskIdx int,
 		taskType = "rev"
 	}
 
-	taskLine := fmt.Sprintf("%s%s %s [%s]",
-		prefix,
-		statusStyle.Render(statusStr),
-		task.task.ID,
-		taskType)
-
-	content.WriteString(style.Render(taskLine))
+	content.WriteString(prefix)
+	if isSelected {
+		// Full selected style on entire line
+		textContent := fmt.Sprintf("%s %s [%s]", statusStr, task.task.ID, taskType)
+		content.WriteString(tuiSelectedStyle.Render(textContent))
+	} else if isHovered {
+		// Orange text for hover on entire line
+		hoverStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+		textContent := fmt.Sprintf("%s %s [%s]", statusStr, task.task.ID, taskType)
+		content.WriteString(hoverStyle.Render(textContent))
+	} else {
+		// Normal: styled status icon + dim text
+		var statusStyle lipgloss.Style
+		switch task.task.Status {
+		case db.StatusCompleted:
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+		case db.StatusProcessing:
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+		case db.StatusFailed:
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+		default:
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("247"))
+		}
+		content.WriteString(statusStyle.Render(statusStr))
+		content.WriteString(" ")
+		content.WriteString(tuiDimStyle.Render(fmt.Sprintf("%s [%s]", task.task.ID, taskType)))
+	}
 	content.WriteString("\n")
 }
 
@@ -477,28 +500,34 @@ func (p *WorkDetailsPanel) renderUnassignedBeadLine(content *strings.Builder, be
 	isHovered := p.hoveredIndex == itemIdx
 
 	prefix := "  "
-	style := tuiDimStyle
 	if isSelected {
 		prefix = "► "
-		style = tuiSelectedStyle
-	} else if isHovered {
-		// Apply hover style (orange foreground for visibility)
-		style = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Bold(true)
 	}
 
-	// Use warning color (orange) for unassigned beads
-	beadIcon := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("○")
-	beadLine := fmt.Sprintf("%s%s %s", prefix, beadIcon, bead.id)
+	// Build text portion (ID and title)
+	textPortion := bead.id
 	if bead.title != "" {
-		maxTitleLen := panelWidth - len(beadLine) - 4
+		// Calculate max title length: panelWidth - prefix(2) - icon(1) - spaces(2) - ID - buffer
+		maxTitleLen := panelWidth - 2 - 1 - 2 - len(bead.id) - 4
 		if maxTitleLen > 0 {
-			beadLine += " " + truncateString(bead.title, maxTitleLen)
+			textPortion += " " + truncateString(bead.title, maxTitleLen)
 		}
 	}
 
-	content.WriteString(style.Render(beadLine))
+	content.WriteString(prefix)
+	if isSelected {
+		// Full selected style on icon + text
+		content.WriteString(tuiSelectedStyle.Render("○ " + textPortion))
+	} else if isHovered {
+		// Orange text for hover on icon + text
+		hoverStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+		content.WriteString(hoverStyle.Render("○ " + textPortion))
+	} else {
+		// Normal: orange icon for unassigned + dim text
+		beadIcon := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("○")
+		content.WriteString(beadIcon + " ")
+		content.WriteString(tuiDimStyle.Render(textPortion))
+	}
 	content.WriteString("\n")
 }
 
@@ -700,11 +729,6 @@ func (p *WorkDetailsPanel) NavigateDown() {
 	}
 	// 0 = root, 1..n = tasks, n+1..m = unassigned beads
 	maxIndex := len(p.focusedWork.tasks) + len(p.focusedWork.unassignedBeads)
-	logging.Debug("NavigateDown",
-		"selectedIndex", p.selectedIndex,
-		"maxIndex", maxIndex,
-		"tasks", len(p.focusedWork.tasks),
-		"unassignedBeads", len(p.focusedWork.unassignedBeads))
 	if p.selectedIndex < maxIndex {
 		p.selectedIndex++
 	}
@@ -723,10 +747,6 @@ func (p *WorkDetailsPanel) NavigateTaskDown() {
 // Update handles key events and returns an action.
 // This follows the same pattern as WorkOverlayPanel for consistency.
 func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
-	logging.Debug("WorkDetailsPanel.Update",
-		"key", msg.String())
-
-	// Handle navigation keys
 	switch msg.String() {
 	case "j", "down":
 		p.NavigateDown()
@@ -737,12 +757,10 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 	case "t":
 		return nil, WorkDetailActionOpenTerminal
 	case "c":
-		logging.Debug("WorkDetailsPanel intercepted 'c' key")
 		return nil, WorkDetailActionOpenClaude
 	case "p":
 		return nil, WorkDetailActionPlan
 	case "r":
-		logging.Debug("WorkDetailsPanel intercepted 'r' key")
 		return nil, WorkDetailActionRun
 	case "R":
 		return nil, WorkDetailActionReview
@@ -757,15 +775,7 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 
 // DetectClickedItem determines which item was clicked and returns its index
 func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
-	logging.Debug("DetectClickedItem called",
-		"x", x,
-		"y", y,
-		"panelWidth", p.width,
-		"panelHeight", p.height,
-		"hasFocusedWork", p.focusedWork != nil)
-
 	if p.focusedWork == nil {
-		logging.Debug("DetectClickedItem: no focused work")
 		return -1
 	}
 
@@ -776,20 +786,13 @@ func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
 	totalContentWidth := p.width - 4
 	leftWidth := int(float64(totalContentWidth) * p.columnRatio)
 
-	logging.Debug("DetectClickedItem bounds",
-		"leftWidth", leftWidth,
-		"workPanelHeight", workPanelHeight,
-		"columnRatio", p.columnRatio)
-
 	// Check if click is within left panel bounds (where items are displayed)
 	if x > leftWidth+2 {
-		logging.Debug("DetectClickedItem: x out of bounds", "x", x, "maxX", leftWidth+2)
 		return -1
 	}
 
 	// Check if y is within panel height
 	if y >= workPanelHeight {
-		logging.Debug("DetectClickedItem: y out of bounds", "y", y, "maxY", workPanelHeight)
 		return -1
 	}
 
@@ -817,26 +820,10 @@ func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
 
 	// Calculate available lines (same logic as renderLeftPanel)
 	contentHeight := p.height - 2 // excludes border
-	availableContentLines := contentHeight - 3
-	if availableContentLines < 1 {
-		availableContentLines = 1
-	}
-	availableLines := availableContentLines - headerLines
-	if availableLines < 1 {
-		availableLines = 1
-	}
-
-	logging.Debug("DetectClickedItem layout",
-		"headerLines", headerLines,
-		"firstItemY", firstItemY,
-		"availableLines", availableLines,
-		"yInRange", y >= firstItemY && y < firstItemY+availableLines)
+	availableContentLines := max(contentHeight-3, 1)
+	availableLines := max(availableContentLines-headerLines, 1)
 
 	if y < firstItemY || y >= firstItemY+availableLines {
-		logging.Debug("DetectClickedItem: y not in item range",
-			"y", y,
-			"firstItemY", firstItemY,
-			"lastItemY", firstItemY+availableLines-1)
 		return -1
 	}
 
@@ -851,13 +838,6 @@ func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
 
 	lineIndex := y - firstItemY
 	itemIndex := startIdx + lineIndex
-
-	logging.Debug("DetectClickedItem result",
-		"lineIndex", lineIndex,
-		"startIdx", startIdx,
-		"itemIndex", itemIndex,
-		"totalItems", totalItems,
-		"inBounds", itemIndex >= 0 && itemIndex < totalItems)
 
 	if itemIndex >= 0 && itemIndex < totalItems {
 		return itemIndex
@@ -882,15 +862,7 @@ func (p *WorkDetailsPanel) DetectClickedTask(x, y int) string {
 // DetectHoveredItem determines which item is at the given Y position for hover detection.
 // Returns the absolute index (0 = root, 1+ = tasks, N+ = unassigned beads), or -1 if not over an item.
 func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
-	logging.Debug("DetectHoveredItem called",
-		"x", x,
-		"y", y,
-		"panelWidth", p.width,
-		"panelHeight", p.height,
-		"hasFocusedWork", p.focusedWork != nil)
-
 	if p.focusedWork == nil {
-		logging.Debug("DetectHoveredItem: no focused work")
 		return -1
 	}
 
@@ -901,21 +873,13 @@ func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
 	totalContentWidth := p.width - 4
 	leftWidth := int(float64(totalContentWidth) * p.columnRatio)
 
-	logging.Debug("DetectHoveredItem bounds check",
-		"leftWidth", leftWidth,
-		"workPanelHeight", workPanelHeight,
-		"columnRatio", p.columnRatio)
-
 	// Check if position is within left panel bounds (where items are displayed)
-	// Left panel starts at x=1 (after border) and ends at x=leftWidth+1
 	if x > leftWidth+2 {
-		logging.Debug("DetectHoveredItem: x out of bounds", "x", x, "maxX", leftWidth+2)
 		return -1
 	}
 
 	// Check if y is within panel height
 	if y >= workPanelHeight {
-		logging.Debug("DetectHoveredItem: y out of bounds", "y", y, "maxY", workPanelHeight)
 		return -1
 	}
 
@@ -937,35 +901,16 @@ func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
 	// Layout in work panel:
 	// Y=0: Top border
 	// Y=1: Panel title "Work"
-	// Y=2: Work header (ID, status)
-	// Y=3: Branch info
-	// Y=4: Orchestrator status (conditional) OR Separator
-	// Y=4 or 5: Separator (if orchestrator shown, +1)
-	// Y=5 or 6: First item
-	firstItemY := 2 + headerLines // border(1) + title(1) + headerLines
+	// Y=2+: Header lines (work header, branch, [orchestrator], separator)
+	// Y=2+headerLines: First item
+	firstItemY := 2 + headerLines
 
 	// Calculate available lines (same logic as renderLeftPanel)
 	contentHeight := p.height - 2 // excludes border
-	availableContentLines := contentHeight - 3
-	if availableContentLines < 1 {
-		availableContentLines = 1
-	}
-	availableLines := availableContentLines - headerLines
-	if availableLines < 1 {
-		availableLines = 1
-	}
-
-	logging.Debug("DetectHoveredItem layout",
-		"headerLines", headerLines,
-		"firstItemY", firstItemY,
-		"availableLines", availableLines,
-		"yInRange", y >= firstItemY && y < firstItemY+availableLines)
+	availableContentLines := max(contentHeight-3, 1)
+	availableLines := max(availableContentLines-headerLines, 1)
 
 	if y < firstItemY || y >= firstItemY+availableLines {
-		logging.Debug("DetectHoveredItem: y not in item range",
-			"y", y,
-			"firstItemY", firstItemY,
-			"lastItemY", firstItemY+availableLines-1)
 		return -1
 	}
 
@@ -980,13 +925,6 @@ func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
 
 	lineIndex := y - firstItemY
 	itemIndex := startIdx + lineIndex
-
-	logging.Debug("DetectHoveredItem result",
-		"lineIndex", lineIndex,
-		"startIdx", startIdx,
-		"itemIndex", itemIndex,
-		"totalItems", totalItems,
-		"inBounds", itemIndex >= 0 && itemIndex < totalItems)
 
 	if itemIndex >= 0 && itemIndex < totalItems {
 		return itemIndex
