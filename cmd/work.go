@@ -1095,7 +1095,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 			expectedExternalRef := fmt.Sprintf("review-%s", reviewTask.ID)
 			for _, issue := range rootChildrenIssues {
 				if issue.ID != work.RootIssueID &&
-					(issue.Status == "" || issue.Status == "ready" || issue.Status == "open") &&
+					beads.IsWorkableStatus(issue.Status) &&
 					issue.ExternalRef == expectedExternalRef {
 					beadsToFix = append(beadsToFix, issue)
 				}
