@@ -20,9 +20,6 @@ type rootModel struct {
 	// The plan model (our only model now)
 	planModel *planModel
 
-	// For backwards compatibility, keep the existing model
-	legacyModel tuiModel
-
 	// Global state
 	spinner    spinner.Model
 	lastUpdate time.Time
@@ -39,37 +36,27 @@ func newRootModel(ctx context.Context, proj *project.Project) rootModel {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 
-	// Create the legacy model for backwards compatibility
-	legacy := newTUIModel(ctx, proj)
-
 	// Create the plan model
 	planModel := newPlanModel(ctx, proj)
 
 	return rootModel{
-		ctx:         ctx,
-		proj:        proj,
-		width:       80,
-		height:      24,
-		planModel:   planModel,
-		legacyModel: legacy,
-		spinner:     s,
-		lastUpdate:  time.Now(),
+		ctx:        ctx,
+		proj:       proj,
+		width:      80,
+		height:     24,
+		planModel:  planModel,
+		spinner:    s,
+		lastUpdate: time.Now(),
 	}
 }
 
 // Init implements tea.Model
 func (m rootModel) Init() tea.Cmd {
-	// Initialize models
-	cmds := []tea.Cmd{
-		m.legacyModel.Init(),
-	}
-
 	// Initialize plan model
 	if m.planModel != nil {
-		cmds = append(cmds, m.planModel.Init())
+		return m.planModel.Init()
 	}
-
-	return tea.Batch(cmds...)
+	return nil
 }
 
 // Update implements tea.Model
@@ -78,10 +65,6 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-
-		// Update legacy model dimensions
-		m.legacyModel.width = m.width
-		m.legacyModel.height = m.height
 
 		// Update plan model dimensions
 		if m.planModel != nil {
