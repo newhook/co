@@ -657,7 +657,7 @@ func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project,
 			continue
 		}
 
-		if bead != nil && bead.Status == "CLOSED" {
+		if bead != nil && bead.Status == beads.StatusClosed {
 			closedBeadIDs = append(closedBeadIDs, *feedback.BeadID)
 		}
 	}
