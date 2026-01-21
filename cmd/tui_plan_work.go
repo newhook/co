@@ -122,8 +122,9 @@ func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
 
 // workTilesLoadedMsg indicates work tiles have been loaded for overlay
 type workTilesLoadedMsg struct {
-	works []*workProgress
-	err   error
+	works              []*workProgress
+	orchestratorHealth map[string]bool // workID -> orchestrator alive
+	err                error
 }
 
 // loadWorkTiles loads work data for the overlay display
@@ -133,7 +134,16 @@ func (m *planModel) loadWorkTiles() tea.Cmd {
 		if err != nil {
 			return workTilesLoadedMsg{err: err}
 		}
-		return workTilesLoadedMsg{works: works}
+
+		// Compute orchestrator health for all works (async)
+		orchestratorHealth := make(map[string]bool)
+		for _, work := range works {
+			if work != nil {
+				orchestratorHealth[work.work.ID] = checkOrchestratorHealth(m.ctx, work.work.ID)
+			}
+		}
+
+		return workTilesLoadedMsg{works: works, orchestratorHealth: orchestratorHealth}
 	}
 }
 
