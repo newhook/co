@@ -1136,18 +1136,11 @@ func (m tuiModel) planWork(workID string, autoGroup bool) tea.Cmd {
 
 func (m tuiModel) assignBeadsToWork(workID string, beadIDs []string) tea.Cmd {
 	return func() tea.Msg {
-		// First add beads to the work
 		_, err := AddBeadsToWork(m.ctx, m.proj, workID, beadIDs)
 		if err != nil {
 			return tuiCommandMsg{action: "Assign beads", err: err}
 		}
-
-		// Then plan tasks from the newly added beads
-		result, err := PlanWorkTasks(m.ctx, m.proj, workID, false, io.Discard)
-		if err != nil {
-			return tuiCommandMsg{action: "Assign beads", err: fmt.Errorf("beads added but task planning failed: %w", err)}
-		}
-		return tuiCommandMsg{action: fmt.Sprintf("Assigned %d beads (%d tasks created)", len(beadIDs), result.TasksCreated)}
+		return tuiCommandMsg{action: fmt.Sprintf("Assigned %d beads", len(beadIDs))}
 	}
 }
 
