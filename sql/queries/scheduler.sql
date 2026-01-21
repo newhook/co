@@ -85,3 +85,29 @@ WHERE work_id = ?
 SELECT * FROM scheduler
 WHERE updated_at > ?
 ORDER BY updated_at ASC;
+
+-- name: CreateScheduledTaskWithRetry :exec
+INSERT INTO scheduler (
+    id, work_id, task_type, scheduled_at, status, metadata, attempt_count, max_attempts, idempotency_key
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetTaskByIdempotencyKey :one
+SELECT * FROM scheduler
+WHERE idempotency_key = ?
+LIMIT 1;
+
+-- name: IncrementAttemptAndReschedule :exec
+UPDATE scheduler
+SET attempt_count = attempt_count + 1,
+    scheduled_at = ?,
+    status = 'pending',
+    error_message = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?;
+
+-- name: MarkTaskCompletedByIdempotencyKey :exec
+UPDATE scheduler
+SET status = 'completed',
+    executed_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE idempotency_key = ?;
