@@ -225,11 +225,12 @@ func (s *StatusBar) renderWorkDetailCommands() (string, string) {
 	oButton := styleButtonWithHover("[o]rch", s.hoveredButton == "o")
 	vButton := styleButtonWithHover("[v]review", s.hoveredButton == "v")
 	pButton := styleButtonWithHover("[p]r", s.hoveredButton == "p")
+	fButton := styleButtonWithHover("[f]eedback", s.hoveredButton == "f")
 	escButton := styleButtonWithHover("[Esc]Deselect", s.hoveredButton == "esc")
 	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
 
-	commands := tButton + " " + cButton + " " + rButton + " " + oButton + " " + vButton + " " + pButton + " " + escButton + " " + helpButton
-	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [Esc]Deselect [?]Help"
+	commands := tButton + " " + cButton + " " + rButton + " " + oButton + " " + vButton + " " + pButton + " " + fButton + " " + escButton + " " + helpButton
+	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [Esc]Deselect [?]Help"
 
 	return commands, commandsPlain
 }
@@ -347,7 +348,7 @@ func (s *StatusBar) detectWorkOverlayButton(x int) string {
 
 // detectWorkDetailButton detects button clicks for the work detail panel
 func (s *StatusBar) detectWorkDetailButton(x int) string {
-	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [Esc]Deselect [?]Help"
+	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [Esc]Deselect [?]Help"
 
 	tIdx := strings.Index(commandsPlain, "[t]erminal")
 	cIdx := strings.Index(commandsPlain, "[c]laude")
@@ -355,6 +356,7 @@ func (s *StatusBar) detectWorkDetailButton(x int) string {
 	oIdx := strings.Index(commandsPlain, "[o]rch")
 	vIdx := strings.Index(commandsPlain, "[v]review")
 	pIdx := strings.Index(commandsPlain, "[p]r")
+	fIdx := strings.Index(commandsPlain, "[f]eedback")
 	escIdx := strings.Index(commandsPlain, "[Esc]Deselect")
 	helpIdx := strings.Index(commandsPlain, "[?]Help")
 
@@ -375,6 +377,9 @@ func (s *StatusBar) detectWorkDetailButton(x int) string {
 	}
 	if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]r") {
 		return "p"
+	}
+	if fIdx >= 0 && x >= fIdx && x < fIdx+len("[f]eedback") {
+		return "f"
 	}
 	if escIdx >= 0 && x >= escIdx && x < escIdx+len("[Esc]Deselect") {
 		return "esc"
