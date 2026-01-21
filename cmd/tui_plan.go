@@ -16,12 +16,16 @@ import (
 	beadswatcher "github.com/newhook/co/internal/beads/watcher"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
+	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
 	"github.com/newhook/co/internal/zellij"
 )
 
 
 // watcherEventMsg wraps beads watcher events for tea.Msg
 type watcherEventMsg beadswatcher.WatcherEvent
+
+// trackingWatcherEventMsg wraps tracking watcher events for tea.Msg
+type trackingWatcherEventMsg trackingwatcher.WatcherEvent
 
 // ButtonRegion represents a clickable button's position in the terminal.
 // This struct is used to track the exact screen coordinates of interactive
@@ -119,6 +123,7 @@ type planModel struct {
 
 	// Database watcher for cache invalidation
 	beadsWatcher *beadswatcher.Watcher
+	trackingWatcher *trackingwatcher.Watcher
 
 	// New bead animation tracking
 	newBeads map[string]time.Time // beadID -> creation timestamp for animation
@@ -150,6 +155,21 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		}
 	}
 
+	// Initialize tracking database watcher
+	trackingDBPath := filepath.Join(proj.Root, ".co", "tracking.db")
+	trackingWatcher, err := trackingwatcher.New(trackingwatcher.DefaultConfig(trackingDBPath))
+	if err != nil {
+		// Log error but continue without watcher
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize tracking watcher: %v\n", err)
+		trackingWatcher = nil
+	} else {
+		if err := trackingWatcher.Start(); err != nil {
+			// Log error and disable watcher
+			fmt.Fprintf(os.Stderr, "Warning: Failed to start tracking watcher: %v\n", err)
+			trackingWatcher = nil
+		}
+	}
+
 	m := &planModel{
 		ctx:                    ctx,
 		proj:                   proj,
@@ -167,6 +187,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		hoveredWorkItem:        -1,  // No work item hovered initially
 		pendingWorkSelectIndex: -1,  // No pending work selection
 		beadsWatcher:           beadsWatcher,
+		trackingWatcher:        trackingWatcher,
 		filters: beadFilters{
 			status: "open",
 			sortBy: "default",
@@ -237,6 +258,11 @@ func (m *planModel) Init() tea.Cmd {
 		cmds = append(cmds, m.waitForWatcherEvent())
 	}
 
+	// Subscribe to tracking watcher events if watcher is available
+	if m.trackingWatcher != nil {
+		cmds = append(cmds, m.waitForTrackingWatcherEvent())
+	}
+
 	return tea.Batch(cmds...)
 }
 
@@ -258,6 +284,24 @@ func (m *planModel) waitForWatcherEvent() tea.Cmd {
 	}
 }
 
+// waitForTrackingWatcherEvent waits for a tracking database watcher event and returns it as a tea.Msg
+func (m *planModel) waitForTrackingWatcherEvent() tea.Cmd {
+	if m.trackingWatcher == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		sub := m.trackingWatcher.Broker().Subscribe(m.ctx)
+
+		evt, ok := <-sub
+		if !ok {
+			return nil
+		}
+
+		return trackingWatcherEventMsg(evt.Payload)
+	}
+}
+
 // Update implements tea.Model
 func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -276,6 +320,19 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Continue waiting for next event
 		return m, m.waitForWatcherEvent()
+
+	case trackingWatcherEventMsg:
+		// Handle tracking database watcher events
+		if msg.Type == trackingwatcher.DBChanged {
+			// Tracking database changed - reload work tiles and work details
+			// This is more targeted than a full refresh
+			return m, tea.Batch(m.loadWorkTiles(), m.waitForTrackingWatcherEvent())
+		} else if msg.Type == trackingwatcher.WatcherError {
+			// Log error and continue waiting for events
+			return m, m.waitForTrackingWatcherEvent()
+		}
+		// Continue waiting for next event
+		return m, m.waitForTrackingWatcherEvent()
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
