@@ -303,7 +303,7 @@ func (i *Integration) ResolveFeedback(ctx context.Context, beadsClient *beads.Cl
 	}
 
 	// Check if the bead is closed
-	if bead.Status == "closed" {
+	if bead.Status == beads.StatusClosed {
 		return nil
 	}
 

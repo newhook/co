@@ -200,7 +200,7 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, bea
 		var result []string
 		for _, issue := range allIssues {
 			// Skip closed issues
-			if issue.Status == "closed" {
+			if issue.Status == beads.StatusClosed {
 				continue
 			}
 			result = append(result, issue.ID)
@@ -217,7 +217,7 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, bea
 	// Extract issue IDs, filtering out closed issues
 	var issueIDs []string
 	for _, issue := range transitiveIssues {
-		if issue.Status != "closed" {
+		if issue.Status != beads.StatusClosed {
 			issueIDs = append(issueIDs, issue.ID)
 		}
 	}
