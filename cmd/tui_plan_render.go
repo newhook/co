@@ -380,61 +380,38 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		if y != buttonRowY {
 			return ""
 		}
+
+		// Check X position for buttons
+		// "  Ok  " (6 chars) + "  " (2 chars) + "Cancel" (6 chars)
+		buttonAreaX := x - detailsPanelStart - 2 // -2 for panel border and padding
+
+		if buttonAreaX >= 0 && buttonAreaX < 6 {
+			return "ok"
+		}
+		if buttonAreaX >= 8 && buttonAreaX < 14 {
+			return "cancel"
+		}
+		return ""
 	} else {
-		// The buttons are rendered in the form content
-		// We need to calculate the Y position of the button row
-		// The form structure is:
-		// - Header line
-		// - Parent info line (if add child mode)
-		// - Blank line
-		// - Title label
-		// - Title input
-		// - Blank line + type + blank line
-		// - Priority line
-		// - Blank line
-		// - Description label
-		// - Textarea (4 lines)
-		// - Blank line
-		// - Button row
+		// Use tracked button positions from BeadFormPanel
+		// This handles dynamic textarea height correctly
+		dialogButtons := m.beadFormPanel.GetDialogButtons()
 
-		// Calculate expected Y position of button row
-		// Start from top of details panel (Y=1 for title, Y=2 for content start)
-		formStartY := 2
-		linesBeforeButtons := 1 // header
-		if m.beadFormPanel.GetMode() == BeadFormModeAddChild {
-			linesBeforeButtons++ // parent info line
+		// Calculate X position relative to panel content area
+		buttonAreaX := x - detailsPanelStart - 2 // -2 for panel border and padding
+
+		// Check each tracked button region
+		for _, button := range dialogButtons {
+			// The Y position stored in button.Y is the line number within the content area.
+			// The content starts at row 2 of the details panel (after border and title).
+			absoluteY := button.Y + 2
+
+			if y == absoluteY && buttonAreaX >= button.StartX && buttonAreaX <= button.EndX {
+				return button.ID
+			}
 		}
-		linesBeforeButtons += 1  // blank line
-		linesBeforeButtons += 1  // title label
-		linesBeforeButtons += 1  // title input
-		linesBeforeButtons += 2  // type + priority lines with preceding blank
-		linesBeforeButtons += 1  // priority
-		linesBeforeButtons += 2  // blank + desc label
-		linesBeforeButtons += 4  // textarea (default height)
-		linesBeforeButtons += 1  // blank line before buttons
-		buttonRowY := formStartY + linesBeforeButtons
-
-		if y != buttonRowY {
-			return ""
-		}
+		return ""
 	}
-
-	// Calculate X position of buttons within the details panel
-	// Buttons are at the start of the panel content
-	// "  Ok  " (6 chars) + "  " (2 chars) + "Cancel" (6 chars)
-	buttonAreaX := x - detailsPanelStart
-
-	// Account for panel border and padding (approximately 2 chars)
-	buttonAreaX -= 2
-
-	if buttonAreaX >= 0 && buttonAreaX < 6 {
-		return "ok"
-	}
-	if buttonAreaX >= 8 && buttonAreaX < 14 {
-		return "cancel"
-	}
-
-	return ""
 }
 
 func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string {

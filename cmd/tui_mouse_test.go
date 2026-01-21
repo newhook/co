@@ -309,8 +309,9 @@ func TestDetectDialogButton(t *testing.T) {
 			y:              16, // Button row Y for create bead
 			expectedButton: "ok",
 			setupFunc: func() {
-				// Set up for create bead mode
+				// Set up for create bead mode and render to populate button positions
 				m.beadFormPanel.Reset()
+				m.beadFormPanel.Render(16) // visibleLines=16 gives descHeight=max(16-12,4)=4
 			},
 		},
 		{
@@ -320,8 +321,9 @@ func TestDetectDialogButton(t *testing.T) {
 			y:              16,
 			expectedButton: "ok",
 			setupFunc: func() {
-				// Set up for edit bead mode
+				// Set up for edit bead mode and render to populate button positions
 				m.beadFormPanel.SetEditMode("test-bead-1", "Test Bead", "Description", "task", 2)
+				m.beadFormPanel.Render(16) // visibleLines=16 gives descHeight=max(16-12,4)=4
 			},
 		},
 		{
