@@ -24,6 +24,7 @@ const (
 	WorkDetailActionNavigateDown        // Navigate down (j/down)
 	WorkDetailActionRestartOrchestrator // Restart orchestrator (o)
 	WorkDetailActionCheckFeedback       // Check PR feedback (f)
+	WorkDetailActionDestroy             // Destroy work (d)
 )
 
 // WorkDetailsPanel renders the focused work split view showing work and task details.
@@ -975,6 +976,8 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 		return nil, WorkDetailActionRestartOrchestrator
 	case "f":
 		return nil, WorkDetailActionCheckFeedback
+	case "d":
+		return nil, WorkDetailActionDestroy
 	}
 
 	return nil, WorkDetailActionNone

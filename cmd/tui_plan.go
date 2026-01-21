@@ -1070,6 +1070,17 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.restartOrchestrator()
 		case WorkDetailActionCheckFeedback:
 			return m, m.checkPRFeedback()
+		case WorkDetailActionDestroy:
+			// Show confirmation dialog for work destruction
+			// Check if work is currently processing
+			focusedWork := m.workDetails.GetFocusedWork()
+			if focusedWork != nil && focusedWork.work.Status == "processing" {
+				m.statusMessage = "Cannot destroy work that is currently processing"
+				m.statusIsError = true
+				return m, nil
+			}
+			m.viewMode = ViewDestroyConfirm
+			return m, cmd
 		}
 		// WorkDetailActionNone - fall through to normal handling
 	}
