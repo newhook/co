@@ -268,11 +268,10 @@ func (m tuiModel) renderHelp() string {
   ────────────────────────────
   c             Create new work
   d             Destroy selected work
-  p             Plan work (create tasks)
-  r             Run work
+  r             Run work (create tasks + start)
   a             Assign beads to work
-  R             Create review task
-  P             Create PR task
+  v             Create review task
+  p             Create PR task
 
   General
   ────────────────────────────

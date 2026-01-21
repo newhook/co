@@ -28,8 +28,7 @@ type IssuesPanel struct {
 	hoveredIssue   int
 
 	// Work context
-	focusedWorkID     string
-	focusFilterActive bool
+	focusedWorkID string
 }
 
 // NewIssuesPanel creates a new IssuesPanel
@@ -80,9 +79,8 @@ func (p *IssuesPanel) SetData(
 }
 
 // SetWorkContext updates work-related display state
-func (p *IssuesPanel) SetWorkContext(focusedWorkID string, focusFilterActive bool) {
+func (p *IssuesPanel) SetWorkContext(focusedWorkID string) {
 	p.focusedWorkID = focusedWorkID
-	p.focusFilterActive = focusFilterActive
 }
 
 // SetHoveredIssue updates which issue is hovered
@@ -119,9 +117,6 @@ func (p *IssuesPanel) Render(visibleLines int) string {
 		}
 		if p.filters.label != "" {
 			filterInfo += fmt.Sprintf(" | Label: %s", p.filters.label)
-		}
-		if p.focusFilterActive && p.focusedWorkID != "" {
-			filterInfo = fmt.Sprintf("[FOCUS: %s] %s", p.focusedWorkID, filterInfo)
 		}
 	}
 

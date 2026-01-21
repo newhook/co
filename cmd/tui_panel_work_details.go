@@ -14,14 +14,13 @@ type WorkDetailAction int
 
 const (
 	WorkDetailActionNone WorkDetailAction = iota
-	WorkDetailActionOpenTerminal       // Open terminal/console (t)
-	WorkDetailActionOpenClaude         // Open Claude session (c)
-	WorkDetailActionPlan               // Plan work (p)
-	WorkDetailActionRun                // Run work (r)
-	WorkDetailActionReview             // Create review task (R)
-	WorkDetailActionPR                 // Create PR task (P)
-	WorkDetailActionNavigateUp         // Navigate up (k/up)
-	WorkDetailActionNavigateDown       // Navigate down (j/down)
+	WorkDetailActionOpenTerminal        // Open terminal/console (t)
+	WorkDetailActionOpenClaude          // Open Claude session (c)
+	WorkDetailActionRun                 // Run work (r) - shows grouping dialog
+	WorkDetailActionReview              // Create review task (v)
+	WorkDetailActionPR                  // Create PR task (p)
+	WorkDetailActionNavigateUp          // Navigate up (k/up)
+	WorkDetailActionNavigateDown        // Navigate down (j/down)
 	WorkDetailActionRestartOrchestrator // Restart orchestrator (o)
 )
 
@@ -758,13 +757,11 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 		return nil, WorkDetailActionOpenTerminal
 	case "c":
 		return nil, WorkDetailActionOpenClaude
-	case "p":
-		return nil, WorkDetailActionPlan
 	case "r":
 		return nil, WorkDetailActionRun
-	case "R":
+	case "v":
 		return nil, WorkDetailActionReview
-	case "P":
+	case "p":
 		return nil, WorkDetailActionPR
 	case "o":
 		return nil, WorkDetailActionRestartOrchestrator

@@ -162,34 +162,17 @@ func (m *planModel) destroyFocusedWork() tea.Cmd {
 	return m.destroyWork(m.focusedWorkID)
 }
 
-// planFocusedWork creates tasks for the currently focused work
-func (m *planModel) planFocusedWork(autoGroup bool) tea.Cmd {
+// runFocusedWork creates tasks for the currently focused work and ensures orchestrator is running
+func (m *planModel) runFocusedWork(autoGroup bool) tea.Cmd {
 	workID := m.focusedWorkID
 	return func() tea.Msg {
-		// Use internal function instead of CLI
-		_, err := PlanWorkTasks(m.ctx, m.proj, workID, autoGroup, io.Discard)
-		if err != nil {
-			return workCommandMsg{action: "Plan work", workID: workID, err: err}
-		}
-		return workCommandMsg{action: "Plan work", workID: workID}
-	}
-}
-
-// runWork runs a work by ID
-func (m *planModel) runWork(workID string) tea.Cmd {
-	return func() tea.Msg {
-		// Use internal function - this runs co run with the work ID
-		_, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
+		// Use internal function - creates tasks and ensures orchestrator is running
+		_, err := RunWork(m.ctx, m.proj, workID, autoGroup, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Run work", workID: workID, err: err}
 		}
 		return workCommandMsg{action: "Run work", workID: workID}
 	}
-}
-
-// runFocusedWork runs the currently focused work
-func (m *planModel) runFocusedWork() tea.Cmd {
-	return m.runWork(m.focusedWorkID)
 }
 
 // createReviewTask creates a review task for the currently focused work

@@ -53,15 +53,14 @@ Key bindings:
     s           Toggle sync status
 
   Work Management:
-    W           Open work overlay
-    [f]         Toggle focus filter (when work focused)
+    0           Open work overlay
+    1-9         Select work by index
     A           Add issues to focused work
     c           Create new work (in work overlay)
     d           Destroy selected work (in work overlay)
-    p           Plan work (create tasks from beads)
-    r           Run work (execute pending tasks)
-    R           Create review task for work
-    P           Create PR task for work
+    r           Run work (create tasks + start)
+    v           Create review task for work
+    p           Create PR task for work
 
   Other:
     ?           Show help
