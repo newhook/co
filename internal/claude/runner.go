@@ -467,6 +467,64 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 	return nil
 }
 
+// PlanTabName returns the zellij tab name for a bead's planning session.
+// This mirrors db.TabNameForBead but is in the claude package to avoid circular imports.
+func PlanTabName(beadID string) string {
+	return fmt.Sprintf("plan-%s", beadID)
+}
+
+// SpawnPlanSession creates a zellij tab and runs the plan command for a bead.
+// The tab is named "plan-<bead-id>" for easy identification.
+// The function returns immediately after spawning - the plan session runs in the tab.
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func SpawnPlanSession(ctx context.Context, beadID string, projectName string, mainRepoPath string, w io.Writer) error {
+	sessionName := SessionNameForProject(projectName)
+	tabName := PlanTabName(beadID)
+	zc := zellij.New()
+
+	// Ensure session exists
+	if err := zc.EnsureSession(ctx, sessionName); err != nil {
+		return err
+	}
+
+	// Build the plan command
+	planCommand := fmt.Sprintf("co plan %s", beadID)
+
+	// Check if tab already exists
+	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
+	if tabExists {
+		fmt.Fprintf(w, "Tab %s already exists, terminating and recreating...\n", tabName)
+
+		// Terminate and close the existing tab
+		if err := zc.TerminateAndCloseTab(ctx, sessionName, tabName); err != nil {
+			fmt.Fprintf(w, "Warning: failed to terminate existing tab: %v\n", err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Create a new tab
+	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
+	if err := zc.CreateTab(ctx, sessionName, tabName, mainRepoPath); err != nil {
+		return fmt.Errorf("failed to create tab: %w", err)
+	}
+
+	// Switch to the new tab
+	time.Sleep(200 * time.Millisecond)
+	if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
+		fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
+	}
+
+	// Execute the plan command
+	fmt.Fprintf(w, "Executing: %s\n", planCommand)
+	time.Sleep(200 * time.Millisecond)
+	if err := zc.ExecuteCommand(ctx, sessionName, planCommand); err != nil {
+		return fmt.Errorf("failed to execute plan command: %w", err)
+	}
+
+	fmt.Fprintf(w, "Plan session spawned in zellij session %s, tab %s\n", sessionName, tabName)
+	return nil
+}
+
 // EnsureWorkOrchestrator checks if a work orchestrator tab exists and spawns one if not.
 // This is used for resilience - if the orchestrator crashes or is killed, it can be restarted.
 // Returns true if the orchestrator was spawned, false if it was already running.
