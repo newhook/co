@@ -660,15 +660,14 @@ func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workI
 				return fmt.Errorf("failed to reset task %s: %w", t.ID, err)
 			}
 
-			// Log task reset event to audit table
-			if err := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventTaskReset, t.ID, workID, "",
-				"Task reset from processing to pending on orchestrator startup",
-				map[string]interface{}{
-					"preserved_beads": preservedCount,
-					"reset_beads":     resetBeadCount,
-				}); err != nil {
-				logging.Warn("failed to log recovery event", "error", err)
-			}
+			// Log task reset event
+			logging.Debug("task reset from processing to pending on orchestrator startup",
+				"event_type", "task_reset",
+				"task_id", t.ID,
+				"work_id", workID,
+				"preserved_beads", preservedCount,
+				"reset_beads", resetBeadCount,
+			)
 
 			resetCount++
 		}
@@ -734,11 +733,13 @@ func resetTaskBeadsWithProgress(ctx context.Context, proj *project.Project, task
 				} else {
 					preservedCount++
 					// Log bead preserved event
-					if err := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventBeadPreserved, taskID, workID, tb.BeadID,
-						"Bead already closed in beads.jsonl, preserving completed status",
-						map[string]interface{}{"previous_task_status": tb.Status}); err != nil {
-						logging.Warn("failed to log recovery event", "error", err)
-					}
+					logging.Debug("bead already closed in beads.jsonl, preserving completed status",
+						"event_type", "bead_preserved",
+						"task_id", taskID,
+						"work_id", workID,
+						"bead_id", tb.BeadID,
+						"previous_task_status", tb.Status,
+					)
 				}
 			} else {
 				// Already marked as completed
@@ -756,11 +757,13 @@ func resetTaskBeadsWithProgress(ctx context.Context, proj *project.Project, task
 				} else {
 					resetCount++
 					// Log bead reset event
-					if err := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventBeadReset, taskID, workID, tb.BeadID,
-						"Bead not closed, resetting to pending",
-						map[string]interface{}{"previous_task_status": tb.Status}); err != nil {
-						logging.Warn("failed to log recovery event", "error", err)
-					}
+					logging.Debug("bead not closed, resetting to pending",
+						"event_type", "bead_reset",
+						"task_id", taskID,
+						"work_id", workID,
+						"bead_id", tb.BeadID,
+						"previous_task_status", tb.Status,
+					)
 				}
 			}
 		}
