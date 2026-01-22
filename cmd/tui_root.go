@@ -7,7 +7,6 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 )
 
@@ -27,8 +26,8 @@ type rootModel struct {
 	quitting   bool
 
 	// Mouse state
-	mouseX      int
-	mouseY      int
+	mouseX int
+	mouseY int
 }
 
 // newRootModel creates a new root TUI model
@@ -78,12 +77,6 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mouseX = msg.X
 		m.mouseY = msg.Y
 
-		logging.Debug("rootModel tea.MouseMsg",
-			"x", msg.X,
-			"y", msg.Y,
-			"action", msg.Action,
-			"button", msg.Button)
-
 		// Route mouse events directly to plan model
 		if m.planModel != nil {
 			var cmd tea.Cmd
@@ -95,11 +88,6 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		logging.Debug("rootModel tea.KeyMsg",
-			"type", msg.Type,
-			"runes", string(msg.Runes),
-			"alt", msg.Alt)
-
 		// Check if plan model is in modal state - if so, route directly to it
 		if m.planModel != nil && m.planModel.InModal() {
 			var cmd tea.Cmd

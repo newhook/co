@@ -7,7 +7,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/newhook/co/internal/logging"
 )
 
 const detailsPanelPadding = 4
@@ -28,10 +27,6 @@ func (m *planModel) renderFixedPanel(title, content string, width, height int) s
 // renderFocusedWorkSplitView renders the split view when a work is focused
 // This shows a horizontal split: Work details on top (40%), Issues/Details below (60%)
 func (m *planModel) renderFocusedWorkSplitView() string {
-	logging.Debug("renderFocusedWorkSplitView() called",
-		"m.height", m.height,
-		"focusedWorkID", m.focusedWorkID)
-
 	// Calculate heights for split view
 	// Note: m.height has already been adjusted for tabs bar in View()
 	totalHeight := m.height - 1 // -1 for status bar
@@ -46,17 +41,6 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	// Update work details panel size and render (same pattern as IssuesPanel)
 	m.workDetails.SetSize(m.width, workPanelHeight)
 	workPanel := m.workDetails.RenderWithPanel(workPanelHeight)
-
-	// Log the heights for debugging
-	actualWorkHeight := lipgloss.Height(workPanel)
-	logging.Debug("renderFocusedWorkSplitView heights",
-		"m.height", m.height,
-		"totalHeight", totalHeight,
-		"calcBase", calcBase,
-		"workPanelHeight_requested", workPanelHeight,
-		"actualWorkHeight_rendered", actualWorkHeight,
-		"HEIGHT_MISMATCH", actualWorkHeight != workPanelHeight,
-		"planPanelHeight", planPanelHeight)
 
 	// === Render Plan Mode Panel (Bottom) ===
 	// Update issues and details panel sizes for the reduced height
@@ -91,28 +75,14 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	planSection := lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, detailsPanel)
 
 	// Combine everything vertically (panel borders provide visual separation)
-	result := lipgloss.JoinVertical(lipgloss.Left, workPanel, planSection)
-
-	logging.Debug("renderFocusedWorkSplitView() END",
-		"result_height", lipgloss.Height(result),
-		"workPanel_height", lipgloss.Height(workPanel),
-		"planSection_height", lipgloss.Height(planSection),
-		"total_calculated", workPanelHeight + planPanelHeight,
-		"expected_total", totalHeight)
-
-	return result
+	return lipgloss.JoinVertical(lipgloss.Left, workPanel, planSection)
 }
 
 // renderTwoColumnLayout renders the issues and details panels side-by-side
 func (m *planModel) renderTwoColumnLayout() string {
 	// Check if a work is focused - if so, render split view
 	if m.focusedWorkID != "" {
-		logging.Debug("renderTwoColumnLayout() calling renderFocusedWorkSplitView",
-			"focusedWorkID", m.focusedWorkID)
-		splitView := m.renderFocusedWorkSplitView()
-		logging.Debug("renderTwoColumnLayout() got splitView",
-			"height", lipgloss.Height(splitView))
-		return splitView
+		return m.renderFocusedWorkSplitView()
 	}
 
 	// Calculate content height
@@ -169,7 +139,7 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	if m.focusedWorkID != "" {
 		// In focused work mode, the issues panel is below the work panel
 		// Use the same height calculation as renderFocusedWorkSplitView
-		totalHeight := m.height - 1 - tabsBarHeight // -1 for status bar, - tabs bar
+		totalHeight := m.height - 1 - tabsBarHeight         // -1 for status bar, - tabs bar
 		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
 		issuesPanelStartY = tabsBarHeight + workPanelHeight
 		contentHeight = totalHeight - workPanelHeight
@@ -196,7 +166,7 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	}
 
 	// Calculate visible window (same logic as renderIssuesList)
-	issuesContentLines := contentHeight - 3 // -3 for border (2) + title (1)
+	issuesContentLines := contentHeight - 3      // -3 for border (2) + title (1)
 	visibleItems := max(issuesContentLines-1, 1) // -1 for filter line
 
 	start := 0
@@ -220,7 +190,7 @@ func (m *planModel) detectHoveredIssue(y int) int {
 func (m *planModel) calculateWorkPanelHeight() int {
 	// Calculate based on available height
 	// Note: m.height has already been adjusted for tabs bar in View()
-	availableHeight := m.height - 1  // -1 for status bar
+	availableHeight := m.height - 1 // -1 for status bar
 	dropdownHeight := int(float64(availableHeight) * 0.4)
 	if dropdownHeight < 10 {
 		dropdownHeight = 10
@@ -300,7 +270,7 @@ func (m *planModel) detectClickedPanel(x, y int) string {
 
 	// Calculate panel boundaries using same formula as renderFocusedWorkSplitView
 	workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
-	halfWidth := (m.width - 4) / 2                        // Half width
+	halfWidth := (m.width - 4) / 2                      // Half width
 
 	// Determine Y section (top = work, bottom = issues)
 	isWorkSection := y < workPanelHeight
@@ -403,17 +373,17 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		// - Blank line
 		// - Button row
 		formStartY := 2
-		linesBeforeButtons := 1  // header
-		linesBeforeButtons += 1  // blank line
-		linesBeforeButtons += 1  // issue IDs label
-		linesBeforeButtons += 4  // textarea (height 4)
-		linesBeforeButtons += 1  // blank line
-		linesBeforeButtons += 1  // create deps checkbox
-		linesBeforeButtons += 1  // update checkbox
-		linesBeforeButtons += 1  // dry run checkbox
-		linesBeforeButtons += 1  // blank line
-		linesBeforeButtons += 1  // max depth
-		linesBeforeButtons += 1  // blank line
+		linesBeforeButtons := 1 // header
+		linesBeforeButtons += 1 // blank line
+		linesBeforeButtons += 1 // issue IDs label
+		linesBeforeButtons += 4 // textarea (height 4)
+		linesBeforeButtons += 1 // blank line
+		linesBeforeButtons += 1 // create deps checkbox
+		linesBeforeButtons += 1 // update checkbox
+		linesBeforeButtons += 1 // dry run checkbox
+		linesBeforeButtons += 1 // blank line
+		linesBeforeButtons += 1 // max depth
+		linesBeforeButtons += 1 // blank line
 		buttonRowY := formStartY + linesBeforeButtons
 
 		if y != buttonRowY {
@@ -613,7 +583,7 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 			if _, isNew := m.newBeads[bead.ID]; isNew {
 				newSelectedStyle := lipgloss.NewStyle().
 					Bold(true).
-					Foreground(lipgloss.Color("0")).   // Black text
+					Foreground(lipgloss.Color("0")).  // Black text
 					Background(lipgloss.Color("226")) // Yellow background
 				return newSelectedStyle.Render(plainLine)
 			}
@@ -717,18 +687,10 @@ func (m *planModel) renderHelp() string {
 // handleMouseWheel handles mouse wheel events by routing them to the appropriate panel
 // based on the mouse position. Only the panel under the mouse cursor will scroll.
 func (m *planModel) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	logging.Debug("handleMouseWheel called",
-		"x", msg.X,
-		"y", msg.Y,
-		"button", msg.Button,
-		"action", msg.Action,
-		"focusedWorkID", m.focusedWorkID)
-
 	// Debounce rapid scroll events (terminals often send 3+ events per wheel click)
 	// 50ms debounce allows continuous scrolling while filtering burst events
 	now := time.Now()
 	if now.Sub(m.lastWheelScroll) < 50*time.Millisecond {
-		logging.Debug("handleMouseWheel debounced")
 		return m, nil
 	}
 	m.lastWheelScroll = now
@@ -738,9 +700,6 @@ func (m *planModel) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Determine scroll direction
 	scrollUp := msg.Button == tea.MouseButtonWheelUp
-	logging.Debug("handleMouseWheel direction",
-		"scrollUp", scrollUp,
-		"tabsBarHeight", tabsBarHeight)
 
 	// Calculate panel widths
 	totalContentWidth := m.width - 4
@@ -757,11 +716,9 @@ func (m *planModel) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			// Check if over the right panel (details)
 			if msg.X >= rightPanelStartX {
 				// Scroll the work details right panel (summary or task)
-				logging.Debug("handleMouseWheel: scrolling work details right panel")
 				return m, m.workDetails.UpdateViewport(msg)
 			}
 			// Over left panel (work overview) - navigate task selection
-			logging.Debug("handleMouseWheel: navigating work overview")
 			if scrollUp {
 				m.workDetails.NavigateUp()
 			} else {
@@ -771,7 +728,6 @@ func (m *planModel) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// Mouse is in issues area below work panel
-		logging.Debug("handleMouseWheel: scrolling issues list (focused work mode)")
 		if scrollUp {
 			if m.beadsCursor > 0 {
 				m.beadsCursor--
@@ -785,16 +741,10 @@ func (m *planModel) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Normal mode (no focused work) - check which panel mouse is over
-	logging.Debug("handleMouseWheel: normal mode panel detection",
-		"mouseX", msg.X,
-		"leftPanelWidth", leftPanelWidth,
-		"rightPanelStartX", rightPanelStartX,
-		"totalWidth", m.width)
 
 	// Check if mouse is over the issues panel (left side)
 	if msg.X <= leftPanelWidth+2 {
 		// Issues panel - move cursor
-		logging.Debug("handleMouseWheel: scrolling issues list (normal mode)")
 		if scrollUp {
 			if m.beadsCursor > 0 {
 				m.beadsCursor--
@@ -809,7 +759,6 @@ func (m *planModel) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Mouse is over the details panel (right side)
 	// Details panel uses viewport for scrolling
-	logging.Debug("handleMouseWheel: scrolling details panel")
 	if scrollUp {
 		m.detailsPanel.ScrollUp()
 	} else {

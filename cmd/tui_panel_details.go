@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
 	"github.com/muesli/reflow/wordwrap"
-	"github.com/newhook/co/internal/logging"
 )
 
 // Panel padding: tuiPanelStyle has Padding(0, 1) = 2 chars horizontal padding total
@@ -88,24 +87,12 @@ func (p *IssueDetailsPanel) SetData(focusedBead *beadItem, hasActiveSession bool
 
 // ScrollUp scrolls the content up (shows earlier content)
 func (p *IssueDetailsPanel) ScrollUp() {
-	before := p.viewport.YOffset
 	p.viewport.ScrollUp(1)
-	logging.Debug("IssueDetailsPanel.ScrollUp",
-		"before", before,
-		"after", p.viewport.YOffset,
-		"totalLines", p.viewport.TotalLineCount(),
-		"visibleLines", p.viewport.Height)
 }
 
 // ScrollDown scrolls the content down (shows later content)
 func (p *IssueDetailsPanel) ScrollDown() {
-	before := p.viewport.YOffset
 	p.viewport.ScrollDown(1)
-	logging.Debug("IssueDetailsPanel.ScrollDown",
-		"before", before,
-		"after", p.viewport.YOffset,
-		"totalLines", p.viewport.TotalLineCount(),
-		"visibleLines", p.viewport.Height)
 }
 
 // ScrollToTop scrolls to the beginning of the content

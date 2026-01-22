@@ -10,7 +10,6 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/linear"
-	"github.com/newhook/co/internal/logging"
 )
 
 // refreshData creates a tea.Cmd that refreshes bead data
@@ -49,12 +48,6 @@ func (m *planModel) loadBeads() ([]beadItem, error) {
 func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error) {
 	mainRepoPath := m.proj.MainRepoPath()
 
-	logging.Debug("loadBeadsWithFilters called",
-		"status", filters.status,
-		"searchText", filters.searchText,
-		"task", filters.task,
-		"children", filters.children)
-
 	// Handle task filter - show beads assigned to a specific task
 	if filters.task != "" {
 		return m.loadBeadsForTask(filters)
@@ -70,10 +63,6 @@ func (m *planModel) loadBeadsWithFilters(filters beadFilters) ([]beadItem, error
 	if err != nil {
 		return nil, err
 	}
-
-	logging.Debug("after fetchBeadsWithFilters",
-		"status", filters.status,
-		"items_count", len(items))
 
 	// Fetch assigned beads from database and populate assignedWorkID
 	assignedBeads, err := m.proj.DB.GetAllAssignedBeads(m.ctx)
@@ -123,10 +112,6 @@ func (m *planModel) loadBeadsForTask(filters beadFilters) ([]beadItem, error) {
 		return nil, fmt.Errorf("failed to get task beads: %w", err)
 	}
 
-	logging.Debug("loadBeadsForTask",
-		"task", filters.task,
-		"beadIDs", beadIDs)
-
 	if len(beadIDs) == 0 {
 		return nil, nil
 	}
@@ -160,9 +145,6 @@ func (m *planModel) loadBeadsForTask(filters beadFilters) ([]beadItem, error) {
 	// Build tree structure from dependencies
 	items = buildBeadTree(m.ctx, items, m.proj.Beads)
 
-	logging.Debug("loadBeadsForTask result",
-		"items_count", len(items))
-
 	return items, nil
 }
 
@@ -177,10 +159,6 @@ func (m *planModel) loadBeadsForChildren(filters beadFilters) ([]beadItem, error
 	if parentBead == nil {
 		return nil, nil
 	}
-
-	logging.Debug("loadBeadsForChildren",
-		"parent", filters.children,
-		"dependents_count", len(parentBead.Dependents))
 
 	// Also include the parent bead itself
 	items := []beadItem{{BeadWithDeps: parentBead}}
@@ -212,9 +190,6 @@ func (m *planModel) loadBeadsForChildren(filters beadFilters) ([]beadItem, error
 
 	// Build tree structure from dependencies
 	items = buildBeadTree(m.ctx, items, m.proj.Beads)
-
-	logging.Debug("loadBeadsForChildren result",
-		"items_count", len(items))
 
 	return items, nil
 }
@@ -337,7 +312,6 @@ func (m *planModel) openInEditor(beadID string) tea.Cmd {
 		return editorFinishedMsg{}
 	})
 }
-
 
 // importLinearIssue imports Linear issues (supports multiple IDs/URLs)
 func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
