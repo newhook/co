@@ -173,7 +173,7 @@ func (b *WorkTabsBar) Render() string {
 		Background(ribbonBg)
 
 	content += ribbonStyle.Render(ribbonText)
-	currentX += len(ribbonText)
+	currentX += lipgloss.Width(ribbonText)
 
 	// Space before tabs
 	spaceStyle := lipgloss.NewStyle().Background(barBg)

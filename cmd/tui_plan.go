@@ -430,8 +430,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Focus the new work
 					m.focusedWorkID = clickedWorkID
 					m.viewMode = ViewNormal
-					// Keep focus on work tabs instead of immediately jumping to work details
-					m.activePanel = PanelWorkTabs
+					// Focus the work details panel
+					m.activePanel = PanelWorkDetails
 					m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 					m.statusIsError = false
 
