@@ -286,6 +286,110 @@ func (db *DB) FailWork(ctx context.Context, id, errMsg string) error {
 	return nil
 }
 
+// IdleWork marks a work as idle (all tasks complete, waiting for more).
+func (db *DB) IdleWork(ctx context.Context, id string) error {
+	rows, err := db.queries.IdleWork(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to mark work %s as idle: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found", id)
+	}
+	return nil
+}
+
+// IdleWorkAndScheduleFeedback atomically marks a work as idle and schedules
+// PR feedback polling if a PR URL is provided.
+func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string, prFeedbackInterval, commentResolutionInterval time.Duration) error {
+	tx, err := db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := db.queries.WithTx(tx)
+
+	// Idle the work (with PR URL if provided)
+	now := time.Now()
+	var rows int64
+	if prURL != "" {
+		rows, err = qtx.IdleWorkWithPR(ctx, sqlc.IdleWorkWithPRParams{
+			PrUrl: prURL,
+			ID:    id,
+		})
+	} else {
+		rows, err = qtx.IdleWork(ctx, id)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to idle work %s: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found", id)
+	}
+
+	// If PR URL provided, schedule feedback polling tasks
+	if prURL != "" {
+		// Schedule PR feedback check
+		prFeedbackCheckTime := now.Add(prFeedbackInterval)
+		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+			ID:          uuid.New().String(),
+			WorkID:      id,
+			TaskType:    TaskTypePRFeedback,
+			ScheduledAt: prFeedbackCheckTime,
+			Status:      TaskStatusPending,
+			Metadata:    "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+		}
+
+		// Schedule comment resolution check
+		commentResolutionCheckTime := now.Add(commentResolutionInterval)
+		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+			ID:          uuid.New().String(),
+			WorkID:      id,
+			TaskType:    TaskTypeCommentResolution,
+			ScheduledAt: commentResolutionCheckTime,
+			Status:      TaskStatusPending,
+			Metadata:    "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
+// RestartWork transitions a failed work back to processing.
+// Only works if the work is currently in failed status.
+func (db *DB) RestartWork(ctx context.Context, id string) error {
+	rows, err := db.queries.RestartWork(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to restart work %s: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found or not in failed status", id)
+	}
+	return nil
+}
+
+// ResumeWork transitions an idle or completed work back to processing.
+// Use this when new tasks are added to a work that was idle/completed.
+func (db *DB) ResumeWork(ctx context.Context, id string) error {
+	rows, err := db.queries.ResumeWork(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to resume work %s: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found or not in idle/completed status", id)
+	}
+	return nil
+}
+
 // GetWork retrieves a work by ID.
 func (db *DB) GetWork(ctx context.Context, id string) (*Work, error) {
 	work, err := db.queries.GetWork(ctx, id)

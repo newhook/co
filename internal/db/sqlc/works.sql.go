@@ -312,6 +312,40 @@ func (q *Queries) GetWorkTasks(ctx context.Context, workID string) ([]GetWorkTas
 	return items, nil
 }
 
+const idleWork = `-- name: IdleWork :execrows
+UPDATE works
+SET status = 'idle'
+WHERE id = ?
+`
+
+func (q *Queries) IdleWork(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, idleWork, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const idleWorkWithPR = `-- name: IdleWorkWithPR :execrows
+UPDATE works
+SET status = 'idle',
+    pr_url = ?
+WHERE id = ?
+`
+
+type IdleWorkWithPRParams struct {
+	PrUrl string `json:"pr_url"`
+	ID    string `json:"id"`
+}
+
+func (q *Queries) IdleWorkWithPR(ctx context.Context, arg IdleWorkWithPRParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, idleWorkWithPR, arg.PrUrl, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const initializeTaskCounter = `-- name: InitializeTaskCounter :exec
 INSERT INTO work_task_counters (work_id, next_task_num)
 VALUES (?, 1)
@@ -438,6 +472,35 @@ func (q *Queries) ListWorksByStatus(ctx context.Context, status string) ([]Work,
 		return nil, err
 	}
 	return items, nil
+}
+
+const restartWork = `-- name: RestartWork :execrows
+UPDATE works
+SET status = 'processing',
+    error_message = ''
+WHERE id = ? AND status = 'failed'
+`
+
+func (q *Queries) RestartWork(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, restartWork, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const resumeWork = `-- name: ResumeWork :execrows
+UPDATE works
+SET status = 'processing'
+WHERE id = ? AND status IN ('idle', 'completed')
+`
+
+func (q *Queries) ResumeWork(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resumeWork, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const startWork = `-- name: StartWork :execrows

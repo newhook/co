@@ -24,6 +24,28 @@ SET status = 'failed',
     completed_at = ?
 WHERE id = ?;
 
+-- name: IdleWork :execrows
+UPDATE works
+SET status = 'idle'
+WHERE id = ?;
+
+-- name: IdleWorkWithPR :execrows
+UPDATE works
+SET status = 'idle',
+    pr_url = ?
+WHERE id = ?;
+
+-- name: RestartWork :execrows
+UPDATE works
+SET status = 'processing',
+    error_message = ''
+WHERE id = ? AND status = 'failed';
+
+-- name: ResumeWork :execrows
+UPDATE works
+SET status = 'processing'
+WHERE id = ? AND status IN ('idle', 'completed');
+
 -- name: GetWork :one
 SELECT id, status,
        name,

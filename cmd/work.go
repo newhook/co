@@ -143,6 +143,29 @@ while the orchestrator runs in a separate tab.`,
 	RunE: runWorkClaude,
 }
 
+var workRestartCmd = &cobra.Command{
+	Use:   "restart [<id>]",
+	Short: "Restart a failed work",
+	Long: `Restart a work that is in failed state.
+
+When a task fails, the work is marked as failed and the orchestrator halts.
+Use this command after resolving the issue (e.g., resetting or deleting the failed task)
+to resume processing.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runWorkRestart,
+}
+
+var workCompleteCmd = &cobra.Command{
+	Use:   "complete [<id>]",
+	Short: "Mark an idle work as completed",
+	Long: `Explicitly mark a work as completed.
+
+When all tasks finish, the work enters an idle state waiting for more tasks.
+Use this command to mark the work as truly completed (e.g., after PR is merged).`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runWorkComplete,
+}
+
 var (
 	flagBaseBranch  string
 	flagAutoRun     bool
@@ -172,6 +195,8 @@ func init() {
 	workCmd.AddCommand(workConsoleCmd)
 	workCmd.AddCommand(workClaudeCmd)
 	workCmd.AddCommand(workFeedbackCmd)
+	workCmd.AddCommand(workRestartCmd)
+	workCmd.AddCommand(workCompleteCmd)
 }
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
@@ -1376,4 +1401,82 @@ func runWorkClaude(cmd *cobra.Command, args []string) error {
 
 	// Open Claude Code session in the work's worktree
 	return claude.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, proj.Config, os.Stdout)
+}
+
+func runWorkRestart(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
+
+	proj, err := project.Find(ctx, "")
+	if err != nil {
+		return err
+	}
+	defer proj.Close()
+
+	var workID string
+	if len(args) > 0 {
+		workID = args[0]
+	} else {
+		workID, err = getCurrentWork(proj)
+		if err != nil {
+			return fmt.Errorf("not in a work directory and no work ID specified")
+		}
+	}
+
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	if work.Status != db.StatusFailed {
+		return fmt.Errorf("work %s is not in failed state (current status: %s)", workID, work.Status)
+	}
+
+	if err := proj.DB.RestartWork(ctx, workID); err != nil {
+		return fmt.Errorf("failed to restart work: %w", err)
+	}
+
+	fmt.Printf("Work %s restarted. The orchestrator will resume processing.\n", workID)
+	return nil
+}
+
+func runWorkComplete(cmd *cobra.Command, args []string) error {
+	ctx := GetContext()
+
+	proj, err := project.Find(ctx, "")
+	if err != nil {
+		return err
+	}
+	defer proj.Close()
+
+	var workID string
+	if len(args) > 0 {
+		workID = args[0]
+	} else {
+		workID, err = getCurrentWork(proj)
+		if err != nil {
+			return fmt.Errorf("not in a work directory and no work ID specified")
+		}
+	}
+
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	if work.Status != db.StatusIdle {
+		return fmt.Errorf("work %s is not in idle state (current status: %s)", workID, work.Status)
+	}
+
+	if err := proj.DB.CompleteWork(ctx, workID, work.PRURL); err != nil {
+		return fmt.Errorf("failed to complete work: %w", err)
+	}
+
+	fmt.Printf("Work %s marked as completed.\n", workID)
+	return nil
 }

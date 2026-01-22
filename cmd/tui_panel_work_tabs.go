@@ -114,19 +114,22 @@ func (b *WorkTabsBar) getWorkState(work *workProgress) WorkState {
 		return WorkStateDead
 	}
 
-	// Check work status first
+	// Check if any task is running FIRST - this takes priority over work status
+	// because new tasks can be added to idle/completed works
+	for _, task := range work.tasks {
+		if task.task.Status == db.StatusProcessing {
+			return WorkStateRunning
+		}
+	}
+
+	// Then check work status
 	switch work.work.Status {
 	case db.StatusCompleted:
 		return WorkStateCompleted
 	case db.StatusFailed:
 		return WorkStateFailed
-	}
-
-	// Check if any task is running
-	for _, task := range work.tasks {
-		if task.task.Status == db.StatusProcessing {
-			return WorkStateRunning
-		}
+	case db.StatusIdle:
+		return WorkStateIdle
 	}
 
 	// Check orchestrator health

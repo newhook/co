@@ -188,9 +188,19 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			// If there are failures, wait for manual intervention or new tasks
+			// If there are failures, mark work as failed and halt
 			if failedCount > 0 {
-				msg := fmt.Sprintf("Work has %d failed task(s). Waiting for manual intervention or new tasks...", failedCount)
+				if work.Status != db.StatusFailed {
+					if err := proj.DB.FailWork(ctx, workID, fmt.Sprintf("%d task(s) failed", failedCount)); err != nil {
+						fmt.Printf("Warning: failed to mark work as failed: %v\n", err)
+					} else {
+						fmt.Printf("\n=== Work %s failed ===\n", workID)
+						fmt.Printf("%d task(s) failed. Resolve failures and restart the work.\n", failedCount)
+						work, _ = proj.DB.GetWork(ctx, workID)
+					}
+				}
+				// Wait for user to resolve and restart
+				msg := fmt.Sprintf("Work failed: %d task(s) failed. Waiting for restart...", failedCount)
 				spinnerWait(msg, 10*time.Second)
 				continue
 			}
@@ -202,28 +212,31 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			// All tasks completed - transition work to completed status if not already
-			if completedCount > 0 && work.Status != db.StatusCompleted {
-				// Find PR URL from the PR task (if one exists)
+			// All tasks completed - transition work to idle status (waiting for more tasks)
+			if completedCount > 0 && work.Status != db.StatusIdle {
+				// Find PR URL from the PR task (if one exists, and we don't already have one)
 				prURL := ""
-				for _, t := range allTasks {
-					if t.TaskType == "pr" && t.Status == db.StatusCompleted && t.PRURL != "" {
-						prURL = t.PRURL
-						break
+				if work.PRURL == "" {
+					for _, t := range allTasks {
+						if t.TaskType == "pr" && t.Status == db.StatusCompleted && t.PRURL != "" {
+							prURL = t.PRURL
+							break
+						}
 					}
 				}
 
-				// Use transactional function to complete work and schedule feedback polling atomically
+				// Transition to idle state (with PR feedback scheduling if needed)
 				prFeedbackInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
 				commentResolutionInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
-				if err := proj.DB.CompleteWorkAndScheduleFeedback(ctx, workID, prURL, prFeedbackInterval, commentResolutionInterval); err != nil {
-					fmt.Printf("Warning: failed to mark work as completed: %v\n", err)
+				if err := proj.DB.IdleWorkAndScheduleFeedback(ctx, workID, prURL, prFeedbackInterval, commentResolutionInterval); err != nil {
+					fmt.Printf("Warning: failed to mark work as idle: %v\n", err)
 				} else {
-					fmt.Printf("\n=== Work %s completed ===\n", workID)
+					fmt.Printf("\n=== Work %s idle ===\n", workID)
 					if prURL != "" {
 						fmt.Printf("PR: %s\n", prURL)
 						fmt.Println("PR feedback polling scheduled")
 					}
+					fmt.Println("All tasks completed. Waiting for new tasks or explicit completion.")
 					// Refresh work status
 					work, _ = proj.DB.GetWork(ctx, workID)
 				}
@@ -232,7 +245,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			// Wait for new tasks with spinner
 			var msg string
 			if completedCount > 0 {
-				msg = fmt.Sprintf("All %d task(s) completed. Waiting for new tasks...", completedCount)
+				msg = fmt.Sprintf("Idle: %d task(s) completed. Waiting for new tasks...", completedCount)
 			} else {
 				msg = "No tasks yet. Waiting for tasks to be created..."
 			}

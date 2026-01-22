@@ -110,11 +110,21 @@ func processTask(proj *project.Project, taskID string) error {
 		return fmt.Errorf("work %s not found for task %s", dbTask.WorkID, taskID)
 	}
 
-	// Mark work as started/processing if it's still pending
-	if work.Status == db.StatusPending {
+	// Transition work to processing if needed
+	switch work.Status {
+	case db.StatusPending:
+		// First time starting - use StartWork
 		if err := proj.DB.StartWork(ctx, work.ID, "", ""); err != nil {
-			fmt.Printf("Warning: failed to update work status: %v\n", err)
+			fmt.Printf("Warning: failed to start work: %v\n", err)
 		}
+	case db.StatusIdle, db.StatusCompleted:
+		// Work was idle/completed but new task is starting - resume it
+		if err := proj.DB.ResumeWork(ctx, work.ID); err != nil {
+			fmt.Printf("Warning: failed to resume work: %v\n", err)
+		}
+	case db.StatusFailed:
+		// Work is failed - user needs to explicitly restart
+		return fmt.Errorf("work %s is in failed state - use 'co work restart %s' to resume", work.ID, work.ID)
 	}
 
 	fmt.Printf("\n=== Processing task %s ===\n", taskID)
