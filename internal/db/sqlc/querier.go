@@ -74,6 +74,9 @@ type Querier interface {
 	GetReadyTasksForWork(ctx context.Context, workID string) ([]GetReadyTasksForWorkRow, error)
 	GetScheduledTaskByID(ctx context.Context, id string) (Scheduler, error)
 	GetScheduledTasksForWork(ctx context.Context, workID string) ([]Scheduler, error)
+	// Returns tasks that have been in 'processing' state with no activity for longer than the timeout.
+	// The timeout_threshold parameter should be calculated as: datetime('now', '-N minutes') where N is the timeout.
+	GetStaleProcessingTasks(ctx context.Context, arg GetStaleProcessingTasksParams) ([]Task, error)
 	GetTask(ctx context.Context, id string) (GetTaskRow, error)
 	GetTaskBeadStatus(ctx context.Context, arg GetTaskBeadStatusParams) (string, error)
 	GetTaskBeads(ctx context.Context, taskID string) ([]string, error)

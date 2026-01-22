@@ -179,3 +179,30 @@ SELECT id, status,
 FROM tasks
 WHERE status = 'processing'
 ORDER BY last_activity DESC;
+
+-- name: GetStaleProcessingTasks :many
+-- Returns tasks that have been in 'processing' state with no activity for longer than the timeout.
+-- The timeout_threshold parameter should be calculated as: datetime('now', '-N minutes') where N is the timeout.
+SELECT id, status,
+       COALESCE(task_type, 'implement') as task_type,
+       complexity_budget,
+       actual_complexity,
+       work_id,
+       worktree_path,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       spawned_at,
+       spawn_status,
+       last_activity
+FROM tasks
+WHERE status = 'processing'
+  AND (
+      -- Task has last_activity set and it's older than the threshold
+      (last_activity IS NOT NULL AND last_activity < ?)
+      -- Or task has no last_activity but started_at is older than threshold
+      OR (last_activity IS NULL AND started_at IS NOT NULL AND started_at < ?)
+  )
+ORDER BY COALESCE(last_activity, started_at) ASC;

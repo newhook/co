@@ -216,6 +216,78 @@ func (q *Queries) FailTaskBead(ctx context.Context, arg FailTaskBeadParams) (int
 	return result.RowsAffected()
 }
 
+const getStaleProcessingTasks = `-- name: GetStaleProcessingTasks :many
+SELECT id, status,
+       COALESCE(task_type, 'implement') as task_type,
+       complexity_budget,
+       actual_complexity,
+       work_id,
+       worktree_path,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       spawned_at,
+       spawn_status,
+       last_activity
+FROM tasks
+WHERE status = 'processing'
+  AND (
+      -- Task has last_activity set and it's older than the threshold
+      (last_activity IS NOT NULL AND last_activity < ?)
+      -- Or task has no last_activity but started_at is older than threshold
+      OR (last_activity IS NULL AND started_at IS NOT NULL AND started_at < ?)
+  )
+ORDER BY COALESCE(last_activity, started_at) ASC
+`
+
+type GetStaleProcessingTasksParams struct {
+	LastActivity sql.NullTime `json:"last_activity"`
+	StartedAt    sql.NullTime `json:"started_at"`
+}
+
+// Returns tasks that have been in 'processing' state with no activity for longer than the timeout.
+// The timeout_threshold parameter should be calculated as: datetime('now', '-N minutes') where N is the timeout.
+func (q *Queries) GetStaleProcessingTasks(ctx context.Context, arg GetStaleProcessingTasksParams) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, getStaleProcessingTasks, arg.LastActivity, arg.StartedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Task{}
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.TaskType,
+			&i.ComplexityBudget,
+			&i.ActualComplexity,
+			&i.WorkID,
+			&i.WorktreePath,
+			&i.PrUrl,
+			&i.ErrorMessage,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.CreatedAt,
+			&i.SpawnedAt,
+			&i.SpawnStatus,
+			&i.LastActivity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTask = `-- name: GetTask :one
 SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,

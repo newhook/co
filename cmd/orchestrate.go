@@ -131,6 +131,32 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Start stale task detector in a separate goroutine
+	staleCheckInterval := proj.Config.Scheduler.GetStaleCheckInterval()
+	staleCheckTicker := time.NewTicker(staleCheckInterval)
+	defer staleCheckTicker.Stop()
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Error: stale task detector panicked: %v\n", r)
+				logging.Error("stale task detector panicked", "panic", r)
+			}
+		}()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-staleCheckTicker.C:
+				if err := recoverStaleTasks(ctx, proj, workID); err != nil {
+					fmt.Printf("Warning: failed to check for stale tasks: %v\n", err)
+					logging.Warn("failed to check for stale tasks", "error", err)
+				}
+			}
+		}
+	}()
+
 	// Start the scheduler watcher for this work
 	// This replaces file-based polling and fixed timers with a database-driven scheduler
 	if err := StartSchedulerWatcher(ctx, proj, workID); err != nil {
@@ -651,6 +677,58 @@ func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workI
 		fmt.Printf("Reset %d stuck task(s)\n", resetCount)
 	}
 
+	return nil
+}
+
+// recoverStaleTasks checks for tasks that have been in 'processing' state
+// without activity updates for longer than the configured timeout, and
+// auto-fails them with a descriptive error message.
+func recoverStaleTasks(ctx context.Context, proj *project.Project, workID string) error {
+	timeout := proj.Config.Scheduler.GetProcessingTimeout()
+	staleTasks, err := proj.DB.GetStaleProcessingTasks(ctx, timeout)
+	if err != nil {
+		return fmt.Errorf("failed to get stale tasks: %w", err)
+	}
+
+	// Filter to only tasks for this work
+	var workStaleTasks []*db.StaleTask
+	for _, t := range staleTasks {
+		if t.WorkID == workID {
+			workStaleTasks = append(workStaleTasks, t)
+		}
+	}
+
+	if len(workStaleTasks) == 0 {
+		return nil
+	}
+
+	for _, t := range workStaleTasks {
+		// Calculate how long the task has been stale
+		var staleDuration time.Duration
+		if t.LastActivity != nil {
+			staleDuration = time.Since(*t.LastActivity)
+		} else if t.StartedAt != nil {
+			staleDuration = time.Since(*t.StartedAt)
+		}
+
+		errorMsg := fmt.Sprintf("Task auto-failed: no activity for %v (timeout: %v)", staleDuration.Round(time.Minute), timeout)
+		fmt.Printf("Auto-failing stale task %s: %s\n", t.ID, errorMsg)
+		logging.Warn("auto-failing stale task",
+			"task_id", t.ID,
+			"work_id", workID,
+			"stale_duration", staleDuration.String(),
+			"timeout", timeout.String(),
+			"last_activity", t.LastActivity,
+			"started_at", t.StartedAt,
+		)
+
+		if err := proj.DB.FailTask(ctx, t.ID, errorMsg); err != nil {
+			logging.Error("failed to auto-fail stale task", "task_id", t.ID, "error", err)
+			return fmt.Errorf("failed to fail stale task %s: %w", t.ID, err)
+		}
+	}
+
+	fmt.Printf("Auto-failed %d stale task(s)\n", len(workStaleTasks))
 	return nil
 }
 
