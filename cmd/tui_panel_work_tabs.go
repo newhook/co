@@ -228,7 +228,11 @@ func (b *WorkTabsBar) Render() string {
 		case WorkStateCompleted:
 			icon = "✓"
 		case WorkStateRunning:
-			icon = b.spinner.View()
+			// Get raw spinner frame by removing style - View() with styling adds
+			// ANSI reset codes that break the background color of the containing tab
+			unstyled := b.spinner
+			unstyled.Style = lipgloss.NewStyle()
+			icon = unstyled.View()
 		case WorkStateFailed:
 			icon = "✗"
 		case WorkStateDead:
