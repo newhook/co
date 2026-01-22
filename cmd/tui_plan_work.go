@@ -142,10 +142,18 @@ func (m *planModel) destroyFocusedWork() tea.Cmd {
 func (m *planModel) runFocusedWork(autoGroup bool) tea.Cmd {
 	workID := m.focusedWorkID
 	return func() tea.Msg {
-		// Use internal function - creates tasks and ensures orchestrator is running
-		_, err := RunWork(m.ctx, m.proj, workID, autoGroup, io.Discard)
-		if err != nil {
-			return workCommandMsg{action: "Run work", workID: workID, err: err}
+		if autoGroup {
+			// Use auto mode - creates estimate task and lets orchestrator handle grouping
+			_, err := RunWorkAuto(m.ctx, m.proj, workID, io.Discard)
+			if err != nil {
+				return workCommandMsg{action: "Run work", workID: workID, err: err}
+			}
+		} else {
+			// Use direct mode - creates one task per bead
+			_, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
+			if err != nil {
+				return workCommandMsg{action: "Run work", workID: workID, err: err}
+			}
 		}
 		return workCommandMsg{action: "Run work", workID: workID}
 	}

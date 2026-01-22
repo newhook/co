@@ -403,6 +403,57 @@ func RunWork(ctx context.Context, proj *project.Project, workID string, usePlan 
 	}, nil
 }
 
+// RunWorkAutoResult contains the result of running work in auto mode.
+type RunWorkAutoResult struct {
+	WorkID              string
+	EstimateTaskCreated bool
+	OrchestratorSpawned bool
+}
+
+// RunWorkAuto creates an estimate task and spawns the orchestrator for automated workflow.
+// This mirrors the 'co run --auto' behavior: create estimate task, let orchestrator handle
+// estimation and create implement tasks afterward.
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func RunWorkAuto(ctx context.Context, proj *project.Project, workID string, w io.Writer) (*RunWorkAutoResult, error) {
+	// Get work details to verify it exists
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	// Check if worktree exists
+	if work.WorktreePath == "" {
+		return nil, fmt.Errorf("work %s has no worktree path configured", work.ID)
+	}
+
+	if !worktree.ExistsPath(work.WorktreePath) {
+		return nil, fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+
+	// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
+	err = CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, w)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create estimate task: %w", err)
+	}
+
+	// Ensure orchestrator is running
+	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, w)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure orchestrator: %w", err)
+	}
+
+	return &RunWorkAutoResult{
+		WorkID:              workID,
+		EstimateTaskCreated: true,
+		OrchestratorSpawned: spawned,
+	}, nil
+}
+
 // PlanWorkTasksResult contains the result of planning work tasks.
 type PlanWorkTasksResult struct {
 	TasksCreated int
