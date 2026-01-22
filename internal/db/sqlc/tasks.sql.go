@@ -320,6 +320,36 @@ func (q *Queries) GetTaskBeads(ctx context.Context, taskID string) ([]string, er
 	return items, nil
 }
 
+const getTaskBeadsForWork = `-- name: GetTaskBeadsForWork :many
+SELECT tb.task_id, tb.bead_id, tb.status
+FROM task_beads tb
+JOIN tasks t ON tb.task_id = t.id
+WHERE t.work_id = ?
+`
+
+func (q *Queries) GetTaskBeadsForWork(ctx context.Context, workID string) ([]TaskBead, error) {
+	rows, err := q.db.QueryContext(ctx, getTaskBeadsForWork, workID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskBead{}
+	for rows.Next() {
+		var i TaskBead
+		if err := rows.Scan(&i.TaskID, &i.BeadID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTaskForBead = `-- name: GetTaskForBead :one
 SELECT task_id
 FROM task_beads

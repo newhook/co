@@ -48,7 +48,7 @@ func init() {
 	pollCmd.Flags().StringVar(&flagPollWork, "work", "", "work ID to monitor (default: auto-detect)")
 }
 
-// workProgress holds progress info for a work unit (used by tui.go)
+// workProgress holds progress info for a work unit.
 type workProgress struct {
 	work                *db.Work
 	tasks               []*taskProgress
@@ -58,13 +58,13 @@ type workProgress struct {
 	feedbackCount       int // count of unresolved PR feedback items
 }
 
-// taskProgress holds progress info for a task (used by tui.go)
+// taskProgress holds progress info for a task.
 type taskProgress struct {
 	task  *db.Task
 	beads []beadProgress
 }
 
-// beadProgress holds progress info for a bead (used by tui.go)
+// beadProgress holds progress info for a bead.
 type beadProgress struct {
 	id          string
 	status      string
@@ -75,81 +75,92 @@ type beadProgress struct {
 	issueType   string
 }
 
-// fetchPollData fetches progress data for works/tasks (used by tui.go)
-func fetchPollData(ctx context.Context, proj *project.Project, workID, taskID string) ([]*workProgress, error) {
-	works := []*workProgress{}
-
-	if taskID != "" {
-		// Single task mode
-		task, err := proj.DB.GetTask(ctx, taskID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get task: %w", err)
-		}
-		if task == nil {
-			return nil, fmt.Errorf("task %s not found", taskID)
-		}
-
-		// Get the work for this task
-		work, err := proj.DB.GetWork(ctx, task.WorkID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get work: %w", err)
-		}
-		if work == nil {
-			work = &db.Work{ID: task.WorkID, Status: "unknown"}
-		}
-
-		tp := &taskProgress{task: task}
-		beadIDs, _ := proj.DB.GetTaskBeads(ctx, taskID)
-		for _, beadID := range beadIDs {
-			status, _ := proj.DB.GetTaskBeadStatus(ctx, taskID, beadID)
-			if status == "" {
-				status = db.StatusPending
-			}
-			bp := beadProgress{id: beadID, status: status}
-			// Fetch additional bead details from beads system
-			if bead, err := proj.Beads.GetBead(ctx, beadID); err == nil && bead != nil {
-				bp.title = bead.Title
-				bp.description = bead.Description
-				bp.beadStatus = bead.Status
-			}
-			tp.beads = append(tp.beads, bp)
-		}
-
-		works = append(works, &workProgress{
-			work:  work,
-			tasks: []*taskProgress{tp},
-		})
-	} else if workID != "" {
-		// Single work mode
-		work, err := proj.DB.GetWork(ctx, workID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get work: %w", err)
-		}
-		if work == nil {
-			return nil, fmt.Errorf("work %s not found", workID)
-		}
-
-		wp, err := fetchWorkProgress(ctx, proj, work)
-		if err != nil {
-			return nil, err
-		}
-		works = append(works, wp)
-	} else {
-		// All active works mode
-		allWorks, err := proj.DB.ListWorks(ctx, "")
-		if err != nil {
-			return nil, fmt.Errorf("failed to list works: %w", err)
-		}
-
-		for _, work := range allWorks {
-			wp, err := fetchWorkProgress(ctx, proj, work)
-			if err != nil {
-				continue // Skip works with errors
-			}
-			works = append(works, wp)
-		}
+// fetchTaskPollData fetches progress data for a single task
+func fetchTaskPollData(ctx context.Context, proj *project.Project, taskID string) ([]*workProgress, error) {
+	task, err := proj.DB.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task: %w", err)
+	}
+	if task == nil {
+		return nil, fmt.Errorf("task %s not found", taskID)
 	}
 
+	// Get the work for this task
+	work, err := proj.DB.GetWork(ctx, task.WorkID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		work = &db.Work{ID: task.WorkID, Status: "unknown"}
+	}
+
+	beadIDs, err := proj.DB.GetTaskBeads(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task beads: %w", err)
+	}
+
+	// Batch fetch all bead details
+	beadsResult, err := proj.Beads.GetBeadsWithDeps(ctx, beadIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get beads: %w", err)
+	}
+
+	tp := &taskProgress{task: task}
+	for _, beadID := range beadIDs {
+		status, err := proj.DB.GetTaskBeadStatus(ctx, taskID, beadID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get task bead status: %w", err)
+		}
+		if status == "" {
+			status = db.StatusPending
+		}
+		bp := beadProgress{id: beadID, status: status}
+		if bead := beadsResult.GetBead(beadID); bead != nil {
+			bp.title = bead.Title
+			bp.description = bead.Description
+			bp.beadStatus = bead.Status
+		}
+		tp.beads = append(tp.beads, bp)
+	}
+
+	return []*workProgress{{
+		work:  work,
+		tasks: []*taskProgress{tp},
+	}}, nil
+}
+
+// fetchWorkPollData fetches progress data for a single work
+func fetchWorkPollData(ctx context.Context, proj *project.Project, workID string) ([]*workProgress, error) {
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	wp, err := fetchWorkProgress(ctx, proj, work)
+	if err != nil {
+		return nil, err
+	}
+	return []*workProgress{wp}, nil
+}
+
+// fetchAllWorksPollData fetches progress data for all works
+func fetchAllWorksPollData(ctx context.Context, proj *project.Project) ([]*workProgress, error) {
+	allWorks, err := proj.DB.ListWorks(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list works: %w", err)
+	}
+
+	works := make([]*workProgress, 0, len(allWorks))
+	for _, work := range allWorks {
+		wp, err := fetchWorkProgress(ctx, proj, work)
+		if err != nil {
+			continue // Skip works with errors
+		}
+		works = append(works, wp)
+	}
 	return works, nil
 }
 
@@ -161,17 +172,65 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 		return nil, fmt.Errorf("failed to get tasks: %w", err)
 	}
 
+	// Fetch all task beads for this work in a single query
+	allTaskBeads, err := proj.DB.GetTaskBeadsForWork(ctx, work.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task beads: %w", err)
+	}
+
+	// Get all work beads
+	allWorkBeads, err := proj.DB.GetWorkBeads(ctx, work.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work beads: %w", err)
+	}
+
+	// Get unassigned beads for this work
+	unassignedWorkBeads, err := proj.DB.GetUnassignedWorkBeads(ctx, work.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get unassigned beads: %w", err)
+	}
+
+	// Collect all bead IDs for batch fetch
+	beadIDSet := make(map[string]struct{})
+	for _, tb := range allTaskBeads {
+		beadIDSet[tb.BeadID] = struct{}{}
+	}
+	for _, wb := range allWorkBeads {
+		beadIDSet[wb.BeadID] = struct{}{}
+	}
+	for _, wb := range unassignedWorkBeads {
+		beadIDSet[wb.BeadID] = struct{}{}
+	}
+	if work.RootIssueID != "" {
+		beadIDSet[work.RootIssueID] = struct{}{}
+	}
+
+	beadIDs := make([]string, 0, len(beadIDSet))
+	for id := range beadIDSet {
+		beadIDs = append(beadIDs, id)
+	}
+
+	// Batch fetch all bead details
+	beadsResult, err := proj.Beads.GetBeadsWithDeps(ctx, beadIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get beads: %w", err)
+	}
+
+	// Build a map of task ID -> beads for efficient lookup
+	taskBeadsMap := make(map[string][]db.TaskBeadInfo)
+	for _, tb := range allTaskBeads {
+		taskBeadsMap[tb.TaskID] = append(taskBeadsMap[tb.TaskID], tb)
+	}
+
 	for _, task := range tasks {
 		tp := &taskProgress{task: task}
-		beadIDs, _ := proj.DB.GetTaskBeads(ctx, task.ID)
-		for _, beadID := range beadIDs {
-			status, _ := proj.DB.GetTaskBeadStatus(ctx, task.ID, beadID)
+		for _, tb := range taskBeadsMap[task.ID] {
+			status := tb.Status
 			if status == "" {
 				status = db.StatusPending
 			}
-			bp := beadProgress{id: beadID, status: status}
-			// Fetch additional bead details from beads system
-			if bead, err := proj.Beads.GetBead(ctx, beadID); err == nil && bead != nil {
+			bp := beadProgress{id: tb.BeadID, status: status}
+			if bead := beadsResult.GetBead(tb.BeadID); bead != nil {
 				bp.title = bead.Title
 				bp.description = bead.Description
 				bp.beadStatus = bead.Status
@@ -181,21 +240,17 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 		wp.tasks = append(wp.tasks, tp)
 	}
 
-	// Get all beads for this work
-	allWorkBeads, err := proj.DB.GetWorkBeads(ctx, work.ID)
-	if err == nil {
-		for _, wb := range allWorkBeads {
-			bp := beadProgress{id: wb.BeadID}
-			// Fetch additional bead details from beads system
-			if bead, err := proj.Beads.GetBead(ctx, wb.BeadID); err == nil && bead != nil {
-				bp.title = bead.Title
-				bp.description = bead.Description
-				bp.beadStatus = bead.Status
-				bp.priority = bead.Priority
-				bp.issueType = bead.Type
-			}
-			wp.workBeads = append(wp.workBeads, bp)
+	// Populate work beads
+	for _, wb := range allWorkBeads {
+		bp := beadProgress{id: wb.BeadID}
+		if bead := beadsResult.GetBead(wb.BeadID); bead != nil {
+			bp.title = bead.Title
+			bp.description = bead.Description
+			bp.beadStatus = bead.Status
+			bp.priority = bead.Priority
+			bp.issueType = bead.Type
 		}
+		wp.workBeads = append(wp.workBeads, bp)
 	}
 
 	// Ensure root issue is always available for display (it may not be in work_beads if it's an epic)
@@ -208,8 +263,7 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 			}
 		}
 		if !rootFound {
-			// Fetch root issue details directly from beads system
-			if rootBead, err := proj.Beads.GetBead(ctx, work.RootIssueID); err == nil && rootBead != nil {
+			if rootBead := beadsResult.GetBead(work.RootIssueID); rootBead != nil {
 				bp := beadProgress{
 					id:          rootBead.ID,
 					title:       rootBead.Title,
@@ -224,22 +278,18 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 		}
 	}
 
-	// Get unassigned beads for this work (beads not yet assigned to any task)
-	unassignedWorkBeads, err := proj.DB.GetUnassignedWorkBeads(ctx, work.ID)
-	if err == nil {
-		wp.unassignedBeadCount = len(unassignedWorkBeads)
-		// Populate full bead info for unassigned beads
-		for _, wb := range unassignedWorkBeads {
-			bp := beadProgress{id: wb.BeadID}
-			if bead, err := proj.Beads.GetBead(ctx, wb.BeadID); err == nil && bead != nil {
-				bp.title = bead.Title
-				bp.description = bead.Description
-				bp.beadStatus = bead.Status
-				bp.priority = bead.Priority
-				bp.issueType = bead.Type
-			}
-			wp.unassignedBeads = append(wp.unassignedBeads, bp)
+	// Populate unassigned beads
+	wp.unassignedBeadCount = len(unassignedWorkBeads)
+	for _, wb := range unassignedWorkBeads {
+		bp := beadProgress{id: wb.BeadID}
+		if bead := beadsResult.GetBead(wb.BeadID); bead != nil {
+			bp.title = bead.Title
+			bp.description = bead.Description
+			bp.beadStatus = bead.Status
+			bp.priority = bead.Priority
+			bp.issueType = bead.Type
 		}
+		wp.unassignedBeads = append(wp.unassignedBeads, bp)
 	}
 
 	// Get feedback count for this work
@@ -294,7 +344,15 @@ func runPoll(cmd *cobra.Command, args []string) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			works, err := fetchPollData(ctx, proj, workID, taskID)
+			var works []*workProgress
+			var err error
+			if taskID != "" {
+				works, err = fetchTaskPollData(ctx, proj, taskID)
+			} else if workID != "" {
+				works, err = fetchWorkPollData(ctx, proj, workID)
+			} else {
+				works, err = fetchAllWorksPollData(ctx, proj)
+			}
 			if err != nil {
 				fmt.Printf("[%s] Error: %v\n", time.Now().Format("15:04:05"), err)
 				continue

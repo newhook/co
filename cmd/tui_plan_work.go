@@ -130,7 +130,7 @@ type workTilesLoadedMsg struct {
 // loadWorkTiles loads work data for the work tabs bar
 func (m *planModel) loadWorkTiles() tea.Cmd {
 	return func() tea.Msg {
-		works, err := fetchPollData(m.ctx, m.proj, "", "")
+		works, err := fetchAllWorksPollData(m.ctx, m.proj)
 		if err != nil {
 			return workTilesLoadedMsg{err: err}
 		}
