@@ -59,7 +59,6 @@ type planModel struct {
 	statusBar         *StatusBar
 	issuesPanel       *IssuesPanel
 	detailsPanel      *IssueDetailsPanel
-	workOverlay       *WorkOverlayPanel
 	workDetails       *WorkDetailsPanel
 	workTabsBar       *WorkTabsBar
 	linearImportPanel *LinearImportPanel
@@ -83,10 +82,12 @@ type planModel struct {
 	statusIsError bool
 	lastUpdate    time.Time
 
-	// Work overlay state
-	focusedWorkID        string // ID of focused work (splits screen)
-	workSelectionCleared bool   // User manually cleared work selection filter (don't auto-restore)
-	pendingWorkSelectIndex  int    // Index of work to select after tiles load (-1 = none)
+	// Work state
+	focusedWorkID          string          // ID of focused work (splits screen)
+	workSelectionCleared   bool            // User manually cleared work selection filter (don't auto-restore)
+	pendingWorkSelectIndex int             // Index of work to select after tiles load (-1 = none)
+	workTiles              []*workProgress // Cached work tiles for the tabs bar
+	workDetailsFocusLeft   bool            // Whether left panel has focus in work details (true=left, false=right)
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -109,6 +110,7 @@ type planModel struct {
 	mouseY              int
 	hoveredButton       string // which button is hovered ("n", "e", "w", "p", etc.)
 	hoveredIssue        int    // index of hovered issue, -1 if none
+	lastWheelScroll     time.Time // For debouncing rapid wheel events
 	hoveredWorkItem     int    // index of hovered work detail item, -1 if none
 	hoveredDialogButton string // which dialog button is hovered ("ok", "cancel")
 	hoveredTabID        string // which work tab is hovered
@@ -182,10 +184,11 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		selectedBeads:          make(map[string]bool),
 		newBeads:               make(map[string]time.Time),
 		zj:                     zellij.New(),
-		columnRatio:            0.4, // Default 40/60 split (issues/details)
-		hoveredIssue:           -1,  // No issue hovered initially
-		hoveredWorkItem:        -1,  // No work item hovered initially
-		pendingWorkSelectIndex: -1,  // No pending work selection
+		columnRatio:            0.4,  // Default 40/60 split (issues/details)
+		hoveredIssue:           -1,   // No issue hovered initially
+		hoveredWorkItem:        -1,   // No work item hovered initially
+		pendingWorkSelectIndex: -1,   // No pending work selection
+		workDetailsFocusLeft:   true, // Start with left panel focused
 		beadsWatcher:           beadsWatcher,
 		trackingWatcher:        trackingWatcher,
 		filters: beadFilters{
@@ -198,7 +201,6 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	m.statusBar = NewStatusBar()
 	m.issuesPanel = NewIssuesPanel()
 	m.detailsPanel = NewIssueDetailsPanel()
-	m.workOverlay = NewWorkOverlayPanel()
 	m.workDetails = NewWorkDetailsPanel()
 	m.workTabsBar = NewWorkTabsBar()
 	m.linearImportPanel = NewLinearImportPanel()
@@ -342,6 +344,13 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mouseX = msg.X
 		m.mouseY = msg.Y
 
+		// Debug: log ALL mouse events
+		logging.Debug("tea.MouseMsg received",
+			"x", msg.X,
+			"y", msg.Y,
+			"action", msg.Action,
+			"button", msg.Button)
+
 		// Calculate status bar Y position (at bottom of view)
 		statusBarY := m.height - 1
 
@@ -386,28 +395,10 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					logging.Debug("hover: dialog button detected", "button", m.hoveredDialogButton)
 					m.hoveredIssue = -1
 					m.hoveredWorkItem = -1
-				} else if m.viewMode == ViewWorkOverlay {
-					// When work overlay is open, only detect issues if mouse is below overlay
-					// Add 2 for border (top + bottom) since calculateWorkOverlayHeight returns content height
-					// Also account for tabs bar at the top
-					overlayHeight := m.calculateWorkOverlayHeight() + 2
-					overlayEndY := tabsBarHeight + overlayHeight
-					if msg.Y < overlayEndY {
-						// Mouse is within overlay area - detect work tile hover
-						// Adjust Y position for tabs bar offset
-						m.hoveredIssue = -1
-						m.hoveredWorkItem = -1
-						m.workOverlay.DetectHoveredWork(msg.X, msg.Y-tabsBarHeight, overlayHeight)
-					} else {
-						// Mouse is below overlay - detect issues with offset
-						m.workOverlay.ClearHoveredWork()
-						m.hoveredWorkItem = -1
-						m.hoveredIssue = m.detectHoveredIssueWithOffset(msg.Y, overlayEndY)
-					}
 				} else if m.focusedWorkID != "" {
 					// Focused work mode: work details panel at top, issues panel at bottom
 					// Account for tabs bar at the top
-					workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+					workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
 					workPanelEndY := tabsBarHeight + workPanelHeight
 					logging.Debug("mouse motion in focused work mode",
 						"focusedWorkID", m.focusedWorkID,
@@ -434,16 +425,30 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle mouse wheel events - route to appropriate panel based on mouse position
+		if msg.Action == tea.MouseActionPress &&
+			(msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown) {
+			return m.handleMouseWheel(msg)
+		}
+
 		// Handle clicks on status bar buttons
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			// Check for clicks on tabs bar
 			tabsBarHeight := m.workTabsBar.Height()
 			if tabsBarHeight > 0 && msg.Y < tabsBarHeight {
+				// Set focus to work tabs panel when clicking on it
+				m.activePanel = PanelWorkTabs
+
 				clickedWorkID := m.workTabsBar.HandleClick(msg.X)
+				logging.Debug("Tab click handler",
+					"clickedWorkID", clickedWorkID,
+					"currentFocusedWorkID", m.focusedWorkID,
+					"workTilesCount", len(m.workTiles))
 				if clickedWorkID != "" {
 					// Focus the clicked work
 					if m.focusedWorkID == clickedWorkID {
 						// Already focused - unfocus
+						logging.Debug("Unfocusing work", "workID", clickedWorkID)
 						m.focusedWorkID = ""
 						m.filters.task = ""     // Clear work selection filter
 						m.filters.children = ""
@@ -453,14 +458,16 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.refreshData()
 					}
 					// Focus the new work
+					logging.Debug("Focusing work", "workID", clickedWorkID)
 					m.focusedWorkID = clickedWorkID
 					m.viewMode = ViewNormal
-					m.activePanel = PanelWorkDetails
+					// Keep focus on work tabs instead of immediately jumping to work details
+					m.activePanel = PanelWorkTabs
 					m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 					m.statusIsError = false
 
 					// Set up the work details panel
-					focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
+					focusedWork := m.findWorkByID(m.focusedWorkID)
 					m.workDetails.SetFocusedWork(focusedWork)
 					m.workDetails.SetSelectedIndex(0)
 					m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.focusedWorkID))
@@ -490,32 +497,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleKeyPress(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 				}
 			} else {
-				// Check for clicks in work overlay
-				if m.viewMode == ViewWorkOverlay {
-					overlayHeight := m.calculateWorkOverlayHeight() + 2 // +2 for borders
-					if msg.Y < overlayHeight {
-						// Click is within overlay area
-						clickedWorkID := m.workOverlay.HandleClick(msg.X, msg.Y, overlayHeight)
-						if clickedWorkID != "" {
-							// Switch to work detail view (same as pressing Enter)
-							m.focusedWorkID = clickedWorkID
-							m.viewMode = ViewNormal
-							m.activePanel = PanelWorkDetails
-							m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
-							m.statusIsError = false
-
-							// Set up the work details panel
-							focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
-							m.workDetails.SetFocusedWork(focusedWork)
-							m.workDetails.SetSelectedIndex(0)
-							m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.focusedWorkID))
-
-							return m, m.updateWorkSelectionFilter()
-						}
-						return m, nil
-					}
-				}
-
 				// Check if clicking on dialog buttons
 				clickedDialogButton := m.detectDialogButton(msg.X, msg.Y)
 				if clickedDialogButton == "ok" {
@@ -627,14 +608,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				} else {
 					// Normal mode - just check for issue clicks
-					var clickedIssue int
-					if m.viewMode == ViewWorkOverlay {
-						// Use offset detection when overlay is visible
-						overlayHeight := m.calculateWorkOverlayHeight() + 2
-						clickedIssue = m.detectHoveredIssueWithOffset(msg.Y, overlayHeight)
-					} else {
-						clickedIssue = m.detectHoveredIssue(msg.Y)
-					}
+					clickedIssue := m.detectHoveredIssue(msg.Y)
 					if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
 						m.beadsCursor = clickedIssue
 						m.activePanel = PanelLeft
@@ -740,12 +714,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refreshData(), m.loadWorkTiles())
 
 	case workCommandMsg:
-		// For destroy work action, stay in work overlay mode
-		if msg.action == "Destroy work" {
-			m.viewMode = ViewWorkOverlay
-		} else {
-			m.viewMode = ViewNormal
-		}
+		// Reset to normal mode
+		m.viewMode = ViewNormal
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("%s failed: %v", msg.action, msg.err)
 			m.statusIsError = true
@@ -763,6 +733,11 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refreshData(), m.loadWorkTiles())
 
 	case workTilesLoadedMsg:
+		logging.Debug("workTilesLoadedMsg received",
+			"worksCount", len(msg.works),
+			"hasError", msg.err != nil,
+			"focusedWorkID", m.focusedWorkID)
+
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("Failed to load works: %v", msg.err)
 			m.statusIsError = true
@@ -771,9 +746,14 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingWorkSelectIndex = -1 // Clear pending selection on error
 			return m, nil
 		}
-		m.workOverlay.SetWorkTiles(msg.works)
+		m.workTiles = msg.works
+		m.workTabsBar.SetWorkTiles(msg.works)
 		m.workTabsBar.SetOrchestratorHealth(msg.orchestratorHealth)
 		m.loading = false
+
+		logging.Debug("workTilesLoadedMsg processed",
+			"workTilesSet", len(m.workTiles),
+			"focusedWorkID", m.focusedWorkID)
 
 		// Check for pending work selection (from [0-9] hotkey)
 		if m.pendingWorkSelectIndex >= 0 {
@@ -784,7 +764,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update work details panel and filter if a work is focused
 		if m.focusedWorkID != "" {
-			focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
+			focusedWork := m.findWorkByID(m.focusedWorkID)
 			m.workDetails.SetFocusedWork(focusedWork)
 			// Use pre-computed orchestrator health
 			if health, ok := msg.orchestratorHealth[m.focusedWorkID]; ok {
@@ -1110,101 +1090,18 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, cmd
-	case ViewWorkOverlay:
-		// Handle [1-9] keys to select work by index (works from any sub-panel)
-		if key := msg.String(); len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
-			digit := int(key[0] - '0')
-			return m.selectWorkByIndex(digit)
-		}
-
-		// Handle navigation when issues panel is focused (not overlay)
-		if m.activePanel != PanelWorkOverlay {
-			switch msg.String() {
-			case "j", "down":
-				if m.beadsCursor < len(m.beadItems)-1 {
-					m.beadsCursor++
-				}
-				return m, nil
-			case "k", "up":
-				if m.beadsCursor > 0 {
-					m.beadsCursor--
-				}
-				return m, nil
-			case "tab":
-				m.activePanel = PanelWorkOverlay
-				return m, nil
-			case "esc":
-				m.viewMode = ViewNormal
-				m.workOverlay.ClearSelection()
-				m.activePanel = PanelLeft
-				return m, nil
-			}
-			return m, nil
-		}
-
-		// Sync panel focus state before delegating
-		m.workOverlay.SetFocus(true)
-
-		// Delegate to work overlay panel and handle returned action
-		cmd, action := m.workOverlay.Update(msg)
-
-		switch action {
-		case WorkOverlayActionCancel:
-			m.viewMode = ViewNormal
-			m.workOverlay.ClearSelection()
-			m.activePanel = PanelLeft
-			return m, cmd
-
-		case WorkOverlayActionSelect:
-			// Set the focused work and return to normal view with split screen
-			m.focusedWorkID = m.workOverlay.GetSelectedWorkTileID()
-			m.viewMode = ViewNormal
-			m.activePanel = PanelWorkDetails
-			m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
-			m.statusIsError = false
-
-			// Set up the work selection filter with the work's beads
-			// First, ensure workDetails has the focused work so we can get bead IDs
-			focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
-			m.workDetails.SetFocusedWork(focusedWork)
-			m.workDetails.SetSelectedIndex(0) // Start with root issue selected
-			// Check orchestrator health for the focused work
-			m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.focusedWorkID))
-
-			// Now update the filter and refresh
-			return m, m.updateWorkSelectionFilter()
-
-		case WorkOverlayActionToggleFocus:
-			if m.activePanel == PanelWorkOverlay {
-				m.activePanel = PanelLeft
-			} else {
-				m.activePanel = PanelWorkOverlay
-			}
-			return m, cmd
-
-		case WorkOverlayActionDestroy:
-			workID := m.workOverlay.GetSelectedWorkTileID()
-			if workID != "" {
-				// Set focusedWorkID so the confirmation dialog knows what to destroy
-				m.focusedWorkID = workID
-				m.viewMode = ViewDestroyConfirm
-			}
-			return m, cmd
-		}
-
-		return m, cmd
 	case ViewDestroyConfirm:
 		// Handle destroy confirmation dialog
 		switch msg.String() {
 		case "y", "Y":
 			if m.focusedWorkID != "" {
-				// Stay in work overlay mode - the overlay should remain open after destroy
-				m.viewMode = ViewWorkOverlay
+				// Return to normal mode after destroy
+				m.viewMode = ViewNormal
 				return m, m.destroyFocusedWork()
 			}
 		case "n", "N", "esc":
-			// Return to work overlay mode on cancel
-			m.viewMode = ViewWorkOverlay
+			// Return to normal mode on cancel
+			m.viewMode = ViewNormal
 		}
 		return m, nil
 	case ViewPlanDialog:
@@ -1233,6 +1130,49 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Normal mode key handling
 
+	// Delegate to work tabs panel when it's active
+	if m.activePanel == PanelWorkTabs && len(m.workTiles) > 0 {
+		// Handle navigation in work tabs
+		switch msg.String() {
+		case "h", "left":
+			// Move to previous work tab
+			currentIndex := -1
+			for i, work := range m.workTiles {
+				if work != nil && work.work.ID == m.focusedWorkID {
+					currentIndex = i
+					break
+				}
+			}
+			if currentIndex > 0 {
+				// Select previous work
+				return m.doSelectWorkAtIndex(currentIndex - 1)
+			}
+			return m, nil
+
+		case "l", "right":
+			// Move to next work tab
+			currentIndex := -1
+			for i, work := range m.workTiles {
+				if work != nil && work.work.ID == m.focusedWorkID {
+					currentIndex = i
+					break
+				}
+			}
+			if currentIndex >= 0 && currentIndex < len(m.workTiles)-1 {
+				// Select next work
+				return m.doSelectWorkAtIndex(currentIndex + 1)
+			}
+			return m, nil
+
+		case "enter":
+			// If a work is focused but we're on the tabs bar, ensure we switch to work details
+			if m.focusedWorkID != "" {
+				m.activePanel = PanelWorkDetails
+			}
+			return m, nil
+		}
+	}
+
 	// Delegate to work details panel when it's active
 	if m.activePanel == PanelWorkDetails && m.focusedWorkID != "" {
 		cmd, action := m.workDetails.Update(msg)
@@ -1255,16 +1195,19 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.restartOrchestrator()
 		case WorkDetailActionCheckFeedback:
 			return m, m.checkPRFeedback()
+		case WorkDetailActionDestroy:
+			// Show confirmation dialog for work destruction
+			// Check if work is currently processing
+			focusedWork := m.workDetails.GetFocusedWork()
+			if focusedWork != nil && focusedWork.work.Status == "processing" {
+				m.statusMessage = "Cannot destroy work that is currently processing"
+				m.statusIsError = true
+				return m, nil
+			}
+			m.viewMode = ViewDestroyConfirm
+			return m, cmd
 		}
 		// WorkDetailActionNone - fall through to normal handling
-	}
-
-	// Handle '0' to open work overlay
-	if msg.String() == "0" {
-		m.viewMode = ViewWorkOverlay
-		m.activePanel = PanelWorkOverlay
-		m.loading = true
-		return m, tea.Batch(m.workOverlay.Init(), m.loadWorkTiles())
 	}
 
 	// Handle [1-9] keys to select work by index (works from issues panel and work details panel)
@@ -1274,17 +1217,99 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "tab", "shift+tab":
-		// In focused work mode: toggle between work details and issues
-		if m.focusedWorkID != "" {
+	case "tab":
+		// In focused work mode: cycle forward through work tabs, work details, and issues
+		if m.focusedWorkID != "" && len(m.workTiles) > 0 {
+			switch m.activePanel {
+			case PanelWorkTabs:
+				m.activePanel = PanelWorkDetails
+				m.workDetailsFocusLeft = true  // Start with left panel focused
+				// Reset the cleared flag and restore work selection filter when entering work details
+				if m.workSelectionCleared {
+					m.workSelectionCleared = false
+					return m, m.updateWorkSelectionFilter()
+				}
+			case PanelWorkDetails:
+				// Toggle between left and right within work details first
+				if m.workDetailsFocusLeft {
+					m.workDetailsFocusLeft = false  // Move focus to right panel
+				} else {
+					// From right panel, move to next panel
+					m.activePanel = PanelLeft // Issues panel
+					m.workDetailsFocusLeft = true  // Reset for next time
+				}
+			case PanelLeft:
+				m.activePanel = PanelWorkTabs
+			default:
+				m.activePanel = PanelWorkTabs
+			}
+		} else if m.focusedWorkID != "" {
+			// No work tiles, toggle between work details (left/right) and issues
 			if m.activePanel == PanelWorkDetails {
-				m.activePanel = PanelLeft
+				// Toggle between left and right within work details first
+				if m.workDetailsFocusLeft {
+					m.workDetailsFocusLeft = false  // Move focus to right panel
+				} else {
+					// From right panel, move to issues panel
+					m.activePanel = PanelLeft
+					m.workDetailsFocusLeft = true  // Reset for next time
+				}
 			} else {
 				m.activePanel = PanelWorkDetails
+				m.workDetailsFocusLeft = true  // Start with left panel focused
 				// Reset the cleared flag and restore work selection filter
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
 					return m, m.updateWorkSelectionFilter()
+				}
+			}
+		}
+		return m, nil
+
+	case "shift+tab":
+		// In focused work mode: cycle backward through work tabs, work details, and issues
+		if m.focusedWorkID != "" && len(m.workTiles) > 0 {
+			switch m.activePanel {
+			case PanelWorkTabs:
+				m.activePanel = PanelLeft // Issues panel
+			case PanelWorkDetails:
+				// Toggle between right and left within work details first
+				if !m.workDetailsFocusLeft {
+					m.workDetailsFocusLeft = true  // Move focus to left panel
+				} else {
+					// From left panel, move to previous panel
+					m.activePanel = PanelWorkTabs
+					m.workDetailsFocusLeft = true  // Reset for next time (though already true)
+				}
+			case PanelLeft:
+				m.activePanel = PanelWorkDetails
+				m.workDetailsFocusLeft = false  // Start with right panel when going backward
+				// Reset the cleared flag and restore work selection filter when entering work details
+				if m.workSelectionCleared {
+					m.workSelectionCleared = false
+					return m, m.updateWorkSelectionFilter()
+				}
+			default:
+				m.activePanel = PanelLeft
+			}
+		} else if m.focusedWorkID != "" {
+			// No work tiles, toggle between work details (right/left) and issues
+			if m.activePanel == PanelLeft {
+				m.activePanel = PanelWorkDetails
+				m.workDetailsFocusLeft = false  // Start with right panel when going backward
+				// Reset the cleared flag and restore work selection filter
+				if m.workSelectionCleared {
+					m.workSelectionCleared = false
+					return m, m.updateWorkSelectionFilter()
+				}
+			} else {
+				// Toggle between right and left within work details first
+				if !m.workDetailsFocusLeft {
+					m.workDetailsFocusLeft = true  // Move focus to left panel
+				} else {
+					// From left panel, move to issues panel
+					m.activePanel = PanelLeft
+					m.workDetailsFocusLeft = true  // Reset for next time (though already true)
 				}
 			}
 		}
@@ -1525,7 +1550,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "A":
 		// Add selected issue(s) to the focused work
 		if m.focusedWorkID == "" {
-			m.statusMessage = "Select a work first (press '0' to open work overlay)"
+			m.statusMessage = "Select a work first (press 1-9 to select a work)"
 			m.statusIsError = true
 			return m, nil
 		}
@@ -1590,6 +1615,12 @@ func (m *planModel) cleanup() {
 
 // syncPanels synchronizes data from planModel to the panel components
 func (m *planModel) syncPanels() {
+	logging.Debug("syncPanels() called",
+		"m.height", m.height,
+		"m.width", m.width,
+		"focusedWorkID", m.focusedWorkID,
+		"workTilesCount", len(m.workTiles))
+
 	// Calculate column widths
 	totalContentWidth := m.width - 4
 	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
@@ -1598,8 +1629,6 @@ func (m *planModel) syncPanels() {
 	// Determine status bar context based on focused panel
 	var statusBarCtx StatusBarContext
 	switch m.activePanel {
-	case PanelWorkOverlay:
-		statusBarCtx = StatusBarContextWorkOverlay
 	case PanelWorkDetails:
 		statusBarCtx = StatusBarContextWorkDetail
 	default:
@@ -1646,25 +1675,24 @@ func (m *planModel) syncPanels() {
 	}
 	m.detailsPanel.SetData(focusedBead, hasActiveSession, childBeadMap)
 
-	// Sync work overlay
-	m.workOverlay.SetSize(m.width, m.height)
-	m.workOverlay.SetLoading(m.loading)
-	m.workOverlay.SetFocus(m.activePanel == PanelWorkOverlay)
-
 	// Sync work tabs bar
 	m.workTabsBar.SetSize(m.width)
-	m.workTabsBar.SetWorkTiles(m.workOverlay.GetWorkTiles())
+	m.workTabsBar.SetActivePanel(m.activePanel)
+	// Note: Work tiles are set asynchronously when work tiles are loaded
 	m.workTabsBar.SetFocusedWorkID(m.focusedWorkID)
 	// Note: Orchestrator health is set asynchronously when work tiles are loaded
 
 	// Sync work details (for focused work split view)
 	if m.focusedWorkID != "" {
 		// Calculate the correct work panel height (same formula as renderFocusedWorkSplitView)
-		workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
 		m.workDetails.SetSize(m.width, workPanelHeight)
 		m.workDetails.SetColumnRatio(m.columnRatio) // Use same ratio as issues panel
-		m.workDetails.SetFocus(m.activePanel == PanelWorkDetails, false)
-		focusedWork := m.workOverlay.FindWorkByID(m.focusedWorkID)
+		// Pass focus state based on whether work details panel is active and which sub-panel has focus
+		leftFocused := m.activePanel == PanelWorkDetails && m.workDetailsFocusLeft
+		rightFocused := m.activePanel == PanelWorkDetails && !m.workDetailsFocusLeft
+		m.workDetails.SetFocus(leftFocused, rightFocused)
+		focusedWork := m.findWorkByID(m.focusedWorkID)
 		m.workDetails.SetFocusedWork(focusedWork)
 		m.workDetails.SetHoveredItem(m.hoveredWorkItem)
 	}
@@ -1687,9 +1715,6 @@ func (m *planModel) syncPanels() {
 
 // View implements tea.Model
 func (m *planModel) View() string {
-	// Sync data to panels before rendering
-	m.syncPanels()
-
 	// Handle dialogs
 	switch m.viewMode {
 	case ViewCreateBead, ViewCreateBeadInline, ViewAddChildBead, ViewEditBead:
@@ -1712,9 +1737,6 @@ func (m *planModel) View() string {
 	case ViewLinearImportInline:
 		// Inline import mode - render normal view with import form in details area
 		// Fall through to normal rendering
-	case ViewWorkOverlay:
-		// Work overlay mode - show work dropdown at top with normal content below
-		// Fall through to render normal content with overlay
 	case ViewHelp:
 		return m.renderHelp()
 	}
@@ -1722,55 +1744,64 @@ func (m *planModel) View() string {
 	// Render status bar using the panel
 	statusBar := m.statusBar.Render()
 
-	// Render work tabs bar (only if there are works)
+	// Render work tabs bar (always visible)
 	workTabsBar := m.workTabsBar.Render()
 	tabsBarHeight := m.workTabsBar.Height()
 
-	// If work overlay is active, show it as a dropdown at the top
-	if m.viewMode == ViewWorkOverlay {
-		overlay := m.workOverlay.Render()
+	logging.Debug("View() rendering",
+		"m.height", m.height,
+		"tabsBarHeight", tabsBarHeight,
+		"focusedWorkID", m.focusedWorkID,
+		"workTilesCount", len(m.workTiles),
+		"workTabsBar_empty", workTabsBar == "",
+		"workTabsBar_len", len(workTabsBar))
 
-		// Calculate remaining height for content
-		// Note: renderTwoColumnLayout already subtracts 1 for status bar,
-		// so we only subtract the overlay height and tabs bar height here
-		overlayHeight := lipgloss.Height(overlay)
-		remainingHeight := m.height - overlayHeight - tabsBarHeight
-
-		// Render content with reduced height
-		var content string
-		if remainingHeight > 5 {
-			// Temporarily adjust model height for content rendering
-			originalHeight := m.height
-			m.height = remainingHeight
-			m.syncPanels() // Re-sync with new height
-			content = m.renderTwoColumnLayout()
-			m.height = originalHeight
-		} else {
-			// Not enough space, just show a condensed view
-			content = tuiDimStyle.Render("  (Content area - press Esc to close overlay)")
-		}
-
-		// Combine tabs bar, overlay, content and status bar
-		if tabsBarHeight > 0 {
-			return lipgloss.JoinVertical(lipgloss.Left, workTabsBar, overlay, content, statusBar)
-		}
-		return lipgloss.JoinVertical(lipgloss.Left, overlay, content, statusBar)
-	}
-
-	// Normal view with tabs bar at top
-	if tabsBarHeight > 0 {
-		// Adjust content height for tabs bar
-		originalHeight := m.height
-		m.height = m.height - tabsBarHeight
-		m.syncPanels() // Re-sync with new height
-		content := m.renderTwoColumnLayout()
-		m.height = originalHeight
-		return lipgloss.JoinVertical(lipgloss.Left, workTabsBar, content, statusBar)
-	}
-
-	// No tabs bar
+	// Adjust content height for tabs bar
+	originalHeight := m.height
+	m.height = m.height - tabsBarHeight
+	m.syncPanels() // Re-sync with new height
 	content := m.renderTwoColumnLayout()
-	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	m.height = originalHeight
+
+	logging.Debug("View() before final assembly",
+		"focusedWorkID", m.focusedWorkID,
+		"workTabsBar_len", len(workTabsBar),
+		"content_height", lipgloss.Height(content),
+		"statusBar_height", lipgloss.Height(statusBar))
+
+	// Always include tab bar at top
+	result := lipgloss.JoinVertical(lipgloss.Left, workTabsBar, content, statusBar)
+
+	// Extra debugging to understand what's being rendered
+	logging.Debug("View() components",
+		"workTabsBar_first_50_chars", workTabsBar[:min(50, len(workTabsBar))],
+		"workTabsBar_actual_height", lipgloss.Height(workTabsBar))
+
+	logging.Debug("View() final",
+		"result_height", lipgloss.Height(result),
+		"workTabsBar_height", lipgloss.Height(workTabsBar),
+		"content_height", lipgloss.Height(content),
+		"statusBar_height", lipgloss.Height(statusBar),
+		"focusedWorkID_in_final", m.focusedWorkID)
+
+	// Extra debugging - let's see what the actual result looks like
+	lines := strings.Split(result, "\n")
+	if len(lines) > 0 {
+		logging.Debug("View() result first line",
+			"first_line_len", len(lines[0]),
+			"first_line_preview", lines[0][:min(80, len(lines[0]))])
+	}
+
+	// Check if result height exceeds terminal height - THIS IS THE PROBLEM!
+	actualTerminalHeight := originalHeight  // This is the real terminal height
+	logging.Debug("View() HEIGHT OVERFLOW CHECK",
+		"terminal_height", actualTerminalHeight,
+		"result_height", lipgloss.Height(result),
+		"OVERFLOW", lipgloss.Height(result) > actualTerminalHeight,
+		"overflow_by", lipgloss.Height(result) - actualTerminalHeight,
+		"lines_in_result", len(lines))
+
+	return result
 }
 
 // beadsForBranch is a minimal struct for branch name generation
@@ -1857,7 +1888,7 @@ func (m *planModel) selectWorkByIndex(digit int) (tea.Model, tea.Cmd) {
 	// Map digit to index: 1->0, 2->1, ..., 9->8
 	index := digit - 1
 
-	works := m.workOverlay.GetWorkTiles()
+	works := m.workTiles
 
 	// If no works loaded yet, load them first and store pending selection
 	if len(works) == 0 {
@@ -1872,7 +1903,7 @@ func (m *planModel) selectWorkByIndex(digit int) (tea.Model, tea.Cmd) {
 // doSelectWorkAtIndex performs the actual work selection at a given index.
 // This is called either directly from selectWorkByIndex or after work tiles are loaded.
 func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
-	works := m.workOverlay.GetWorkTiles()
+	works := m.workTiles
 
 	// Check if index is valid
 	if index >= len(works) {
@@ -1886,10 +1917,13 @@ func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Select the work (same logic as WorkOverlayActionSelect)
+	// Select the work
 	m.focusedWorkID = work.work.ID
 	m.viewMode = ViewNormal
-	m.activePanel = PanelWorkDetails
+	// If we're already on work tabs, stay there, otherwise go to work details
+	if m.activePanel != PanelWorkTabs {
+		m.activePanel = PanelWorkDetails
+	}
 	m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 	m.statusIsError = false
 
@@ -1900,4 +1934,15 @@ func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
 
 	// Update the filter and refresh
 	return m, m.updateWorkSelectionFilter()
+}
+
+// findWorkByID finds a work by its ID in the cached work tiles.
+// Returns nil if not found.
+func (m *planModel) findWorkByID(id string) *workProgress {
+	for _, work := range m.workTiles {
+		if work != nil && work.work.ID == id {
+			return work
+		}
+	}
+	return nil
 }

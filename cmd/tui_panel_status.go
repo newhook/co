@@ -15,7 +15,6 @@ type StatusBarContext int
 
 const (
 	StatusBarContextIssues StatusBarContext = iota
-	StatusBarContextWorkOverlay // Work overlay is focused
 	StatusBarContextWorkDetail
 )
 
@@ -133,9 +132,6 @@ func (s *StatusBar) Render() string {
 	var commandsPlain string
 
 	switch s.context {
-	case StatusBarContextWorkOverlay:
-		// Work overlay commands (overlay is focused)
-		commands, commandsPlain = s.renderWorkOverlayCommands()
 	case StatusBarContextWorkDetail:
 		// Work detail commands
 		commands, commandsPlain = s.renderWorkDetailCommands()
@@ -200,25 +196,9 @@ func (s *StatusBar) renderIssuesCommands() (string, string) {
 	return commands, commandsPlain
 }
 
-// renderWorkOverlayCommands returns commands for the work overlay panel
-func (s *StatusBar) renderWorkOverlayCommands() (string, string) {
-	// Work overlay specific commands when overlay is focused
-	jkButton := styleButtonWithHover("[j/k]Navigate", s.hoveredButton == "jk")
-	tabButton := styleButtonWithHover("[Tab]Issues", s.hoveredButton == "tab")
-	enterButton := styleButtonWithHover("[Enter]Focus", s.hoveredButton == "enter")
-	dButton := styleButtonWithHover("[d]Destroy", s.hoveredButton == "d")
-	escButton := styleButtonWithHover("[Esc]Close", s.hoveredButton == "esc")
-	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
-
-	commands := jkButton + " " + tabButton + " " + enterButton + " " + dButton + " " + escButton + " " + helpButton
-	commandsPlain := "[j/k]Navigate [Tab]Issues [Enter]Focus [d]Destroy [Esc]Close [?]Help"
-
-	return commands, commandsPlain
-}
-
 // renderWorkDetailCommands returns commands for the work detail panel
 func (s *StatusBar) renderWorkDetailCommands() (string, string) {
-	// Work detail specific commands (destroy is at overlay level, not here)
+	// Work detail specific commands
 	tButton := styleButtonWithHover("[t]erminal", s.hoveredButton == "t")
 	cButton := styleButtonWithHover("[c]laude", s.hoveredButton == "c")
 	rButton := styleButtonWithHover("[r]un", s.hoveredButton == "r")
@@ -226,11 +206,12 @@ func (s *StatusBar) renderWorkDetailCommands() (string, string) {
 	vButton := styleButtonWithHover("[v]review", s.hoveredButton == "v")
 	pButton := styleButtonWithHover("[p]r", s.hoveredButton == "p")
 	fButton := styleButtonWithHover("[f]eedback", s.hoveredButton == "f")
+	dButton := styleButtonWithHover("[d]estroy", s.hoveredButton == "d")
 	escButton := styleButtonWithHover("[Esc]Deselect", s.hoveredButton == "esc")
 	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
 
-	commands := tButton + " " + cButton + " " + rButton + " " + oButton + " " + vButton + " " + pButton + " " + fButton + " " + escButton + " " + helpButton
-	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [Esc]Deselect [?]Help"
+	commands := tButton + " " + cButton + " " + rButton + " " + oButton + " " + vButton + " " + pButton + " " + fButton + " " + dButton + " " + escButton + " " + helpButton
+	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [d]estroy [Esc]Deselect [?]Help"
 
 	return commands, commandsPlain
 }
@@ -244,8 +225,6 @@ func (s *StatusBar) DetectButton(x int) string {
 	x = x - 1
 
 	switch s.context {
-	case StatusBarContextWorkOverlay:
-		return s.detectWorkOverlayButton(x)
 	case StatusBarContextWorkDetail:
 		return s.detectWorkDetailButton(x)
 	default:
@@ -313,42 +292,9 @@ func (s *StatusBar) detectIssuesButton(x int) string {
 	return ""
 }
 
-// detectWorkOverlayButton detects button clicks for the work overlay panel
-func (s *StatusBar) detectWorkOverlayButton(x int) string {
-	commandsPlain := "[j/k]Navigate [Tab]Issues [Enter]Focus [d]Destroy [Esc]Close [?]Help"
-
-	jkIdx := strings.Index(commandsPlain, "[j/k]Navigate")
-	tabIdx := strings.Index(commandsPlain, "[Tab]Issues")
-	enterIdx := strings.Index(commandsPlain, "[Enter]Focus")
-	dIdx := strings.Index(commandsPlain, "[d]Destroy")
-	escIdx := strings.Index(commandsPlain, "[Esc]Close")
-	helpIdx := strings.Index(commandsPlain, "[?]Help")
-
-	if jkIdx >= 0 && x >= jkIdx && x < jkIdx+len("[j/k]Navigate") {
-		return "jk"
-	}
-	if tabIdx >= 0 && x >= tabIdx && x < tabIdx+len("[Tab]Issues") {
-		return "tab"
-	}
-	if enterIdx >= 0 && x >= enterIdx && x < enterIdx+len("[Enter]Focus") {
-		return "enter"
-	}
-	if dIdx >= 0 && x >= dIdx && x < dIdx+len("[d]Destroy") {
-		return "d"
-	}
-	if escIdx >= 0 && x >= escIdx && x < escIdx+len("[Esc]Close") {
-		return "esc"
-	}
-	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
-		return "?"
-	}
-
-	return ""
-}
-
 // detectWorkDetailButton detects button clicks for the work detail panel
 func (s *StatusBar) detectWorkDetailButton(x int) string {
-	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [Esc]Deselect [?]Help"
+	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [d]estroy [Esc]Deselect [?]Help"
 
 	tIdx := strings.Index(commandsPlain, "[t]erminal")
 	cIdx := strings.Index(commandsPlain, "[c]laude")
@@ -357,6 +303,7 @@ func (s *StatusBar) detectWorkDetailButton(x int) string {
 	vIdx := strings.Index(commandsPlain, "[v]review")
 	pIdx := strings.Index(commandsPlain, "[p]r")
 	fIdx := strings.Index(commandsPlain, "[f]eedback")
+	dIdx := strings.Index(commandsPlain, "[d]estroy")
 	escIdx := strings.Index(commandsPlain, "[Esc]Deselect")
 	helpIdx := strings.Index(commandsPlain, "[?]Help")
 
@@ -380,6 +327,9 @@ func (s *StatusBar) detectWorkDetailButton(x int) string {
 	}
 	if fIdx >= 0 && x >= fIdx && x < fIdx+len("[f]eedback") {
 		return "f"
+	}
+	if dIdx >= 0 && x >= dIdx && x < dIdx+len("[d]estroy") {
+		return "d"
 	}
 	if escIdx >= 0 && x >= escIdx && x < escIdx+len("[Esc]Deselect") {
 		return "esc"

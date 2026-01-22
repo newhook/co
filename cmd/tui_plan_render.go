@@ -3,8 +3,11 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/logging"
 )
 
 const detailsPanelPadding = 4
@@ -25,19 +28,35 @@ func (m *planModel) renderFixedPanel(title, content string, width, height int) s
 // renderFocusedWorkSplitView renders the split view when a work is focused
 // This shows a horizontal split: Work details on top (40%), Issues/Details below (60%)
 func (m *planModel) renderFocusedWorkSplitView() string {
+	logging.Debug("renderFocusedWorkSplitView() called",
+		"m.height", m.height,
+		"focusedWorkID", m.focusedWorkID)
+
 	// Calculate heights for split view
+	// Note: m.height has already been adjusted for tabs bar in View()
 	totalHeight := m.height - 1 // -1 for status bar
 
 	// Calculate work panel height
-	// calculateWorkOverlayHeight returns content height (12-25)
+	// calculateWorkPanelHeight returns content height (10-23)
 	// Add 2 for border to get total panel height
-	// WorkDetailsPanel.Render() uses Height(p.height-2), so rendered = p.height
-	workPanelHeight := m.calculateWorkOverlayHeight() + 2
+	calcBase := m.calculateWorkPanelHeight()
+	workPanelHeight := calcBase + 2
 	planPanelHeight := totalHeight - workPanelHeight
 
 	// Update work details panel size and render (same pattern as IssuesPanel)
 	m.workDetails.SetSize(m.width, workPanelHeight)
 	workPanel := m.workDetails.RenderWithPanel(workPanelHeight)
+
+	// Log the heights for debugging
+	actualWorkHeight := lipgloss.Height(workPanel)
+	logging.Debug("renderFocusedWorkSplitView heights",
+		"m.height", m.height,
+		"totalHeight", totalHeight,
+		"calcBase", calcBase,
+		"workPanelHeight_requested", workPanelHeight,
+		"actualWorkHeight_rendered", actualWorkHeight,
+		"HEIGHT_MISMATCH", actualWorkHeight != workPanelHeight,
+		"planPanelHeight", planPanelHeight)
 
 	// === Render Plan Mode Panel (Bottom) ===
 	// Update issues and details panel sizes for the reduced height
@@ -72,18 +91,32 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	planSection := lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, detailsPanel)
 
 	// Combine everything vertically (panel borders provide visual separation)
-	return lipgloss.JoinVertical(lipgloss.Left, workPanel, planSection)
+	result := lipgloss.JoinVertical(lipgloss.Left, workPanel, planSection)
+
+	logging.Debug("renderFocusedWorkSplitView() END",
+		"result_height", lipgloss.Height(result),
+		"workPanel_height", lipgloss.Height(workPanel),
+		"planSection_height", lipgloss.Height(planSection),
+		"total_calculated", workPanelHeight + planPanelHeight,
+		"expected_total", totalHeight)
+
+	return result
 }
 
 // renderTwoColumnLayout renders the issues and details panels side-by-side
 func (m *planModel) renderTwoColumnLayout() string {
 	// Check if a work is focused - if so, render split view
-	// But not when work overlay is open - the overlay takes precedence
-	if m.focusedWorkID != "" && m.viewMode != ViewWorkOverlay {
-		return m.renderFocusedWorkSplitView()
+	if m.focusedWorkID != "" {
+		logging.Debug("renderTwoColumnLayout() calling renderFocusedWorkSplitView",
+			"focusedWorkID", m.focusedWorkID)
+		splitView := m.renderFocusedWorkSplitView()
+		logging.Debug("renderTwoColumnLayout() got splitView",
+			"height", lipgloss.Height(splitView))
+		return splitView
 	}
 
-	// Calculate content height (total height - status bar)
+	// Calculate content height
+	// Note: m.height has already been adjusted for tabs bar in View()
 	contentHeight := m.height - 1 // -1 for status bar
 
 	// Use panels for rendering (they're already synced with correct sizes and data)
@@ -137,7 +170,7 @@ func (m *planModel) detectHoveredIssue(y int) int {
 		// In focused work mode, the issues panel is below the work panel
 		// Use the same height calculation as renderFocusedWorkSplitView
 		totalHeight := m.height - 1 - tabsBarHeight // -1 for status bar, - tabs bar
-		workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
 		issuesPanelStartY = tabsBarHeight + workPanelHeight
 		contentHeight = totalHeight - workPanelHeight
 	} else {
@@ -183,19 +216,22 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	return -1
 }
 
-// calculateWorkOverlayHeight returns the height of the work overlay dropdown
-func (m *planModel) calculateWorkOverlayHeight() int {
-	dropdownHeight := int(float64(m.height) * 0.4)
-	if dropdownHeight < 12 {
-		dropdownHeight = 12
-	} else if dropdownHeight > 25 {
-		dropdownHeight = 25
+// calculateWorkPanelHeight returns the height of the work details panel
+func (m *planModel) calculateWorkPanelHeight() int {
+	// Calculate based on available height
+	// Note: m.height has already been adjusted for tabs bar in View()
+	availableHeight := m.height - 1  // -1 for status bar
+	dropdownHeight := int(float64(availableHeight) * 0.4)
+	if dropdownHeight < 10 {
+		dropdownHeight = 10
+	} else if dropdownHeight > 23 {
+		dropdownHeight = 23
 	}
 	return dropdownHeight
 }
 
-// detectHoveredIssueWithOffset detects issue hover when content is offset by overlay
-func (m *planModel) detectHoveredIssueWithOffset(y int, overlayHeight int) int {
+// detectHoveredIssueWithOffset detects issue hover when content is offset by work panel
+func (m *planModel) detectHoveredIssueWithOffset(y int, offsetHeight int) int {
 	// Check if mouse X is within the issues panel
 	totalContentWidth := m.width - 4
 	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
@@ -205,9 +241,9 @@ func (m *planModel) detectHoveredIssueWithOffset(y int, overlayHeight int) int {
 		return -1
 	}
 
-	// Calculate the adjusted Y position relative to the content below overlay
-	// The content starts at overlayHeight
-	adjustedY := y - overlayHeight
+	// Calculate the adjusted Y position relative to the content below work panel
+	// The content starts at offsetHeight
+	adjustedY := y - offsetHeight
 
 	// Layout within panel content (same as detectHoveredIssue):
 	// Y=0: Top border
@@ -224,8 +260,8 @@ func (m *planModel) detectHoveredIssueWithOffset(y int, overlayHeight int) int {
 		return -1
 	}
 
-	// Calculate content height (reduced by overlay)
-	contentHeight := m.height - overlayHeight - 1 // -1 for status bar
+	// Calculate content height (reduced by work panel)
+	contentHeight := m.height - offsetHeight - 1 // -1 for status bar
 	issuesContentLines := contentHeight - 3
 	visibleItems := max(issuesContentLines-1, 1)
 
@@ -263,7 +299,7 @@ func (m *planModel) detectClickedPanel(x, y int) string {
 	}
 
 	// Calculate panel boundaries using same formula as renderFocusedWorkSplitView
-	workPanelHeight := m.calculateWorkOverlayHeight() + 2 // +2 for border
+	workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
 	halfWidth := (m.width - 4) / 2                        // Half width
 
 	// Determine Y section (top = work, bottom = issues)
@@ -642,6 +678,7 @@ func (m *planModel) renderHelp() string {
   Navigation
   ────────────────────────────
   j/k, ↑/↓      Navigate list
+  1-9           Select work by position
   p             Start/Resume planning session
 
   Issue Management
@@ -675,4 +712,108 @@ func (m *planModel) renderHelp() string {
   Press any key to close...
 `
 	return tuiHelpStyle.Width(m.width).Height(m.height).Render(help)
+}
+
+// handleMouseWheel handles mouse wheel events by routing them to the appropriate panel
+// based on the mouse position. Only the panel under the mouse cursor will scroll.
+func (m *planModel) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	logging.Debug("handleMouseWheel called",
+		"x", msg.X,
+		"y", msg.Y,
+		"button", msg.Button,
+		"action", msg.Action,
+		"focusedWorkID", m.focusedWorkID)
+
+	// Debounce rapid scroll events (terminals often send 3+ events per wheel click)
+	// 50ms debounce allows continuous scrolling while filtering burst events
+	now := time.Now()
+	if now.Sub(m.lastWheelScroll) < 50*time.Millisecond {
+		logging.Debug("handleMouseWheel debounced")
+		return m, nil
+	}
+	m.lastWheelScroll = now
+
+	// Calculate panel boundaries
+	tabsBarHeight := m.workTabsBar.Height()
+
+	// Determine scroll direction
+	scrollUp := msg.Button == tea.MouseButtonWheelUp
+	logging.Debug("handleMouseWheel direction",
+		"scrollUp", scrollUp,
+		"tabsBarHeight", tabsBarHeight)
+
+	// Calculate panel widths
+	totalContentWidth := m.width - 4
+	leftPanelWidth := int(float64(totalContentWidth) * m.columnRatio)
+	rightPanelStartX := leftPanelWidth + 2 // +2 for left panel border
+
+	// If focused work mode, determine if mouse is over work details or issues panel
+	if m.focusedWorkID != "" {
+		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
+		workPanelEndY := tabsBarHeight + workPanelHeight
+
+		// Check if mouse is in work details area (top panel)
+		if msg.Y >= tabsBarHeight && msg.Y < workPanelEndY {
+			// Check if over the right panel (details)
+			if msg.X >= rightPanelStartX {
+				// Scroll the work details right panel (summary or task)
+				logging.Debug("handleMouseWheel: scrolling work details right panel")
+				return m, m.workDetails.UpdateViewport(msg)
+			}
+			// Over left panel (work overview) - navigate task selection
+			logging.Debug("handleMouseWheel: navigating work overview")
+			if scrollUp {
+				m.workDetails.NavigateUp()
+			} else {
+				m.workDetails.NavigateDown()
+			}
+			return m, nil
+		}
+
+		// Mouse is in issues area below work panel
+		logging.Debug("handleMouseWheel: scrolling issues list (focused work mode)")
+		if scrollUp {
+			if m.beadsCursor > 0 {
+				m.beadsCursor--
+			}
+		} else {
+			if m.beadsCursor < len(m.beadItems)-1 {
+				m.beadsCursor++
+			}
+		}
+		return m, nil
+	}
+
+	// Normal mode (no focused work) - check which panel mouse is over
+	logging.Debug("handleMouseWheel: normal mode panel detection",
+		"mouseX", msg.X,
+		"leftPanelWidth", leftPanelWidth,
+		"rightPanelStartX", rightPanelStartX,
+		"totalWidth", m.width)
+
+	// Check if mouse is over the issues panel (left side)
+	if msg.X <= leftPanelWidth+2 {
+		// Issues panel - move cursor
+		logging.Debug("handleMouseWheel: scrolling issues list (normal mode)")
+		if scrollUp {
+			if m.beadsCursor > 0 {
+				m.beadsCursor--
+			}
+		} else {
+			if m.beadsCursor < len(m.beadItems)-1 {
+				m.beadsCursor++
+			}
+		}
+		return m, nil
+	}
+
+	// Mouse is over the details panel (right side)
+	// Details panel uses viewport for scrolling
+	logging.Debug("handleMouseWheel: scrolling details panel")
+	if scrollUp {
+		m.detailsPanel.ScrollUp()
+	} else {
+		m.detailsPanel.ScrollDown()
+	}
+	return m, nil
 }
