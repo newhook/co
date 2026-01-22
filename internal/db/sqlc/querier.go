@@ -78,6 +78,7 @@ type Querier interface {
 	GetTaskBeadStatus(ctx context.Context, arg GetTaskBeadStatusParams) (string, error)
 	GetTaskBeads(ctx context.Context, taskID string) ([]string, error)
 	GetTaskBeadsForWork(ctx context.Context, workID string) ([]TaskBead, error)
+	GetTaskBeadsWithStatus(ctx context.Context, taskID string) ([]TaskBead, error)
 	GetTaskByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (Scheduler, error)
 	GetTaskDependencies(ctx context.Context, taskID string) ([]string, error)
 	GetTaskDependents(ctx context.Context, dependsOnTaskID string) ([]string, error)
@@ -116,6 +117,7 @@ type Querier interface {
 	RecordMigrationWithDown(ctx context.Context, arg RecordMigrationWithDownParams) error
 	RemoveWorkBead(ctx context.Context, arg RemoveWorkBeadParams) (int64, error)
 	RescheduleTask(ctx context.Context, arg RescheduleTaskParams) error
+	ResetTaskBeadStatus(ctx context.Context, arg ResetTaskBeadStatusParams) (int64, error)
 	ResetTaskBeadStatuses(ctx context.Context, taskID string) (int64, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
 	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error

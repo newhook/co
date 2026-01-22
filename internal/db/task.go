@@ -445,6 +445,39 @@ func (db *DB) ResetTaskBeadStatuses(ctx context.Context, taskID string) error {
 	return nil
 }
 
+// GetTaskBeadsWithStatus returns all beads in a task with their status.
+func (db *DB) GetTaskBeadsWithStatus(ctx context.Context, taskID string) ([]TaskBeadInfo, error) {
+	rows, err := db.queries.GetTaskBeadsWithStatus(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task beads with status: %w", err)
+	}
+
+	result := make([]TaskBeadInfo, len(rows))
+	for i, row := range rows {
+		result[i] = TaskBeadInfo{
+			TaskID: row.TaskID,
+			BeadID: row.BeadID,
+			Status: row.Status,
+		}
+	}
+	return result, nil
+}
+
+// ResetTaskBeadStatus resets a single bead's status in a task to pending.
+func (db *DB) ResetTaskBeadStatus(ctx context.Context, taskID, beadID string) error {
+	rows, err := db.queries.ResetTaskBeadStatus(ctx, sqlc.ResetTaskBeadStatusParams{
+		TaskID: taskID,
+		BeadID: beadID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to reset task bead status: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("task bead %s/%s not found", taskID, beadID)
+	}
+	return nil
+}
+
 // UpdateTaskActivity updates the last_activity timestamp for a processing task.
 func (db *DB) UpdateTaskActivity(ctx context.Context, taskID string, timestamp time.Time) error {
 	_, err := db.queries.UpdateTaskActivity(ctx, sqlc.UpdateTaskActivityParams{
