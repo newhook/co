@@ -94,6 +94,8 @@ type Querier interface {
 	GetWorkTasks(ctx context.Context, workID string) ([]GetWorkTasksRow, error)
 	HasExistingFeedback(ctx context.Context, arg HasExistingFeedbackParams) (int64, error)
 	HasPendingDependencies(ctx context.Context, taskID string) (bool, error)
+	IdleWork(ctx context.Context, id string) (int64, error)
+	IdleWorkWithPR(ctx context.Context, arg IdleWorkWithPRParams) (int64, error)
 	IncrementAttemptAndReschedule(ctx context.Context, arg IncrementAttemptAndRescheduleParams) error
 	InitializeTaskCounter(ctx context.Context, workID string) error
 	IsBeadInTask(ctx context.Context, arg IsBeadInTaskParams) (bool, error)
@@ -120,6 +122,8 @@ type Querier interface {
 	ResetTaskBeadStatus(ctx context.Context, arg ResetTaskBeadStatusParams) (int64, error)
 	ResetTaskBeadStatuses(ctx context.Context, taskID string) (int64, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
+	RestartWork(ctx context.Context, id string) (int64, error)
+	ResumeWork(ctx context.Context, id string) (int64, error)
 	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error
 	SpawnTask(ctx context.Context, arg SpawnTaskParams) (int64, error)
 	StartBead(ctx context.Context, arg StartBeadParams) error

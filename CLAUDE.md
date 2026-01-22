@@ -273,6 +273,41 @@ The system uses a 3-tier hierarchy: **Work → Tasks → Beads**
 - **Tasks**: Run as Claude Code sessions sequentially within work's tab
 - **Beads**: Individual issues solved within tasks
 
+## Work Status State Machine
+
+Works have the following status states:
+
+```
+┌─────────┐         ┌────────────┐         ┌──────┐         ┌───────────┐
+│ pending │ ──────► │ processing │ ──────► │ idle │ ──────► │ completed │
+└─────────┘         └────────────┘         └──────┘         └───────────┘
+                          │ ▲                  │ ▲
+                          │ │                  │ │
+                          │ └──────────────────┘ │
+                          │  (new task starts)   │
+                          ▼                      │
+                     ┌────────┐                  │
+                     │ failed │ ◄────────────────┘
+                     └────────┘
+                          │
+                          └──► processing (co work restart)
+```
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Work created, no tasks started yet |
+| `processing` | At least one task is running |
+| `idle` | All tasks done, waiting for more work (e.g., PR feedback) |
+| `completed` | Truly finished - explicitly closed by user |
+| `failed` | A task failed - requires user intervention |
+
+**Key behaviors:**
+- When all tasks complete successfully → work transitions to `idle` (not `completed`)
+- When a task fails → work transitions to `failed` and orchestrator halts
+- When new tasks are added to an idle work → work resumes to `processing`
+- User must explicitly run `co work complete` to mark work as truly done
+- User must run `co work restart` to resume a failed work after fixing issues
+
 ## Workflow
 
 Two-phase workflow: **work** → **run**.
@@ -350,6 +385,19 @@ Destroys a work unit and its resources:
 - Deletes work subdirectory
 - Updates database records
 - Use with caution - destructive operation
+
+### `co work restart [<id>]`
+Restarts a failed work:
+- Only works if work is in `failed` status
+- Transitions work back to `processing`
+- Orchestrator will resume processing pending tasks
+- Use after fixing the issue that caused the failure (e.g., reset/delete failed task)
+
+### `co work complete [<id>]`
+Explicitly marks an idle work as completed:
+- Only works if work is in `idle` status
+- Transitions work to `completed` (terminal state)
+- Use when PR is merged or work is truly finished
 
 ## Task Commands
 

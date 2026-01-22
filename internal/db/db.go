@@ -14,6 +14,7 @@ import (
 const (
 	StatusPending    = "pending"
 	StatusProcessing = "processing"
+	StatusIdle       = "idle"
 	StatusCompleted  = "completed"
 	StatusFailed     = "failed"
 )
