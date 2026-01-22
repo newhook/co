@@ -184,12 +184,13 @@ func TestDetectDialogButton(t *testing.T) {
 	// Render to populate button positions
 	createWorkPanel.Render()
 
-	// Create model
+	// Create model with workTabsBar initialized
 	m := &planModel{
 		width:       100,
 		height:      30,
 		columnRatio: 0.5,
 		createWorkPanel: createWorkPanel,
+		workTabsBar:  NewWorkTabsBar(), // Required for detectDialogButton Y offset calculation
 		dialogButtons: []ButtonRegion{
 			// These match the actual button tracking in tui_plan_work.go
 			{ID: "execute", Y: 5, StartX: 2, EndX: 10}, // "► Execute" (9 chars), EndX is last valid position
@@ -208,9 +209,9 @@ func TestDetectDialogButton(t *testing.T) {
 	}
 
 	// Button positions from panel:
-	// - execute: Y=8 content → absoluteY = 8 + 2 = 10
-	// - auto: Y=9 content → absoluteY = 9 + 2 = 11
-	// - cancel: Y=10 content → absoluteY = 10 + 2 = 12
+	// - execute: Y=8 content → absoluteY = tabsBarHeight (1) + 8 + 2 = 11
+	// - auto: Y=9 content → absoluteY = 1 + 9 + 2 = 12
+	// - cancel: Y=10 content → absoluteY = 1 + 10 + 2 = 13
 	// detailsPanelStart = 50 (issuesWidth 48 + margin 2, no separator)
 
 	testCases := []struct {
@@ -225,63 +226,63 @@ func TestDetectDialogButton(t *testing.T) {
 			name:           "ViewCreateWork mode - execute button start",
 			viewMode:       ViewCreateWork,
 			x:              53, // detailsPanelStart (51) + button StartX (2)
-			y:              10, // absoluteY = button.Y (8) + 2
+			y:              11, // absoluteY = tabsBarHeight (1) + button.Y (8) + 2
 			expectedButton: "execute",
 		},
 		{
 			name:           "ViewCreateWork mode - execute button middle",
 			viewMode:       ViewCreateWork,
 			x:              58, // detailsPanelStart (51) + button middle (7)
-			y:              10,
+			y:              11,
 			expectedButton: "execute",
 		},
 		{
 			name:           "ViewCreateWork mode - auto button start",
 			viewMode:       ViewCreateWork,
 			x:              53, // detailsPanelStart (51) + button StartX (2)
-			y:              11, // absoluteY = button.Y (9) + 2
+			y:              12, // absoluteY = tabsBarHeight (1) + button.Y (9) + 2
 			expectedButton: "auto",
 		},
 		{
 			name:           "ViewCreateWork mode - cancel button start",
 			viewMode:       ViewCreateWork,
 			x:              53, // detailsPanelStart (51) + button StartX (2)
-			y:              12, // absoluteY = button.Y (10) + 2
+			y:              13, // absoluteY = tabsBarHeight (1) + button.Y (10) + 2
 			expectedButton: "cancel",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (wrong Y)",
 			viewMode:       ViewCreateWork,
 			x:              53,
-			y:              9, // Wrong Y coordinate (before execute button)
+			y:              10, // Wrong Y coordinate (before execute button)
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (past execute end)",
 			viewMode:       ViewCreateWork,
 			x:              70, // Past execute button EndX (51 + 13 = 64)
-			y:              10,
+			y:              11,
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (before detailsPanelStart)",
 			viewMode:       ViewCreateWork,
 			x:              50, // Before details panel
-			y:              10,
+			y:              11,
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (after cancel button)",
 			viewMode:       ViewCreateWork,
 			x:              70, // Past cancel button EndX
-			y:              12,
+			y:              13,
 			expectedButton: "",
 		},
 		{
 			name:           "ViewLinearImportInline mode - ok button",
 			viewMode:       ViewLinearImportInline,
 			x:              57, // Button position for Linear import (adjusted for no separator)
-			y:              16, // Calculated button row Y for Linear import
+			y:              17, // Calculated button row Y for Linear import + tabsBarHeight (1)
 			expectedButton: "ok",
 			setupFunc: func() {
 				// Set up for Linear import mode
@@ -292,21 +293,21 @@ func TestDetectDialogButton(t *testing.T) {
 			name:           "ViewLinearImportInline mode - cancel button",
 			viewMode:       ViewLinearImportInline,
 			x:              64, // detailsPanelStart (50) + 2 (padding) + 10 (middle of cancel range 8-13)
-			y:              16,
+			y:              17, // + tabsBarHeight (1)
 			expectedButton: "cancel",
 		},
 		{
 			name:           "ViewLinearImportInline mode - wrong Y",
 			viewMode:       ViewLinearImportInline,
 			x:              57,
-			y:              15, // Wrong Y for button row
+			y:              16, // Wrong Y for button row (now 17 is correct)
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateBead mode - ok button",
 			viewMode:       ViewCreateBead,
 			x:              57, // OK button position in create bead form (adjusted for no separator)
-			y:              16, // Button row Y for create bead
+			y:              17, // Button row Y for create bead + tabsBarHeight (1)
 			expectedButton: "ok",
 			setupFunc: func() {
 				// Set up for create bead mode and render to populate button positions
@@ -318,7 +319,7 @@ func TestDetectDialogButton(t *testing.T) {
 			name:           "ViewEditBead mode - ok button",
 			viewMode:       ViewEditBead,
 			x:              57, // adjusted for no separator
-			y:              16,
+			y:              17, // + tabsBarHeight (1)
 			expectedButton: "ok",
 			setupFunc: func() {
 				// Set up for edit bead mode and render to populate button positions
