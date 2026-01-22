@@ -72,6 +72,9 @@ type Querier interface {
 	GetPRFeedbackBySourceID(ctx context.Context, arg GetPRFeedbackBySourceIDParams) (PrFeedback, error)
 	GetPendingTaskByType(ctx context.Context, arg GetPendingTaskByTypeParams) (Scheduler, error)
 	GetReadyTasksForWork(ctx context.Context, workID string) ([]GetReadyTasksForWorkRow, error)
+	GetRecentRecoveryEvents(ctx context.Context, limit int64) ([]RecoveryEvent, error)
+	GetRecoveryEventsForTask(ctx context.Context, taskID string) ([]RecoveryEvent, error)
+	GetRecoveryEventsForWork(ctx context.Context, workID string) ([]RecoveryEvent, error)
 	GetScheduledTaskByID(ctx context.Context, id string) (Scheduler, error)
 	GetScheduledTasksForWork(ctx context.Context, workID string) ([]Scheduler, error)
 	// Returns tasks that have been in 'processing' state with no activity for longer than the timeout.
@@ -99,6 +102,7 @@ type Querier interface {
 	HasPendingDependencies(ctx context.Context, taskID string) (bool, error)
 	IncrementAttemptAndReschedule(ctx context.Context, arg IncrementAttemptAndRescheduleParams) error
 	InitializeTaskCounter(ctx context.Context, workID string) error
+	InsertRecoveryEvent(ctx context.Context, arg InsertRecoveryEventParams) error
 	IsBeadInTask(ctx context.Context, arg IsBeadInTaskParams) (bool, error)
 	ListBeads(ctx context.Context) ([]Bead, error)
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)

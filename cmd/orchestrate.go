@@ -668,7 +668,7 @@ func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workI
 			fmt.Printf("Resetting stuck task %s from processing to pending...\n", t.ID)
 
 			// Preserve partial bead progress by checking actual bead status
-			preservedCount, resetBeadCount, err := resetTaskBeadsWithProgress(ctx, proj, t.ID)
+			preservedCount, resetBeadCount, err := resetTaskBeadsWithProgress(ctx, proj, t.ID, workID)
 			if err != nil {
 				return fmt.Errorf("failed to reset task beads for %s: %w", t.ID, err)
 			}
@@ -685,6 +685,17 @@ func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workI
 			if err := proj.DB.ResetTaskStatus(ctx, t.ID); err != nil {
 				return fmt.Errorf("failed to reset task %s: %w", t.ID, err)
 			}
+
+			// Log task reset event to audit table
+			if logErr := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventTaskReset, t.ID, workID, "",
+				"Task reset from processing to pending on orchestrator startup",
+				map[string]interface{}{
+					"preserved_beads": preservedCount,
+					"reset_beads":     resetBeadCount,
+				}); logErr != nil {
+				logging.Warn("failed to log recovery event", "error", logErr)
+			}
+
 			resetCount++
 		}
 	}
@@ -699,7 +710,8 @@ func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workI
 // resetTaskBeadsWithProgress resets task bead statuses while preserving progress.
 // It checks the actual bead status in beads.jsonl and only resets beads that
 // are not already closed. Returns (preserved count, reset count, error).
-func resetTaskBeadsWithProgress(ctx context.Context, proj *project.Project, taskID string) (int, int, error) {
+// Also logs recovery events for audit trail.
+func resetTaskBeadsWithProgress(ctx context.Context, proj *project.Project, taskID, workID string) (int, int, error) {
 	// Get all beads in this task with their current status
 	taskBeads, err := proj.DB.GetTaskBeadsWithStatus(ctx, taskID)
 	if err != nil {
@@ -747,6 +759,12 @@ func resetTaskBeadsWithProgress(ctx context.Context, proj *project.Project, task
 					)
 				} else {
 					preservedCount++
+					// Log bead preserved event
+					if logErr := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventBeadPreserved, taskID, workID, tb.BeadID,
+						"Bead already closed in beads.jsonl, preserving completed status",
+						map[string]interface{}{"previous_task_status": tb.Status}); logErr != nil {
+						logging.Warn("failed to log recovery event", "error", logErr)
+					}
 				}
 			} else {
 				// Already marked as completed
@@ -763,6 +781,12 @@ func resetTaskBeadsWithProgress(ctx context.Context, proj *project.Project, task
 					)
 				} else {
 					resetCount++
+					// Log bead reset event
+					if logErr := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventBeadReset, taskID, workID, tb.BeadID,
+						"Bead not closed, resetting to pending",
+						map[string]interface{}{"previous_task_status": tb.Status}); logErr != nil {
+						logging.Warn("failed to log recovery event", "error", logErr)
+					}
 				}
 			}
 		}
@@ -816,6 +840,16 @@ func recoverStaleTasks(ctx context.Context, proj *project.Project, workID string
 		if err := proj.DB.FailTask(ctx, t.ID, errorMsg); err != nil {
 			logging.Error("failed to auto-fail stale task", "task_id", t.ID, "error", err)
 			return fmt.Errorf("failed to fail stale task %s: %w", t.ID, err)
+		}
+
+		// Log stale task failure to audit table
+		if logErr := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventTaskStaleFailed, t.ID, workID, "",
+			errorMsg,
+			map[string]interface{}{
+				"stale_duration_minutes": int(staleDuration.Minutes()),
+				"timeout_minutes":        int(timeout.Minutes()),
+			}); logErr != nil {
+			logging.Warn("failed to log recovery event", "error", logErr)
 		}
 	}
 
