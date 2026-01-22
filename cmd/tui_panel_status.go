@@ -158,8 +158,27 @@ func (s *StatusBar) Render() string {
 		status = tuiDimStyle.Render(statusPlain)
 	}
 
+	// Calculate available space for status message and truncate if needed
+	// The -4 accounts for padding (status bar has Padding(0,1) = 2) plus minimum gap
+	minPadding := 2
+	availableWidth := s.width - len(commandsPlain) - minPadding - 4
+	if len(statusPlain) > availableWidth && availableWidth > 6 {
+		// Truncate and add ellipsis (use "..." to keep byte count = display width)
+		truncatedPlain := statusPlain[:availableWidth-3] + "..."
+		statusPlain = truncatedPlain
+		if s.statusIsError {
+			status = tuiErrorStyle.Render(truncatedPlain)
+		} else if s.loading {
+			status = s.spinner.View() + " Loading..."
+		} else if s.statusMessage != "" {
+			status = tuiSuccessStyle.Render(truncatedPlain)
+		} else {
+			status = tuiDimStyle.Render(truncatedPlain)
+		}
+	}
+
 	// Build bar with commands left, status right
-	padding := max(s.width-len(commandsPlain)-len(statusPlain)-4, 2)
+	padding := max(s.width-len(commandsPlain)-len(statusPlain)-4, minPadding)
 	return tuiStatusBarStyle.Width(s.width).Render(commands + strings.Repeat(" ", padding) + status)
 }
 
