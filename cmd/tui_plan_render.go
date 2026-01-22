@@ -332,6 +332,15 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		return ""
 	}
 
+	// Calculate the Y offset for the details panel based on tabs bar and focused work mode
+	tabsBarHeight := m.workTabsBar.Height()
+	detailsPanelStartY := tabsBarHeight
+	if m.focusedWorkID != "" {
+		// In focused work mode, the details panel is below the work panel
+		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
+		detailsPanelStartY = tabsBarHeight + workPanelHeight
+	}
+
 	// Handle ViewCreateWork using tracked button positions from the CreateWorkPanel
 	if m.viewMode == ViewCreateWork {
 		// Use the button positions tracked during rendering.
@@ -347,9 +356,8 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		for _, button := range dialogButtons {
 			// The Y position stored in button.Y is the line number within the content area.
 			// The content starts at row 2 of the details panel (after border and title).
-			// The mouse Y has already been adjusted by -1 in tui_root.go.
-			// So the absolute Y position for comparison is button.Y + 2 (for border+title)
-			absoluteY := button.Y + 2
+			// Add detailsPanelStartY to account for tabs bar and work panel (if focused).
+			absoluteY := detailsPanelStartY + button.Y + 2
 
 			// Check if the mouse click coordinates match this button's region.
 			// StartX and EndX are inclusive boundaries.
@@ -384,7 +392,8 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		linesBeforeButtons += 1 // blank line
 		linesBeforeButtons += 1 // max depth
 		linesBeforeButtons += 1 // blank line
-		buttonRowY := formStartY + linesBeforeButtons
+		// Add detailsPanelStartY to account for tabs bar and work panel (if focused)
+		buttonRowY := detailsPanelStartY + formStartY + linesBeforeButtons
 
 		if y != buttonRowY {
 			return ""
@@ -413,7 +422,8 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		for _, button := range dialogButtons {
 			// The Y position stored in button.Y is the line number within the content area.
 			// The content starts at row 2 of the details panel (after border and title).
-			absoluteY := button.Y + 2
+			// Add detailsPanelStartY to account for tabs bar and work panel (if focused).
+			absoluteY := detailsPanelStartY + button.Y + 2
 
 			if y == absoluteY && buttonAreaX >= button.StartX && buttonAreaX <= button.EndX {
 				return button.ID
