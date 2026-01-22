@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"strings"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -287,10 +285,6 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 	// === Right side: Selected item details ===
 	rightContent := p.renderRightPanel(availableContentLines, rightWidth)
 
-	// Pad or truncate content to exactly fit availableContentLines
-	leftContent = padOrTruncateLines(leftContent, availableContentLines)
-	rightContent = padOrTruncateLines(rightContent, availableContentLines)
-
 	// Create the two panels with fixed height (matching IssuesPanel pattern exactly)
 	// IssuesPanel uses: Height(contentHeight - 2)
 	leftPanelStyle := tuiPanelStyle.Width(leftWidth).Height(contentHeight - 3)
@@ -331,31 +325,6 @@ func (p *WorkDetailsPanel) renderRightPanel(_, panelWidth int) string {
 	return p.taskPanel.Render(panelWidth)
 }
 
-// padOrTruncateLines ensures the content has exactly targetLines lines
-func padOrTruncateLines(content string, targetLines int) string {
-	// Ensure targetLines is at least 1 to prevent issues
-	if targetLines < 1 {
-		targetLines = 1
-	}
-
-	lines := strings.Split(content, "\n")
-	// Remove trailing empty line if present (from trailing \n)
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	if len(lines) > targetLines {
-		// Truncate
-		lines = lines[:targetLines]
-	} else if len(lines) < targetLines {
-		// Pad with empty lines
-		for len(lines) < targetLines {
-			lines = append(lines, "")
-		}
-	}
-
-	return strings.Join(lines, "\n")
-}
 
 // UpdateViewport handles mouse wheel events for the right panel viewport.
 // The caller (handleMouseWheel) has already verified the mouse is over the right panel.
