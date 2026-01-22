@@ -661,13 +661,13 @@ func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workI
 			}
 
 			// Log task reset event to audit table
-			if logErr := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventTaskReset, t.ID, workID, "",
+			if err := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventTaskReset, t.ID, workID, "",
 				"Task reset from processing to pending on orchestrator startup",
 				map[string]interface{}{
 					"preserved_beads": preservedCount,
 					"reset_beads":     resetBeadCount,
-				}); logErr != nil {
-				logging.Warn("failed to log recovery event", "error", logErr)
+				}); err != nil {
+				logging.Warn("failed to log recovery event", "error", err)
 			}
 
 			resetCount++
