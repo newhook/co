@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/logging"
 )
 
 const detailsPanelPadding = 4
@@ -26,18 +27,29 @@ func (m *planModel) renderFixedPanel(title, content string, width, height int) s
 // This shows a horizontal split: Work details on top (40%), Issues/Details below (60%)
 func (m *planModel) renderFocusedWorkSplitView() string {
 	// Calculate heights for split view
+	// Note: m.height has already been adjusted for tabs bar and status bar in View()
 	totalHeight := m.height - 1 // -1 for status bar
 
 	// Calculate work panel height
-	// calculateWorkPanelHeight returns content height (12-25)
+	// calculateWorkPanelHeight returns content height (10-23)
 	// Add 2 for border to get total panel height
-	// WorkDetailsPanel.Render() uses Height(p.height-2), so rendered = p.height
-	workPanelHeight := m.calculateWorkPanelHeight() + 2
+	calcBase := m.calculateWorkPanelHeight()
+	workPanelHeight := calcBase + 2
 	planPanelHeight := totalHeight - workPanelHeight
 
 	// Update work details panel size and render (same pattern as IssuesPanel)
 	m.workDetails.SetSize(m.width, workPanelHeight)
 	workPanel := m.workDetails.RenderWithPanel(workPanelHeight)
+
+	// Log the heights for debugging
+	actualWorkHeight := lipgloss.Height(workPanel)
+	logging.Debug("renderFocusedWorkSplitView heights",
+		"m.height", m.height,
+		"totalHeight", totalHeight,
+		"calcBase", calcBase,
+		"workPanelHeight", workPanelHeight,
+		"actualWorkHeight", actualWorkHeight,
+		"planPanelHeight", planPanelHeight)
 
 	// === Render Plan Mode Panel (Bottom) ===
 	// Update issues and details panel sizes for the reduced height
@@ -184,11 +196,13 @@ func (m *planModel) detectHoveredIssue(y int) int {
 
 // calculateWorkPanelHeight returns the height of the work details panel
 func (m *planModel) calculateWorkPanelHeight() int {
-	dropdownHeight := int(float64(m.height) * 0.4)
-	if dropdownHeight < 12 {
-		dropdownHeight = 12
-	} else if dropdownHeight > 25 {
-		dropdownHeight = 25
+	// Calculate based on available height (excluding status bar)
+	availableHeight := m.height - 1  // -1 for status bar
+	dropdownHeight := int(float64(availableHeight) * 0.4)
+	if dropdownHeight < 10 {
+		dropdownHeight = 10
+	} else if dropdownHeight > 23 {
+		dropdownHeight = 23
 	}
 	return dropdownHeight
 }

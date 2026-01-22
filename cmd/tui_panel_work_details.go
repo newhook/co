@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/truncate"
 	"github.com/newhook/co/internal/db"
 )
 
@@ -37,6 +38,10 @@ type WorkDetailsPanel struct {
 	// Focus state
 	leftPanelFocused  bool
 	rightPanelFocused bool
+
+	// Scrolling for right panel
+	rightScrollOffset  int // Current scroll position for right panel
+	rightTotalLines    int // Total content lines in right panel
 
 	// Data
 	focusedWork         *workProgress
@@ -84,6 +89,38 @@ func (p *WorkDetailsPanel) SetFocusedWork(focusedWork *workProgress) {
 		}
 	} else {
 		p.selectedIndex = 0
+	}
+	// Reset scroll when switching focus
+	p.rightScrollOffset = 0
+}
+
+// ScrollUp scrolls the right panel content up (shows earlier content)
+func (p *WorkDetailsPanel) ScrollUp() {
+	if p.rightScrollOffset > 0 {
+		p.rightScrollOffset--
+	}
+}
+
+// ScrollDown scrolls the right panel content down (shows later content)
+func (p *WorkDetailsPanel) ScrollDown() {
+	visibleLines := p.height - 3 // Account for border and title
+	if p.rightScrollOffset < p.rightTotalLines-visibleLines {
+		p.rightScrollOffset++
+	}
+}
+
+// ScrollToTop scrolls to the beginning of the right panel content
+func (p *WorkDetailsPanel) ScrollToTop() {
+	p.rightScrollOffset = 0
+}
+
+// ScrollToBottom scrolls to the end of the right panel content
+func (p *WorkDetailsPanel) ScrollToBottom() {
+	visibleLines := p.height - 3
+	if p.rightTotalLines > visibleLines {
+		p.rightScrollOffset = p.rightTotalLines - visibleLines
+	} else {
+		p.rightScrollOffset = 0
 	}
 }
 
@@ -227,22 +264,33 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 	leftContent = padOrTruncateLines(leftContent, availableContentLines)
 	rightContent = padOrTruncateLines(rightContent, availableContentLines)
 
+
 	// Create the two panels with fixed height (matching IssuesPanel pattern exactly)
 	// IssuesPanel uses: Height(contentHeight - 2)
-	leftPanelStyle := tuiPanelStyle.Width(leftWidth).Height(contentHeight - 2)
+	// But we need to adjust for lipgloss rendering quirks
+	leftPanelHeightSetting := contentHeight - 1  // Left panel needs -1 to get correct height
+	rightPanelHeightSetting := contentHeight - 3  // Right panel needs -3 to match left
+
+
+	leftPanelStyle := tuiPanelStyle.Width(leftWidth).Height(leftPanelHeightSetting)
 	if p.leftPanelFocused {
 		leftPanelStyle = leftPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}
+
 	leftPanel := leftPanelStyle.Render(tuiTitleStyle.Render("Work") + "\n" + leftContent)
 
-	rightPanelStyle := tuiPanelStyle.Width(rightWidth).Height(contentHeight - 2)
+	// Right panel uses its own height setting
+	rightPanelStyle := tuiPanelStyle.Width(rightWidth).Height(rightPanelHeightSetting)
 	if p.rightPanelFocused {
 		rightPanelStyle = rightPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}
+
 	rightPanel := rightPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + rightContent)
 
 	// Combine panels horizontally
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+	result := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+
+	return result
 }
 
 // padOrTruncateLines ensures the content has exactly targetLines lines
@@ -618,8 +666,68 @@ func (p *WorkDetailsPanel) renderUnassignedBeadLine(content *strings.Builder, be
 	content.WriteString("\n")
 }
 
-// renderRightPanel renders the right panel with selected item details
+// renderRightPanel renders the right panel with selected item details and scrolling support
 func (p *WorkDetailsPanel) renderRightPanel(panelHeight, panelWidth int) string {
+	// Calculate visible lines (minus border and title)
+	visibleLines := panelHeight - 3
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+
+	// Get the full content first
+	fullContent := p.getRightPanelFullContent(panelWidth)
+
+	// Split into lines
+	lines := strings.Split(fullContent, "\n")
+	p.rightTotalLines = len(lines)
+
+	// Apply scrolling
+	if p.rightScrollOffset < 0 {
+		p.rightScrollOffset = 0
+	}
+	maxScroll := max(0, p.rightTotalLines-visibleLines)
+	if p.rightScrollOffset > maxScroll {
+		p.rightScrollOffset = maxScroll
+	}
+
+	// Extract visible portion
+	startLine := p.rightScrollOffset
+	endLine := min(startLine+visibleLines, len(lines))
+
+	if startLine >= len(lines) {
+		return fullContent // Return full content if no scrolling needed
+	}
+
+	visibleContent := lines[startLine:endLine]
+
+	// Add scroll indicators if needed
+	if p.rightTotalLines > visibleLines {
+		// Add scroll indicator to the last line
+		if len(visibleContent) > 0 {
+			lastIdx := len(visibleContent) - 1
+			scrollInfo := p.getRightPanelScrollIndicator(visibleLines)
+			innerWidth := panelWidth - 2 // Account for padding
+
+			lastLine := visibleContent[lastIdx]
+			// Truncate line if needed to fit scroll indicator
+			if lipgloss.Width(lastLine)+lipgloss.Width(scrollInfo) > innerWidth {
+				lastLine = truncate.StringWithTail(lastLine, uint(innerWidth-lipgloss.Width(scrollInfo)-1), "...")
+			}
+			// Right-align the scroll indicator
+			padding := innerWidth - lipgloss.Width(lastLine) - lipgloss.Width(scrollInfo)
+			if padding > 0 {
+				visibleContent[lastIdx] = lastLine + strings.Repeat(" ", padding) + scrollInfo
+			} else {
+				visibleContent[lastIdx] = lastLine + " " + scrollInfo
+			}
+		}
+	}
+
+	return strings.Join(visibleContent, "\n")
+}
+
+// getRightPanelFullContent returns the full content without scrolling applied
+func (p *WorkDetailsPanel) getRightPanelFullContent(panelWidth int) string {
 	var content strings.Builder
 
 	if p.focusedWork == nil {
@@ -649,6 +757,29 @@ func (p *WorkDetailsPanel) renderRightPanel(panelHeight, panelWidth int) string 
 
 	content.WriteString(tuiDimStyle.Render("Select an item to view details"))
 	return content.String()
+}
+
+// getRightPanelScrollIndicator returns a scroll position indicator for the right panel
+func (p *WorkDetailsPanel) getRightPanelScrollIndicator(visibleLines int) string {
+	if p.rightTotalLines <= visibleLines {
+		return ""
+	}
+
+	// Calculate position as percentage
+	scrollPercentage := 0
+	if p.rightTotalLines > visibleLines {
+		scrollPercentage = (p.rightScrollOffset * 100) / (p.rightTotalLines - visibleLines)
+	}
+
+	// Create indicator
+	indicator := fmt.Sprintf("▲%d%%▼", scrollPercentage)
+	if p.rightScrollOffset == 0 {
+		indicator = "▼" // At top, can only scroll down
+	} else if p.rightScrollOffset >= p.rightTotalLines-visibleLines {
+		indicator = "▲" // At bottom, can only scroll up
+	}
+
+	return tuiDimStyle.Render(indicator)
 }
 
 // renderRootIssueDetails renders details for the root issue
@@ -957,11 +1088,57 @@ func (p *WorkDetailsPanel) NavigateTaskDown() {
 func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 	switch msg.String() {
 	case "j", "down":
-		p.NavigateDown()
-		return nil, WorkDetailActionNavigateDown
+		if p.rightPanelFocused {
+			// When right panel is focused, scroll content down
+			p.ScrollDown()
+			return nil, WorkDetailActionNone
+		} else {
+			// When left panel is focused, navigate selection
+			p.NavigateDown()
+			// Reset scroll when changing selection
+			p.rightScrollOffset = 0
+			return nil, WorkDetailActionNavigateDown
+		}
 	case "k", "up":
-		p.NavigateUp()
-		return nil, WorkDetailActionNavigateUp
+		if p.rightPanelFocused {
+			// When right panel is focused, scroll content up
+			p.ScrollUp()
+			return nil, WorkDetailActionNone
+		} else {
+			// When left panel is focused, navigate selection
+			p.NavigateUp()
+			// Reset scroll when changing selection
+			p.rightScrollOffset = 0
+			return nil, WorkDetailActionNavigateUp
+		}
+	case "pgdown":
+		if p.rightPanelFocused {
+			// Page down scrolling
+			visibleLines := p.height - 3
+			for i := 0; i < visibleLines/2; i++ {
+				p.ScrollDown()
+			}
+			return nil, WorkDetailActionNone
+		}
+	case "pgup":
+		if p.rightPanelFocused {
+			// Page up scrolling
+			visibleLines := p.height - 3
+			for i := 0; i < visibleLines/2; i++ {
+				p.ScrollUp()
+			}
+			return nil, WorkDetailActionNone
+		}
+	case "home":
+		if p.rightPanelFocused {
+			p.ScrollToTop()
+			return nil, WorkDetailActionNone
+		}
+	case "end":
+		if p.rightPanelFocused {
+			p.ScrollToBottom()
+			return nil, WorkDetailActionNone
+		}
 	case "t":
 		return nil, WorkDetailActionOpenTerminal
 	case "c":
@@ -1142,3 +1319,4 @@ func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
 
 	return -1
 }
+

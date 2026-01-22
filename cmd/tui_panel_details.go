@@ -20,6 +20,10 @@ type IssueDetailsPanel struct {
 	// Focus state
 	focused bool
 
+	// Scrolling
+	scrollOffset  int // Current scroll position
+	totalLines    int // Total content lines (for scroll calculation)
+
 	// Data (set by coordinator)
 	focusedBead      *beadItem
 	hasActiveSession bool
@@ -56,6 +60,38 @@ func (p *IssueDetailsPanel) SetData(focusedBead *beadItem, hasActiveSession bool
 	p.focusedBead = focusedBead
 	p.hasActiveSession = hasActiveSession
 	p.childBeadMap = childBeadMap
+	// Reset scroll when switching beads
+	p.scrollOffset = 0
+}
+
+// ScrollUp scrolls the content up (shows earlier content)
+func (p *IssueDetailsPanel) ScrollUp() {
+	if p.scrollOffset > 0 {
+		p.scrollOffset--
+	}
+}
+
+// ScrollDown scrolls the content down (shows later content)
+func (p *IssueDetailsPanel) ScrollDown() {
+	visibleLines := p.height - 3 // Account for border and title
+	if p.scrollOffset < p.totalLines-visibleLines {
+		p.scrollOffset++
+	}
+}
+
+// ScrollToTop scrolls to the beginning of the content
+func (p *IssueDetailsPanel) ScrollToTop() {
+	p.scrollOffset = 0
+}
+
+// ScrollToBottom scrolls to the end of the content
+func (p *IssueDetailsPanel) ScrollToBottom() {
+	visibleLines := p.height - 3
+	if p.totalLines > visibleLines {
+		p.scrollOffset = p.totalLines - visibleLines
+	} else {
+		p.scrollOffset = 0
+	}
 }
 
 // Render returns the details panel content (without border/panel styling)
@@ -136,15 +172,67 @@ func padOrTruncateLinesDetails(content string, targetLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderIssueDetails renders the normal issue details view
+// renderIssueDetails renders the normal issue details view with scrolling support
 func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
-	var content strings.Builder
-
 	if p.focusedBead == nil {
-		content.WriteString(tuiDimStyle.Render("No issue selected"))
-		return content.String()
+		return tuiDimStyle.Render("No issue selected")
 	}
 
+	// First, render all content without line limit to get total lines
+	fullContent := p.renderFullIssueContent()
+
+	// Split into lines and update total line count
+	lines := strings.Split(fullContent, "\n")
+	p.totalLines = len(lines)
+
+	// Apply scrolling
+	if p.scrollOffset < 0 {
+		p.scrollOffset = 0
+	}
+	maxScroll := max(0, p.totalLines-visibleLines)
+	if p.scrollOffset > maxScroll {
+		p.scrollOffset = maxScroll
+	}
+
+	// Extract visible portion
+	startLine := p.scrollOffset
+	endLine := min(startLine+visibleLines, len(lines))
+
+	if startLine >= len(lines) {
+		return ""
+	}
+
+	visibleContent := lines[startLine:endLine]
+
+	// Add scroll indicators if needed
+	if p.totalLines > visibleLines {
+		// Modify last visible line to show scroll position
+		if len(visibleContent) > 0 {
+			lastIdx := len(visibleContent) - 1
+			scrollInfo := p.getScrollIndicator(visibleLines)
+			// Append scroll indicator to the last line
+			innerWidth := p.width - 2
+			lastLine := visibleContent[lastIdx]
+			// Truncate line if needed to fit scroll indicator
+			if lipgloss.Width(lastLine)+lipgloss.Width(scrollInfo) > innerWidth {
+				lastLine = truncate.StringWithTail(lastLine, uint(innerWidth-lipgloss.Width(scrollInfo)-1), "...")
+			}
+			// Right-align the scroll indicator
+			padding := innerWidth - lipgloss.Width(lastLine) - lipgloss.Width(scrollInfo)
+			if padding > 0 {
+				visibleContent[lastIdx] = lastLine + strings.Repeat(" ", padding) + scrollInfo
+			} else {
+				visibleContent[lastIdx] = lastLine + " " + scrollInfo
+			}
+		}
+	}
+
+	return strings.Join(visibleContent, "\n")
+}
+
+// renderFullIssueContent renders all content without line limits
+func (p *IssueDetailsPanel) renderFullIssueContent() string {
+	var content strings.Builder
 	bead := p.focusedBead
 
 	// Calculate inner width (panel has Padding(0, 1) = 2 chars total horizontal padding)
@@ -180,57 +268,28 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 	content.WriteString(headerStr)
 	content.WriteString("\n")
 
-	// Truncate title to fit on one line (use innerWidth which accounts for panel padding)
+	// Truncate title to fit on one line
 	titleStr := bead.Title
 	if lipgloss.Width(titleStr) > innerWidth {
 		titleStr = truncate.StringWithTail(titleStr, uint(innerWidth), "...")
 	}
 	content.WriteString(tuiValueStyle.Render(titleStr))
 
-	// Calculate remaining lines for description and children
-	linesUsed := 2 // header + title
-	remainingLines := visibleLines - linesUsed
-
-	// Show description if we have room
-	if bead.Description != "" && remainingLines > 2 {
-		content.WriteString("\n")
+	// Show full description
+	if bead.Description != "" {
+		content.WriteString("\n\n")
 		// Word wrap description to fit within inner width
-		desc := bead.Description
-		descLines := remainingLines - 2
-		if len(bead.children) > 0 {
-			descLines = min(descLines, 3)
-		}
-		// Word wrap the description to innerWidth
-		wrapped := wordwrap.String(desc, innerWidth)
-		wrappedLines := strings.Split(wrapped, "\n")
-		// Limit to descLines
-		if len(wrappedLines) > descLines {
-			wrappedLines = wrappedLines[:descLines]
-			// Add ellipsis to last line if truncated
-			lastLine := wrappedLines[len(wrappedLines)-1]
-			if lipgloss.Width(lastLine)+3 <= innerWidth {
-				wrappedLines[len(wrappedLines)-1] = lastLine + "..."
-			} else {
-				wrappedLines[len(wrappedLines)-1] = truncate.StringWithTail(lastLine, uint(innerWidth), "...")
-			}
-		}
-		descStr := tuiDimStyle.Render(strings.Join(wrappedLines, "\n"))
-		content.WriteString(descStr)
-		linesUsed += len(wrappedLines)
-		remainingLines -= len(wrappedLines)
+		wrapped := wordwrap.String(bead.Description, innerWidth)
+		content.WriteString(tuiDimStyle.Render(wrapped))
 	}
 
-	// Show children (issues blocked by this one)
-	if len(bead.children) > 0 && remainingLines > 1 {
-		content.WriteString("\n")
-		content.WriteString(tuiLabelStyle.Render("Blocks: "))
-		linesUsed++
-		remainingLines--
+	// Show all children (issues blocked by this one)
+	if len(bead.children) > 0 {
+		content.WriteString("\n\n")
+		content.WriteString(tuiLabelStyle.Render("Blocks:"))
 
-		// Show children with status
-		maxChildren := min(len(bead.children), remainingLines)
-		for i := range maxChildren {
-			childID := bead.children[i]
+		// Show all children with status
+		for i, childID := range bead.children {
 			var childLine string
 			if child, ok := p.childBeadMap[childID]; ok {
 				childLine = fmt.Sprintf("\n  %s %s %s",
@@ -240,16 +299,37 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 			} else {
 				childLine = fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID))
 			}
-			// Truncate to fit inner width (minus 1 for the leading \n that doesn't count toward width)
+			// Truncate to fit inner width
 			if lipgloss.Width(childLine)-1 > innerWidth {
 				childLine = truncate.StringWithTail(childLine, uint(innerWidth+1), "...")
 			}
 			content.WriteString(childLine)
-		}
-		if len(bead.children) > maxChildren {
-			fmt.Fprintf(&content, "\n  ... and %d more", len(bead.children)-maxChildren)
+			_ = i // avoid unused variable warning
 		}
 	}
 
 	return content.String()
+}
+
+// getScrollIndicator returns a scroll position indicator
+func (p *IssueDetailsPanel) getScrollIndicator(visibleLines int) string {
+	if p.totalLines <= visibleLines {
+		return ""
+	}
+
+	// Calculate position as percentage
+	scrollPercentage := 0
+	if p.totalLines > visibleLines {
+		scrollPercentage = (p.scrollOffset * 100) / (p.totalLines - visibleLines)
+	}
+
+	// Create indicator
+	indicator := fmt.Sprintf("▲%d%%▼", scrollPercentage)
+	if p.scrollOffset == 0 {
+		indicator = "▼" // At top, can only scroll down
+	} else if p.scrollOffset >= p.totalLines-visibleLines {
+		indicator = "▲" // At bottom, can only scroll up
+	}
+
+	return tuiDimStyle.Render(indicator)
 }

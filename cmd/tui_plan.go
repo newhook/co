@@ -83,6 +83,7 @@ type planModel struct {
 	workSelectionCleared   bool            // User manually cleared work selection filter (don't auto-restore)
 	pendingWorkSelectIndex int             // Index of work to select after tiles load (-1 = none)
 	workTiles              []*workProgress // Cached work tiles for the tabs bar
+	workDetailsFocusLeft   bool            // Whether left panel has focus in work details (true=left, false=right)
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -162,10 +163,11 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		selectedBeads:          make(map[string]bool),
 		newBeads:               make(map[string]time.Time),
 		zj:                     zellij.New(),
-		columnRatio:            0.4, // Default 40/60 split (issues/details)
-		hoveredIssue:           -1,  // No issue hovered initially
-		hoveredWorkItem:        -1,  // No work item hovered initially
-		pendingWorkSelectIndex: -1,  // No pending work selection
+		columnRatio:            0.4,  // Default 40/60 split (issues/details)
+		hoveredIssue:           -1,   // No issue hovered initially
+		hoveredWorkItem:        -1,   // No work item hovered initially
+		pendingWorkSelectIndex: -1,   // No pending work selection
+		workDetailsFocusLeft:   true, // Start with left panel focused
 		beadsWatcher:           beadsWatcher,
 		filters: beadFilters{
 			status: "open",
@@ -1145,24 +1147,40 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch m.activePanel {
 			case PanelWorkTabs:
 				m.activePanel = PanelWorkDetails
+				m.workDetailsFocusLeft = true  // Start with left panel focused
 				// Reset the cleared flag and restore work selection filter when entering work details
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
 					return m, m.updateWorkSelectionFilter()
 				}
 			case PanelWorkDetails:
-				m.activePanel = PanelLeft // Issues panel
+				// Toggle between left and right within work details first
+				if m.workDetailsFocusLeft {
+					m.workDetailsFocusLeft = false  // Move focus to right panel
+				} else {
+					// From right panel, move to next panel
+					m.activePanel = PanelLeft // Issues panel
+					m.workDetailsFocusLeft = true  // Reset for next time
+				}
 			case PanelLeft:
 				m.activePanel = PanelWorkTabs
 			default:
 				m.activePanel = PanelWorkTabs
 			}
 		} else if m.focusedWorkID != "" {
-			// No work tiles, just toggle between work details and issues
+			// No work tiles, toggle between work details (left/right) and issues
 			if m.activePanel == PanelWorkDetails {
-				m.activePanel = PanelLeft
+				// Toggle between left and right within work details first
+				if m.workDetailsFocusLeft {
+					m.workDetailsFocusLeft = false  // Move focus to right panel
+				} else {
+					// From right panel, move to issues panel
+					m.activePanel = PanelLeft
+					m.workDetailsFocusLeft = true  // Reset for next time
+				}
 			} else {
 				m.activePanel = PanelWorkDetails
+				m.workDetailsFocusLeft = true  // Start with left panel focused
 				// Reset the cleared flag and restore work selection filter
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
@@ -1179,9 +1197,17 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case PanelWorkTabs:
 				m.activePanel = PanelLeft // Issues panel
 			case PanelWorkDetails:
-				m.activePanel = PanelWorkTabs
+				// Toggle between right and left within work details first
+				if !m.workDetailsFocusLeft {
+					m.workDetailsFocusLeft = true  // Move focus to left panel
+				} else {
+					// From left panel, move to previous panel
+					m.activePanel = PanelWorkTabs
+					m.workDetailsFocusLeft = true  // Reset for next time (though already true)
+				}
 			case PanelLeft:
 				m.activePanel = PanelWorkDetails
+				m.workDetailsFocusLeft = false  // Start with right panel when going backward
 				// Reset the cleared flag and restore work selection filter when entering work details
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
@@ -1191,16 +1217,24 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.activePanel = PanelLeft
 			}
 		} else if m.focusedWorkID != "" {
-			// No work tiles, just toggle between work details and issues
+			// No work tiles, toggle between work details (right/left) and issues
 			if m.activePanel == PanelLeft {
 				m.activePanel = PanelWorkDetails
+				m.workDetailsFocusLeft = false  // Start with right panel when going backward
 				// Reset the cleared flag and restore work selection filter
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
 					return m, m.updateWorkSelectionFilter()
 				}
 			} else {
-				m.activePanel = PanelLeft
+				// Toggle between right and left within work details first
+				if !m.workDetailsFocusLeft {
+					m.workDetailsFocusLeft = true  // Move focus to left panel
+				} else {
+					// From left panel, move to issues panel
+					m.activePanel = PanelLeft
+					m.workDetailsFocusLeft = true  // Reset for next time (though already true)
+				}
 			}
 		}
 		return m, nil
@@ -1572,7 +1606,10 @@ func (m *planModel) syncPanels() {
 		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
 		m.workDetails.SetSize(m.width, workPanelHeight)
 		m.workDetails.SetColumnRatio(m.columnRatio) // Use same ratio as issues panel
-		m.workDetails.SetFocus(m.activePanel == PanelWorkDetails, false)
+		// Pass focus state based on whether work details panel is active and which sub-panel has focus
+		leftFocused := m.activePanel == PanelWorkDetails && m.workDetailsFocusLeft
+		rightFocused := m.activePanel == PanelWorkDetails && !m.workDetailsFocusLeft
+		m.workDetails.SetFocus(leftFocused, rightFocused)
 		focusedWork := m.findWorkByID(m.focusedWorkID)
 		m.workDetails.SetFocusedWork(focusedWork)
 		m.workDetails.SetHoveredItem(m.hoveredWorkItem)
