@@ -422,6 +422,35 @@ func (q *Queries) GetTaskBeadsForWork(ctx context.Context, workID string) ([]Tas
 	return items, nil
 }
 
+const getTaskBeadsWithStatus = `-- name: GetTaskBeadsWithStatus :many
+SELECT task_id, bead_id, status
+FROM task_beads
+WHERE task_id = ?
+`
+
+func (q *Queries) GetTaskBeadsWithStatus(ctx context.Context, taskID string) ([]TaskBead, error) {
+	rows, err := q.db.QueryContext(ctx, getTaskBeadsWithStatus, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskBead{}
+	for rows.Next() {
+		var i TaskBead
+		if err := rows.Scan(&i.TaskID, &i.BeadID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTaskForBead = `-- name: GetTaskForBead :one
 SELECT task_id
 FROM task_beads
@@ -639,6 +668,25 @@ func (q *Queries) ListTasksByStatus(ctx context.Context, status string) ([]ListT
 		return nil, err
 	}
 	return items, nil
+}
+
+const resetTaskBeadStatus = `-- name: ResetTaskBeadStatus :execrows
+UPDATE task_beads
+SET status = 'pending'
+WHERE task_id = ? AND bead_id = ?
+`
+
+type ResetTaskBeadStatusParams struct {
+	TaskID string `json:"task_id"`
+	BeadID string `json:"bead_id"`
+}
+
+func (q *Queries) ResetTaskBeadStatus(ctx context.Context, arg ResetTaskBeadStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resetTaskBeadStatus, arg.TaskID, arg.BeadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const resetTaskBeadStatuses = `-- name: ResetTaskBeadStatuses :execrows

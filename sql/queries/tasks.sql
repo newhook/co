@@ -144,6 +144,16 @@ UPDATE task_beads
 SET status = 'pending'
 WHERE task_id = ?;
 
+-- name: GetTaskBeadsWithStatus :many
+SELECT task_id, bead_id, status
+FROM task_beads
+WHERE task_id = ?;
+
+-- name: ResetTaskBeadStatus :execrows
+UPDATE task_beads
+SET status = 'pending'
+WHERE task_id = ? AND bead_id = ?;
+
 -- name: SpawnTask :execrows
 UPDATE tasks
 SET spawned_at = ?,
