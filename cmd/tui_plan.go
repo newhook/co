@@ -1170,99 +1170,48 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "tab":
-		// In focused work mode: cycle forward through work tabs, work details, and issues
-		if m.focusedWorkID != "" && len(m.workTiles) > 0 {
+		// In focused work mode: cycle between work details (left panel only) and issues
+		// Tab does NOT navigate to work tabs bar or the right panel of work details
+		if m.focusedWorkID != "" {
 			switch m.activePanel {
-			case PanelWorkTabs:
+			case PanelWorkDetails, PanelWorkTabs:
+				// Move from work details (or tabs) to issues panel
+				m.activePanel = PanelLeft
+			case PanelLeft:
+				// Move from issues to work details
 				m.activePanel = PanelWorkDetails
-				m.workDetailsFocusLeft = true // Start with left panel focused
+				m.workDetailsFocusLeft = true // Always focus left panel
 				// Reset the cleared flag and restore work selection filter when entering work details
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
 					return m, m.updateWorkSelectionFilter()
 				}
-			case PanelWorkDetails:
-				// Toggle between left and right within work details first
-				if m.workDetailsFocusLeft {
-					m.workDetailsFocusLeft = false // Move focus to right panel
-				} else {
-					// From right panel, move to next panel
-					m.activePanel = PanelLeft     // Issues panel
-					m.workDetailsFocusLeft = true // Reset for next time
-				}
-			case PanelLeft:
-				m.activePanel = PanelWorkTabs
 			default:
-				m.activePanel = PanelWorkTabs
-			}
-		} else if m.focusedWorkID != "" {
-			// No work tiles, toggle between work details (left/right) and issues
-			if m.activePanel == PanelWorkDetails {
-				// Toggle between left and right within work details first
-				if m.workDetailsFocusLeft {
-					m.workDetailsFocusLeft = false // Move focus to right panel
-				} else {
-					// From right panel, move to issues panel
-					m.activePanel = PanelLeft
-					m.workDetailsFocusLeft = true // Reset for next time
-				}
-			} else {
 				m.activePanel = PanelWorkDetails
-				m.workDetailsFocusLeft = true // Start with left panel focused
-				// Reset the cleared flag and restore work selection filter
-				if m.workSelectionCleared {
-					m.workSelectionCleared = false
-					return m, m.updateWorkSelectionFilter()
-				}
+				m.workDetailsFocusLeft = true
 			}
 		}
 		return m, nil
 
 	case "shift+tab":
-		// In focused work mode: cycle backward through work tabs, work details, and issues
-		if m.focusedWorkID != "" && len(m.workTiles) > 0 {
+		// In focused work mode: cycle backward between issues and work details (left panel only)
+		// Shift+Tab does NOT navigate to work tabs bar or the right panel of work details
+		if m.focusedWorkID != "" {
 			switch m.activePanel {
-			case PanelWorkTabs:
-				m.activePanel = PanelLeft // Issues panel
-			case PanelWorkDetails:
-				// Toggle between right and left within work details first
-				if !m.workDetailsFocusLeft {
-					m.workDetailsFocusLeft = true // Move focus to left panel
-				} else {
-					// From left panel, move to previous panel
-					m.activePanel = PanelWorkTabs
-					m.workDetailsFocusLeft = true // Reset for next time (though already true)
-				}
 			case PanelLeft:
+				// Move from issues to work details
 				m.activePanel = PanelWorkDetails
-				m.workDetailsFocusLeft = false // Start with right panel when going backward
+				m.workDetailsFocusLeft = true // Always focus left panel
 				// Reset the cleared flag and restore work selection filter when entering work details
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
 					return m, m.updateWorkSelectionFilter()
 				}
+			case PanelWorkDetails, PanelWorkTabs:
+				// Move from work details (or tabs) to issues panel
+				m.activePanel = PanelLeft
 			default:
 				m.activePanel = PanelLeft
-			}
-		} else if m.focusedWorkID != "" {
-			// No work tiles, toggle between work details (right/left) and issues
-			if m.activePanel == PanelLeft {
-				m.activePanel = PanelWorkDetails
-				m.workDetailsFocusLeft = false // Start with right panel when going backward
-				// Reset the cleared flag and restore work selection filter
-				if m.workSelectionCleared {
-					m.workSelectionCleared = false
-					return m, m.updateWorkSelectionFilter()
-				}
-			} else {
-				// Toggle between right and left within work details first
-				if !m.workDetailsFocusLeft {
-					m.workDetailsFocusLeft = true // Move focus to left panel
-				} else {
-					// From left panel, move to issues panel
-					m.activePanel = PanelLeft
-					m.workDetailsFocusLeft = true // Reset for next time (though already true)
-				}
 			}
 		}
 		return m, nil
