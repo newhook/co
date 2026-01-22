@@ -43,34 +43,6 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 
 		logging.Debug("Scheduler watcher started", "work_id", workID)
 
-		// Schedule initial PR feedback check only if work already has a PR URL
-		// (handles orchestrator restart after PR creation)
-		// For new PRs, scheduling happens in orchestrate.go when CompleteWork is called
-		work, err := proj.DB.GetWork(ctx, workID)
-		if err == nil && work != nil && work.PRURL != "" {
-			prFeedbackInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
-			commentResolutionInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
-
-			initialCheck := time.Now().Add(prFeedbackInterval)
-			logging.Info("Scheduling initial PR feedback check", "work_id", workID, "scheduled_for", initialCheck.Format(time.RFC3339), "interval", prFeedbackInterval)
-
-			if _, err := proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypePRFeedback, initialCheck, nil); err != nil {
-				logging.Warn("failed to schedule initial PR feedback check", "error", err)
-			} else {
-				logging.Debug("Successfully scheduled PR feedback check", "work_id", workID, "at", initialCheck.Format(time.RFC3339))
-			}
-
-			// Also schedule comment resolution check
-			initialResolutionCheck := time.Now().Add(commentResolutionInterval)
-			if _, err := proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypeCommentResolution, initialResolutionCheck, nil); err != nil {
-				logging.Warn("failed to schedule initial comment resolution check", "error", err)
-			} else {
-				logging.Debug("Successfully scheduled comment resolution check", "work_id", workID, "at", initialResolutionCheck.Format(time.RFC3339))
-			}
-		} else {
-			logging.Debug("No PR URL yet, skipping initial scheduling (will be scheduled when PR is created)", "work_id", workID)
-		}
-
 		// Subscribe to watcher events
 		sub := watcher.Broker().Subscribe(ctx)
 
