@@ -125,40 +125,12 @@ func (p *IssueDetailsPanel) RenderWithPanel(contentHeight int) string {
 	detailsContentLines := contentHeight - 3
 	detailsContent := p.Render(detailsContentLines)
 
-	// Ensure content is exactly the right number of lines to prevent layout overflow
-	detailsContent = padOrTruncateLinesDetails(detailsContent, detailsContentLines)
-
 	panelStyle := tuiPanelStyle.Width(p.width).Height(contentHeight - 2)
 	if p.focused {
 		panelStyle = panelStyle.BorderForeground(lipgloss.Color("214"))
 	}
 
 	return panelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
-}
-
-// padOrTruncateLinesDetails ensures the content has exactly targetLines lines
-func padOrTruncateLinesDetails(content string, targetLines int) string {
-	if targetLines < 1 {
-		targetLines = 1
-	}
-
-	lines := strings.Split(content, "\n")
-	// Remove trailing empty line if present (from trailing \n)
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	if len(lines) > targetLines {
-		// Truncate
-		lines = lines[:targetLines]
-	} else if len(lines) < targetLines {
-		// Pad with empty lines
-		for len(lines) < targetLines {
-			lines = append(lines, "")
-		}
-	}
-
-	return strings.Join(lines, "\n")
 }
 
 // renderFullIssueContent renders all content without line limits
