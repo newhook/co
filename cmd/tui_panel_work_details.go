@@ -5,7 +5,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/newhook/co/internal/logging"
 )
 
 // WorkDetailAction represents an action result from the work details panel
@@ -267,7 +266,6 @@ func (p *WorkDetailsPanel) Render() string {
 // RenderWithPanel returns the work details split view with the given total height
 // This matches the IssuesPanel.RenderWithPanel pattern exactly
 func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
-	logging.Debug("RenderWithPanel", "contentHeight", contentHeight)
 	// Ensure minimum content height to prevent layout issues
 	if contentHeight < 6 {
 		contentHeight = 6
@@ -292,8 +290,6 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 	// Pad or truncate content to exactly fit availableContentLines
 	leftContent = padOrTruncateLines(leftContent, availableContentLines)
 	rightContent = padOrTruncateLines(rightContent, availableContentLines)
-	logging.Debug("left content", "len", len(strings.Split(leftContent, "\n")))
-	logging.Debug("right content", "len", len(strings.Split(rightContent, "\n")))
 
 	// Create the two panels with fixed height (matching IssuesPanel pattern exactly)
 	// IssuesPanel uses: Height(contentHeight - 2)
@@ -342,7 +338,6 @@ func padOrTruncateLines(content string, targetLines int) string {
 		targetLines = 1
 	}
 
-	logging.Debug("content", "content", content)
 	lines := strings.Split(content, "\n")
 	// Remove trailing empty line if present (from trailing \n)
 	if len(lines) > 0 && lines[len(lines)-1] == "" {

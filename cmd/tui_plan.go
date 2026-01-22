@@ -14,12 +14,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/beads"
 	beadswatcher "github.com/newhook/co/internal/beads/watcher"
-	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
 	"github.com/newhook/co/internal/zellij"
 )
-
 
 // watcherEventMsg wraps beads watcher events for tea.Msg
 type watcherEventMsg beadswatcher.WatcherEvent
@@ -62,8 +60,8 @@ type planModel struct {
 	workDetails       *WorkDetailsPanel
 	workTabsBar       *WorkTabsBar
 	linearImportPanel *LinearImportPanel
-	beadFormPanel   *BeadFormPanel
-	createWorkPanel *CreateWorkPanel
+	beadFormPanel     *BeadFormPanel
+	createWorkPanel   *CreateWorkPanel
 
 	// Panel state
 	activePanel Panel
@@ -108,12 +106,12 @@ type planModel struct {
 	// Mouse state
 	mouseX              int
 	mouseY              int
-	hoveredButton       string // which button is hovered ("n", "e", "w", "p", etc.)
-	hoveredIssue        int    // index of hovered issue, -1 if none
+	hoveredButton       string    // which button is hovered ("n", "e", "w", "p", etc.)
+	hoveredIssue        int       // index of hovered issue, -1 if none
 	lastWheelScroll     time.Time // For debouncing rapid wheel events
-	hoveredWorkItem     int    // index of hovered work detail item, -1 if none
-	hoveredDialogButton string // which dialog button is hovered ("ok", "cancel")
-	hoveredTabID        string // which work tab is hovered
+	hoveredWorkItem     int       // index of hovered work detail item, -1 if none
+	hoveredDialogButton string    // which dialog button is hovered ("ok", "cancel")
+	hoveredTabID        string    // which work tab is hovered
 
 	// Button position tracking for robust click detection
 	// This slice stores the positions of all clickable buttons in the current dialog.
@@ -124,7 +122,7 @@ type planModel struct {
 	dialogButtons []ButtonRegion // Tracked button positions for current dialog
 
 	// Database watcher for cache invalidation
-	beadsWatcher *beadswatcher.Watcher
+	beadsWatcher    *beadswatcher.Watcher
 	trackingWatcher *trackingwatcher.Watcher
 
 	// New bead animation tracking
@@ -344,13 +342,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mouseX = msg.X
 		m.mouseY = msg.Y
 
-		// Debug: log ALL mouse events
-		logging.Debug("tea.MouseMsg received",
-			"x", msg.X,
-			"y", msg.Y,
-			"action", msg.Action,
-			"button", msg.Button)
-
 		// Calculate status bar Y position (at bottom of view)
 		statusBarY := m.height - 1
 
@@ -358,14 +349,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Action == tea.MouseActionMotion {
 			// Calculate tabs bar position (at top, if there are works)
 			tabsBarHeight := m.workTabsBar.Height()
-
-			logging.Debug("mouse motion event",
-				"x", msg.X,
-				"y", msg.Y,
-				"viewMode", m.viewMode,
-				"focusedWorkID", m.focusedWorkID,
-				"statusBarY", statusBarY,
-				"tabsBarHeight", tabsBarHeight)
 
 			// Check if hovering over tabs bar
 			if tabsBarHeight > 0 && msg.Y < tabsBarHeight {
@@ -392,7 +375,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Detect hover over dialog buttons if in form mode
 				m.hoveredDialogButton = m.detectDialogButton(msg.X, msg.Y)
 				if m.hoveredDialogButton != "" {
-					logging.Debug("hover: dialog button detected", "button", m.hoveredDialogButton)
 					m.hoveredIssue = -1
 					m.hoveredWorkItem = -1
 				} else if m.focusedWorkID != "" {
@@ -400,13 +382,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Account for tabs bar at the top
 					workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
 					workPanelEndY := tabsBarHeight + workPanelHeight
-					logging.Debug("mouse motion in focused work mode",
-						"focusedWorkID", m.focusedWorkID,
-						"mouseX", msg.X,
-						"mouseY", msg.Y,
-						"workPanelHeight", workPanelHeight,
-						"workPanelEndY", workPanelEndY,
-						"tabsBarHeight", tabsBarHeight)
 					if msg.Y < workPanelEndY {
 						// Mouse is in work details area - adjust Y for tabs bar
 						m.hoveredIssue = -1
@@ -440,17 +415,12 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activePanel = PanelWorkTabs
 
 				clickedWorkID := m.workTabsBar.HandleClick(msg.X)
-				logging.Debug("Tab click handler",
-					"clickedWorkID", clickedWorkID,
-					"currentFocusedWorkID", m.focusedWorkID,
-					"workTilesCount", len(m.workTiles))
 				if clickedWorkID != "" {
 					// Focus the clicked work
 					if m.focusedWorkID == clickedWorkID {
 						// Already focused - unfocus
-						logging.Debug("Unfocusing work", "workID", clickedWorkID)
 						m.focusedWorkID = ""
-						m.filters.task = ""     // Clear work selection filter
+						m.filters.task = "" // Clear work selection filter
 						m.filters.children = ""
 						m.activePanel = PanelLeft
 						m.statusMessage = "Work deselected"
@@ -458,7 +428,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.refreshData()
 					}
 					// Focus the new work
-					logging.Debug("Focusing work", "workID", clickedWorkID)
 					m.focusedWorkID = clickedWorkID
 					m.viewMode = ViewNormal
 					// Keep focus on work tabs instead of immediately jumping to work details
@@ -571,21 +540,13 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Handle panel clicking in focused work mode
 				if m.focusedWorkID != "" {
 					clickedPanel := m.detectClickedPanel(msg.X, msg.Y)
-					logging.Debug("click in focused work mode",
-						"mouseX", msg.X,
-						"mouseY", msg.Y,
-						"clickedPanel", clickedPanel)
 					switch clickedPanel {
 					case "work-left":
 						// Check if clicking on a task or root issue
 						clickedItem := m.workDetails.DetectClickedItem(msg.X, msg.Y)
-						logging.Debug("work-left click detection",
-							"clickedItem", clickedItem)
 						if clickedItem >= 0 {
 							m.workDetails.SetSelectedIndex(clickedItem)
 							m.activePanel = PanelWorkDetails
-							logging.Debug("set selected index",
-								"newIndex", clickedItem)
 							// Update filter to show beads for clicked item
 							return m, m.updateWorkSelectionFilter()
 						}
@@ -733,11 +694,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refreshData(), m.loadWorkTiles())
 
 	case workTilesLoadedMsg:
-		logging.Debug("workTilesLoadedMsg received",
-			"worksCount", len(msg.works),
-			"hasError", msg.err != nil,
-			"focusedWorkID", m.focusedWorkID)
-
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("Failed to load works: %v", msg.err)
 			m.statusIsError = true
@@ -750,10 +706,6 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.workTabsBar.SetWorkTiles(msg.works)
 		m.workTabsBar.SetOrchestratorHealth(msg.orchestratorHealth)
 		m.loading = false
-
-		logging.Debug("workTilesLoadedMsg processed",
-			"workTilesSet", len(m.workTiles),
-			"focusedWorkID", m.focusedWorkID)
 
 		// Check for pending work selection (from [0-9] hotkey)
 		if m.pendingWorkSelectIndex >= 0 {
@@ -988,7 +940,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle escape key globally for deselecting focused work
 	if msg.Type == tea.KeyEsc && m.viewMode == ViewNormal && m.focusedWorkID != "" {
 		m.focusedWorkID = ""
-		m.filters.task = ""     // Clear work selection filter
+		m.filters.task = "" // Clear work selection filter
 		m.filters.children = ""
 		m.activePanel = PanelLeft // Reset focus to issues panel
 		m.statusMessage = "Work deselected"
@@ -1223,7 +1175,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch m.activePanel {
 			case PanelWorkTabs:
 				m.activePanel = PanelWorkDetails
-				m.workDetailsFocusLeft = true  // Start with left panel focused
+				m.workDetailsFocusLeft = true // Start with left panel focused
 				// Reset the cleared flag and restore work selection filter when entering work details
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
@@ -1232,11 +1184,11 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case PanelWorkDetails:
 				// Toggle between left and right within work details first
 				if m.workDetailsFocusLeft {
-					m.workDetailsFocusLeft = false  // Move focus to right panel
+					m.workDetailsFocusLeft = false // Move focus to right panel
 				} else {
 					// From right panel, move to next panel
-					m.activePanel = PanelLeft // Issues panel
-					m.workDetailsFocusLeft = true  // Reset for next time
+					m.activePanel = PanelLeft     // Issues panel
+					m.workDetailsFocusLeft = true // Reset for next time
 				}
 			case PanelLeft:
 				m.activePanel = PanelWorkTabs
@@ -1248,15 +1200,15 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.activePanel == PanelWorkDetails {
 				// Toggle between left and right within work details first
 				if m.workDetailsFocusLeft {
-					m.workDetailsFocusLeft = false  // Move focus to right panel
+					m.workDetailsFocusLeft = false // Move focus to right panel
 				} else {
 					// From right panel, move to issues panel
 					m.activePanel = PanelLeft
-					m.workDetailsFocusLeft = true  // Reset for next time
+					m.workDetailsFocusLeft = true // Reset for next time
 				}
 			} else {
 				m.activePanel = PanelWorkDetails
-				m.workDetailsFocusLeft = true  // Start with left panel focused
+				m.workDetailsFocusLeft = true // Start with left panel focused
 				// Reset the cleared flag and restore work selection filter
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
@@ -1275,15 +1227,15 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case PanelWorkDetails:
 				// Toggle between right and left within work details first
 				if !m.workDetailsFocusLeft {
-					m.workDetailsFocusLeft = true  // Move focus to left panel
+					m.workDetailsFocusLeft = true // Move focus to left panel
 				} else {
 					// From left panel, move to previous panel
 					m.activePanel = PanelWorkTabs
-					m.workDetailsFocusLeft = true  // Reset for next time (though already true)
+					m.workDetailsFocusLeft = true // Reset for next time (though already true)
 				}
 			case PanelLeft:
 				m.activePanel = PanelWorkDetails
-				m.workDetailsFocusLeft = false  // Start with right panel when going backward
+				m.workDetailsFocusLeft = false // Start with right panel when going backward
 				// Reset the cleared flag and restore work selection filter when entering work details
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
@@ -1296,7 +1248,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// No work tiles, toggle between work details (right/left) and issues
 			if m.activePanel == PanelLeft {
 				m.activePanel = PanelWorkDetails
-				m.workDetailsFocusLeft = false  // Start with right panel when going backward
+				m.workDetailsFocusLeft = false // Start with right panel when going backward
 				// Reset the cleared flag and restore work selection filter
 				if m.workSelectionCleared {
 					m.workSelectionCleared = false
@@ -1305,11 +1257,11 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				// Toggle between right and left within work details first
 				if !m.workDetailsFocusLeft {
-					m.workDetailsFocusLeft = true  // Move focus to left panel
+					m.workDetailsFocusLeft = true // Move focus to left panel
 				} else {
 					// From left panel, move to issues panel
 					m.activePanel = PanelLeft
-					m.workDetailsFocusLeft = true  // Reset for next time (though already true)
+					m.workDetailsFocusLeft = true // Reset for next time (though already true)
 				}
 			}
 		}
@@ -1385,12 +1337,6 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "*":
 		// Show all issues (clear status filter AND work selection filter)
-		logging.Debug("filter key pressed",
-			"key", "*",
-			"activePanel", m.activePanel,
-			"focusedWorkID", m.focusedWorkID,
-			"task", m.filters.task,
-			"children", m.filters.children)
 		m.filters.status = "all"
 		m.filters.task = ""
 		m.filters.children = ""
@@ -1398,34 +1344,16 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.refreshData()
 
 	case "o":
-		logging.Debug("filter key pressed",
-			"key", "o",
-			"activePanel", m.activePanel,
-			"focusedWorkID", m.focusedWorkID,
-			"task", m.filters.task,
-			"children", m.filters.children)
 		m.filters.status = beads.StatusOpen
 		return m, m.refreshData()
 
 	case "c":
 		// Filter to closed issues (work details panel handles 'c' for Claude)
-		logging.Debug("filter key pressed",
-			"key", "c",
-			"activePanel", m.activePanel,
-			"focusedWorkID", m.focusedWorkID,
-			"task", m.filters.task,
-			"children", m.filters.children)
 		m.filters.status = beads.StatusClosed
 		return m, m.refreshData()
 
 	case "r":
 		// Filter to ready issues (work details panel handles 'r' for Run)
-		logging.Debug("filter key pressed",
-			"key", "r",
-			"activePanel", m.activePanel,
-			"focusedWorkID", m.focusedWorkID,
-			"task", m.filters.task,
-			"children", m.filters.children)
 		m.filters.status = "ready"
 		return m, m.refreshData()
 
@@ -1615,12 +1543,6 @@ func (m *planModel) cleanup() {
 
 // syncPanels synchronizes data from planModel to the panel components
 func (m *planModel) syncPanels() {
-	logging.Debug("syncPanels() called",
-		"m.height", m.height,
-		"m.width", m.width,
-		"focusedWorkID", m.focusedWorkID,
-		"workTilesCount", len(m.workTiles))
-
 	// Calculate column widths
 	totalContentWidth := m.width - 4
 	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
@@ -1748,14 +1670,6 @@ func (m *planModel) View() string {
 	workTabsBar := m.workTabsBar.Render()
 	tabsBarHeight := m.workTabsBar.Height()
 
-	logging.Debug("View() rendering",
-		"m.height", m.height,
-		"tabsBarHeight", tabsBarHeight,
-		"focusedWorkID", m.focusedWorkID,
-		"workTilesCount", len(m.workTiles),
-		"workTabsBar_empty", workTabsBar == "",
-		"workTabsBar_len", len(workTabsBar))
-
 	// Adjust content height for tabs bar
 	originalHeight := m.height
 	m.height = m.height - tabsBarHeight
@@ -1763,45 +1677,8 @@ func (m *planModel) View() string {
 	content := m.renderTwoColumnLayout()
 	m.height = originalHeight
 
-	logging.Debug("View() before final assembly",
-		"focusedWorkID", m.focusedWorkID,
-		"workTabsBar_len", len(workTabsBar),
-		"content_height", lipgloss.Height(content),
-		"statusBar_height", lipgloss.Height(statusBar))
-
 	// Always include tab bar at top
-	result := lipgloss.JoinVertical(lipgloss.Left, workTabsBar, content, statusBar)
-
-	// Extra debugging to understand what's being rendered
-	logging.Debug("View() components",
-		"workTabsBar_first_50_chars", workTabsBar[:min(50, len(workTabsBar))],
-		"workTabsBar_actual_height", lipgloss.Height(workTabsBar))
-
-	logging.Debug("View() final",
-		"result_height", lipgloss.Height(result),
-		"workTabsBar_height", lipgloss.Height(workTabsBar),
-		"content_height", lipgloss.Height(content),
-		"statusBar_height", lipgloss.Height(statusBar),
-		"focusedWorkID_in_final", m.focusedWorkID)
-
-	// Extra debugging - let's see what the actual result looks like
-	lines := strings.Split(result, "\n")
-	if len(lines) > 0 {
-		logging.Debug("View() result first line",
-			"first_line_len", len(lines[0]),
-			"first_line_preview", lines[0][:min(80, len(lines[0]))])
-	}
-
-	// Check if result height exceeds terminal height - THIS IS THE PROBLEM!
-	actualTerminalHeight := originalHeight  // This is the real terminal height
-	logging.Debug("View() HEIGHT OVERFLOW CHECK",
-		"terminal_height", actualTerminalHeight,
-		"result_height", lipgloss.Height(result),
-		"OVERFLOW", lipgloss.Height(result) > actualTerminalHeight,
-		"overflow_by", lipgloss.Height(result) - actualTerminalHeight,
-		"lines_in_result", len(lines))
-
-	return result
+	return lipgloss.JoinVertical(lipgloss.Left, workTabsBar, content, statusBar)
 }
 
 // beadsForBranch is a minimal struct for branch name generation
@@ -1841,7 +1718,6 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 	return "feat/" + branchName
 }
 
-
 // updateWorkSelectionFilter updates the bead filter based on the current work details selection
 // and triggers a data refresh
 func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
@@ -1863,15 +1739,11 @@ func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
 		selectedTaskID := m.workDetails.GetSelectedTaskID()
 		if selectedTaskID != "" {
 			m.filters.task = selectedTaskID
-			logging.Debug("updateWorkSelectionFilter - task selected",
-				"task", selectedTaskID)
 		}
 	} else {
 		// Root issue selected - set children filter to show dependents
 		if focusedWork.work.RootIssueID != "" {
 			m.filters.children = focusedWork.work.RootIssueID
-			logging.Debug("updateWorkSelectionFilter - root selected",
-				"children", focusedWork.work.RootIssueID)
 		}
 	}
 
