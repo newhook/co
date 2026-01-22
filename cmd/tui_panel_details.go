@@ -116,11 +116,7 @@ func (p *IssueDetailsPanel) GetViewport() *viewport.Model {
 // Render returns the details panel content (without border/panel styling)
 func (p *IssueDetailsPanel) Render() string {
 	// Update viewport content
-	//fullContent := p.renderFullIssueContent()
-	fullContent := ""
-	for i := 0; i < 50; i++ {
-		fullContent += fmt.Sprintf("Line %d: This is some example content for the issue details panel.\n", i+1)
-	}
+	fullContent := p.renderFullIssueContent()
 	p.viewport.SetContent(fullContent)
 
 	// Return viewport's rendered view
