@@ -325,6 +325,30 @@ func (db *DB) GetTaskBeadStatus(ctx context.Context, taskID, beadID string) (str
 	return status, nil
 }
 
+// TaskBeadInfo represents a task bead with its status.
+type TaskBeadInfo struct {
+	TaskID string
+	BeadID string
+	Status string
+}
+
+// GetTaskBeadsForWork returns all task beads for a work in a single query.
+func (db *DB) GetTaskBeadsForWork(ctx context.Context, workID string) ([]TaskBeadInfo, error) {
+	rows, err := db.queries.GetTaskBeadsForWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task beads for work: %w", err)
+	}
+	result := make([]TaskBeadInfo, len(rows))
+	for i, row := range rows {
+		result[i] = TaskBeadInfo{
+			TaskID: row.TaskID,
+			BeadID: row.BeadID,
+			Status: row.Status,
+		}
+	}
+	return result, nil
+}
+
 // ListTasks returns all tasks.
 func (db *DB) ListTasks(ctx context.Context, statusFilter string) ([]*Task, error) {
 	var tasks []*Task

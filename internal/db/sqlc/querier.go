@@ -77,6 +77,7 @@ type Querier interface {
 	GetTask(ctx context.Context, id string) (GetTaskRow, error)
 	GetTaskBeadStatus(ctx context.Context, arg GetTaskBeadStatusParams) (string, error)
 	GetTaskBeads(ctx context.Context, taskID string) ([]string, error)
+	GetTaskBeadsForWork(ctx context.Context, workID string) ([]TaskBead, error)
 	GetTaskByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (Scheduler, error)
 	GetTaskDependencies(ctx context.Context, taskID string) ([]string, error)
 	GetTaskDependents(ctx context.Context, dependsOnTaskID string) ([]string, error)

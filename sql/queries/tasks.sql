@@ -155,6 +155,12 @@ UPDATE tasks
 SET last_activity = ?
 WHERE id = ? AND status = 'processing';
 
+-- name: GetTaskBeadsForWork :many
+SELECT tb.task_id, tb.bead_id, tb.status
+FROM task_beads tb
+JOIN tasks t ON tb.task_id = t.id
+WHERE t.work_id = ?;
+
 -- name: GetTasksWithActivity :many
 SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,

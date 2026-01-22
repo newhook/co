@@ -6,11 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/newhook/co/internal/beads/pubsub"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/project"
+	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
 )
 
 // Run executes Claude directly in the current terminal (fork/exec).
@@ -55,12 +58,14 @@ func Run(ctx context.Context, database *db.DB, taskID string, prompt string, wor
 	}
 
 	// Run the main monitoring loop
-	return monitorClaude(ctx, database, taskID, claudeCmd, startTime)
+	// Derive project root from workDir (assumes workDir is <project>/<work-id>/tree/)
+	projectRoot := filepath.Dir(filepath.Dir(workDir))
+	return monitorClaude(ctx, database, taskID, claudeCmd, startTime, projectRoot)
 }
 
 // monitorClaude handles the main event loop for monitoring Claude execution.
 // It watches for Claude exit, task completion in database, signals, and context cancellation.
-func monitorClaude(ctx context.Context, database *db.DB, taskID string, claudeCmd *exec.Cmd, startTime time.Time) error {
+func monitorClaude(ctx context.Context, database *db.DB, taskID string, claudeCmd *exec.Cmd, startTime time.Time, projectRoot string) error {
 	// Set up signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -72,9 +77,49 @@ func monitorClaude(ctx context.Context, database *db.DB, taskID string, claudeCm
 		done <- claudeCmd.Wait()
 	}()
 
-	// Poll database for task completion
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
+	// Try to set up database watcher for event-driven monitoring
+	var watcherSub <-chan pubsub.Event[trackingwatcher.WatcherEvent]
+	var ticker *time.Ticker
+
+	trackingDBPath := filepath.Join(projectRoot, ".co", "tracking.db")
+	watcher, err := trackingwatcher.New(trackingwatcher.DefaultConfig(trackingDBPath))
+	if err == nil {
+		if err := watcher.Start(); err == nil {
+			defer watcher.Stop()
+			// Subscribe to watcher events
+			watcherSub = watcher.Broker().Subscribe(ctx)
+			fmt.Printf("Using database watcher for task monitoring\n")
+		}
+	}
+
+	// Fall back to polling if watcher setup failed
+	if watcherSub == nil {
+		ticker = time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		fmt.Printf("Using polling for task monitoring (2s interval)\n")
+	}
+
+	// Helper function to check task status
+	checkTaskStatus := func() error {
+		task, err := database.GetTask(ctx, taskID)
+		if err != nil {
+			fmt.Printf("Warning: failed to check task status: %v\n", err)
+			return nil // continue monitoring
+		}
+		if task == nil {
+			fmt.Printf("\nTask %s no longer exists, terminating Claude...\n", taskID)
+			terminateGracefully(claudeCmd, done)
+			return fmt.Errorf("task %s was deleted", taskID)
+		}
+		if task.Status == db.StatusCompleted || task.Status == db.StatusFailed {
+			fmt.Printf("\nTask marked as %s in database, terminating Claude...\n", task.Status)
+			terminateGracefully(claudeCmd, done)
+			elapsed := time.Since(startTime)
+			fmt.Printf("\n=== Task %s %s (took %s) ===\n", taskID, task.Status, elapsed.Round(time.Second))
+			return fmt.Errorf("task_status_changed") // Special error to indicate normal completion
+		}
+		return nil
+	}
 
 	for {
 		select {
@@ -82,24 +127,34 @@ func monitorClaude(ctx context.Context, database *db.DB, taskID string, claudeCm
 			// Claude exited on its own - no termination needed
 			return handleClaudeExit(ctx, database, taskID, err, startTime)
 
-		case <-ticker.C:
-			// Check if task is marked as completed in database
-			task, err := database.GetTask(ctx, taskID)
-			if err != nil {
-				fmt.Printf("Warning: failed to check task status: %v\n", err)
+		case event, ok := <-watcherSub:
+			if !ok {
+				// Watcher closed, continue without it
+				watcherSub = nil
 				continue
 			}
-			if task == nil {
-				fmt.Printf("\nTask %s no longer exists, terminating Claude...\n", taskID)
-				terminateGracefully(claudeCmd, done)
-				return fmt.Errorf("task %s was deleted", taskID)
+			// Database changed event
+			if event.Payload.Type == trackingwatcher.DBChanged {
+				if err := checkTaskStatus(); err != nil {
+					if err.Error() == "task_status_changed" {
+						return nil // Normal completion
+					}
+					return err
+				}
 			}
-			if task.Status == db.StatusCompleted || task.Status == db.StatusFailed {
-				fmt.Printf("\nTask marked as %s in database, terminating Claude...\n", task.Status)
-				terminateGracefully(claudeCmd, done)
-				elapsed := time.Since(startTime)
-				fmt.Printf("\n=== Task %s %s (took %s) ===\n", taskID, task.Status, elapsed.Round(time.Second))
-				return nil
+
+		case <-func() <-chan time.Time {
+			if ticker != nil {
+				return ticker.C
+			}
+			return nil
+		}():
+			// Polling fallback
+			if err := checkTaskStatus(); err != nil {
+				if err.Error() == "task_status_changed" {
+					return nil // Normal completion
+				}
+				return err
 			}
 
 		case sig := <-sigChan:

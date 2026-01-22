@@ -133,7 +133,9 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 
 	// Start the scheduler watcher for this work
 	// This replaces file-based polling and fixed timers with a database-driven scheduler
-	StartSchedulerWatcher(ctx, proj, workID)
+	if err := StartSchedulerWatcher(ctx, proj, workID); err != nil {
+		return fmt.Errorf("failed to start scheduler watcher: %w", err)
+	}
 
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
@@ -417,7 +419,18 @@ func updateWorkTaskActivity(ctx context.Context, db *db.DB, workID string) error
 // spinnerWait displays an animated spinner with a message for the specified duration.
 // The spinner updates every 100ms to create a smooth animation effect.
 // Does not print a newline so the spinner can continue on the same line.
+// Note: With database watchers now in place for scheduler and Claude monitoring,
+// the orchestrator polling intervals can be reduced as they're mainly a safety net.
 func spinnerWait(msg string, duration time.Duration) {
+	// Reduce polling intervals since database watchers handle most events
+	// The scheduler uses database watcher (StartSchedulerWatcher)
+	// Claude monitoring uses database watcher (monitorClaude)
+	// This polling is just a safety net for the main orchestrator loop
+	maxDuration := 2 * time.Second
+	if duration > maxDuration {
+		duration = maxDuration
+	}
+
 	start := time.Now()
 	frameIdx := 0
 	for time.Since(start) < duration {
