@@ -1721,6 +1721,10 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 // updateWorkSelectionFilter updates the bead filter based on the current work details selection
 // and triggers a data refresh
 func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
+	// Save old filter values to detect actual changes
+	oldTask := m.filters.task
+	oldChildren := m.filters.children
+
 	// Clear existing entity filters
 	m.filters.task = ""
 	m.filters.children = ""
@@ -1747,8 +1751,10 @@ func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
 		}
 	}
 
-	// Reset cursor to top when filter changes
-	m.beadsCursor = 0
+	// Only reset cursor when filter actually changes (not on every refresh)
+	if m.filters.task != oldTask || m.filters.children != oldChildren {
+		m.beadsCursor = 0
+	}
 
 	return m.refreshData()
 }
