@@ -133,7 +133,9 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 
 	// Start the scheduler watcher for this work
 	// This replaces file-based polling and fixed timers with a database-driven scheduler
-	StartSchedulerWatcher(ctx, proj, workID)
+	if err := StartSchedulerWatcher(ctx, proj, workID); err != nil {
+		return fmt.Errorf("failed to start scheduler watcher: %w", err)
+	}
 
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {

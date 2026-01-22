@@ -241,6 +241,7 @@ const getScheduledTasksForWork = `-- name: GetScheduledTasksForWork :many
 SELECT id, work_id, task_type, scheduled_at, executed_at, status, error_message, metadata, attempt_count, max_attempts, idempotency_key, created_at, updated_at FROM scheduler
 WHERE work_id = ?
   AND status = 'pending'
+  AND scheduled_at <= CURRENT_TIMESTAMP
 ORDER BY scheduled_at ASC
 `
 

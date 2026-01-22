@@ -14,6 +14,7 @@ LIMIT 1;
 SELECT * FROM scheduler
 WHERE work_id = ?
   AND status = 'pending'
+  AND scheduled_at <= CURRENT_TIMESTAMP
 ORDER BY scheduled_at ASC;
 
 -- name: GetPendingTaskByType :one

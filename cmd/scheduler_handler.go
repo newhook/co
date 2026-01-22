@@ -17,25 +17,19 @@ import (
 
 // StartSchedulerWatcher starts a goroutine that watches for scheduled tasks.
 // It uses the tracking database watcher to detect changes and executes tasks when they're due.
-func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID string) {
+func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID string) error {
 	logging.Info("Starting scheduler watcher with database events", "work_id", workID)
 
 	// Initialize tracking database watcher
 	trackingDBPath := filepath.Join(proj.Root, ".co", "tracking.db")
 	watcher, err := trackingwatcher.New(trackingwatcher.DefaultConfig(trackingDBPath))
 	if err != nil {
-		logging.Error("Failed to create tracking watcher, falling back to polling", "error", err)
-		// Fall back to polling-based approach
-		go startSchedulerPolling(ctx, proj, workID)
-		return
+		return fmt.Errorf("failed to create tracking watcher: %w", err)
 	}
 
 	if err := watcher.Start(); err != nil {
-		logging.Error("Failed to start tracking watcher, falling back to polling", "error", err)
 		watcher.Stop()
-		// Fall back to polling-based approach
-		go startSchedulerPolling(ctx, proj, workID)
-		return
+		return fmt.Errorf("failed to start tracking watcher: %w", err)
 	}
 
 	go func() {
@@ -118,41 +112,22 @@ func StartSchedulerWatcher(ctx context.Context, proj *project.Project, workID st
 			}
 		}
 	}()
+
+	return nil
 }
 
-// startSchedulerPolling is a fallback function that uses polling when watcher fails
-func startSchedulerPolling(ctx context.Context, proj *project.Project, workID string) {
-	logging.Info("Starting scheduler with polling fallback", "work_id", workID)
-
-	schedulerPollInterval := proj.Config.Scheduler.GetSchedulerPollInterval()
-	ticker := time.NewTicker(schedulerPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			processDueTasks(ctx, proj, workID)
-		}
-	}
-}
 
 // processDueTasks checks for and executes any scheduled tasks that are due
 func processDueTasks(ctx context.Context, proj *project.Project, workID string) {
-	// Get pending tasks for this work
+	// Get due tasks for this work (query now filters by scheduled_at <= CURRENT_TIMESTAMP)
 	tasks, err := proj.DB.GetScheduledTasksForWork(ctx, workID)
 	if err != nil {
 		logging.Warn("failed to get scheduled tasks", "error", err)
 		return
 	}
 
-	// Process any tasks that are due
+	// Process all tasks (they're already filtered to be due)
 	for _, task := range tasks {
-		if task.ScheduledAt.After(time.Now()) {
-			// Not due yet
-			continue
-		}
 
 		logging.Info("Executing scheduled task", "task_id", task.ID, "task_type", task.TaskType, "work_id", workID, "scheduled_at", task.ScheduledAt.Format(time.RFC3339))
 
