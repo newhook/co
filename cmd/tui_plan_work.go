@@ -22,13 +22,8 @@ func (m *planModel) sessionName() string {
 func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 	return func() tea.Msg {
 		session := m.sessionName()
-		tabName := db.TabNameForBead(beadID)
+		tabName := claude.PlanTabName(beadID)
 		mainRepoPath := m.proj.MainRepoPath()
-
-		// Ensure zellij session exists
-		if err := m.zj.EnsureSession(m.ctx, session); err != nil {
-			return planSessionSpawnedMsg{beadID: beadID, err: err}
-		}
 
 		// Check if session already running for this bead
 		running, _ := m.proj.DB.IsPlanSessionRunning(m.ctx, beadID)
@@ -40,29 +35,8 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 			return planSessionSpawnedMsg{beadID: beadID, resumed: true}
 		}
 
-		// Check if tab exists (might be orphaned)
-		exists, _ := m.zj.TabExists(m.ctx, session, tabName)
-		if exists {
-			// Tab exists but session not registered - terminate and recreate
-			_ = m.zj.TerminateAndCloseTab(m.ctx, session, tabName)
-			time.Sleep(200 * time.Millisecond)
-		}
-
-		// Create new tab for this bead
-		if err := m.zj.CreateTab(m.ctx, session, tabName, mainRepoPath); err != nil {
-			return planSessionSpawnedMsg{beadID: beadID, err: err}
-		}
-
-		// Switch to the tab
-		time.Sleep(200 * time.Millisecond)
-		if err := m.zj.SwitchToTab(m.ctx, session, tabName); err != nil {
-			return planSessionSpawnedMsg{beadID: beadID, err: err}
-		}
-
-		// Run co plan with the bead ID
-		planCmd := fmt.Sprintf("co plan %s", beadID)
-		time.Sleep(200 * time.Millisecond)
-		if err := m.zj.ExecuteCommand(m.ctx, session, planCmd); err != nil {
+		// Use the helper to spawn the plan session
+		if err := claude.SpawnPlanSession(m.ctx, beadID, m.proj.Config.Project.Name, mainRepoPath, io.Discard); err != nil {
 			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
 
@@ -168,10 +142,18 @@ func (m *planModel) destroyFocusedWork() tea.Cmd {
 func (m *planModel) runFocusedWork(autoGroup bool) tea.Cmd {
 	workID := m.focusedWorkID
 	return func() tea.Msg {
-		// Use internal function - creates tasks and ensures orchestrator is running
-		_, err := RunWork(m.ctx, m.proj, workID, autoGroup, io.Discard)
-		if err != nil {
-			return workCommandMsg{action: "Run work", workID: workID, err: err}
+		if autoGroup {
+			// Use auto mode - creates estimate task and lets orchestrator handle grouping
+			_, err := RunWorkAuto(m.ctx, m.proj, workID, io.Discard)
+			if err != nil {
+				return workCommandMsg{action: "Run work", workID: workID, err: err}
+			}
+		} else {
+			// Use direct mode - creates one task per bead
+			_, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
+			if err != nil {
+				return workCommandMsg{action: "Run work", workID: workID, err: err}
+			}
 		}
 		return workCommandMsg{action: "Run work", workID: workID}
 	}
