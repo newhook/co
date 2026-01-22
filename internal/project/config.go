@@ -141,17 +141,6 @@ type SchedulerConfig struct {
 	// Can also be set via CO_ACTIVITY_UPDATE_SECONDS environment variable.
 	// Defaults to 30 seconds when not specified.
 	ActivityUpdateSeconds *int `toml:"activity_update_seconds"`
-
-	// ProcessingTimeoutMinutes is the maximum time a task can be in 'processing' state
-	// without activity updates before it's considered stale and auto-failed.
-	// Can also be set via CO_PROCESSING_TIMEOUT_MINUTES environment variable.
-	// Defaults to 120 minutes (2 hours) when not specified.
-	ProcessingTimeoutMinutes *int `toml:"processing_timeout_minutes"`
-
-	// StaleCheckIntervalMinutes is the interval between checks for stale processing tasks.
-	// Can also be set via CO_STALE_CHECK_INTERVAL_MINUTES environment variable.
-	// Defaults to 5 minutes when not specified.
-	StaleCheckIntervalMinutes *int `toml:"stale_check_interval_minutes"`
 }
 
 // GetPRFeedbackInterval returns the PR feedback check interval.
@@ -212,36 +201,6 @@ func (s *SchedulerConfig) GetActivityUpdateInterval() time.Duration {
 		return time.Duration(*s.ActivityUpdateSeconds) * time.Second
 	}
 	return 30 * time.Second
-}
-
-// GetProcessingTimeout returns the processing timeout duration.
-// Checks environment variable CO_PROCESSING_TIMEOUT_MINUTES first,
-// then config value, then defaults to 120 minutes (2 hours).
-func (s *SchedulerConfig) GetProcessingTimeout() time.Duration {
-	if envVal := os.Getenv("CO_PROCESSING_TIMEOUT_MINUTES"); envVal != "" {
-		if minutes, err := parseMinutes(envVal); err == nil && minutes > 0 {
-			return time.Duration(minutes) * time.Minute
-		}
-	}
-	if s.ProcessingTimeoutMinutes != nil && *s.ProcessingTimeoutMinutes > 0 {
-		return time.Duration(*s.ProcessingTimeoutMinutes) * time.Minute
-	}
-	return 120 * time.Minute
-}
-
-// GetStaleCheckInterval returns the stale task check interval.
-// Checks environment variable CO_STALE_CHECK_INTERVAL_MINUTES first,
-// then config value, then defaults to 5 minutes.
-func (s *SchedulerConfig) GetStaleCheckInterval() time.Duration {
-	if envVal := os.Getenv("CO_STALE_CHECK_INTERVAL_MINUTES"); envVal != "" {
-		if minutes, err := parseMinutes(envVal); err == nil && minutes > 0 {
-			return time.Duration(minutes) * time.Minute
-		}
-	}
-	if s.StaleCheckIntervalMinutes != nil && *s.StaleCheckIntervalMinutes > 0 {
-		return time.Duration(*s.StaleCheckIntervalMinutes) * time.Minute
-	}
-	return 5 * time.Minute
 }
 
 // parseMinutes parses a string as minutes.

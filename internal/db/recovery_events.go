@@ -16,8 +16,6 @@ type RecoveryEventType string
 const (
 	// RecoveryEventTaskReset is logged when a stuck task is reset to pending.
 	RecoveryEventTaskReset RecoveryEventType = "task_reset"
-	// RecoveryEventTaskStaleFailed is logged when a stale task is auto-failed.
-	RecoveryEventTaskStaleFailed RecoveryEventType = "task_stale_failed"
 	// RecoveryEventBeadPreserved is logged when a bead's completed status is preserved during reset.
 	RecoveryEventBeadPreserved RecoveryEventType = "bead_preserved"
 	// RecoveryEventBeadReset is logged when a bead is reset to pending during task recovery.
