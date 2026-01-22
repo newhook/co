@@ -58,17 +58,6 @@ type PrFeedback struct {
 	ResolvedAt   sql.NullTime   `json:"resolved_at"`
 }
 
-type RecoveryEvent struct {
-	ID        int64          `json:"id"`
-	EventType string         `json:"event_type"`
-	TaskID    string         `json:"task_id"`
-	WorkID    string         `json:"work_id"`
-	BeadID    sql.NullString `json:"bead_id"`
-	Reason    string         `json:"reason"`
-	Details   sql.NullString `json:"details"`
-	CreatedAt time.Time      `json:"created_at"`
-}
-
 type Scheduler struct {
 	ID             string         `json:"id"`
 	WorkID         string         `json:"work_id"`
