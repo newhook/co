@@ -51,8 +51,11 @@ func (p *IssueDetailsPanel) SetSize(width, height int) {
 	p.height = height
 
 	// Update viewport dimensions
-	// Calculate available lines for content (minus border and title)
-	visibleLines := max(height-3, 1)
+	// Calculate available lines for content:
+	// - 2 for border (top + bottom)
+	// - 1 for title line
+	// - 1 for the status bar.
+	visibleLines := max(height-4, 1)
 
 	// Set viewport size accounting for padding (2 chars total)
 	p.viewport.Width = width - 2
@@ -111,9 +114,13 @@ func (p *IssueDetailsPanel) GetViewport() *viewport.Model {
 }
 
 // Render returns the details panel content (without border/panel styling)
-func (p *IssueDetailsPanel) Render(visibleLines int) string {
+func (p *IssueDetailsPanel) Render() string {
 	// Update viewport content
-	fullContent := p.renderFullIssueContent()
+	//fullContent := p.renderFullIssueContent()
+	fullContent := ""
+	for i := 0; i < 50; i++ {
+		fullContent += fmt.Sprintf("Line %d: This is some example content for the issue details panel.\n", i+1)
+	}
 	p.viewport.SetContent(fullContent)
 
 	// Return viewport's rendered view
@@ -122,11 +129,7 @@ func (p *IssueDetailsPanel) Render(visibleLines int) string {
 
 // RenderWithPanel returns the details panel with border styling
 func (p *IssueDetailsPanel) RenderWithPanel(contentHeight int) string {
-	detailsContentLines := contentHeight - 3
-	detailsContent := p.Render(detailsContentLines)
-
-	// Ensure content is exactly the right number of lines to prevent layout overflow
-	detailsContent = padOrTruncateLinesDetails(detailsContent, detailsContentLines)
+	detailsContent := p.Render()
 
 	panelStyle := tuiPanelStyle.Width(p.width).Height(contentHeight - 2)
 	if p.focused {
@@ -134,31 +137,6 @@ func (p *IssueDetailsPanel) RenderWithPanel(contentHeight int) string {
 	}
 
 	return panelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
-}
-
-// padOrTruncateLinesDetails ensures the content has exactly targetLines lines
-func padOrTruncateLinesDetails(content string, targetLines int) string {
-	if targetLines < 1 {
-		targetLines = 1
-	}
-
-	lines := strings.Split(content, "\n")
-	// Remove trailing empty line if present (from trailing \n)
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	if len(lines) > targetLines {
-		// Truncate
-		lines = lines[:targetLines]
-	} else if len(lines) < targetLines {
-		// Pad with empty lines
-		for len(lines) < targetLines {
-			lines = append(lines, "")
-		}
-	}
-
-	return strings.Join(lines, "\n")
 }
 
 // renderFullIssueContent renders all content without line limits
