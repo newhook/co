@@ -734,10 +734,10 @@ func resetTaskBeadsWithProgress(ctx context.Context, proj *project.Project, task
 				} else {
 					preservedCount++
 					// Log bead preserved event
-					if logErr := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventBeadPreserved, taskID, workID, tb.BeadID,
+					if err := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventBeadPreserved, taskID, workID, tb.BeadID,
 						"Bead already closed in beads.jsonl, preserving completed status",
-						map[string]interface{}{"previous_task_status": tb.Status}); logErr != nil {
-						logging.Warn("failed to log recovery event", "error", logErr)
+						map[string]interface{}{"previous_task_status": tb.Status}); err != nil {
+						logging.Warn("failed to log recovery event", "error", err)
 					}
 				}
 			} else {
@@ -756,10 +756,10 @@ func resetTaskBeadsWithProgress(ctx context.Context, proj *project.Project, task
 				} else {
 					resetCount++
 					// Log bead reset event
-					if logErr := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventBeadReset, taskID, workID, tb.BeadID,
+					if err := proj.DB.LogRecoveryEvent(ctx, db.RecoveryEventBeadReset, taskID, workID, tb.BeadID,
 						"Bead not closed, resetting to pending",
-						map[string]interface{}{"previous_task_status": tb.Status}); logErr != nil {
-						logging.Warn("failed to log recovery event", "error", logErr)
+						map[string]interface{}{"previous_task_status": tb.Status}); err != nil {
+						logging.Warn("failed to log recovery event", "error", err)
 					}
 				}
 			}
