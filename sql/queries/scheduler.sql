@@ -6,7 +6,7 @@ INSERT INTO scheduler (
 -- name: GetNextScheduledTask :one
 SELECT * FROM scheduler
 WHERE status = 'pending'
-  AND scheduled_at <= CURRENT_TIMESTAMP
+  AND datetime(scheduled_at) <= datetime('now')
 ORDER BY scheduled_at ASC
 LIMIT 1;
 
@@ -14,7 +14,7 @@ LIMIT 1;
 SELECT * FROM scheduler
 WHERE work_id = ?
   AND status = 'pending'
-  AND scheduled_at <= CURRENT_TIMESTAMP
+  AND datetime(scheduled_at) <= datetime('now')
 ORDER BY scheduled_at ASC;
 
 -- name: GetPendingTaskByType :one
@@ -74,7 +74,7 @@ WHERE id = ?;
 -- name: GetOverdueTasks :many
 SELECT * FROM scheduler
 WHERE status = 'pending'
-  AND scheduled_at < datetime('now', '-10 minutes')
+  AND datetime(scheduled_at) < datetime('now', '-10 minutes')
 ORDER BY scheduled_at ASC;
 
 -- name: CountPendingTasksForWork :one

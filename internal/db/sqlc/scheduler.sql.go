@@ -107,7 +107,7 @@ func (q *Queries) DeleteScheduledTask(ctx context.Context, id string) error {
 const getNextScheduledTask = `-- name: GetNextScheduledTask :one
 SELECT id, work_id, task_type, scheduled_at, executed_at, status, error_message, metadata, attempt_count, max_attempts, idempotency_key, created_at, updated_at FROM scheduler
 WHERE status = 'pending'
-  AND scheduled_at <= CURRENT_TIMESTAMP
+  AND datetime(scheduled_at) <= datetime('now')
 ORDER BY scheduled_at ASC
 LIMIT 1
 `
@@ -136,7 +136,7 @@ func (q *Queries) GetNextScheduledTask(ctx context.Context) (Scheduler, error) {
 const getOverdueTasks = `-- name: GetOverdueTasks :many
 SELECT id, work_id, task_type, scheduled_at, executed_at, status, error_message, metadata, attempt_count, max_attempts, idempotency_key, created_at, updated_at FROM scheduler
 WHERE status = 'pending'
-  AND scheduled_at < datetime('now', '-10 minutes')
+  AND datetime(scheduled_at) < datetime('now', '-10 minutes')
 ORDER BY scheduled_at ASC
 `
 
@@ -241,7 +241,7 @@ const getScheduledTasksForWork = `-- name: GetScheduledTasksForWork :many
 SELECT id, work_id, task_type, scheduled_at, executed_at, status, error_message, metadata, attempt_count, max_attempts, idempotency_key, created_at, updated_at FROM scheduler
 WHERE work_id = ?
   AND status = 'pending'
-  AND scheduled_at <= CURRENT_TIMESTAMP
+  AND datetime(scheduled_at) <= datetime('now')
 ORDER BY scheduled_at ASC
 `
 
