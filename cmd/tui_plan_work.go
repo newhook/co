@@ -120,14 +120,14 @@ func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
 	}
 }
 
-// workTilesLoadedMsg indicates work tiles have been loaded for overlay
+// workTilesLoadedMsg indicates work tiles have been loaded
 type workTilesLoadedMsg struct {
 	works              []*workProgress
 	orchestratorHealth map[string]bool // workID -> orchestrator alive
 	err                error
 }
 
-// loadWorkTiles loads work data for the overlay display
+// loadWorkTiles loads work data for the work tabs bar
 func (m *planModel) loadWorkTiles() tea.Cmd {
 	return func() tea.Msg {
 		works, err := fetchPollData(m.ctx, m.proj, "", "")

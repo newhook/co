@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
 	"github.com/muesli/reflow/wordwrap"
+	"github.com/newhook/co/internal/logging"
 )
 
 // Panel padding: tuiPanelStyle has Padding(0, 1) = 2 chars horizontal padding total
@@ -20,6 +22,9 @@ type IssueDetailsPanel struct {
 	// Focus state
 	focused bool
 
+	// Viewport for scrolling
+	viewport viewport.Model
+
 	// Data (set by coordinator)
 	focusedBead      *beadItem
 	hasActiveSession bool
@@ -28,9 +33,15 @@ type IssueDetailsPanel struct {
 
 // NewIssueDetailsPanel creates a new IssueDetailsPanel
 func NewIssueDetailsPanel() *IssueDetailsPanel {
+	vp := viewport.New(60, 20) // Initial size, will be updated
+	// Mouse wheel events are handled at the top level (planModel.handleMouseWheel)
+	// to ensure only the panel under the cursor scrolls
+	vp.MouseWheelEnabled = false
+
 	return &IssueDetailsPanel{
 		width:        60,
 		height:       20,
+		viewport:     vp,
 		childBeadMap: make(map[string]*beadItem),
 	}
 }
@@ -39,6 +50,14 @@ func NewIssueDetailsPanel() *IssueDetailsPanel {
 func (p *IssueDetailsPanel) SetSize(width, height int) {
 	p.width = width
 	p.height = height
+
+	// Update viewport dimensions
+	// Calculate available lines for content (minus border and title)
+	visibleLines := max(height-3, 1)
+
+	// Set viewport size accounting for padding (2 chars total)
+	p.viewport.Width = width - 2
+	p.viewport.Height = visibleLines
 }
 
 // SetFocus updates the focus state
@@ -53,14 +72,65 @@ func (p *IssueDetailsPanel) IsFocused() bool {
 
 // SetData updates the panel's data with the focused bead
 func (p *IssueDetailsPanel) SetData(focusedBead *beadItem, hasActiveSession bool, childBeadMap map[string]*beadItem) {
+	// Check if bead changed - reset scroll if so
+	beadChanged := p.focusedBead == nil || focusedBead == nil ||
+		(p.focusedBead != nil && focusedBead != nil && p.focusedBead.ID != focusedBead.ID)
+
 	p.focusedBead = focusedBead
 	p.hasActiveSession = hasActiveSession
 	p.childBeadMap = childBeadMap
+
+	// Reset scroll when switching beads
+	if beadChanged {
+		p.viewport.SetYOffset(0)
+	}
+}
+
+// ScrollUp scrolls the content up (shows earlier content)
+func (p *IssueDetailsPanel) ScrollUp() {
+	before := p.viewport.YOffset
+	p.viewport.ScrollUp(1)
+	logging.Debug("IssueDetailsPanel.ScrollUp",
+		"before", before,
+		"after", p.viewport.YOffset,
+		"totalLines", p.viewport.TotalLineCount(),
+		"visibleLines", p.viewport.Height)
+}
+
+// ScrollDown scrolls the content down (shows later content)
+func (p *IssueDetailsPanel) ScrollDown() {
+	before := p.viewport.YOffset
+	p.viewport.ScrollDown(1)
+	logging.Debug("IssueDetailsPanel.ScrollDown",
+		"before", before,
+		"after", p.viewport.YOffset,
+		"totalLines", p.viewport.TotalLineCount(),
+		"visibleLines", p.viewport.Height)
+}
+
+// ScrollToTop scrolls to the beginning of the content
+func (p *IssueDetailsPanel) ScrollToTop() {
+	p.viewport.GotoTop()
+}
+
+// ScrollToBottom scrolls to the end of the content
+func (p *IssueDetailsPanel) ScrollToBottom() {
+	p.viewport.GotoBottom()
+}
+
+// GetViewport returns the viewport for external updates
+func (p *IssueDetailsPanel) GetViewport() *viewport.Model {
+	return &p.viewport
 }
 
 // Render returns the details panel content (without border/panel styling)
 func (p *IssueDetailsPanel) Render(visibleLines int) string {
-	return p.renderIssueDetails(visibleLines)
+	// Update viewport content
+	fullContent := p.renderFullIssueContent()
+	p.viewport.SetContent(fullContent)
+
+	// Return viewport's rendered view
+	return p.viewport.View()
 }
 
 // RenderWithPanel returns the details panel with border styling
@@ -76,39 +146,7 @@ func (p *IssueDetailsPanel) RenderWithPanel(contentHeight int) string {
 		panelStyle = panelStyle.BorderForeground(lipgloss.Color("214"))
 	}
 
-	result := panelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
-
-	// If the result is taller than expected (due to lipgloss wrapping), fix it
-	// by removing extra lines from the INNER content while preserving borders and title
-	if lipgloss.Height(result) > contentHeight {
-		lines := strings.Split(result, "\n")
-		extraLines := len(lines) - contentHeight
-		// Need at least 4 lines: top border, title, 1+ content, bottom border
-		if extraLines > 0 && len(lines) > 3 {
-			// Keep first line (top border), second line (title), and last line (bottom border)
-			// Remove extra lines from content area only
-			topBorder := lines[0]
-			titleLine := lines[1]
-			bottomBorder := lines[len(lines)-1]
-			// Content is from lines[2] to lines[len-2]
-			contentLines := lines[2 : len(lines)-1]
-			// Calculate how many content lines we can keep
-			keepContentLines := len(contentLines) - extraLines
-			if keepContentLines < 1 {
-				keepContentLines = 1 // Always show at least 1 content line
-			}
-			// Truncate content from the end
-			if keepContentLines < len(contentLines) {
-				contentLines = contentLines[:keepContentLines]
-			}
-			lines = []string{topBorder, titleLine}
-			lines = append(lines, contentLines...)
-			lines = append(lines, bottomBorder)
-			result = strings.Join(lines, "\n")
-		}
-	}
-
-	return result
+	return panelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + detailsContent)
 }
 
 // padOrTruncateLinesDetails ensures the content has exactly targetLines lines
@@ -136,15 +174,13 @@ func padOrTruncateLinesDetails(content string, targetLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderIssueDetails renders the normal issue details view
-func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
-	var content strings.Builder
-
+// renderFullIssueContent renders all content without line limits
+func (p *IssueDetailsPanel) renderFullIssueContent() string {
 	if p.focusedBead == nil {
-		content.WriteString(tuiDimStyle.Render("No issue selected"))
-		return content.String()
+		return tuiDimStyle.Render("No issue selected")
 	}
 
+	var content strings.Builder
 	bead := p.focusedBead
 
 	// Calculate inner width (panel has Padding(0, 1) = 2 chars total horizontal padding)
@@ -180,57 +216,28 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 	content.WriteString(headerStr)
 	content.WriteString("\n")
 
-	// Truncate title to fit on one line (use innerWidth which accounts for panel padding)
+	// Truncate title to fit on one line
 	titleStr := bead.Title
 	if lipgloss.Width(titleStr) > innerWidth {
 		titleStr = truncate.StringWithTail(titleStr, uint(innerWidth), "...")
 	}
 	content.WriteString(tuiValueStyle.Render(titleStr))
 
-	// Calculate remaining lines for description and children
-	linesUsed := 2 // header + title
-	remainingLines := visibleLines - linesUsed
-
-	// Show description if we have room
-	if bead.Description != "" && remainingLines > 2 {
-		content.WriteString("\n")
+	// Show full description
+	if bead.Description != "" {
+		content.WriteString("\n\n")
 		// Word wrap description to fit within inner width
-		desc := bead.Description
-		descLines := remainingLines - 2
-		if len(bead.children) > 0 {
-			descLines = min(descLines, 3)
-		}
-		// Word wrap the description to innerWidth
-		wrapped := wordwrap.String(desc, innerWidth)
-		wrappedLines := strings.Split(wrapped, "\n")
-		// Limit to descLines
-		if len(wrappedLines) > descLines {
-			wrappedLines = wrappedLines[:descLines]
-			// Add ellipsis to last line if truncated
-			lastLine := wrappedLines[len(wrappedLines)-1]
-			if lipgloss.Width(lastLine)+3 <= innerWidth {
-				wrappedLines[len(wrappedLines)-1] = lastLine + "..."
-			} else {
-				wrappedLines[len(wrappedLines)-1] = truncate.StringWithTail(lastLine, uint(innerWidth), "...")
-			}
-		}
-		descStr := tuiDimStyle.Render(strings.Join(wrappedLines, "\n"))
-		content.WriteString(descStr)
-		linesUsed += len(wrappedLines)
-		remainingLines -= len(wrappedLines)
+		wrapped := wordwrap.String(bead.Description, innerWidth)
+		content.WriteString(tuiDimStyle.Render(wrapped))
 	}
 
-	// Show children (issues blocked by this one)
-	if len(bead.children) > 0 && remainingLines > 1 {
-		content.WriteString("\n")
-		content.WriteString(tuiLabelStyle.Render("Blocks: "))
-		linesUsed++
-		remainingLines--
+	// Show all children (issues blocked by this one)
+	if len(bead.children) > 0 {
+		content.WriteString("\n\n")
+		content.WriteString(tuiLabelStyle.Render("Blocks:"))
 
-		// Show children with status
-		maxChildren := min(len(bead.children), remainingLines)
-		for i := range maxChildren {
-			childID := bead.children[i]
+		// Show all children with status
+		for _, childID := range bead.children {
 			var childLine string
 			if child, ok := p.childBeadMap[childID]; ok {
 				childLine = fmt.Sprintf("\n  %s %s %s",
@@ -240,14 +247,11 @@ func (p *IssueDetailsPanel) renderIssueDetails(visibleLines int) string {
 			} else {
 				childLine = fmt.Sprintf("\n  ? %s", issueIDStyle.Render(childID))
 			}
-			// Truncate to fit inner width (minus 1 for the leading \n that doesn't count toward width)
+			// Truncate to fit inner width
 			if lipgloss.Width(childLine)-1 > innerWidth {
 				childLine = truncate.StringWithTail(childLine, uint(innerWidth+1), "...")
 			}
 			content.WriteString(childLine)
-		}
-		if len(bead.children) > maxChildren {
-			fmt.Fprintf(&content, "\n  ... and %d more", len(bead.children)-maxChildren)
 		}
 	}
 
