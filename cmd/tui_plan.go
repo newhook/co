@@ -106,6 +106,7 @@ type planModel struct {
 	mouseY              int
 	hoveredButton       string // which button is hovered ("n", "e", "w", "p", etc.)
 	hoveredIssue        int    // index of hovered issue, -1 if none
+	lastWheelScroll     time.Time // For debouncing rapid wheel events
 	hoveredWorkItem     int    // index of hovered work detail item, -1 if none
 	hoveredDialogButton string // which dialog button is hovered ("ok", "cancel")
 	hoveredTabID        string // which work tab is hovered
@@ -287,6 +288,13 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mouseX = msg.X
 		m.mouseY = msg.Y
 
+		// Debug: log ALL mouse events
+		logging.Debug("tea.MouseMsg received",
+			"x", msg.X,
+			"y", msg.Y,
+			"action", msg.Action,
+			"button", msg.Button)
+
 		// Calculate status bar Y position (at bottom of view)
 		statusBarY := m.height - 1
 
@@ -361,6 +369,12 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Handle mouse wheel events - route to appropriate panel based on mouse position
+		if msg.Action == tea.MouseActionPress &&
+			(msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown) {
+			return m.handleMouseWheel(msg)
+		}
+
 		// Handle clicks on status bar buttons
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			// Check for clicks on tabs bar
@@ -370,10 +384,15 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activePanel = PanelWorkTabs
 
 				clickedWorkID := m.workTabsBar.HandleClick(msg.X)
+				logging.Debug("Tab click handler",
+					"clickedWorkID", clickedWorkID,
+					"currentFocusedWorkID", m.focusedWorkID,
+					"workTilesCount", len(m.workTiles))
 				if clickedWorkID != "" {
 					// Focus the clicked work
 					if m.focusedWorkID == clickedWorkID {
 						// Already focused - unfocus
+						logging.Debug("Unfocusing work", "workID", clickedWorkID)
 						m.focusedWorkID = ""
 						m.filters.task = ""     // Clear work selection filter
 						m.filters.children = ""
@@ -383,6 +402,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.refreshData()
 					}
 					// Focus the new work
+					logging.Debug("Focusing work", "workID", clickedWorkID)
 					m.focusedWorkID = clickedWorkID
 					m.viewMode = ViewNormal
 					// Keep focus on work tabs instead of immediately jumping to work details
@@ -663,6 +683,11 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refreshData(), m.loadWorkTiles())
 
 	case workTilesLoadedMsg:
+		logging.Debug("workTilesLoadedMsg received",
+			"worksCount", len(msg.works),
+			"hasError", msg.err != nil,
+			"focusedWorkID", m.focusedWorkID)
+
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("Failed to load works: %v", msg.err)
 			m.statusIsError = true
@@ -675,6 +700,10 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.workTabsBar.SetWorkTiles(msg.works)
 		m.workTabsBar.SetOrchestratorHealth(msg.orchestratorHealth)
 		m.loading = false
+
+		logging.Debug("workTilesLoadedMsg processed",
+			"workTilesSet", len(m.workTiles),
+			"focusedWorkID", m.focusedWorkID)
 
 		// Check for pending work selection (from [0-9] hotkey)
 		if m.pendingWorkSelectIndex >= 0 {
@@ -1539,6 +1568,12 @@ func (m *planModel) cleanup() {
 
 // syncPanels synchronizes data from planModel to the panel components
 func (m *planModel) syncPanels() {
+	logging.Debug("syncPanels() called",
+		"m.height", m.height,
+		"m.width", m.width,
+		"focusedWorkID", m.focusedWorkID,
+		"workTilesCount", len(m.workTiles))
+
 	// Calculate column widths
 	totalContentWidth := m.width - 4
 	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
@@ -1633,9 +1668,6 @@ func (m *planModel) syncPanels() {
 
 // View implements tea.Model
 func (m *planModel) View() string {
-	// Sync data to panels before rendering
-	m.syncPanels()
-
 	// Handle dialogs
 	switch m.viewMode {
 	case ViewCreateBead, ViewCreateBeadInline, ViewAddChildBead, ViewEditBead:
@@ -1665,24 +1697,64 @@ func (m *planModel) View() string {
 	// Render status bar using the panel
 	statusBar := m.statusBar.Render()
 
-	// Render work tabs bar (only if there are works)
+	// Render work tabs bar (always visible)
 	workTabsBar := m.workTabsBar.Render()
 	tabsBarHeight := m.workTabsBar.Height()
 
-	// Normal view with tabs bar at top
-	if tabsBarHeight > 0 {
-		// Adjust content height for tabs bar
-		originalHeight := m.height
-		m.height = m.height - tabsBarHeight
-		m.syncPanels() // Re-sync with new height
-		content := m.renderTwoColumnLayout()
-		m.height = originalHeight
-		return lipgloss.JoinVertical(lipgloss.Left, workTabsBar, content, statusBar)
+	logging.Debug("View() rendering",
+		"m.height", m.height,
+		"tabsBarHeight", tabsBarHeight,
+		"focusedWorkID", m.focusedWorkID,
+		"workTilesCount", len(m.workTiles),
+		"workTabsBar_empty", workTabsBar == "",
+		"workTabsBar_len", len(workTabsBar))
+
+	// Adjust content height for tabs bar
+	originalHeight := m.height
+	m.height = m.height - tabsBarHeight
+	m.syncPanels() // Re-sync with new height
+	content := m.renderTwoColumnLayout()
+	m.height = originalHeight
+
+	logging.Debug("View() before final assembly",
+		"focusedWorkID", m.focusedWorkID,
+		"workTabsBar_len", len(workTabsBar),
+		"content_height", lipgloss.Height(content),
+		"statusBar_height", lipgloss.Height(statusBar))
+
+	// Always include tab bar at top
+	result := lipgloss.JoinVertical(lipgloss.Left, workTabsBar, content, statusBar)
+
+	// Extra debugging to understand what's being rendered
+	logging.Debug("View() components",
+		"workTabsBar_first_50_chars", workTabsBar[:min(50, len(workTabsBar))],
+		"workTabsBar_actual_height", lipgloss.Height(workTabsBar))
+
+	logging.Debug("View() final",
+		"result_height", lipgloss.Height(result),
+		"workTabsBar_height", lipgloss.Height(workTabsBar),
+		"content_height", lipgloss.Height(content),
+		"statusBar_height", lipgloss.Height(statusBar),
+		"focusedWorkID_in_final", m.focusedWorkID)
+
+	// Extra debugging - let's see what the actual result looks like
+	lines := strings.Split(result, "\n")
+	if len(lines) > 0 {
+		logging.Debug("View() result first line",
+			"first_line_len", len(lines[0]),
+			"first_line_preview", lines[0][:min(80, len(lines[0]))])
 	}
 
-	// No tabs bar
-	content := m.renderTwoColumnLayout()
-	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	// Check if result height exceeds terminal height - THIS IS THE PROBLEM!
+	actualTerminalHeight := originalHeight  // This is the real terminal height
+	logging.Debug("View() HEIGHT OVERFLOW CHECK",
+		"terminal_height", actualTerminalHeight,
+		"result_height", lipgloss.Height(result),
+		"OVERFLOW", lipgloss.Height(result) > actualTerminalHeight,
+		"overflow_by", lipgloss.Height(result) - actualTerminalHeight,
+		"lines_in_result", len(lines))
+
+	return result
 }
 
 // beadsForBranch is a minimal struct for branch name generation

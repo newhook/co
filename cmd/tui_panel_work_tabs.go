@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/logging"
 )
 
 // WorkState represents the current state of a work for display purposes
@@ -70,11 +71,18 @@ func (b *WorkTabsBar) SetSize(width int) {
 
 // SetWorkTiles updates the work tiles data
 func (b *WorkTabsBar) SetWorkTiles(workTiles []*workProgress) {
+	logging.Debug("WorkTabsBar.SetWorkTiles()",
+		"oldCount", len(b.workTiles),
+		"newCount", len(workTiles))
 	b.workTiles = workTiles
 }
 
 // SetFocusedWorkID sets which work is currently focused
 func (b *WorkTabsBar) SetFocusedWorkID(id string) {
+	logging.Debug("WorkTabsBar.SetFocusedWorkID()",
+		"oldID", b.focusedWorkID,
+		"newID", id,
+		"workTilesCount", len(b.workTiles))
 	b.focusedWorkID = id
 }
 
@@ -105,9 +113,10 @@ func (b *WorkTabsBar) GetSpinner() spinner.Model {
 
 // Height returns the height of the tab bar (always 1 line)
 func (b *WorkTabsBar) Height() int {
-	if len(b.workTiles) == 0 {
-		return 0
-	}
+	// ALWAYS return 1 - tab bar should always be visible
+	logging.Debug("WorkTabsBar.Height()",
+		"workTilesCount", len(b.workTiles),
+		"height", 1)
 	return 1
 }
 
@@ -143,9 +152,10 @@ func (b *WorkTabsBar) getWorkState(work *workProgress) WorkState {
 
 // Render renders the tab bar with zellij-like styling
 func (b *WorkTabsBar) Render() string {
-	if len(b.workTiles) == 0 {
-		return ""
-	}
+	logging.Debug("WorkTabsBar.Render() called",
+		"workTilesCount", len(b.workTiles),
+		"focusedWorkID", b.focusedWorkID,
+		"activePanel", b.activePanel)
 
 	// Clear tab regions for fresh tracking
 	b.tabRegions = nil
@@ -270,7 +280,11 @@ func (b *WorkTabsBar) Render() string {
 		Background(barBg).
 		Width(b.width)
 
-	return barStyle.Render(content)
+	result := barStyle.Render(content)
+	logging.Debug("WorkTabsBar.Render() returning",
+		"resultLen", len(result),
+		"width", b.width)
+	return result
 }
 
 // DetectHoveredTab returns the work ID of the tab at the given X position
