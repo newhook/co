@@ -494,11 +494,14 @@ type WorkCreateOptions struct {
 // This is the core work creation logic that can be called from both the CLI and TUI.
 // The rootIssueID is required and represents the single root issue this work is associated with.
 func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName, baseBranch, rootIssueID string, opts ...WorkCreateOptions) (*WorkCreateResult, error) {
+	logging.Debug("CreateWorkWithBranch called", "branchName", branchName, "baseBranch", baseBranch, "rootIssueID", rootIssueID)
+
 	// Apply options
 	var opt WorkCreateOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
+	logging.Debug("CreateWorkWithBranch options", "silent", opt.Silent, "auto", opt.Auto)
 
 	// Determine output writer based on silent option
 	var output io.Writer = os.Stdout
@@ -539,10 +542,12 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	worktreePath := filepath.Join(workDir, "tree")
 
 	// Create worktree with new branch
+	logging.Debug("CreateWorkWithBranch creating worktree", "workID", workID, "worktreePath", worktreePath)
 	if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
 		os.RemoveAll(workDir)
 		return nil, err
 	}
+	logging.Debug("CreateWorkWithBranch worktree created successfully", "workID", workID)
 
 	// Initialize mise in worktree if needed
 	if err := mise.InitializeWithOutput(worktreePath, output); err != nil {
@@ -559,12 +564,15 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 
 	// Create work record and schedule git push atomically (transactional outbox pattern)
 	// This ensures both the work record and scheduled task exist together
+	logging.Debug("CreateWorkWithBranch inserting DB record", "workID", workID, "rootIssueID", rootIssueID, "auto", opt.Auto)
 	idempotencyKey, err := proj.DB.CreateWorkAndSchedulePush(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID, opt.Auto)
 	if err != nil {
+		logging.Error("CreateWorkWithBranch DB insert failed", "workID", workID, "error", err)
 		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return nil, fmt.Errorf("failed to create work record: %w", err)
 	}
+	logging.Debug("CreateWorkWithBranch DB record created successfully", "workID", workID, "idempotencyKey", idempotencyKey)
 
 	// Attempt immediate push (optimistic execution)
 	// If this succeeds, we mark the scheduled task as completed
