@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/process"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
@@ -293,12 +294,15 @@ func RunPlanSession(ctx context.Context, beadID string, workDir string, stdin io
 // The function returns immediately after spawning - the orchestrator runs in the tab.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
 func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) error {
+	logging.Debug("SpawnWorkOrchestrator called", "workID", workID, "projectName", projectName, "workDir", workDir)
 	sessionName := SessionNameForProject(projectName)
 	tabName := FormatTabName("work", workID, friendlyName)
 	zc := zellij.New()
 
 	// Ensure session exists
+	logging.Debug("SpawnWorkOrchestrator ensuring session exists", "sessionName", sessionName)
 	if err := zc.EnsureSession(ctx, sessionName); err != nil {
+		logging.Error("SpawnWorkOrchestrator EnsureSession failed", "sessionName", sessionName, "error", err)
 		return err
 	}
 
@@ -342,6 +346,7 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 		}
 	}
 
+	logging.Debug("SpawnWorkOrchestrator completed successfully", "workID", workID, "sessionName", sessionName, "tabName", tabName)
 	fmt.Fprintf(w, "Work orchestrator spawned in zellij session %s, tab %s\n", sessionName, tabName)
 	return nil
 }
