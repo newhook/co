@@ -35,6 +35,8 @@ const (
 	TaskTypeGitPush             = "git_push"
 	TaskTypeGitHubComment       = "github_comment"
 	TaskTypeGitHubResolveThread = "github_resolve_thread"
+	TaskTypeCreateWorktree      = "create_worktree"
+	TaskTypeSpawnOrchestrator   = "spawn_orchestrator"
 )
 
 // Default max attempts for retry tasks
