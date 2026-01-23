@@ -137,6 +137,12 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 	}
 	fmt.Fprintf(&content, "Status: %s\n", statusStyle.Render(p.focusedWork.work.Status))
 
+	// PR URL (if available)
+	if p.focusedWork.work.PRURL != "" {
+		prStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
+		fmt.Fprintf(&content, "PR: %s\n", prStyle.Render(p.focusedWork.work.PRURL))
+	}
+
 	// Creation time
 	if p.focusedWork.work.CreatedAt.Unix() > 0 {
 		timeAgo := time.Since(p.focusedWork.work.CreatedAt)
