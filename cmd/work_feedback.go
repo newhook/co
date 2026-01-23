@@ -86,6 +86,23 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 	integration := github.NewIntegration(rules)
 
+	// Extract and store PR status (CI status, approval status)
+	if !quiet {
+		fmt.Println("\nExtracting PR status...")
+	}
+	prStatusInfo, err := integration.ExtractPRStatus(ctx, work.PRURL)
+	if err != nil {
+		if !quiet {
+			fmt.Printf("Warning: failed to extract PR status: %v\n", err)
+		}
+	} else {
+		// Check if status has changed and update the database
+		statusChanged := updatePRStatusIfChanged(ctx, database, work, prStatusInfo, quiet)
+		if statusChanged && !quiet {
+			fmt.Println("PR status has changed, marked as unseen")
+		}
+	}
+
 	// Fetch and process PR feedback
 	if !quiet {
 		fmt.Println("\nFetching PR feedback...")
@@ -387,4 +404,79 @@ func detectWork(ctx context.Context, proj *project.Project, database *db.DB) (*d
 	}
 
 	return work, nil
+}
+
+// updatePRStatusIfChanged compares the new PR status with the stored status
+// and updates the database if anything changed. Returns true if status changed.
+func updatePRStatusIfChanged(ctx context.Context, database *db.DB, work *db.Work, newStatus *github.PRStatusInfo, quiet bool) bool {
+	// Get current approvers from work (stored as JSON)
+	currentApprovers := github.ApproversFromJSON(work.Approvers)
+
+	// Check if anything changed
+	ciChanged := work.CIStatus != newStatus.CIStatus
+	approvalChanged := work.ApprovalStatus != newStatus.ApprovalStatus
+	approversChanged := !stringSlicesEqual(currentApprovers, newStatus.Approvers)
+
+	if !ciChanged && !approvalChanged && !approversChanged {
+		// No changes
+		if !quiet {
+			fmt.Printf("PR status unchanged: CI=%s, Approval=%s\n", work.CIStatus, work.ApprovalStatus)
+		}
+		return false
+	}
+
+	// Log what changed
+	if !quiet {
+		if ciChanged {
+			fmt.Printf("CI status changed: %s -> %s\n", work.CIStatus, newStatus.CIStatus)
+		}
+		if approvalChanged {
+			fmt.Printf("Approval status changed: %s -> %s\n", work.ApprovalStatus, newStatus.ApprovalStatus)
+		}
+		if approversChanged {
+			fmt.Printf("Approvers changed: %v -> %v\n", currentApprovers, newStatus.Approvers)
+		}
+	}
+
+	// Convert approvers to JSON
+	approversJSON := github.ApproversToJSON(newStatus.Approvers)
+
+	// Update the database
+	if err := database.UpdateWorkPRStatus(ctx, work.ID, newStatus.CIStatus, newStatus.ApprovalStatus, approversJSON); err != nil {
+		if !quiet {
+			fmt.Printf("Warning: failed to update PR status: %v\n", err)
+		}
+		return false
+	}
+
+	// Mark as having unseen changes
+	if err := database.SetWorkHasUnseenPRChanges(ctx, work.ID, true); err != nil {
+		if !quiet {
+			fmt.Printf("Warning: failed to set unseen PR changes: %v\n", err)
+		}
+	}
+
+	return true
+}
+
+// stringSlicesEqual compares two string slices for equality (order-independent)
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	// Create maps for comparison
+	aMap := make(map[string]int)
+	for _, s := range a {
+		aMap[s]++
+	}
+
+	for _, s := range b {
+		if aMap[s] == 0 {
+			return false
+		}
+		aMap[s]--
+	}
+
+	return true
 }

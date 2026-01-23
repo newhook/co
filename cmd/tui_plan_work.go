@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/process"
 )
 
@@ -52,7 +53,9 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 // 4. Returns immediately (control plane handles worktree creation + orchestrator spawning)
 func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
-		// Expand the bead (handles epics and transitive deps)
+		logging.Debug("executeCreateWork started", "beadID", beadID, "branchName", branchName, "auto", auto)
+
+		// Collect the bead and any transitive dependencies (or children if it has parent-child relationships)
 		allIssueIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
 		if err != nil {
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
@@ -65,14 +68,19 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		// Create work asynchronously (DB operations only, schedules tasks for control plane)
 		result, err := CreateWorkAsync(m.ctx, m.proj, branchName, "main", beadID, auto)
 		if err != nil {
+			logging.Error("executeCreateWork CreateWorkWithBranch failed", "beadID", beadID, "error", err)
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
+		logging.Debug("executeCreateWork CreateWorkWithBranch succeeded", "workID", result.WorkID)
 
 		// Add beads to the work
+		logging.Debug("executeCreateWork adding beads to work", "workID", result.WorkID, "beadCount", len(allIssueIDs))
 		if err := addBeadsToWork(m.ctx, m.proj, result.WorkID, allIssueIDs); err != nil {
+			logging.Error("executeCreateWork addBeadsToWork failed", "workID", result.WorkID, "error", err)
 			// Work was created but beads couldn't be added - don't fail completely
 			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
 		}
+		logging.Debug("executeCreateWork beads added successfully", "workID", result.WorkID)
 
 		// Ensure control plane is running to process the worktree creation task
 		_, err = EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
@@ -80,6 +88,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 			// Non-fatal: work was created but control plane might need manual start
 			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but control plane failed: %w", err)}
 		}
+		logging.Debug("executeCreateWork completed successfully", "workID", result.WorkID)
 
 		return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}
 	}

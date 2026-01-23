@@ -163,8 +163,8 @@ func ensureUniqueBranchName(ctx context.Context, repoPath, baseName string) (str
 }
 
 // collectIssueIDsForAutomatedWorkflow collects all issue IDs to include in the workflow.
-// For an issue with dependencies, it includes all transitive dependencies.
-// For an epic issue, it includes all child issues (non-epic).
+// For an issue with parent-child dependents, it includes all children recursively.
+// For other issues, it includes all transitive dependencies.
 func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, beadsClient *beads.Client) ([]string, error) {
 	if beadsClient == nil {
 		return nil, fmt.Errorf("beads client is nil")
@@ -179,8 +179,7 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, bea
 		return nil, fmt.Errorf("bead %s not found", beadID)
 	}
 
-	// Check if this issue has children (is an epic)
-	// Children are in the dependents with parent-child relationship
+	// Check if this issue has children (parent-child relationships)
 	var hasChildren bool
 	for _, dep := range mainIssue.Dependents {
 		if dep.Type == "parent-child" {
@@ -190,13 +189,13 @@ func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, bea
 	}
 
 	if hasChildren {
-		// For epics, collect all children
+		// Collect all children recursively
 		allIssues, err := beadsClient.GetBeadWithChildren(ctx, beadID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get children for epic %s: %w", beadID, err)
+			return nil, fmt.Errorf("failed to get children for %s: %w", beadID, err)
 		}
 
-		// Include all open issues (including epics) for tracking
+		// Include all open issues for tracking
 		var result []string
 		for _, issue := range allIssues {
 			// Skip closed issues

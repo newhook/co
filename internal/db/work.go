@@ -18,19 +18,23 @@ import (
 // workToLocal converts an sqlc.Work to local Work
 func workToLocal(w *sqlc.Work) *Work {
 	work := &Work{
-		ID:            w.ID,
-		Status:        w.Status,
-		Name:          w.Name,
-		ZellijSession: w.ZellijSession,
-		ZellijTab:     w.ZellijTab,
-		WorktreePath:  w.WorktreePath,
-		BranchName:    w.BranchName,
-		BaseBranch:    w.BaseBranch,
-		RootIssueID:   w.RootIssueID,
-		PRURL:         w.PrUrl,
-		ErrorMessage:  w.ErrorMessage,
-		CreatedAt:     w.CreatedAt,
-		Auto:          w.Auto,
+		ID:                 w.ID,
+		Status:             w.Status,
+		Name:               w.Name,
+		ZellijSession:      w.ZellijSession,
+		ZellijTab:          w.ZellijTab,
+		WorktreePath:       w.WorktreePath,
+		BranchName:         w.BranchName,
+		BaseBranch:         w.BaseBranch,
+		RootIssueID:        w.RootIssueID,
+		PRURL:              w.PrUrl,
+		ErrorMessage:       w.ErrorMessage,
+		CreatedAt:          w.CreatedAt,
+		Auto:               w.Auto,
+		CIStatus:           w.CiStatus,
+		ApprovalStatus:     w.ApprovalStatus,
+		Approvers:          w.Approvers,
+		HasUnseenPRChanges: w.HasUnseenPrChanges,
 	}
 	if w.StartedAt.Valid {
 		work.StartedAt = &w.StartedAt.Time
@@ -38,26 +42,34 @@ func workToLocal(w *sqlc.Work) *Work {
 	if w.CompletedAt.Valid {
 		work.CompletedAt = &w.CompletedAt.Time
 	}
+	if w.LastPrPollAt.Valid {
+		work.LastPRPollAt = &w.LastPrPollAt.Time
+	}
 	return work
 }
 
 // Work represents a work unit (group of tasks) in the database.
 type Work struct {
-	ID            string
-	Status        string
-	Name          string
-	ZellijSession string
-	ZellijTab     string
-	WorktreePath  string
-	BranchName    string
-	BaseBranch    string
-	RootIssueID   string
-	PRURL         string
-	ErrorMessage  string
-	StartedAt     *time.Time
-	CompletedAt   *time.Time
-	CreatedAt     time.Time
-	Auto          bool
+	ID                 string
+	Status             string
+	Name               string
+	ZellijSession      string
+	ZellijTab          string
+	WorktreePath       string
+	BranchName         string
+	BaseBranch         string
+	RootIssueID        string
+	PRURL              string
+	ErrorMessage       string
+	StartedAt          *time.Time
+	CompletedAt        *time.Time
+	CreatedAt          time.Time
+	Auto               bool
+	CIStatus           string     // pending, success, failure
+	ApprovalStatus     string     // pending, approved, changes_requested
+	Approvers          string     // JSON array of usernames
+	LastPRPollAt       *time.Time
+	HasUnseenPRChanges bool
 }
 
 // CreateWork creates a new work unit.
@@ -232,34 +244,48 @@ func (db *DB) CompleteWorkAndScheduleFeedback(ctx context.Context, id, prURL str
 		return fmt.Errorf("work %s not found", id)
 	}
 
-	// If PR URL provided, schedule feedback polling tasks
+	// If PR URL provided, schedule feedback polling tasks (if not already scheduled)
 	if prURL != "" {
-		// Schedule PR feedback check
-		prFeedbackCheckTime := now.Add(prFeedbackInterval)
-		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-			ID:          uuid.New().String(),
-			WorkID:      id,
-			TaskType:    TaskTypePRFeedback,
-			ScheduledAt: prFeedbackCheckTime,
-			Status:      TaskStatusPending,
-			Metadata:    "{}",
+		// Check if PR feedback task already exists
+		existingPRFeedback, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+			WorkID:   id,
+			TaskType: TaskTypePRFeedback,
 		})
-		if err != nil {
-			return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+		if existingPRFeedback.ID == "" {
+			// Schedule PR feedback check
+			prFeedbackCheckTime := now.Add(prFeedbackInterval)
+			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+				ID:          uuid.New().String(),
+				WorkID:      id,
+				TaskType:    TaskTypePRFeedback,
+				ScheduledAt: prFeedbackCheckTime,
+				Status:      TaskStatusPending,
+				Metadata:    "{}",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+			}
 		}
 
-		// Schedule comment resolution check
-		commentResolutionCheckTime := now.Add(commentResolutionInterval)
-		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-			ID:          uuid.New().String(),
-			WorkID:      id,
-			TaskType:    TaskTypeCommentResolution,
-			ScheduledAt: commentResolutionCheckTime,
-			Status:      TaskStatusPending,
-			Metadata:    "{}",
+		// Check if comment resolution task already exists
+		existingCommentRes, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+			WorkID:   id,
+			TaskType: TaskTypeCommentResolution,
 		})
-		if err != nil {
-			return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+		if existingCommentRes.ID == "" {
+			// Schedule comment resolution check
+			commentResolutionCheckTime := now.Add(commentResolutionInterval)
+			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+				ID:          uuid.New().String(),
+				WorkID:      id,
+				TaskType:    TaskTypeCommentResolution,
+				ScheduledAt: commentResolutionCheckTime,
+				Status:      TaskStatusPending,
+				Metadata:    "{}",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+			}
 		}
 	}
 
@@ -327,34 +353,48 @@ func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string,
 		return fmt.Errorf("work %s not found", id)
 	}
 
-	// If PR URL provided, schedule feedback polling tasks
+	// If PR URL provided, schedule feedback polling tasks (if not already scheduled)
 	if prURL != "" {
-		// Schedule PR feedback check
-		prFeedbackCheckTime := now.Add(prFeedbackInterval)
-		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-			ID:          uuid.New().String(),
-			WorkID:      id,
-			TaskType:    TaskTypePRFeedback,
-			ScheduledAt: prFeedbackCheckTime,
-			Status:      TaskStatusPending,
-			Metadata:    "{}",
+		// Check if PR feedback task already exists
+		existingPRFeedback, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+			WorkID:   id,
+			TaskType: TaskTypePRFeedback,
 		})
-		if err != nil {
-			return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+		if existingPRFeedback.ID == "" {
+			// Schedule PR feedback check
+			prFeedbackCheckTime := now.Add(prFeedbackInterval)
+			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+				ID:          uuid.New().String(),
+				WorkID:      id,
+				TaskType:    TaskTypePRFeedback,
+				ScheduledAt: prFeedbackCheckTime,
+				Status:      TaskStatusPending,
+				Metadata:    "{}",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+			}
 		}
 
-		// Schedule comment resolution check
-		commentResolutionCheckTime := now.Add(commentResolutionInterval)
-		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-			ID:          uuid.New().String(),
-			WorkID:      id,
-			TaskType:    TaskTypeCommentResolution,
-			ScheduledAt: commentResolutionCheckTime,
-			Status:      TaskStatusPending,
-			Metadata:    "{}",
+		// Check if comment resolution task already exists
+		existingCommentRes, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+			WorkID:   id,
+			TaskType: TaskTypeCommentResolution,
 		})
-		if err != nil {
-			return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+		if existingCommentRes.ID == "" {
+			// Schedule comment resolution check
+			commentResolutionCheckTime := now.Add(commentResolutionInterval)
+			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+				ID:          uuid.New().String(),
+				WorkID:      id,
+				TaskType:    TaskTypeCommentResolution,
+				ScheduledAt: commentResolutionCheckTime,
+				Status:      TaskStatusPending,
+				Metadata:    "{}",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+			}
 		}
 	}
 
@@ -643,4 +683,81 @@ func (db *DB) DeleteWork(ctx context.Context, workID string) error {
 	}
 
 	return nil
+}
+
+// UpdateWorkPRStatus updates the PR status fields for a work.
+// ciStatus: pending, success, failure
+// approvalStatus: pending, approved, changes_requested
+// approvers: JSON array of approver usernames
+func (db *DB) UpdateWorkPRStatus(ctx context.Context, id, ciStatus, approvalStatus, approvers string) error {
+	now := time.Now()
+	rows, err := db.queries.UpdateWorkPRStatus(ctx, sqlc.UpdateWorkPRStatusParams{
+		CiStatus:       ciStatus,
+		ApprovalStatus: approvalStatus,
+		Approvers:      approvers,
+		LastPrPollAt:   nullTime(now),
+		ID:             id,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update PR status for work %s: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found", id)
+	}
+	return nil
+}
+
+// SetWorkHasUnseenPRChanges sets the has_unseen_pr_changes flag for a work.
+func (db *DB) SetWorkHasUnseenPRChanges(ctx context.Context, id string, hasChanges bool) error {
+	rows, err := db.queries.SetWorkHasUnseenPRChanges(ctx, sqlc.SetWorkHasUnseenPRChangesParams{
+		HasUnseenPrChanges: hasChanges,
+		ID:                 id,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set unseen PR changes for work %s: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found", id)
+	}
+	return nil
+}
+
+// MarkWorkPRSeen marks the PR changes as seen for a work.
+func (db *DB) MarkWorkPRSeen(ctx context.Context, id string) error {
+	rows, err := db.queries.MarkWorkPRSeen(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to mark PR changes as seen for work %s: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found", id)
+	}
+	return nil
+}
+
+// GetWorksWithUnseenChanges returns all works with unseen PR changes.
+func (db *DB) GetWorksWithUnseenChanges(ctx context.Context) ([]*Work, error) {
+	works, err := db.queries.GetWorksWithUnseenChanges(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get works with unseen changes: %w", err)
+	}
+
+	result := make([]*Work, len(works))
+	for i, w := range works {
+		result[i] = workToLocal(&w)
+	}
+	return result, nil
+}
+
+// GetWorksWithPRs returns all works that have a PR URL.
+func (db *DB) GetWorksWithPRs(ctx context.Context) ([]*Work, error) {
+	works, err := db.queries.GetWorksWithPRs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get works with PRs: %w", err)
+	}
+
+	result := make([]*Work, len(works))
+	for i, w := range works {
+		result[i] = workToLocal(&w)
+	}
+	return result, nil
 }

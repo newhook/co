@@ -92,6 +92,8 @@ type Querier interface {
 	GetWorkBeads(ctx context.Context, workID string) ([]WorkBead, error)
 	GetWorkByDirectory(ctx context.Context, worktreePath string) (Work, error)
 	GetWorkTasks(ctx context.Context, workID string) ([]GetWorkTasksRow, error)
+	GetWorksWithPRs(ctx context.Context) ([]Work, error)
+	GetWorksWithUnseenChanges(ctx context.Context) ([]Work, error)
 	HasExistingFeedback(ctx context.Context, arg HasExistingFeedbackParams) (int64, error)
 	HasPendingDependencies(ctx context.Context, taskID string) (bool, error)
 	IdleWork(ctx context.Context, id string) (int64, error)
@@ -115,6 +117,7 @@ type Querier interface {
 	MarkTaskCompletedByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) error
 	MarkTaskExecuting(ctx context.Context, id string) error
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
+	MarkWorkPRSeen(ctx context.Context, id string) (int64, error)
 	RecordMigration(ctx context.Context, version string) error
 	RecordMigrationWithDown(ctx context.Context, arg RecordMigrationWithDownParams) error
 	RemoveWorkBead(ctx context.Context, arg RemoveWorkBeadParams) (int64, error)
@@ -125,6 +128,7 @@ type Querier interface {
 	RestartWork(ctx context.Context, id string) (int64, error)
 	ResumeWork(ctx context.Context, id string) (int64, error)
 	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error
+	SetWorkHasUnseenPRChanges(ctx context.Context, arg SetWorkHasUnseenPRChangesParams) (int64, error)
 	SpawnTask(ctx context.Context, arg SpawnTaskParams) (int64, error)
 	StartBead(ctx context.Context, arg StartBeadParams) error
 	StartTask(ctx context.Context, arg StartTaskParams) (int64, error)
@@ -132,6 +136,7 @@ type Querier interface {
 	UpdateMigrationDownSQL(ctx context.Context, arg UpdateMigrationDownSQLParams) error
 	UpdateScheduledTaskTime(ctx context.Context, arg UpdateScheduledTaskTimeParams) error
 	UpdateTaskActivity(ctx context.Context, arg UpdateTaskActivityParams) (int64, error)
+	UpdateWorkPRStatus(ctx context.Context, arg UpdateWorkPRStatusParams) (int64, error)
 	UpdateWorkWorktreePath(ctx context.Context, arg UpdateWorkWorktreePathParams) (int64, error)
 	WatchSchedulerChanges(ctx context.Context, updatedAt time.Time) ([]Scheduler, error)
 }

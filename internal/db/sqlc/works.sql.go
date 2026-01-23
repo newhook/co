@@ -166,7 +166,12 @@ SELECT id, status,
        started_at,
        completed_at,
        created_at,
-       auto
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
 FROM works
 WHERE id = ?
 `
@@ -190,6 +195,11 @@ func (q *Queries) GetWork(ctx context.Context, id string) (Work, error) {
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.Auto,
+		&i.CiStatus,
+		&i.ApprovalStatus,
+		&i.Approvers,
+		&i.LastPrPollAt,
+		&i.HasUnseenPrChanges,
 	)
 	return i, err
 }
@@ -208,7 +218,12 @@ SELECT id, status,
        started_at,
        completed_at,
        created_at,
-       auto
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
 FROM works
 WHERE worktree_path LIKE ?
 LIMIT 1
@@ -233,6 +248,11 @@ func (q *Queries) GetWorkByDirectory(ctx context.Context, worktreePath string) (
 		&i.CompletedAt,
 		&i.CreatedAt,
 		&i.Auto,
+		&i.CiStatus,
+		&i.ApprovalStatus,
+		&i.Approvers,
+		&i.LastPrPollAt,
+		&i.HasUnseenPrChanges,
 	)
 	return i, err
 }
@@ -312,6 +332,144 @@ func (q *Queries) GetWorkTasks(ctx context.Context, workID string) ([]GetWorkTas
 	return items, nil
 }
 
+const getWorksWithPRs = `-- name: GetWorksWithPRs :many
+SELECT id, status,
+       name,
+       zellij_session,
+       zellij_tab,
+       worktree_path,
+       branch_name,
+       base_branch,
+       root_issue_id,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
+FROM works
+WHERE pr_url != ''
+ORDER BY created_at DESC
+`
+
+func (q *Queries) GetWorksWithPRs(ctx context.Context) ([]Work, error) {
+	rows, err := q.db.QueryContext(ctx, getWorksWithPRs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Work{}
+	for rows.Next() {
+		var i Work
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.Name,
+			&i.ZellijSession,
+			&i.ZellijTab,
+			&i.WorktreePath,
+			&i.BranchName,
+			&i.BaseBranch,
+			&i.RootIssueID,
+			&i.PrUrl,
+			&i.ErrorMessage,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.CreatedAt,
+			&i.Auto,
+			&i.CiStatus,
+			&i.ApprovalStatus,
+			&i.Approvers,
+			&i.LastPrPollAt,
+			&i.HasUnseenPrChanges,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorksWithUnseenChanges = `-- name: GetWorksWithUnseenChanges :many
+SELECT id, status,
+       name,
+       zellij_session,
+       zellij_tab,
+       worktree_path,
+       branch_name,
+       base_branch,
+       root_issue_id,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
+FROM works
+WHERE has_unseen_pr_changes = TRUE
+ORDER BY created_at DESC
+`
+
+func (q *Queries) GetWorksWithUnseenChanges(ctx context.Context) ([]Work, error) {
+	rows, err := q.db.QueryContext(ctx, getWorksWithUnseenChanges)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Work{}
+	for rows.Next() {
+		var i Work
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.Name,
+			&i.ZellijSession,
+			&i.ZellijTab,
+			&i.WorktreePath,
+			&i.BranchName,
+			&i.BaseBranch,
+			&i.RootIssueID,
+			&i.PrUrl,
+			&i.ErrorMessage,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.CreatedAt,
+			&i.Auto,
+			&i.CiStatus,
+			&i.ApprovalStatus,
+			&i.Approvers,
+			&i.LastPrPollAt,
+			&i.HasUnseenPrChanges,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const idleWork = `-- name: IdleWork :execrows
 UPDATE works
 SET status = 'idle'
@@ -371,7 +529,12 @@ SELECT id, status,
        started_at,
        completed_at,
        created_at,
-       auto
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
 FROM works
 ORDER BY created_at DESC
 `
@@ -401,6 +564,11 @@ func (q *Queries) ListWorks(ctx context.Context) ([]Work, error) {
 			&i.CompletedAt,
 			&i.CreatedAt,
 			&i.Auto,
+			&i.CiStatus,
+			&i.ApprovalStatus,
+			&i.Approvers,
+			&i.LastPrPollAt,
+			&i.HasUnseenPrChanges,
 		); err != nil {
 			return nil, err
 		}
@@ -429,7 +597,12 @@ SELECT id, status,
        started_at,
        completed_at,
        created_at,
-       auto
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
 FROM works
 WHERE status = ?
 ORDER BY created_at DESC
@@ -460,6 +633,11 @@ func (q *Queries) ListWorksByStatus(ctx context.Context, status string) ([]Work,
 			&i.CompletedAt,
 			&i.CreatedAt,
 			&i.Auto,
+			&i.CiStatus,
+			&i.ApprovalStatus,
+			&i.Approvers,
+			&i.LastPrPollAt,
+			&i.HasUnseenPrChanges,
 		); err != nil {
 			return nil, err
 		}
@@ -472,6 +650,20 @@ func (q *Queries) ListWorksByStatus(ctx context.Context, status string) ([]Work,
 		return nil, err
 	}
 	return items, nil
+}
+
+const markWorkPRSeen = `-- name: MarkWorkPRSeen :execrows
+UPDATE works
+SET has_unseen_pr_changes = FALSE
+WHERE id = ?
+`
+
+func (q *Queries) MarkWorkPRSeen(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markWorkPRSeen, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const restartWork = `-- name: RestartWork :execrows
@@ -503,6 +695,25 @@ func (q *Queries) ResumeWork(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected()
 }
 
+const setWorkHasUnseenPRChanges = `-- name: SetWorkHasUnseenPRChanges :execrows
+UPDATE works
+SET has_unseen_pr_changes = ?
+WHERE id = ?
+`
+
+type SetWorkHasUnseenPRChangesParams struct {
+	HasUnseenPrChanges bool   `json:"has_unseen_pr_changes"`
+	ID                 string `json:"id"`
+}
+
+func (q *Queries) SetWorkHasUnseenPRChanges(ctx context.Context, arg SetWorkHasUnseenPRChangesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setWorkHasUnseenPRChanges, arg.HasUnseenPrChanges, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const startWork = `-- name: StartWork :execrows
 UPDATE works
 SET status = 'processing',
@@ -524,6 +735,37 @@ func (q *Queries) StartWork(ctx context.Context, arg StartWorkParams) (int64, er
 		arg.ZellijSession,
 		arg.ZellijTab,
 		arg.StartedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateWorkPRStatus = `-- name: UpdateWorkPRStatus :execrows
+UPDATE works
+SET ci_status = ?,
+    approval_status = ?,
+    approvers = ?,
+    last_pr_poll_at = ?
+WHERE id = ?
+`
+
+type UpdateWorkPRStatusParams struct {
+	CiStatus       string       `json:"ci_status"`
+	ApprovalStatus string       `json:"approval_status"`
+	Approvers      string       `json:"approvers"`
+	LastPrPollAt   sql.NullTime `json:"last_pr_poll_at"`
+	ID             string       `json:"id"`
+}
+
+func (q *Queries) UpdateWorkPRStatus(ctx context.Context, arg UpdateWorkPRStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateWorkPRStatus,
+		arg.CiStatus,
+		arg.ApprovalStatus,
+		arg.Approvers,
+		arg.LastPrPollAt,
 		arg.ID,
 	)
 	if err != nil {

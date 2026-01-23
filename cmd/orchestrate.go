@@ -214,8 +214,8 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			// All tasks completed - transition work to idle status (waiting for more tasks)
 			if completedCount > 0 && work.Status != db.StatusIdle {
 				// Find PR URL from the PR task (if one exists, and we don't already have one)
-				prURL := ""
-				if work.PRURL == "" {
+				prURL := work.PRURL // Start with existing PR URL
+				if prURL == "" {
 					for _, t := range allTasks {
 						if t.TaskType == "pr" && t.Status == db.StatusCompleted && t.PRURL != "" {
 							prURL = t.PRURL

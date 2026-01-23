@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -56,6 +57,12 @@ type workProgress struct {
 	unassignedBeads     []beadProgress // beads in work but not assigned to any task
 	unassignedBeadCount int
 	feedbackCount       int // count of unresolved PR feedback items
+
+	// PR status fields (populated from work record)
+	ciStatus           string   // pending, success, failure
+	approvalStatus     string   // pending, approved, changes_requested
+	approvers          []string // list of usernames who approved
+	hasUnseenPRChanges bool     // true if there are unseen PR changes
 }
 
 // taskProgress holds progress info for a task.
@@ -296,6 +303,19 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 	feedbackCount, err := proj.DB.CountUnresolvedFeedbackForWork(ctx, work.ID)
 	if err == nil {
 		wp.feedbackCount = feedbackCount
+	}
+
+	// Populate PR status fields from work record
+	wp.ciStatus = work.CIStatus
+	wp.approvalStatus = work.ApprovalStatus
+	wp.hasUnseenPRChanges = work.HasUnseenPRChanges
+
+	// Parse approvers JSON array
+	if work.Approvers != "" {
+		var approvers []string
+		if err := json.Unmarshal([]byte(work.Approvers), &approvers); err == nil {
+			wp.approvers = approvers
+		}
 	}
 
 	return wp, nil

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
@@ -22,10 +23,10 @@ import (
 )
 
 // ControlPlaneTabName is the name of the control plane tab in zellij
-const ControlPlaneTabName = "control-plane"
+const ControlPlaneTabName = "control"
 
-var controlPlaneCmd = &cobra.Command{
-	Use:    "control-plane",
+var controlCmd = &cobra.Command{
+	Use:    "control",
 	Short:  "Run the control plane for background task execution",
 	Long:   `The control plane runs as a long-lived process that watches for scheduled tasks across all works and executes them with retry support.`,
 	Hidden: true,
@@ -33,7 +34,7 @@ var controlPlaneCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(controlPlaneCmd)
+	rootCmd.AddCommand(controlCmd)
 }
 
 func runControlPlane(cmd *cobra.Command, args []string) error {
@@ -153,6 +154,8 @@ func processAllDueTasks(ctx context.Context, proj *project.Project) {
 			taskErr = handleGitHubCommentTask(ctx, proj, task.WorkID, task)
 		case db.TaskTypeGitHubResolveThread:
 			taskErr = handleGitHubResolveThreadTask(ctx, proj, task.WorkID, task)
+		case db.TaskTypeDestroyWorktree:
+			taskErr = handleDestroyWorktreeTask(ctx, proj, task)
 		default:
 			taskErr = fmt.Errorf("unknown task type: %s", task.TaskType)
 		}
@@ -292,6 +295,85 @@ func handleSpawnOrchestratorTask(ctx context.Context, proj *project.Project, tas
 	return nil
 }
 
+// handleDestroyWorktreeTask handles a scheduled worktree destruction task
+func handleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+	workID := task.WorkID
+
+	logging.Info("Destroying worktree for work",
+		"work_id", workID,
+		"attempt", task.AttemptCount+1)
+
+	// Get work details
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		// Work was already deleted - mark task as completed
+		logging.Info("Work not found, marking task as completed", "work_id", workID)
+		proj.DB.MarkTaskCompleted(ctx, task.ID)
+		return nil
+	}
+
+	// Close the root issue if it exists
+	if work.RootIssueID != "" {
+		logging.Info("Closing root issue", "work_id", workID, "root_issue_id", work.RootIssueID)
+		if err := beads.Close(ctx, work.RootIssueID, proj.MainRepoPath()); err != nil {
+			// Warn but continue - issue might already be closed or deleted
+			logging.Warn("failed to close root issue", "error", err, "root_issue_id", work.RootIssueID)
+		}
+	}
+
+	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
+	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, io.Discard); err != nil {
+		logging.Warn("failed to terminate work tabs", "error", err, "work_id", workID)
+		// Continue with destruction even if tab termination fails
+	}
+
+	// Remove git worktree if it exists
+	if work.WorktreePath != "" {
+		logging.Info("Removing git worktree", "work_id", workID, "path", work.WorktreePath)
+		if err := worktree.RemoveForce(ctx, proj.MainRepoPath(), work.WorktreePath); err != nil {
+			// This is a retriable error
+			return fmt.Errorf("failed to remove worktree: %w", err)
+		}
+	}
+
+	// Remove work directory
+	workDir := filepath.Join(proj.Root, workID)
+	logging.Info("Removing work directory", "work_id", workID, "path", workDir)
+	if err := os.RemoveAll(workDir); err != nil {
+		// This is a retriable error
+		return fmt.Errorf("failed to remove work directory: %w", err)
+	}
+
+	// Delete work from database (also deletes associated tasks and relationships)
+	if err := proj.DB.DeleteWork(ctx, workID); err != nil {
+		return fmt.Errorf("failed to delete work from database: %w", err)
+	}
+
+	logging.Info("Worktree destroyed successfully", "work_id", workID)
+
+	// Mark task as completed
+	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
+		logging.Warn("failed to mark task as completed", "error", err)
+	}
+
+	return nil
+}
+
+// ScheduleDestroyWorktree schedules a worktree destruction task for the control plane.
+// This is the preferred way to destroy a worktree as it runs asynchronously with retry support.
+func ScheduleDestroyWorktree(ctx context.Context, proj *project.Project, workID string) error {
+	idempotencyKey := fmt.Sprintf("destroy-worktree-%s", workID)
+	_, err := proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeDestroyWorktree, time.Now(), nil, idempotencyKey, db.DefaultMaxAttempts)
+	if err != nil {
+		return fmt.Errorf("failed to schedule destroy worktree task: %w", err)
+	}
+	logging.Info("Scheduled destroy worktree task", "work_id", workID)
+	return nil
+}
+
 // SpawnControlPlane spawns the control plane in a zellij tab
 func SpawnControlPlane(ctx context.Context, projectName string, projectRoot string, w io.Writer) error {
 	sessionName := claude.SessionNameForProject(projectName)
@@ -310,7 +392,7 @@ func SpawnControlPlane(ctx context.Context, projectName string, projectRoot stri
 	}
 
 	// Build the control plane command
-	controlPlaneCommand := "co control-plane"
+	controlPlaneCommand := "co control"
 
 	// Create a new tab
 	fmt.Fprintf(w, "Creating control plane tab in session %s\n", sessionName)
@@ -355,7 +437,7 @@ func EnsureControlPlane(ctx context.Context, projectName string, projectRoot str
 	}
 
 	// Tab exists - check if process is running
-	pattern := "co control-plane"
+	pattern := "co control"
 	if running, err := process.IsProcessRunning(ctx, pattern); err == nil && running {
 		// Process is running
 		return false, nil
@@ -381,7 +463,7 @@ func EnsureControlPlane(ctx context.Context, projectName string, projectRoot str
 
 // IsControlPlaneRunning checks if the control plane is running
 func IsControlPlaneRunning(ctx context.Context) bool {
-	pattern := "co control-plane"
+	pattern := "co control"
 	running, _ := process.IsProcessRunning(ctx, pattern)
 	return running
 }
