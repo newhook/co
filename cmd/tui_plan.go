@@ -499,6 +499,9 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 					m.statusIsError = false
 
+					// Clear unseen PR changes flag for this work
+					_ = m.proj.DB.MarkWorkPRSeen(m.ctx, clickedWorkID)
+
 					// Set up the work details panel
 					focusedWork := m.findWorkByID(m.focusedWorkID)
 					m.workDetails.SetFocusedWork(focusedWork)
@@ -1813,6 +1816,9 @@ func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
 	}
 	m.statusMessage = fmt.Sprintf("Focused on work %s", m.focusedWorkID)
 	m.statusIsError = false
+
+	// Clear unseen PR changes flag for this work
+	_ = m.proj.DB.MarkWorkPRSeen(m.ctx, m.focusedWorkID)
 
 	// Set up the work details panel
 	m.workDetails.SetFocusedWork(work)

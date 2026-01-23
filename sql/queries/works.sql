@@ -60,7 +60,12 @@ SELECT id, status,
        started_at,
        completed_at,
        created_at,
-       auto
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
 FROM works
 WHERE id = ?;
 
@@ -78,7 +83,12 @@ SELECT id, status,
        started_at,
        completed_at,
        created_at,
-       auto
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
 FROM works
 ORDER BY created_at DESC;
 
@@ -96,7 +106,12 @@ SELECT id, status,
        started_at,
        completed_at,
        created_at,
-       auto
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
 FROM works
 WHERE status = ?
 ORDER BY created_at DESC;
@@ -120,7 +135,12 @@ SELECT id, status,
        started_at,
        completed_at,
        created_at,
-       auto
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
 FROM works
 WHERE worktree_path LIKE ?
 LIMIT 1;
@@ -166,3 +186,69 @@ UPDATE work_task_counters
 SET next_task_num = next_task_num + 1
 WHERE work_id = ?
 RETURNING next_task_num - 1 as task_num;
+
+-- name: UpdateWorkPRStatus :execrows
+UPDATE works
+SET ci_status = ?,
+    approval_status = ?,
+    approvers = ?,
+    last_pr_poll_at = ?
+WHERE id = ?;
+
+-- name: SetWorkHasUnseenPRChanges :execrows
+UPDATE works
+SET has_unseen_pr_changes = ?
+WHERE id = ?;
+
+-- name: MarkWorkPRSeen :execrows
+UPDATE works
+SET has_unseen_pr_changes = FALSE
+WHERE id = ?;
+
+-- name: GetWorksWithUnseenChanges :many
+SELECT id, status,
+       name,
+       zellij_session,
+       zellij_tab,
+       worktree_path,
+       branch_name,
+       base_branch,
+       root_issue_id,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
+FROM works
+WHERE has_unseen_pr_changes = TRUE
+ORDER BY created_at DESC;
+
+-- name: GetWorksWithPRs :many
+SELECT id, status,
+       name,
+       zellij_session,
+       zellij_tab,
+       worktree_path,
+       branch_name,
+       base_branch,
+       root_issue_id,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       auto,
+       ci_status,
+       approval_status,
+       approvers,
+       last_pr_poll_at,
+       has_unseen_pr_changes
+FROM works
+WHERE pr_url != ''
+ORDER BY created_at DESC;

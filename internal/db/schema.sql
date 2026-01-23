@@ -18,7 +18,12 @@ CREATE TABLE works (
     started_at DATETIME,
     completed_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    auto BOOLEAN NOT NULL DEFAULT FALSE
+    auto BOOLEAN NOT NULL DEFAULT FALSE,
+    ci_status TEXT NOT NULL DEFAULT 'pending',
+    approval_status TEXT NOT NULL DEFAULT 'pending',
+    approvers TEXT NOT NULL DEFAULT '[]',
+    last_pr_poll_at DATETIME,
+    has_unseen_pr_changes BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX idx_works_status ON works(status);

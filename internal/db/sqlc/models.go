@@ -119,21 +119,26 @@ type TaskMetadatum struct {
 }
 
 type Work struct {
-	ID            string       `json:"id"`
-	Status        string       `json:"status"`
-	Name          string       `json:"name"`
-	ZellijSession string       `json:"zellij_session"`
-	ZellijTab     string       `json:"zellij_tab"`
-	WorktreePath  string       `json:"worktree_path"`
-	BranchName    string       `json:"branch_name"`
-	BaseBranch    string       `json:"base_branch"`
-	RootIssueID   string       `json:"root_issue_id"`
-	PrUrl         string       `json:"pr_url"`
-	ErrorMessage  string       `json:"error_message"`
-	StartedAt     sql.NullTime `json:"started_at"`
-	CompletedAt   sql.NullTime `json:"completed_at"`
-	CreatedAt     time.Time    `json:"created_at"`
-	Auto          bool         `json:"auto"`
+	ID                 string       `json:"id"`
+	Status             string       `json:"status"`
+	Name               string       `json:"name"`
+	ZellijSession      string       `json:"zellij_session"`
+	ZellijTab          string       `json:"zellij_tab"`
+	WorktreePath       string       `json:"worktree_path"`
+	BranchName         string       `json:"branch_name"`
+	BaseBranch         string       `json:"base_branch"`
+	RootIssueID        string       `json:"root_issue_id"`
+	PrUrl              string       `json:"pr_url"`
+	ErrorMessage       string       `json:"error_message"`
+	StartedAt          sql.NullTime `json:"started_at"`
+	CompletedAt        sql.NullTime `json:"completed_at"`
+	CreatedAt          time.Time    `json:"created_at"`
+	Auto               bool         `json:"auto"`
+	CiStatus           string       `json:"ci_status"`
+	ApprovalStatus     string       `json:"approval_status"`
+	Approvers          string       `json:"approvers"`
+	LastPrPollAt       sql.NullTime `json:"last_pr_poll_at"`
+	HasUnseenPrChanges bool         `json:"has_unseen_pr_changes"`
 }
 
 type WorkBead struct {

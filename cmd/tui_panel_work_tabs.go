@@ -236,12 +236,24 @@ func (b *WorkTabsBar) Render() string {
 			name = name[:19] + "…"
 		}
 
-		// Tab content
-		tabContent := fmt.Sprintf(" %s %s ", icon, name)
+		// Tab content with optional unseen badge
+		tabContent := fmt.Sprintf(" %s %s", icon, name)
 		tabStyle := lipgloss.NewStyle().
 			Foreground(tabFg).
 			Background(tabBg)
 		content += tabStyle.Render(tabContent)
+
+		// Add unseen PR changes indicator (colored dot)
+		if work.hasUnseenPRChanges {
+			badgeStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("81")). // Cyan dot for new changes
+				Background(tabBg)
+			content += badgeStyle.Render(" ●")
+			currentX += 2
+		}
+
+		// Trailing space
+		content += tabStyle.Render(" ")
 		currentX += lipgloss.Width(tabContent)
 
 		// Right chevron for tab
