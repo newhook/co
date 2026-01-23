@@ -244,34 +244,48 @@ func (db *DB) CompleteWorkAndScheduleFeedback(ctx context.Context, id, prURL str
 		return fmt.Errorf("work %s not found", id)
 	}
 
-	// If PR URL provided, schedule feedback polling tasks
+	// If PR URL provided, schedule feedback polling tasks (if not already scheduled)
 	if prURL != "" {
-		// Schedule PR feedback check
-		prFeedbackCheckTime := now.Add(prFeedbackInterval)
-		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-			ID:          uuid.New().String(),
-			WorkID:      id,
-			TaskType:    TaskTypePRFeedback,
-			ScheduledAt: prFeedbackCheckTime,
-			Status:      TaskStatusPending,
-			Metadata:    "{}",
+		// Check if PR feedback task already exists
+		existingPRFeedback, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+			WorkID:   id,
+			TaskType: TaskTypePRFeedback,
 		})
-		if err != nil {
-			return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+		if existingPRFeedback.ID == "" {
+			// Schedule PR feedback check
+			prFeedbackCheckTime := now.Add(prFeedbackInterval)
+			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+				ID:          uuid.New().String(),
+				WorkID:      id,
+				TaskType:    TaskTypePRFeedback,
+				ScheduledAt: prFeedbackCheckTime,
+				Status:      TaskStatusPending,
+				Metadata:    "{}",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+			}
 		}
 
-		// Schedule comment resolution check
-		commentResolutionCheckTime := now.Add(commentResolutionInterval)
-		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-			ID:          uuid.New().String(),
-			WorkID:      id,
-			TaskType:    TaskTypeCommentResolution,
-			ScheduledAt: commentResolutionCheckTime,
-			Status:      TaskStatusPending,
-			Metadata:    "{}",
+		// Check if comment resolution task already exists
+		existingCommentRes, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+			WorkID:   id,
+			TaskType: TaskTypeCommentResolution,
 		})
-		if err != nil {
-			return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+		if existingCommentRes.ID == "" {
+			// Schedule comment resolution check
+			commentResolutionCheckTime := now.Add(commentResolutionInterval)
+			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+				ID:          uuid.New().String(),
+				WorkID:      id,
+				TaskType:    TaskTypeCommentResolution,
+				ScheduledAt: commentResolutionCheckTime,
+				Status:      TaskStatusPending,
+				Metadata:    "{}",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+			}
 		}
 	}
 
@@ -339,34 +353,48 @@ func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string,
 		return fmt.Errorf("work %s not found", id)
 	}
 
-	// If PR URL provided, schedule feedback polling tasks
+	// If PR URL provided, schedule feedback polling tasks (if not already scheduled)
 	if prURL != "" {
-		// Schedule PR feedback check
-		prFeedbackCheckTime := now.Add(prFeedbackInterval)
-		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-			ID:          uuid.New().String(),
-			WorkID:      id,
-			TaskType:    TaskTypePRFeedback,
-			ScheduledAt: prFeedbackCheckTime,
-			Status:      TaskStatusPending,
-			Metadata:    "{}",
+		// Check if PR feedback task already exists
+		existingPRFeedback, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+			WorkID:   id,
+			TaskType: TaskTypePRFeedback,
 		})
-		if err != nil {
-			return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+		if existingPRFeedback.ID == "" {
+			// Schedule PR feedback check
+			prFeedbackCheckTime := now.Add(prFeedbackInterval)
+			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+				ID:          uuid.New().String(),
+				WorkID:      id,
+				TaskType:    TaskTypePRFeedback,
+				ScheduledAt: prFeedbackCheckTime,
+				Status:      TaskStatusPending,
+				Metadata:    "{}",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to schedule PR feedback check: %w", err)
+			}
 		}
 
-		// Schedule comment resolution check
-		commentResolutionCheckTime := now.Add(commentResolutionInterval)
-		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-			ID:          uuid.New().String(),
-			WorkID:      id,
-			TaskType:    TaskTypeCommentResolution,
-			ScheduledAt: commentResolutionCheckTime,
-			Status:      TaskStatusPending,
-			Metadata:    "{}",
+		// Check if comment resolution task already exists
+		existingCommentRes, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+			WorkID:   id,
+			TaskType: TaskTypeCommentResolution,
 		})
-		if err != nil {
-			return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+		if existingCommentRes.ID == "" {
+			// Schedule comment resolution check
+			commentResolutionCheckTime := now.Add(commentResolutionInterval)
+			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+				ID:          uuid.New().String(),
+				WorkID:      id,
+				TaskType:    TaskTypeCommentResolution,
+				ScheduledAt: commentResolutionCheckTime,
+				Status:      TaskStatusPending,
+				Metadata:    "{}",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to schedule comment resolution check: %w", err)
+			}
 		}
 	}
 
