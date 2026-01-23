@@ -45,7 +45,11 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 }
 
 // executeCreateWork creates a work unit with the given branch name.
-// This calls internal logic directly instead of shelling out to the CLI.
+// This uses the async control plane architecture:
+// 1. Creates work record in DB (with auto flag)
+// 2. Adds beads to work_beads
+// 3. Schedules TaskTypeCreateWorktree task
+// 4. Returns immediately (control plane handles worktree creation + orchestrator spawning)
 func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
 		// Expand the bead (handles epics and transitive deps)
@@ -58,8 +62,8 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("no beads found for %s", beadID)}
 		}
 
-		// Create work with branch name (silent to avoid console output in TUI)
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", beadID, WorkCreateOptions{Silent: true, Auto: auto})
+		// Create work asynchronously (DB operations only, schedules tasks for control plane)
+		result, err := CreateWorkAsync(m.ctx, m.proj, branchName, "main", beadID, auto)
 		if err != nil {
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
@@ -70,10 +74,11 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
 		}
 
-		// Spawn the orchestrator for this work
-		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
-			// Non-fatal: work was created but orchestrator failed to spawn
-			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
+		// Ensure control plane is running to process the worktree creation task
+		_, err = EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
+		if err != nil {
+			// Non-fatal: work was created but control plane might need manual start
+			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but control plane failed: %w", err)}
 		}
 
 		return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}

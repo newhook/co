@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
@@ -488,6 +489,78 @@ type WorkCreateOptions struct {
 	Silent bool
 	// Auto indicates if this work should run in automated workflow mode.
 	Auto bool
+}
+
+// CreateWorkAsyncResult contains the result of creating a work unit asynchronously.
+type CreateWorkAsyncResult struct {
+	WorkID      string
+	WorkerName  string
+	BranchName  string
+	BaseBranch  string
+	RootIssueID string
+}
+
+// CreateWorkAsync creates a work unit asynchronously by scheduling tasks.
+// This is the new async work creation for the control plane architecture:
+// 1. Creates work record in DB (without worktree path)
+// 2. Schedules TaskTypeCreateWorktree task for the control plane
+// The control plane will handle worktree creation, git push, and orchestrator spawning.
+func CreateWorkAsync(ctx context.Context, proj *project.Project, branchName, baseBranch, rootIssueID string, auto bool) (*CreateWorkAsyncResult, error) {
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+
+	// Ensure unique branch name
+	var err error
+	branchName, err = ensureUniqueBranchName(ctx, mainRepoPath, branchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
+	}
+
+	// Generate work ID
+	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate work ID: %w", err)
+	}
+
+	// Get a human-readable name for this worker
+	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
+	if err != nil {
+		workerName = "" // Non-fatal
+	}
+
+	// Create work record in DB (without worktree path - control plane will set it)
+	if err := proj.DB.CreateWork(ctx, workID, workerName, "", branchName, baseBranch, rootIssueID, auto); err != nil {
+		return nil, fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Schedule the worktree creation task for the control plane
+	autoStr := "false"
+	if auto {
+		autoStr = "true"
+	}
+	_, err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeCreateWorktree, time.Now(), map[string]string{
+		"branch":        branchName,
+		"base_branch":   baseBranch,
+		"root_issue_id": rootIssueID,
+		"worker_name":   workerName,
+		"auto":          autoStr,
+	}, fmt.Sprintf("create-worktree-%s", workID), db.DefaultMaxAttempts)
+	if err != nil {
+		// Work record created but task scheduling failed - cleanup
+		proj.DB.DeleteWork(ctx, workID)
+		return nil, fmt.Errorf("failed to schedule worktree creation: %w", err)
+	}
+
+	return &CreateWorkAsyncResult{
+		WorkID:      workID,
+		WorkerName:  workerName,
+		BranchName:  branchName,
+		BaseBranch:  baseBranch,
+		RootIssueID: rootIssueID,
+	}, nil
 }
 
 // CreateWorkWithBranch creates a new work unit with the given branch name and root issue.
