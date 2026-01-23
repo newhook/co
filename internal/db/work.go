@@ -390,6 +390,22 @@ func (db *DB) ResumeWork(ctx context.Context, id string) error {
 	return nil
 }
 
+// UpdateWorkWorktreePath updates the worktree path for a work.
+// Used by the control plane after creating a worktree asynchronously.
+func (db *DB) UpdateWorkWorktreePath(ctx context.Context, id, worktreePath string) error {
+	rows, err := db.queries.UpdateWorkWorktreePath(ctx, sqlc.UpdateWorkWorktreePathParams{
+		WorktreePath: worktreePath,
+		ID:           id,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update work worktree path: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found", id)
+	}
+	return nil
+}
+
 // GetWork retrieves a work by ID.
 func (db *DB) GetWork(ctx context.Context, id string) (*Work, error) {
 	work, err := db.queries.GetWork(ctx, id)

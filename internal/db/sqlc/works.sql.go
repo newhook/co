@@ -531,3 +531,22 @@ func (q *Queries) StartWork(ctx context.Context, arg StartWorkParams) (int64, er
 	}
 	return result.RowsAffected()
 }
+
+const updateWorkWorktreePath = `-- name: UpdateWorkWorktreePath :execrows
+UPDATE works
+SET worktree_path = ?
+WHERE id = ?
+`
+
+type UpdateWorkWorktreePathParams struct {
+	WorktreePath string `json:"worktree_path"`
+	ID           string `json:"id"`
+}
+
+func (q *Queries) UpdateWorkWorktreePath(ctx context.Context, arg UpdateWorkWorktreePathParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateWorkWorktreePath, arg.WorktreePath, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

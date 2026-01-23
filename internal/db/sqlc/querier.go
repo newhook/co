@@ -132,6 +132,7 @@ type Querier interface {
 	UpdateMigrationDownSQL(ctx context.Context, arg UpdateMigrationDownSQLParams) error
 	UpdateScheduledTaskTime(ctx context.Context, arg UpdateScheduledTaskTimeParams) error
 	UpdateTaskActivity(ctx context.Context, arg UpdateTaskActivityParams) (int64, error)
+	UpdateWorkWorktreePath(ctx context.Context, arg UpdateWorkWorktreePathParams) (int64, error)
 	WatchSchedulerChanges(ctx context.Context, updatedAt time.Time) ([]Scheduler, error)
 }
 

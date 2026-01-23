@@ -166,3 +166,8 @@ UPDATE work_task_counters
 SET next_task_num = next_task_num + 1
 WHERE work_id = ?
 RETURNING next_task_num - 1 as task_num;
+
+-- name: UpdateWorkWorktreePath :execrows
+UPDATE works
+SET worktree_path = ?
+WHERE id = ?;
