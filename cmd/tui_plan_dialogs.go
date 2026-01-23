@@ -192,19 +192,3 @@ func (m *planModel) renderDestroyConfirmContent() string {
 	return tuiDialogStyle.Render(content)
 }
 
-func (m *planModel) renderPlanDialogContent() string {
-	workID := m.focusedWorkID
-
-	content := fmt.Sprintf(`
-  Run Work: %s
-
-  Choose how to group tasks:
-
-  [a] Auto-group    Group related beads into tasks
-  [s] Single-bead   One task per bead
-
-  [Esc] Cancel
-`, workID)
-
-	return tuiDialogStyle.Render(content)
-}

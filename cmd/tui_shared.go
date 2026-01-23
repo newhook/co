@@ -151,7 +151,6 @@ const (
 	ViewEditBead     // Edit selected issue
 	ViewDestroyConfirm
 	ViewCloseBeadConfirm
-	ViewPlanDialog
 	ViewAssignBeads
 	ViewBeadSearch
 	ViewLabelFilter

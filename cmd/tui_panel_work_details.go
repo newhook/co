@@ -12,7 +12,8 @@ const (
 	WorkDetailActionNone                WorkDetailAction = iota
 	WorkDetailActionOpenTerminal                         // Open terminal/console (t)
 	WorkDetailActionOpenClaude                           // Open Claude session (c)
-	WorkDetailActionRun                                  // Run work (r) - shows grouping dialog
+	WorkDetailActionRunAutoGroup                         // Run work with auto-group (a in actions panel)
+	WorkDetailActionRunSingleBead                        // Run work with single-bead (s in actions panel)
 	WorkDetailActionReview                               // Create review task (v)
 	WorkDetailActionPR                                   // Create PR task (p)
 	WorkDetailActionNavigateUp                           // Navigate up (k/up)
@@ -20,9 +21,10 @@ const (
 	WorkDetailActionRestartOrchestrator                  // Restart orchestrator (o)
 	WorkDetailActionCheckFeedback                        // Check PR feedback (f)
 	WorkDetailActionDestroy                              // Destroy work (d)
+	WorkDetailActionCloseActionsPanel                    // Close actions panel (esc)
 )
 
-// WorkDetailsPanel is a coordinator that manages the three work detail sub-panels.
+// WorkDetailsPanel is a coordinator that manages the work detail sub-panels.
 // It handles layout, keyboard/mouse events, and coordinates which right panel to show.
 type WorkDetailsPanel struct {
 	// Dimensions
@@ -38,6 +40,10 @@ type WorkDetailsPanel struct {
 	overviewPanel *WorkOverviewPanel // Left panel: work info + tasks list
 	summaryPanel  *WorkSummaryPanel  // Right panel: work overview (when root selected)
 	taskPanel     *WorkTaskPanel     // Right panel: task/bead details
+	actionsPanel  *WorkActionsPanel  // Right panel: work actions menu (when 'r' pressed)
+
+	// Actions panel state
+	showActionsPanel bool
 
 	// Data reference (shared with sub-panels)
 	focusedWork *workProgress
@@ -52,6 +58,7 @@ func NewWorkDetailsPanel() *WorkDetailsPanel {
 		overviewPanel: NewWorkOverviewPanel(),
 		summaryPanel:  NewWorkSummaryPanel(),
 		taskPanel:     NewWorkTaskPanel(),
+		actionsPanel:  NewWorkActionsPanel(),
 	}
 }
 
@@ -72,6 +79,7 @@ func (p *WorkDetailsPanel) SetSize(width, height int) {
 	p.overviewPanel.SetSize(leftWidth, height)
 	p.summaryPanel.SetSize(rightWidth, visibleLines)
 	p.taskPanel.SetSize(rightWidth, visibleLines)
+	p.actionsPanel.SetSize(rightWidth, visibleLines)
 }
 
 // SetColumnRatio sets the column width ratio to match the issues panel
@@ -86,13 +94,30 @@ func (p *WorkDetailsPanel) SetFocus(leftFocused, rightFocused bool) {
 	p.overviewPanel.SetFocus(leftFocused)
 	p.summaryPanel.SetFocus(rightFocused)
 	p.taskPanel.SetFocus(rightFocused)
+	p.actionsPanel.SetFocus(rightFocused)
 }
 
 // SetFocusedWork updates the focused work, preserving selection if valid
 func (p *WorkDetailsPanel) SetFocusedWork(focusedWork *workProgress) {
+	// Check if the work has actually changed
+	workChanged := false
+	if p.focusedWork == nil && focusedWork != nil {
+		workChanged = true
+	} else if p.focusedWork != nil && focusedWork == nil {
+		workChanged = true
+	} else if p.focusedWork != nil && focusedWork != nil && p.focusedWork.work.ID != focusedWork.work.ID {
+		workChanged = true
+	}
+
 	p.focusedWork = focusedWork
 	p.overviewPanel.SetFocusedWork(focusedWork)
 	p.summaryPanel.SetFocusedWork(focusedWork)
+	p.actionsPanel.SetFocusedWork(focusedWork)
+
+	// Hide actions panel only when work actually changes
+	if workChanged {
+		p.showActionsPanel = false
+	}
 
 	// Update task panel based on current selection
 	p.syncTaskPanel()
@@ -287,7 +312,7 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 
 	// Create the two panels with fixed height (matching IssuesPanel pattern exactly)
 	// IssuesPanel uses: Height(contentHeight - 2)
-	leftPanelStyle := tuiPanelStyle.Width(leftWidth).Height(contentHeight - 3)
+	leftPanelStyle := tuiPanelStyle.Width(leftWidth).Height(contentHeight - 2)
 	if p.leftPanelFocused {
 		leftPanelStyle = leftPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}
@@ -295,12 +320,17 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 	leftPanel := leftPanelStyle.Render(tuiTitleStyle.Render("Work") + "\n" + leftContent)
 
 	// Right panel uses its own height setting
-	rightPanelStyle := tuiPanelStyle.Width(rightWidth).Height(contentHeight - 3)
+	rightPanelStyle := tuiPanelStyle.Width(rightWidth).Height(contentHeight - 2)
 	if p.rightPanelFocused {
 		rightPanelStyle = rightPanelStyle.BorderForeground(lipgloss.Color("214"))
 	}
 
-	rightPanel := rightPanelStyle.Render(tuiTitleStyle.Render("Details") + "\n" + rightContent)
+	// Show "Actions" title when actions panel is visible, otherwise "Details"
+	rightTitle := "Details"
+	if p.showActionsPanel {
+		rightTitle = "Actions"
+	}
+	rightPanel := rightPanelStyle.Render(tuiTitleStyle.Render(rightTitle) + "\n" + rightContent)
 
 	// Combine panels horizontally
 	result := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
@@ -312,6 +342,11 @@ func (p *WorkDetailsPanel) RenderWithPanel(contentHeight int) string {
 func (p *WorkDetailsPanel) renderRightPanel(_, panelWidth int) string {
 	if p.focusedWork == nil {
 		return tuiDimStyle.Render("Loading...")
+	}
+
+	// Show actions panel if active
+	if p.showActionsPanel {
+		return p.actionsPanel.Render(panelWidth)
 	}
 
 	selectedIndex := p.overviewPanel.GetSelectedIndex()
@@ -342,6 +377,11 @@ func (p *WorkDetailsPanel) UpdateViewport(msg tea.Msg) tea.Cmd {
 
 // Update handles key events and returns an action.
 func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
+	// When actions panel is showing, handle its key presses
+	if p.showActionsPanel {
+		return p.handleActionsPanel(msg)
+	}
+
 	// When right panel is focused, let viewport handle scrolling keys
 	if p.rightPanelFocused {
 		var cmd tea.Cmd
@@ -360,7 +400,10 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 		case "c":
 			return cmd, WorkDetailActionOpenClaude
 		case "r":
-			return cmd, WorkDetailActionRun
+			// Show actions panel instead of returning action
+			p.showActionsPanel = true
+			p.actionsPanel.SetSelectedIndex(0)
+			return cmd, WorkDetailActionNone
 		case "v":
 			return cmd, WorkDetailActionReview
 		case "p":
@@ -391,7 +434,10 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 	case "c":
 		return nil, WorkDetailActionOpenClaude
 	case "r":
-		return nil, WorkDetailActionRun
+		// Show actions panel instead of returning action
+		p.showActionsPanel = true
+		p.actionsPanel.SetSelectedIndex(0)
+		return nil, WorkDetailActionNone
 	case "v":
 		return nil, WorkDetailActionReview
 	case "p":
@@ -405,6 +451,61 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 	}
 
 	return nil, WorkDetailActionNone
+}
+
+// handleActionsPanel handles key events when the actions panel is showing
+func (p *WorkDetailsPanel) handleActionsPanel(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
+	switch msg.String() {
+	case "esc":
+		p.showActionsPanel = false
+		return nil, WorkDetailActionCloseActionsPanel
+	case "j", "down":
+		p.actionsPanel.NavigateDown()
+		return nil, WorkDetailActionNone
+	case "k", "up":
+		p.actionsPanel.NavigateUp()
+		return nil, WorkDetailActionNone
+	case "enter":
+		// Execute selected action
+		return p.executeSelectedAction()
+	case "a", "A":
+		p.showActionsPanel = false
+		return nil, WorkDetailActionRunAutoGroup
+	case "s", "S":
+		p.showActionsPanel = false
+		return nil, WorkDetailActionRunSingleBead
+	}
+	return nil, WorkDetailActionNone
+}
+
+// executeSelectedAction executes the action at the current selection in the actions panel
+func (p *WorkDetailsPanel) executeSelectedAction() (tea.Cmd, WorkDetailAction) {
+	actions := GetWorkActions()
+	idx := p.actionsPanel.GetSelectedIndex()
+	if idx < 0 || idx >= len(actions) {
+		return nil, WorkDetailActionNone
+	}
+
+	action := actions[idx]
+	p.showActionsPanel = false
+
+	switch action.Key {
+	case "a":
+		return nil, WorkDetailActionRunAutoGroup
+	case "s":
+		return nil, WorkDetailActionRunSingleBead
+	}
+	return nil, WorkDetailActionNone
+}
+
+// IsShowingActionsPanel returns whether the actions panel is currently visible
+func (p *WorkDetailsPanel) IsShowingActionsPanel() bool {
+	return p.showActionsPanel
+}
+
+// HideActionsPanel hides the actions panel
+func (p *WorkDetailsPanel) HideActionsPanel() {
+	p.showActionsPanel = false
 }
 
 // DetectClickedItem determines which item was clicked and returns its index
@@ -432,4 +533,44 @@ func (p *WorkDetailsPanel) DetectClickedTask(x, y int) string {
 // Returns the absolute index (0 = root, 1+ = tasks, N+ = unassigned beads), or -1 if not over an item.
 func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
 	return p.overviewPanel.DetectHoveredItem(x, y, p.height)
+}
+
+// SetActionsHoveredIndex sets which action is being hovered in the actions panel
+func (p *WorkDetailsPanel) SetActionsHoveredIndex(index int) {
+	p.actionsPanel.SetHoveredIndex(index)
+}
+
+// DetectActionsHoveredIndex returns the action index at the given Y position (relative to right panel content)
+func (p *WorkDetailsPanel) DetectActionsHoveredIndex(y int) int {
+	if !p.showActionsPanel {
+		return -1
+	}
+	return p.actionsPanel.DetectHoveredAction(y)
+}
+
+// DetectActionsClickedIndex returns the action index that was clicked, or -1 if none
+func (p *WorkDetailsPanel) DetectActionsClickedIndex(y int) int {
+	if !p.showActionsPanel {
+		return -1
+	}
+	return p.actionsPanel.DetectClickedAction(y)
+}
+
+// ExecuteActionAtIndex executes the action at the given index and returns the result
+func (p *WorkDetailsPanel) ExecuteActionAtIndex(index int) WorkDetailAction {
+	actions := GetWorkActions()
+	if index < 0 || index >= len(actions) {
+		return WorkDetailActionNone
+	}
+
+	action := actions[index]
+	p.showActionsPanel = false
+
+	switch action.Key {
+	case "a":
+		return WorkDetailActionRunAutoGroup
+	case "s":
+		return WorkDetailActionRunSingleBead
+	}
+	return WorkDetailActionNone
 }
