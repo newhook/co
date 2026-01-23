@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/beads"
 )
 
 // BeadFormMode indicates which mode the form is in
@@ -28,12 +29,21 @@ const (
 	BeadFormActionSubmit
 )
 
+// beadStatuses is the list of valid bead statuses for editing
+var beadStatuses = []string{
+	beads.StatusOpen,
+	beads.StatusInProgress,
+	beads.StatusBlocked,
+	beads.StatusDeferred,
+}
+
 // BeadFormResult contains form values when submitted
 type BeadFormResult struct {
 	Title       string
 	Description string
 	BeadType    string
 	Priority    int
+	Status      string // Only used in edit mode
 	EditBeadID  string // Non-empty when editing
 	ParentID    string // Non-empty when adding child
 }
@@ -57,6 +67,7 @@ type BeadFormPanel struct {
 	descTextarea textarea.Model
 	beadType     int
 	priority     int
+	status       int // Index into beadStatuses
 	focusIdx     int
 
 	// Mouse state
@@ -108,7 +119,7 @@ func (p *BeadFormPanel) Reset() {
 }
 
 // SetEditMode configures the form for editing an existing bead
-func (p *BeadFormPanel) SetEditMode(beadID, title, description, beadType string, priority int) {
+func (p *BeadFormPanel) SetEditMode(beadID, title, description, beadType string, priority int, status string) {
 	p.mode = BeadFormModeEdit
 	p.editBeadID = beadID
 	p.parentID = ""
@@ -124,6 +135,14 @@ func (p *BeadFormPanel) SetEditMode(beadID, title, description, beadType string,
 		}
 	}
 	p.priority = priority
+	// Find the status index
+	p.status = 0
+	for i, s := range beadStatuses {
+		if s == status {
+			p.status = i
+			break
+		}
+	}
 	p.focusIdx = 0
 }
 
@@ -143,21 +162,35 @@ func (p *BeadFormPanel) Update(msg tea.KeyMsg) (tea.Cmd, BeadFormAction) {
 		return nil, BeadFormActionCancel
 	}
 
-	// Tab cycles between elements: title(0) -> type(1) -> priority(2) -> description(3) -> ok(4) -> cancel(5)
+	// Focus indices:
+	// Create/AddChild mode: title(0) -> type(1) -> priority(2) -> description(3) -> ok(4) -> cancel(5)
+	// Edit mode: title(0) -> type(1) -> priority(2) -> status(3) -> description(4) -> ok(5) -> cancel(6)
+	maxFocusIdx := 5
+	descIdx := 3
+	okIdx := 4
+	cancelIdx := 5
+	if p.mode == BeadFormModeEdit {
+		maxFocusIdx = 6
+		descIdx = 4
+		okIdx = 5
+		cancelIdx = 6
+	}
+
+	// Tab cycles between elements
 	if msg.Type == tea.KeyTab || msg.String() == "tab" {
 		// Leave current focus
 		if p.focusIdx == 0 {
 			p.titleInput.Blur()
-		} else if p.focusIdx == 3 {
+		} else if p.focusIdx == descIdx {
 			p.descTextarea.Blur()
 		}
 
-		p.focusIdx = (p.focusIdx + 1) % 6
+		p.focusIdx = (p.focusIdx + 1) % (maxFocusIdx + 1)
 
 		// Enter new focus
 		if p.focusIdx == 0 {
 			p.titleInput.Focus()
-		} else if p.focusIdx == 3 {
+		} else if p.focusIdx == descIdx {
 			p.descTextarea.Focus()
 		}
 		return nil, BeadFormActionNone
@@ -168,19 +201,19 @@ func (p *BeadFormPanel) Update(msg tea.KeyMsg) (tea.Cmd, BeadFormAction) {
 		// Leave current focus
 		if p.focusIdx == 0 {
 			p.titleInput.Blur()
-		} else if p.focusIdx == 3 {
+		} else if p.focusIdx == descIdx {
 			p.descTextarea.Blur()
 		}
 
 		p.focusIdx--
 		if p.focusIdx < 0 {
-			p.focusIdx = 5
+			p.focusIdx = maxFocusIdx
 		}
 
 		// Enter new focus
 		if p.focusIdx == 0 {
 			p.titleInput.Focus()
-		} else if p.focusIdx == 3 {
+		} else if p.focusIdx == descIdx {
 			p.descTextarea.Focus()
 		}
 		return nil, BeadFormActionNone
@@ -189,28 +222,32 @@ func (p *BeadFormPanel) Update(msg tea.KeyMsg) (tea.Cmd, BeadFormAction) {
 	// Enter key handling depends on focused element
 	if msg.String() == "enter" {
 		switch p.focusIdx {
-		case 0, 1, 2: // Title, type, or priority - submit form
+		case 0, 1, 2, 3: // Title, type, priority, or status - submit form (if not on description)
+			if p.focusIdx != descIdx {
+				title := strings.TrimSpace(p.titleInput.Value())
+				if title != "" {
+					return nil, BeadFormActionSubmit
+				}
+				return nil, BeadFormActionNone
+			}
+		}
+		if p.focusIdx == okIdx { // Ok button - submit form
 			title := strings.TrimSpace(p.titleInput.Value())
 			if title != "" {
 				return nil, BeadFormActionSubmit
 			}
 			return nil, BeadFormActionNone
-		case 4: // Ok button - submit form
-			title := strings.TrimSpace(p.titleInput.Value())
-			if title != "" {
-				return nil, BeadFormActionSubmit
-			}
-			return nil, BeadFormActionNone
-		case 5: // Cancel button - cancel form
+		}
+		if p.focusIdx == cancelIdx { // Cancel button - cancel form
 			p.titleInput.Blur()
 			p.descTextarea.Blur()
 			return nil, BeadFormActionCancel
 		}
-		// For description textarea (3), Enter adds a newline (handled below)
+		// For description textarea, Enter adds a newline (handled below)
 	}
 
 	// Ctrl+Enter submits from description textarea
-	if msg.String() == "ctrl+enter" && p.focusIdx == 3 {
+	if msg.String() == "ctrl+enter" && p.focusIdx == descIdx {
 		title := strings.TrimSpace(p.titleInput.Value())
 		if title != "" {
 			return nil, BeadFormActionSubmit
@@ -219,6 +256,12 @@ func (p *BeadFormPanel) Update(msg tea.KeyMsg) (tea.Cmd, BeadFormAction) {
 	}
 
 	// Handle input based on focused element
+	// In edit mode, status is at index 3, otherwise description is at index 3
+	statusIdx := -1 // Not available in create/add-child modes
+	if p.mode == BeadFormModeEdit {
+		statusIdx = 3
+	}
+
 	switch p.focusIdx {
 	case 0: // Title input
 		var cmd tea.Cmd
@@ -250,27 +293,49 @@ func (p *BeadFormPanel) Update(msg tea.KeyMsg) (tea.Cmd, BeadFormAction) {
 		}
 		return nil, BeadFormActionNone
 
-	case 3: // Description textarea
-		var cmd tea.Cmd
-		p.descTextarea, cmd = p.descTextarea.Update(msg)
-		return cmd, BeadFormActionNone
-
-	case 4: // Ok button - Space can also activate it
-		if msg.String() == " " {
-			title := strings.TrimSpace(p.titleInput.Value())
-			if title != "" {
-				return nil, BeadFormActionSubmit
+	default:
+		// Handle dynamic indices based on mode
+		if p.focusIdx == statusIdx {
+			// Status selector (edit mode only)
+			switch msg.String() {
+			case "j", "down", "right":
+				p.status = (p.status + 1) % len(beadStatuses)
+			case "k", "up", "left":
+				p.status--
+				if p.status < 0 {
+					p.status = len(beadStatuses) - 1
+				}
 			}
+			return nil, BeadFormActionNone
 		}
-		return nil, BeadFormActionNone
 
-	case 5: // Cancel button - Space can also activate it
-		if msg.String() == " " {
-			p.titleInput.Blur()
-			p.descTextarea.Blur()
-			return nil, BeadFormActionCancel
+		if p.focusIdx == descIdx {
+			// Description textarea
+			var cmd tea.Cmd
+			p.descTextarea, cmd = p.descTextarea.Update(msg)
+			return cmd, BeadFormActionNone
 		}
-		return nil, BeadFormActionNone
+
+		if p.focusIdx == okIdx {
+			// Ok button - Space can also activate it
+			if msg.String() == " " {
+				title := strings.TrimSpace(p.titleInput.Value())
+				if title != "" {
+					return nil, BeadFormActionSubmit
+				}
+			}
+			return nil, BeadFormActionNone
+		}
+
+		if p.focusIdx == cancelIdx {
+			// Cancel button - Space can also activate it
+			if msg.String() == " " {
+				p.titleInput.Blur()
+				p.descTextarea.Blur()
+				return nil, BeadFormActionCancel
+			}
+			return nil, BeadFormActionNone
+		}
 	}
 
 	return nil, BeadFormActionNone
@@ -283,6 +348,7 @@ func (p *BeadFormPanel) GetResult() BeadFormResult {
 		Description: strings.TrimSpace(p.descTextarea.Value()),
 		BeadType:    beadTypes[p.beadType],
 		Priority:    p.priority,
+		Status:      beadStatuses[p.status],
 		EditBeadID:  p.editBeadID,
 		ParentID:    p.parentID,
 	}
@@ -363,9 +429,24 @@ func (p *BeadFormPanel) Render(visibleLines int) string {
 	descHeight := max(visibleLines-12, 4)
 	p.descTextarea.SetHeight(descHeight)
 
+	// Calculate dynamic focus indices based on mode
+	// Create/AddChild mode: title(0) -> type(1) -> priority(2) -> description(3) -> ok(4) -> cancel(5)
+	// Edit mode: title(0) -> type(1) -> priority(2) -> status(3) -> description(4) -> ok(5) -> cancel(6)
+	statusIdx := -1
+	descIdx := 3
+	okIdx := 4
+	cancelIdx := 5
+	if p.mode == BeadFormModeEdit {
+		statusIdx = 3
+		descIdx = 4
+		okIdx = 5
+		cancelIdx = 6
+	}
+
 	typeFocused := p.focusIdx == 1
 	priorityFocused := p.focusIdx == 2
-	descFocused := p.focusIdx == 3
+	statusFocused := p.focusIdx == statusIdx
+	descFocused := p.focusIdx == descIdx
 
 	// Type rotator display
 	currentType := beadTypes[p.beadType]
@@ -385,10 +466,22 @@ func (p *BeadFormPanel) Render(visibleLines int) string {
 		priorityDisplay = priorityLabels[p.priority]
 	}
 
+	// Status display (edit mode only)
+	var statusDisplay string
+	if p.mode == BeadFormModeEdit {
+		currentStatus := beadStatuses[p.status]
+		if statusFocused {
+			statusDisplay = fmt.Sprintf("< %s >", tuiValueStyle.Render(currentStatus))
+		} else {
+			statusDisplay = currentStatus
+		}
+	}
+
 	// Show focus labels
 	titleLabel := "Title:"
 	typeLabel := "Type:"
 	priorityLabel := "Priority:"
+	statusLabel := "Status:"
 	descLabel := "Description:"
 	if p.focusIdx == 0 {
 		titleLabel = tuiValueStyle.Render("Title:") + " (editing)"
@@ -398,6 +491,9 @@ func (p *BeadFormPanel) Render(visibleLines int) string {
 	}
 	if priorityFocused {
 		priorityLabel = tuiValueStyle.Render("Priority:") + " (j/k)"
+	}
+	if statusFocused {
+		statusLabel = tuiValueStyle.Render("Status:") + " (j/k)"
 	}
 	if descFocused {
 		descLabel = tuiValueStyle.Render("Description:") + " (optional)"
@@ -432,8 +528,18 @@ func (p *BeadFormPanel) Render(visibleLines int) string {
 	content.WriteString("\n")
 	currentLine++
 	content.WriteString(priorityLabel + " " + priorityDisplay)
-	content.WriteString("\n\n")
-	currentLine += 2
+	content.WriteString("\n")
+	currentLine++
+
+	// Show status field only in edit mode
+	if p.mode == BeadFormModeEdit {
+		content.WriteString(statusLabel + " " + statusDisplay)
+		content.WriteString("\n")
+		currentLine++
+	}
+
+	content.WriteString("\n")
+	currentLine++
 	content.WriteString(descLabel)
 	content.WriteString("\n")
 	currentLine++
@@ -442,8 +548,8 @@ func (p *BeadFormPanel) Render(visibleLines int) string {
 	currentLine += descHeight + 1
 
 	// Render Ok and Cancel buttons and track their positions
-	okFocused := p.focusIdx == 4
-	cancelFocused := p.focusIdx == 5
+	okFocused := p.focusIdx == okIdx
+	cancelFocused := p.focusIdx == cancelIdx
 	okButton := styleButtonWithHover("  Ok  ", p.hoveredButton == "ok" || okFocused)
 	cancelButton := styleButtonWithHover("Cancel", p.hoveredButton == "cancel" || cancelFocused)
 

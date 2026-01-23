@@ -137,13 +137,13 @@ func (m *planModel) loadWorkTiles() tea.Cmd {
 
 // Helper functions for work commands
 
-// destroyWork destroys a work by ID
+// destroyWork schedules a work destruction task via the control plane
 func (m *planModel) destroyWork(workID string) tea.Cmd {
 	return func() tea.Msg {
-		if err := DestroyWork(m.ctx, m.proj, workID, io.Discard); err != nil {
+		if err := ScheduleDestroyWorktree(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Destroy work", workID: workID, err: err}
 		}
-		return workCommandMsg{action: "Destroy work", workID: workID}
+		return workCommandMsg{action: "Destroy work scheduled", workID: workID}
 	}
 }
 

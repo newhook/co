@@ -131,6 +131,9 @@ func processAllDueTasks(ctx context.Context, proj *project.Project) {
 			"work_id", task.WorkID,
 			"scheduled_at", task.ScheduledAt.Format(time.RFC3339))
 
+		// Print to stdout
+		fmt.Printf("[%s] Executing %s for %s\n", time.Now().Format("15:04:05"), task.TaskType, task.WorkID)
+
 		// Mark as executing
 		if err := proj.DB.MarkTaskExecuting(ctx, task.ID); err != nil {
 			logging.Warn("failed to mark task as executing", "error", err)
@@ -162,7 +165,10 @@ func processAllDueTasks(ctx context.Context, proj *project.Project) {
 
 		// Handle task result
 		if taskErr != nil {
+			fmt.Printf("[%s] Task failed: %s\n", time.Now().Format("15:04:05"), taskErr)
 			handleTaskError(ctx, proj, task, taskErr.Error())
+		} else {
+			fmt.Printf("[%s] Task completed: %s\n", time.Now().Format("15:04:05"), task.TaskType)
 		}
 	}
 }

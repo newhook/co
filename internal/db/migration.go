@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/newhook/co/internal/db/sqlc"
+	"github.com/newhook/co/internal/logging"
 	cosignal "github.com/newhook/co/internal/signal"
 )
 
@@ -49,9 +50,20 @@ func RunMigrationsForFS(ctx context.Context, db *sql.DB, fsys embed.FS) error {
 		return fmt.Errorf("failed to read migrations: %w", err)
 	}
 
+	// Log what we found
+	logging.Debug("Found migration files in filesystem", "count", len(migrations))
+	for _, m := range migrations {
+		logging.Debug("Migration file", "version", m.Version, "name", m.Name)
+	}
+	logging.Debug("Found applied migrations in database", "count", len(applied))
+	for v := range applied {
+		logging.Debug("Applied migration", "version", v)
+	}
+
 	// Apply pending migrations with signal blocking to prevent inconsistent state
 	for _, m := range migrations {
 		if applied[m.Version] {
+			logging.Debug("Skipping already applied migration", "version", m.Version)
 			continue
 		}
 
@@ -276,24 +288,34 @@ func applyMigration(ctx context.Context, db *sql.DB, m Migration) error {
 
 	// Execute up statements
 	statements := splitSQLStatements(m.UpSQL)
-	for _, stmt := range statements {
+	logging.Debug("Applying migration", "version", m.Version, "upSqlBytes", len(m.UpSQL), "statementCount", len(statements))
+	for i, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
+			logging.Debug("Skipping empty statement", "version", m.Version, "index", i)
 			continue
 		}
+		logging.Debug("Executing statement", "version", m.Version, "index", i, "sql", stmt)
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("failed to execute statement: %w", err)
+			return fmt.Errorf("failed to execute statement %d: %w", i, err)
 		}
+		logging.Debug("Statement succeeded", "version", m.Version, "index", i)
 	}
 
 	// Record migration (just version) using sqlc within transaction
 	// The backfill step will add name and down_sql after migration 012 adds those columns
 	txQueries := sqlc.New(tx)
+	logging.Debug("Recording migration in schema_migrations", "version", m.Version)
 	if err := txQueries.RecordMigration(ctx, m.Version); err != nil {
 		return fmt.Errorf("failed to record migration: %w", err)
 	}
 
-	return tx.Commit()
+	logging.Debug("Committing transaction", "version", m.Version)
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	logging.Debug("Transaction committed successfully", "version", m.Version)
+	return nil
 }
 
 // splitSQLStatements splits SQL content into individual statements

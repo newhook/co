@@ -558,7 +558,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// Determine mode and call appropriate action
 						if result.EditBeadID != "" {
 							// Edit mode
-							return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
+							return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType, result.Status)
 						}
 
 						// Create or add-child mode
@@ -1046,7 +1046,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Determine mode and call appropriate action
 			if result.EditBeadID != "" {
 				// Edit mode
-				return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType)
+				return m, m.saveBeadEdit(result.EditBeadID, result.Title, result.Description, result.BeadType, result.Status)
 			}
 
 			// Create or add-child mode
@@ -1460,7 +1460,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Edit selected issue using the unified bead form
 		if len(m.beadItems) > 0 && m.beadsCursor < len(m.beadItems) {
 			bead := m.beadItems[m.beadsCursor]
-			m.beadFormPanel.SetEditMode(bead.ID, bead.Title, bead.Description, bead.Type, bead.Priority)
+			m.beadFormPanel.SetEditMode(bead.ID, bead.Title, bead.Description, bead.Type, bead.Priority, bead.Status)
 			m.viewMode = ViewEditBead
 			return m, m.beadFormPanel.Init()
 		}
