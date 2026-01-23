@@ -141,6 +141,64 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 	if p.focusedWork.work.PRURL != "" {
 		prStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
 		fmt.Fprintf(&content, "PR: %s\n", prStyle.Render(p.focusedWork.work.PRURL))
+
+		// PR Status section (only show if we have a PR)
+		content.WriteString("\n")
+		prStatusHeaderStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("141"))
+		content.WriteString(prStatusHeaderStyle.Render("PR Status"))
+		content.WriteString("\n")
+
+		// CI Status
+		ciStatus := p.focusedWork.ciStatus
+		if ciStatus == "" {
+			ciStatus = "pending"
+		}
+		ciIcon := "⏳"
+		ciText := "Pending"
+		ciColor := lipgloss.Color("226") // yellow
+		switch ciStatus {
+		case "success":
+			ciIcon = "✓"
+			ciText = "Passing"
+			ciColor = lipgloss.Color("82") // green
+		case "failure":
+			ciIcon = "✗"
+			ciText = "Failing"
+			ciColor = lipgloss.Color("196") // red
+		}
+		ciStyle := lipgloss.NewStyle().Foreground(ciColor)
+		fmt.Fprintf(&content, "  CI: %s\n", ciStyle.Render(ciIcon+" "+ciText))
+
+		// Approval Status
+		approvalStatus := p.focusedWork.approvalStatus
+		if approvalStatus == "" {
+			approvalStatus = "pending"
+		}
+		approvalIcon := "⏳"
+		approvalText := "Awaiting review"
+		approvalColor := lipgloss.Color("247") // dim
+		switch approvalStatus {
+		case "approved":
+			approvalIcon = "✓"
+			if len(p.focusedWork.approvers) > 0 {
+				approvalText = "Approved by " + strings.Join(p.focusedWork.approvers, ", ")
+			} else {
+				approvalText = "Approved"
+			}
+			approvalColor = lipgloss.Color("82") // green
+		case "changes_requested":
+			approvalIcon = "⚠"
+			approvalText = "Changes requested"
+			approvalColor = lipgloss.Color("214") // orange
+		}
+		approvalStyle := lipgloss.NewStyle().Foreground(approvalColor)
+		fmt.Fprintf(&content, "  Review: %s\n", approvalStyle.Render(approvalIcon+" "+approvalText))
+
+		// Feedback count (reference the existing feedbackCount if any)
+		if p.focusedWork.feedbackCount > 0 {
+			feedbackStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+			fmt.Fprintf(&content, "  Feedback: %s\n", feedbackStyle.Render(fmt.Sprintf("%d pending item(s)", p.focusedWork.feedbackCount)))
+		}
 	}
 
 	// Creation time
