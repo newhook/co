@@ -409,7 +409,8 @@ func (p *BeadFormPanel) Render(visibleLines int) string {
 	case BeadFormModeEdit:
 		header = "Edit Issue " + issueIDStyle.Render(p.editBeadID)
 	case BeadFormModeAddChild:
-		header = "Add Child Issue"
+		// Include parent on same line to save vertical space
+		header = "Add Child to " + tuiValueStyle.Render(p.parentID)
 	default:
 		header = "Create New Issue"
 	}
@@ -417,13 +418,6 @@ func (p *BeadFormPanel) Render(visibleLines int) string {
 	content.WriteString(tuiLabelStyle.Render(header))
 	content.WriteString("\n")
 	currentLine++
-
-	// Show parent info for add child mode
-	if p.mode == BeadFormModeAddChild && p.parentID != "" {
-		content.WriteString(tuiDimStyle.Render("Parent: ") + tuiValueStyle.Render(p.parentID))
-		content.WriteString("\n")
-		currentLine++
-	}
 
 	// Render form fields
 	content.WriteString("\n")

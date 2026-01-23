@@ -251,11 +251,11 @@ func (b *WorkTabsBar) Render() string {
 		content += tabRightStyle.Render(triangle)
 		currentX++
 
-		// Track region for click detection
+		// Track region for click detection (endX is exclusive)
 		b.tabRegions = append(b.tabRegions, tabRegion{
 			workID: work.work.ID,
 			startX: regionStart,
-			endX:   currentX,
+			endX:   currentX - 1,
 		})
 
 		// Space between tabs (except last)

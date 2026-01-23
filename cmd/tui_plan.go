@@ -377,23 +377,49 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.hoveredDialogButton != "" {
 					m.hoveredIssue = -1
 					m.hoveredWorkItem = -1
+					m.workDetails.SetActionsHoveredIndex(-1)
 				} else if m.focusedWorkID != "" {
 					// Focused work mode: work details panel at top, issues panel at bottom
 					// Account for tabs bar at the top
-					workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
+					workPanelHeight := m.calculateWorkPanelHeightForEvents() + 2 // +2 for border
 					workPanelEndY := tabsBarHeight + workPanelHeight
 					if msg.Y < workPanelEndY {
 						// Mouse is in work details area - adjust Y for tabs bar
 						m.hoveredIssue = -1
-						m.hoveredWorkItem = m.workDetails.DetectHoveredItem(msg.X, msg.Y-tabsBarHeight)
+
+						// Check if actions panel is showing and mouse is over right panel
+						if m.workDetails.IsShowingActionsPanel() {
+							// Calculate right panel X boundary
+							totalContentWidth := m.width - 4
+							leftWidth := int(float64(totalContentWidth) * m.columnRatio)
+							rightPanelStartX := leftWidth + 2
+
+							if msg.X >= rightPanelStartX {
+								// Mouse is over right panel (actions) - detect hovered action
+								// Y relative to right panel content: subtract tabs bar, border, title
+								relativeY := msg.Y - tabsBarHeight - 2
+								hoveredAction := m.workDetails.DetectActionsHoveredIndex(relativeY)
+								m.workDetails.SetActionsHoveredIndex(hoveredAction)
+								m.hoveredWorkItem = -1
+							} else {
+								// Mouse is over left panel
+								m.workDetails.SetActionsHoveredIndex(-1)
+								m.hoveredWorkItem = m.workDetails.DetectHoveredItem(msg.X, msg.Y-tabsBarHeight)
+							}
+						} else {
+							m.workDetails.SetActionsHoveredIndex(-1)
+							m.hoveredWorkItem = m.workDetails.DetectHoveredItem(msg.X, msg.Y-tabsBarHeight)
+						}
 					} else {
 						// Mouse is in issues area - detect issues with offset
 						m.hoveredWorkItem = -1
+						m.workDetails.SetActionsHoveredIndex(-1)
 						m.hoveredIssue = m.detectHoveredIssueWithOffset(msg.Y, workPanelEndY)
 					}
 				} else {
 					// Normal mode - detect hover over issue lines
 					m.hoveredWorkItem = -1
+					m.workDetails.SetActionsHoveredIndex(-1)
 					m.hoveredIssue = m.detectHoveredIssue(msg.Y)
 				}
 			}
@@ -408,6 +434,44 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle clicks on status bar buttons
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			// Handle clicks when actions panel is showing
+			if m.workDetails.IsShowingActionsPanel() {
+				tabsBarHeight := m.workTabsBar.Height()
+				workPanelHeight := m.calculateWorkPanelHeightForEvents() + 2
+				workPanelEndY := tabsBarHeight + workPanelHeight
+
+				// Check if click is in the work panel area
+				if msg.Y >= tabsBarHeight && msg.Y < workPanelEndY {
+					// Calculate right panel X boundary
+					totalContentWidth := m.width - 4
+					leftWidth := int(float64(totalContentWidth) * m.columnRatio)
+					rightPanelStartX := leftWidth + 2
+
+					if msg.X >= rightPanelStartX {
+						// Click is on right panel (actions) - detect clicked action
+						// Y relative to right panel content: subtract tabs bar, border, title
+						relativeY := msg.Y - tabsBarHeight - 2
+						clickedAction := m.workDetails.DetectActionsClickedIndex(relativeY)
+						if clickedAction >= 0 {
+							action := m.workDetails.ExecuteActionAtIndex(clickedAction)
+							switch action {
+							case WorkDetailActionRunAutoGroup:
+								return m, m.runFocusedWork(true)
+							case WorkDetailActionRunSingleBead:
+								return m, m.runFocusedWork(false)
+							}
+						}
+						return m, nil
+					}
+					// Click on left panel while actions showing - close actions panel
+					m.workDetails.HideActionsPanel()
+					return m, nil
+				}
+				// Click outside work panel - close actions panel
+				m.workDetails.HideActionsPanel()
+				return m, nil
+			}
+
 			// Check for clicks on tabs bar
 			tabsBarHeight := m.workTabsBar.Height()
 			if tabsBarHeight > 0 && msg.Y < tabsBarHeight {
@@ -543,7 +607,8 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					switch clickedPanel {
 					case "work-left":
 						// Check if clicking on a task or root issue
-						clickedItem := m.workDetails.DetectClickedItem(msg.X, msg.Y)
+						// Adjust Y for tabs bar (same as hover detection)
+						clickedItem := m.workDetails.DetectClickedItem(msg.X, msg.Y-tabsBarHeight)
 						if clickedItem >= 0 {
 							m.workDetails.SetSelectedIndex(clickedItem)
 							m.activePanel = PanelWorkDetails
@@ -938,7 +1003,13 @@ func scheduleNewBeadExpire(beadID string) tea.Cmd {
 
 func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle escape key globally for deselecting focused work
+	// But NOT if the actions panel is showing - let it close first
 	if msg.Type == tea.KeyEsc && m.viewMode == ViewNormal && m.focusedWorkID != "" {
+		// If actions panel is showing, close it instead of deselecting work
+		if m.workDetails.IsShowingActionsPanel() {
+			m.workDetails.HideActionsPanel()
+			return m, nil
+		}
 		m.focusedWorkID = ""
 		m.filters.task = "" // Clear work selection filter
 		m.filters.children = ""
@@ -1056,25 +1127,6 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewNormal
 		}
 		return m, nil
-	case ViewPlanDialog:
-		// Handle run dialog (choose task grouping)
-		switch msg.String() {
-		case "a", "A":
-			// Auto-group
-			if m.focusedWorkID != "" {
-				m.viewMode = ViewNormal
-				return m, m.runFocusedWork(true)
-			}
-		case "s", "S":
-			// Single-bead tasks
-			if m.focusedWorkID != "" {
-				m.viewMode = ViewNormal
-				return m, m.runFocusedWork(false)
-			}
-		case "esc":
-			m.viewMode = ViewNormal
-		}
-		return m, nil
 	case ViewHelp:
 		m.viewMode = ViewNormal
 		return m, nil
@@ -1136,9 +1188,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openConsole()
 		case WorkDetailActionOpenClaude:
 			return m, m.openClaude()
-		case WorkDetailActionRun:
-			m.viewMode = ViewPlanDialog
-			return m, cmd
+		case WorkDetailActionRunAutoGroup:
+			// Run work with auto-group
+			return m, m.runFocusedWork(true)
+		case WorkDetailActionRunSingleBead:
+			// Run work with single-bead tasks
+			return m, m.runFocusedWork(false)
 		case WorkDetailActionReview:
 			return m, m.createReviewTask()
 		case WorkDetailActionPR:
@@ -1158,6 +1213,13 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.viewMode = ViewDestroyConfirm
 			return m, cmd
+		case WorkDetailActionCloseActionsPanel:
+			// Actions panel was closed, just return
+			return m, nil
+		}
+		// If actions panel is still showing, block all other key handling
+		if m.workDetails.IsShowingActionsPanel() {
+			return m, nil
 		}
 		// WorkDetailActionNone - fall through to normal handling
 	}
@@ -1603,8 +1665,6 @@ func (m *planModel) View() string {
 		return m.renderWithDialog(m.renderCloseBeadConfirmContent())
 	case ViewDestroyConfirm:
 		return m.renderWithDialog(m.renderDestroyConfirmContent())
-	case ViewPlanDialog:
-		return m.renderWithDialog(m.renderPlanDialogContent())
 	case ViewLinearImportInline:
 		// Inline import mode - render normal view with import form in details area
 		// Fall through to normal rendering

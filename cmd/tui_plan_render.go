@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/logging"
 )
 
 const detailsPanelPadding = 4
@@ -138,9 +139,9 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	var contentHeight int
 	if m.focusedWorkID != "" {
 		// In focused work mode, the issues panel is below the work panel
-		// Use the same height calculation as renderFocusedWorkSplitView
-		totalHeight := m.height - 1 - tabsBarHeight         // -1 for status bar, - tabs bar
-		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
+		// Use calculateWorkPanelHeightForEvents since this is event handling (original m.height)
+		totalHeight := m.height - 1 - tabsBarHeight              // -1 for status bar, - tabs bar
+		workPanelHeight := m.calculateWorkPanelHeightForEvents() + 2 // +2 for border
 		issuesPanelStartY = tabsBarHeight + workPanelHeight
 		contentHeight = totalHeight - workPanelHeight
 	} else {
@@ -186,11 +187,30 @@ func (m *planModel) detectHoveredIssue(y int) int {
 	return -1
 }
 
-// calculateWorkPanelHeight returns the height of the work details panel
+// calculateWorkPanelHeight returns the height of the work details panel content.
+// This returns the content height, not including the panel border (+2).
+// NOTE: This function assumes m.height has been adjusted for tabs bar (as done in View()).
+// For event handling where m.height is the original value, use calculateWorkPanelHeightForEvents().
 func (m *planModel) calculateWorkPanelHeight() int {
 	// Calculate based on available height
 	// Note: m.height has already been adjusted for tabs bar in View()
 	availableHeight := m.height - 1 // -1 for status bar
+	dropdownHeight := int(float64(availableHeight) * 0.4)
+	if dropdownHeight < 10 {
+		dropdownHeight = 10
+	} else if dropdownHeight > 23 {
+		dropdownHeight = 23
+	}
+	return dropdownHeight
+}
+
+// calculateWorkPanelHeightForEvents returns the work panel height for event handling.
+// Unlike calculateWorkPanelHeight(), this function works with the original m.height
+// (not temporarily reduced for tabs bar) which is the case during event handling.
+func (m *planModel) calculateWorkPanelHeightForEvents() int {
+	tabsBarHeight := m.workTabsBar.Height()
+	// Subtract tabs bar and status bar from original height
+	availableHeight := m.height - tabsBarHeight - 1
 	dropdownHeight := int(float64(availableHeight) * 0.4)
 	if dropdownHeight < 10 {
 		dropdownHeight = 10
@@ -268,13 +288,16 @@ func (m *planModel) detectClickedPanel(x, y int) string {
 		return ""
 	}
 
-	// Calculate panel boundaries using same formula as renderFocusedWorkSplitView
-	workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
-	halfWidth := (m.width - 4) / 2                      // Half width
+	// Calculate panel boundaries using calculateWorkPanelHeightForEvents (event handling context)
+	tabsBarHeight := m.workTabsBar.Height()
+	workPanelHeight := m.calculateWorkPanelHeightForEvents() + 2 // +2 for border
+	halfWidth := (m.width - 4) / 2                               // Half width
 
 	// Determine Y section (top = work, bottom = issues)
-	isWorkSection := y < workPanelHeight
-	isIssuesSection := y >= workPanelHeight
+	// Account for tabs bar at the top
+	workPanelEndY := tabsBarHeight + workPanelHeight
+	isWorkSection := y >= tabsBarHeight && y < workPanelEndY
+	isIssuesSection := y >= workPanelEndY
 
 	// Determine X section (left or right)
 	isLeftSide := x <= halfWidth
@@ -337,7 +360,8 @@ func (m *planModel) detectDialogButton(x, y int) string {
 	detailsPanelStartY := tabsBarHeight
 	if m.focusedWorkID != "" {
 		// In focused work mode, the details panel is below the work panel
-		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
+		// Use calculateWorkPanelHeightForEvents since this is event handling (original m.height)
+		workPanelHeight := m.calculateWorkPanelHeightForEvents() + 2 // +2 for border
 		detailsPanelStartY = tabsBarHeight + workPanelHeight
 	}
 
@@ -418,12 +442,34 @@ func (m *planModel) detectDialogButton(x, y int) string {
 		// Calculate X position relative to panel content area
 		buttonAreaX := x - detailsPanelStart - 2 // -2 for panel border and padding
 
+		// Debug logging
+		logging.Debug("detectDialogButton bead form",
+			"x", x, "y", y,
+			"detailsPanelStart", detailsPanelStart,
+			"detailsPanelStartY", detailsPanelStartY,
+			"buttonAreaX", buttonAreaX,
+			"tabsBarHeight", tabsBarHeight,
+			"focusedWorkID", m.focusedWorkID,
+			"m.height", m.height,
+			"numButtons", len(dialogButtons))
+
 		// Check each tracked button region
 		for _, button := range dialogButtons {
 			// The Y position stored in button.Y is the line number within the content area.
 			// The content starts at row 2 of the details panel (after border and title).
 			// Add detailsPanelStartY to account for tabs bar and work panel (if focused).
 			absoluteY := detailsPanelStartY + button.Y + 2
+
+			logging.Debug("detectDialogButton checking button",
+				"buttonID", button.ID,
+				"button.Y", button.Y,
+				"absoluteY", absoluteY,
+				"y", y,
+				"button.StartX", button.StartX,
+				"button.EndX", button.EndX,
+				"buttonAreaX", buttonAreaX,
+				"yMatch", y == absoluteY,
+				"xMatch", buttonAreaX >= button.StartX && buttonAreaX <= button.EndX)
 
 			if y == absoluteY && buttonAreaX >= button.StartX && buttonAreaX <= button.EndX {
 				return button.ID
@@ -718,7 +764,7 @@ func (m *planModel) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// If focused work mode, determine if mouse is over work details or issues panel
 	if m.focusedWorkID != "" {
-		workPanelHeight := m.calculateWorkPanelHeight() + 2 // +2 for border
+		workPanelHeight := m.calculateWorkPanelHeightForEvents() + 2 // +2 for border
 		workPanelEndY := tabsBarHeight + workPanelHeight
 
 		// Check if mouse is in work details area (top panel)
