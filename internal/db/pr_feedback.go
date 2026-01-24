@@ -80,6 +80,12 @@ type PRFeedback struct {
 	ResolvedAt   *time.Time // When the GitHub comment was resolved
 }
 
+// IsReviewComment returns true if this feedback is from a GitHub review comment
+// that can be replied to and resolved.
+func (f *PRFeedback) IsReviewComment() bool {
+	return f.SourceType == github.SourceTypeReviewComment && f.SourceID != nil && *f.SourceID != ""
+}
+
 // CreatePRFeedbackParams holds parameters for creating a PR feedback record.
 type CreatePRFeedbackParams struct {
 	WorkID       string

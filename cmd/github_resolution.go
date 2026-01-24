@@ -64,7 +64,7 @@ func ResolveFeedbackForBeads(ctx context.Context, database *db.DB, beadClient *b
 			continue
 		}
 
-		isReviewComment := feedback.SourceType == github.SourceTypeReviewComment && feedback.SourceID != nil && *feedback.SourceID != ""
+		isReviewComment := feedback.IsReviewComment()
 
 		// Build the list of tasks to schedule
 		var tasksToSchedule []db.ScheduledTaskParams
