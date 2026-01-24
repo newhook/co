@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
 )
 
@@ -274,17 +275,12 @@ func (bc *BeadCreator) GroupBeadsByType(beads []BeadInfo) map[string][]BeadInfo 
 
 // PrioritizeBeads sorts beads by priority (0 = highest).
 func (bc *BeadCreator) PrioritizeBeads(beads []BeadInfo) []BeadInfo {
-	// Simple bubble sort for small lists
 	sorted := make([]BeadInfo, len(beads))
 	copy(sorted, beads)
 
-	for i := 0; i < len(sorted)-1; i++ {
-		for j := 0; j < len(sorted)-i-1; j++ {
-			if sorted[j].Priority > sorted[j+1].Priority {
-				sorted[j], sorted[j+1] = sorted[j+1], sorted[j]
-			}
-		}
-	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Priority < sorted[j].Priority
+	})
 
 	return sorted
 }
