@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/reflow/truncate"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/reflow/wordwrap"
 )
 
@@ -172,7 +172,7 @@ func (p *IssueDetailsPanel) renderFullIssueContent() string {
 	// Truncate header to fit inner width
 	headerStr := header.String()
 	if lipgloss.Width(headerStr) > innerWidth {
-		headerStr = truncate.StringWithTail(headerStr, uint(innerWidth), "...")
+		headerStr = ansi.Truncate(headerStr, innerWidth, "...")
 	}
 	content.WriteString(headerStr)
 	content.WriteString("\n")
@@ -180,7 +180,7 @@ func (p *IssueDetailsPanel) renderFullIssueContent() string {
 	// Truncate title to fit on one line
 	titleStr := bead.Title
 	if lipgloss.Width(titleStr) > innerWidth {
-		titleStr = truncate.StringWithTail(titleStr, uint(innerWidth), "...")
+		titleStr = ansi.Truncate(titleStr, innerWidth, "...")
 	}
 	content.WriteString(tuiValueStyle.Render(titleStr))
 
@@ -210,7 +210,7 @@ func (p *IssueDetailsPanel) renderFullIssueContent() string {
 			}
 			// Truncate to fit inner width
 			if lipgloss.Width(childLine)-1 > innerWidth {
-				childLine = truncate.StringWithTail(childLine, uint(innerWidth+1), "...")
+				childLine = ansi.Truncate(childLine, innerWidth+1, "...")
 			}
 			content.WriteString(childLine)
 		}
