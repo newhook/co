@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/beads"
 	beadswatcher "github.com/newhook/co/internal/beads/watcher"
 	"github.com/newhook/co/internal/project"
@@ -1722,8 +1723,8 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 	}
 	branchName := result.String()
 	// Limit length
-	if len(branchName) > 50 {
-		branchName = branchName[:50]
+	if ansi.StringWidth(branchName) > 50 {
+		branchName = ansi.Truncate(branchName, 50, "")
 	}
 	// Remove trailing dashes
 	branchName = strings.TrimRight(branchName, "-")
