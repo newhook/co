@@ -307,9 +307,7 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 	if maxTitleLen < 10 {
 		maxTitleLen = 10
 	}
-	if ansi.StringWidth(title) > maxTitleLen {
-		title = ansi.Truncate(title, maxTitleLen, "...")
-	}
+	title = ansi.Truncate(title, maxTitleLen, "...")
 
 	// Build styled line for normal display
 	var line string

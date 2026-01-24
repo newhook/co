@@ -566,9 +566,7 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	if maxTitleLen < 10 {
 		maxTitleLen = 10 // Minimum space for title
 	}
-	if ansi.StringWidth(title) > maxTitleLen {
-		title = ansi.Truncate(title, maxTitleLen, "...")
-	}
+	title = ansi.Truncate(title, maxTitleLen, "...")
 
 	// Build styled line for normal display
 	var line string

@@ -314,9 +314,7 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 			content.WriteString("Description:\n")
 			// Keep multiline but truncate to reasonable length
 			desc := rootBead.description
-			if ansi.StringWidth(desc) > 300 {
-				desc = ansi.Truncate(desc, 300, "...")
-			}
+			desc = ansi.Truncate(desc, 300, "...")
 			content.WriteString(tuiDimStyle.Render(desc))
 			content.WriteString("\n")
 		}

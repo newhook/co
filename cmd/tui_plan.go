@@ -1723,9 +1723,7 @@ func generateBranchNameFromBeadsForBranch(beads []*beadsForBranch) string {
 	}
 	branchName := result.String()
 	// Limit length
-	if ansi.StringWidth(branchName) > 50 {
-		branchName = ansi.Truncate(branchName, 50, "")
-	}
+	branchName = ansi.Truncate(branchName, 50, "")
 	// Remove trailing dashes
 	branchName = strings.TrimRight(branchName, "-")
 	return "feat/" + branchName

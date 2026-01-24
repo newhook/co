@@ -238,9 +238,7 @@ func (b *WorkTabsBar) Render() string {
 		if work.work.Name != "" {
 			name = work.work.Name
 		}
-		if ansi.StringWidth(name) > 20 {
-			name = ansi.Truncate(name, 20, "…")
-		}
+		name = ansi.Truncate(name, 20, "…")
 
 		// Tab content with optional unseen badge
 		tabContent := fmt.Sprintf(" %s %s", icon, name)
