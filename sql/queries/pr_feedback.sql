@@ -1,8 +1,9 @@
 -- name: CreatePRFeedback :exec
 INSERT INTO pr_feedback (
     id, work_id, pr_url, feedback_type, title, description,
-    source, source_url, source_id, priority, bead_id, metadata
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    source, source_url, source_id, priority, bead_id, metadata,
+    source_type, source_name, context
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetPRFeedback :one
 SELECT * FROM pr_feedback WHERE id = ?;
