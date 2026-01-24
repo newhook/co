@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/logging"
 )
 
@@ -565,8 +566,8 @@ func (m *planModel) renderBeadLine(i int, bead beadItem, panelWidth int) string 
 	if maxTitleLen < 10 {
 		maxTitleLen = 10 // Minimum space for title
 	}
-	if len(title) > maxTitleLen {
-		title = title[:maxTitleLen-3] + "..."
+	if ansi.StringWidth(title) > maxTitleLen {
+		title = ansi.Truncate(title, maxTitleLen, "...")
 	}
 
 	// Build styled line for normal display
