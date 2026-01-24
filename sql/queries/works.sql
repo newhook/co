@@ -27,13 +27,13 @@ WHERE id = ?;
 -- name: IdleWork :execrows
 UPDATE works
 SET status = 'idle'
-WHERE id = ?;
+WHERE id = ? AND status NOT IN ('merged', 'completed');
 
 -- name: IdleWorkWithPR :execrows
 UPDATE works
 SET status = 'idle',
     pr_url = ?
-WHERE id = ?;
+WHERE id = ? AND status NOT IN ('merged', 'completed');
 
 -- name: RestartWork :execrows
 UPDATE works

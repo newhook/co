@@ -315,14 +315,14 @@ func (db *DB) FailWork(ctx context.Context, id, errMsg string) error {
 }
 
 // IdleWork marks a work as idle (all tasks complete, waiting for more).
+// Returns nil if the work is already in a terminal status (merged/completed).
 func (db *DB) IdleWork(ctx context.Context, id string) error {
 	rows, err := db.queries.IdleWork(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to mark work %s as idle: %w", id, err)
 	}
-	if rows == 0 {
-		return fmt.Errorf("work %s not found", id)
-	}
+	// rows == 0 is valid - work may be in terminal status (merged/completed)
+	_ = rows
 	return nil
 }
 
@@ -351,9 +351,9 @@ func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string,
 	if err != nil {
 		return fmt.Errorf("failed to idle work %s: %w", id, err)
 	}
-	if rows == 0 {
-		return fmt.Errorf("work %s not found", id)
-	}
+	// rows == 0 is valid - work may be in terminal status (merged/completed)
+	// In this case, we still schedule feedback tasks if PR URL is provided
+	_ = rows
 
 	// If PR URL provided, schedule feedback polling tasks (if not already scheduled)
 	if prURL != "" {

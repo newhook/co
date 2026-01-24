@@ -481,7 +481,7 @@ func (q *Queries) GetWorksWithUnseenChanges(ctx context.Context) ([]Work, error)
 const idleWork = `-- name: IdleWork :execrows
 UPDATE works
 SET status = 'idle'
-WHERE id = ?
+WHERE id = ? AND status NOT IN ('merged', 'completed')
 `
 
 func (q *Queries) IdleWork(ctx context.Context, id string) (int64, error) {
@@ -496,7 +496,7 @@ const idleWorkWithPR = `-- name: IdleWorkWithPR :execrows
 UPDATE works
 SET status = 'idle',
     pr_url = ?
-WHERE id = ?
+WHERE id = ? AND status NOT IN ('merged', 'completed')
 `
 
 type IdleWorkWithPRParams struct {
