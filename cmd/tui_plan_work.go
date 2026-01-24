@@ -46,7 +46,11 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 }
 
 // executeCreateWork creates a work unit with the given branch name.
-// This calls internal logic directly instead of shelling out to the CLI.
+// This uses the async control plane architecture:
+// 1. Creates work record in DB (with auto flag)
+// 2. Adds beads to work_beads
+// 3. Schedules TaskTypeCreateWorktree task
+// 4. Returns immediately (control plane handles worktree creation + orchestrator spawning)
 func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool) tea.Cmd {
 	return func() tea.Msg {
 		logging.Debug("executeCreateWork started", "beadID", beadID, "branchName", branchName, "auto", auto)
@@ -61,9 +65,8 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("no beads found for %s", beadID)}
 		}
 
-		// Create work with branch name (silent to avoid console output in TUI)
-		logging.Debug("executeCreateWork calling CreateWorkWithBranch", "beadID", beadID, "branchName", branchName, "auto", auto)
-		result, err := CreateWorkWithBranch(m.ctx, m.proj, branchName, "main", beadID, WorkCreateOptions{Silent: true, Auto: auto})
+		// Create work asynchronously (DB operations only, schedules tasks for control plane)
+		result, err := CreateWorkAsync(m.ctx, m.proj, branchName, "main", beadID, auto)
 		if err != nil {
 			logging.Error("executeCreateWork CreateWorkWithBranch failed", "beadID", beadID, "error", err)
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
@@ -79,12 +82,11 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		}
 		logging.Debug("executeCreateWork beads added successfully", "workID", result.WorkID)
 
-		// Spawn the orchestrator for this work
-		logging.Debug("executeCreateWork spawning orchestrator", "workID", result.WorkID)
-		if err := claude.SpawnWorkOrchestrator(m.ctx, result.WorkID, m.proj.Config.Project.Name, result.WorktreePath, result.WorkerName, io.Discard); err != nil {
-			logging.Error("executeCreateWork SpawnWorkOrchestrator failed", "workID", result.WorkID, "error", err)
-			// Non-fatal: work was created but orchestrator failed to spawn
-			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but orchestrator failed: %w", err)}
+		// Ensure control plane is running to process the worktree creation task
+		_, err = EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
+		if err != nil {
+			// Non-fatal: work was created but control plane might need manual start
+			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but control plane failed: %w", err)}
 		}
 		logging.Debug("executeCreateWork completed successfully", "workID", result.WorkID)
 
@@ -135,13 +137,13 @@ func (m *planModel) loadWorkTiles() tea.Cmd {
 
 // Helper functions for work commands
 
-// destroyWork destroys a work by ID
+// destroyWork schedules a work destruction task via the control plane
 func (m *planModel) destroyWork(workID string) tea.Cmd {
 	return func() tea.Msg {
-		if err := DestroyWork(m.ctx, m.proj, workID, io.Discard); err != nil {
+		if err := ScheduleDestroyWorktree(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Destroy work", workID: workID, err: err}
 		}
-		return workCommandMsg{action: "Destroy work", workID: workID}
+		return workCommandMsg{action: "Destroy work scheduled", workID: workID}
 	}
 }
 

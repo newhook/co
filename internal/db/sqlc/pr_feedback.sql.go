@@ -11,6 +11,27 @@ import (
 	"strings"
 )
 
+const countUnassignedFeedbackForWork = `-- name: CountUnassignedFeedbackForWork :one
+SELECT COUNT(*) as count FROM pr_feedback pf
+WHERE pf.work_id = ?
+  AND pf.bead_id IS NOT NULL
+  AND pf.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM task_beads tb
+    JOIN tasks t ON tb.task_id = t.id
+    WHERE tb.bead_id = pf.bead_id
+      AND t.work_id = pf.work_id
+  )
+`
+
+// Count PR feedback items that have beads which are not yet assigned to any task and not resolved/closed.
+func (q *Queries) CountUnassignedFeedbackForWork(ctx context.Context, workID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUnassignedFeedbackForWork, workID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createPRFeedback = `-- name: CreatePRFeedback :exec
 INSERT INTO pr_feedback (
     id, work_id, pr_url, feedback_type, title, description,
@@ -155,6 +176,44 @@ func (q *Queries) GetPRFeedbackBySourceID(ctx context.Context, arg GetPRFeedback
 		&i.ResolvedAt,
 	)
 	return i, err
+}
+
+const getUnassignedFeedbackBeadIDs = `-- name: GetUnassignedFeedbackBeadIDs :many
+SELECT pf.bead_id FROM pr_feedback pf
+WHERE pf.work_id = ?
+  AND pf.bead_id IS NOT NULL
+  AND pf.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM task_beads tb
+    JOIN tasks t ON tb.task_id = t.id
+    WHERE tb.bead_id = pf.bead_id
+      AND t.work_id = pf.work_id
+  )
+ORDER BY pf.created_at ASC
+`
+
+// Get bead IDs from PR feedback items that are not yet assigned to any task and not resolved/closed.
+func (q *Queries) GetUnassignedFeedbackBeadIDs(ctx context.Context, workID string) ([]sql.NullString, error) {
+	rows, err := q.db.QueryContext(ctx, getUnassignedFeedbackBeadIDs, workID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []sql.NullString{}
+	for rows.Next() {
+		var bead_id sql.NullString
+		if err := rows.Scan(&bead_id); err != nil {
+			return nil, err
+		}
+		items = append(items, bead_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getUnresolvedFeedbackForBeads = `-- name: GetUnresolvedFeedbackForBeads :many

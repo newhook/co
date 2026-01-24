@@ -276,7 +276,7 @@ func (m *planModel) closeBeads(beadIDs []string) tea.Cmd {
 	}
 }
 
-func (m *planModel) saveBeadEdit(beadID, title, description, beadType string) tea.Cmd {
+func (m *planModel) saveBeadEdit(beadID, title, description, beadType, status string) tea.Cmd {
 	return func() tea.Msg {
 		mainRepoPath := m.proj.MainRepoPath()
 
@@ -285,6 +285,7 @@ func (m *planModel) saveBeadEdit(beadID, title, description, beadType string) te
 			Title:       title,
 			Type:        beadType,
 			Description: description,
+			Status:      status,
 		})
 		if err != nil {
 			return planDataMsg{err: fmt.Errorf("failed to update issue: %w", err)}

@@ -23,6 +23,8 @@ type Querier interface {
 	CountEstimatedBeads(ctx context.Context, beadIds []string) (int64, error)
 	CountPendingTasksForWork(ctx context.Context, workID string) (int64, error)
 	CountTaskBeadStatuses(ctx context.Context, taskID string) (CountTaskBeadStatusesRow, error)
+	// Count PR feedback items that have beads which are not yet assigned to any task and not resolved/closed.
+	CountUnassignedFeedbackForWork(ctx context.Context, workID string) (int64, error)
 	CreateMigrationsTable(ctx context.Context) error
 	CreatePRFeedback(ctx context.Context, arg CreatePRFeedbackParams) error
 	CreateScheduledTask(ctx context.Context, arg CreateScheduledTaskParams) error
@@ -85,6 +87,8 @@ type Querier interface {
 	GetTaskForBead(ctx context.Context, beadID string) (string, error)
 	GetTaskMetadata(ctx context.Context, arg GetTaskMetadataParams) (string, error)
 	GetTasksWithActivity(ctx context.Context) ([]Task, error)
+	// Get bead IDs from PR feedback items that are not yet assigned to any task and not resolved/closed.
+	GetUnassignedFeedbackBeadIDs(ctx context.Context, workID string) ([]sql.NullString, error)
 	GetUnassignedWorkBeads(ctx context.Context, workID string) ([]WorkBead, error)
 	GetUnresolvedFeedbackForBeads(ctx context.Context, beadIds []sql.NullString) ([]PrFeedback, error)
 	GetUnresolvedFeedbackForWork(ctx context.Context, workID string) ([]PrFeedback, error)
@@ -118,6 +122,7 @@ type Querier interface {
 	MarkTaskExecuting(ctx context.Context, id string) error
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
 	MarkWorkPRSeen(ctx context.Context, id string) (int64, error)
+	MergeWork(ctx context.Context, arg MergeWorkParams) (int64, error)
 	RecordMigration(ctx context.Context, version string) error
 	RecordMigrationWithDown(ctx context.Context, arg RecordMigrationWithDownParams) error
 	RemoveWorkBead(ctx context.Context, arg RemoveWorkBeadParams) (int64, error)
@@ -137,6 +142,7 @@ type Querier interface {
 	UpdateScheduledTaskTime(ctx context.Context, arg UpdateScheduledTaskTimeParams) error
 	UpdateTaskActivity(ctx context.Context, arg UpdateTaskActivityParams) (int64, error)
 	UpdateWorkPRStatus(ctx context.Context, arg UpdateWorkPRStatusParams) (int64, error)
+	UpdateWorkWorktreePath(ctx context.Context, arg UpdateWorkWorktreePathParams) (int64, error)
 	WatchSchedulerChanges(ctx context.Context, updatedAt time.Time) ([]Scheduler, error)
 }
 

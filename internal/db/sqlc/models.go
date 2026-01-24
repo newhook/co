@@ -139,6 +139,7 @@ type Work struct {
 	Approvers          string       `json:"approvers"`
 	LastPrPollAt       sql.NullTime `json:"last_pr_poll_at"`
 	HasUnseenPrChanges bool         `json:"has_unseen_pr_changes"`
+	PrState            string       `json:"pr_state"`
 }
 
 type WorkBead struct {

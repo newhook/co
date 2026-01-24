@@ -156,15 +156,30 @@ func (db *DB) MarkFeedbackProcessed(ctx context.Context, feedbackID, beadID stri
 	return nil
 }
 
-// CountUnresolvedFeedbackForWork returns the count of unresolved PR feedback items for a work.
+// CountUnresolvedFeedbackForWork returns the count of PR feedback items that have beads
+// which are not yet assigned to any task and not resolved/closed.
 func (db *DB) CountUnresolvedFeedbackForWork(ctx context.Context, workID string) (int, error) {
-	query := `SELECT COUNT(*) FROM pr_feedback WHERE work_id = ? AND bead_id IS NULL`
-	var count int
-	err := db.DB.QueryRowContext(ctx, query, workID).Scan(&count)
+	count, err := db.queries.CountUnassignedFeedbackForWork(ctx, workID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count unresolved feedback: %w", err)
 	}
-	return count, nil
+	return int(count), nil
+}
+
+// GetUnassignedFeedbackBeadIDs returns bead IDs from PR feedback items that are not yet
+// assigned to any task and not resolved/closed.
+func (db *DB) GetUnassignedFeedbackBeadIDs(ctx context.Context, workID string) ([]string, error) {
+	nullStrings, err := db.queries.GetUnassignedFeedbackBeadIDs(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get unassigned feedback bead IDs: %w", err)
+	}
+	result := make([]string, 0, len(nullStrings))
+	for _, ns := range nullStrings {
+		if ns.Valid {
+			result = append(result, ns.String)
+		}
+	}
+	return result, nil
 }
 
 // GetFeedbackByBeadID returns the feedback associated with a bead.

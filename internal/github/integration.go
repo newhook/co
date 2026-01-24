@@ -248,6 +248,7 @@ type PRStatusInfo struct {
 	CIStatus       string   // pending, success, failure
 	ApprovalStatus string   // pending, approved, changes_requested
 	Approvers      []string // List of usernames who approved
+	PRState        string   // open, closed, merged
 }
 
 // ExtractPRStatus fetches a PR and extracts CI and approval status.
@@ -266,6 +267,7 @@ func ExtractStatusFromPRStatus(status *PRStatus) *PRStatusInfo {
 		CIStatus:       "pending",
 		ApprovalStatus: "pending",
 		Approvers:      []string{},
+		PRState:        normalizePRState(status.State),
 	}
 
 	// Extract CI status from status checks and workflow runs
@@ -275,6 +277,22 @@ func ExtractStatusFromPRStatus(status *PRStatus) *PRStatusInfo {
 	info.ApprovalStatus, info.Approvers = extractApprovalStatus(status)
 
 	return info
+}
+
+// normalizePRState converts GitHub PR state to our normalized state.
+// GitHub uses: OPEN, CLOSED, MERGED (uppercase)
+// We use: open, closed, merged (lowercase)
+func normalizePRState(state string) string {
+	switch strings.ToUpper(state) {
+	case "OPEN":
+		return "open"
+	case "CLOSED":
+		return "closed"
+	case "MERGED":
+		return "merged"
+	default:
+		return "open" // Default to open if unknown
+	}
 }
 
 // extractCIStatus determines the overall CI status from status checks and workflows.

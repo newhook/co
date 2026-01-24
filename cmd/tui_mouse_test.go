@@ -319,11 +319,11 @@ func TestDetectDialogButton(t *testing.T) {
 			name:           "ViewEditBead mode - ok button",
 			viewMode:       ViewEditBead,
 			x:              57, // adjusted for no separator
-			y:              17, // + tabsBarHeight (1)
+			y:              18, // + tabsBarHeight (1) + extra status line in edit mode
 			expectedButton: "ok",
 			setupFunc: func() {
 				// Set up for edit bead mode and render to populate button positions
-				m.beadFormPanel.SetEditMode("test-bead-1", "Test Bead", "Description", "task", 2)
+				m.beadFormPanel.SetEditMode("test-bead-1", "Test Bead", "Description", "task", 2, "open")
 				m.beadFormPanel.Render(16) // visibleLines=16 gives descHeight=max(16-12,4)=4
 			},
 		},

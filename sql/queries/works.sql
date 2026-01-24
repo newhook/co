@@ -65,7 +65,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE id = ?;
 
@@ -88,7 +89,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 ORDER BY created_at DESC;
 
@@ -111,7 +113,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE status = ?
 ORDER BY created_at DESC;
@@ -140,7 +143,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE worktree_path LIKE ?
 LIMIT 1;
@@ -187,12 +191,25 @@ SET next_task_num = next_task_num + 1
 WHERE work_id = ?
 RETURNING next_task_num - 1 as task_num;
 
+-- name: UpdateWorkWorktreePath :execrows
+UPDATE works
+SET worktree_path = ?
+WHERE id = ?;
+
 -- name: UpdateWorkPRStatus :execrows
 UPDATE works
 SET ci_status = ?,
     approval_status = ?,
     approvers = ?,
+    pr_state = ?,
     last_pr_poll_at = ?
+WHERE id = ?;
+
+-- name: MergeWork :execrows
+UPDATE works
+SET status = 'merged',
+    pr_state = 'merged',
+    completed_at = ?
 WHERE id = ?;
 
 -- name: SetWorkHasUnseenPRChanges :execrows
@@ -224,7 +241,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE has_unseen_pr_changes = TRUE
 ORDER BY created_at DESC;
@@ -248,7 +266,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE pr_url != ''
 ORDER BY created_at DESC;

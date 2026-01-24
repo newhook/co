@@ -17,6 +17,14 @@ const (
 	StatusIdle       = "idle"
 	StatusCompleted  = "completed"
 	StatusFailed     = "failed"
+	StatusMerged     = "merged"
+)
+
+// PR state constants
+const (
+	PRStateOpen   = "open"
+	PRStateClosed = "closed"
+	PRStateMerged = "merged"
 )
 
 // DB wraps the SQLite database connection and sqlc queries.

@@ -57,3 +57,30 @@ DELETE FROM pr_feedback WHERE work_id = ?;
 SELECT * FROM pr_feedback
 WHERE work_id = ? AND source_id = ?
 LIMIT 1;
+
+-- name: CountUnassignedFeedbackForWork :one
+-- Count PR feedback items that have beads which are not yet assigned to any task and not resolved/closed.
+SELECT COUNT(*) as count FROM pr_feedback pf
+WHERE pf.work_id = ?
+  AND pf.bead_id IS NOT NULL
+  AND pf.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM task_beads tb
+    JOIN tasks t ON tb.task_id = t.id
+    WHERE tb.bead_id = pf.bead_id
+      AND t.work_id = pf.work_id
+  );
+
+-- name: GetUnassignedFeedbackBeadIDs :many
+-- Get bead IDs from PR feedback items that are not yet assigned to any task and not resolved/closed.
+SELECT pf.bead_id FROM pr_feedback pf
+WHERE pf.work_id = ?
+  AND pf.bead_id IS NOT NULL
+  AND pf.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM task_beads tb
+    JOIN tasks t ON tb.task_id = t.id
+    WHERE tb.bead_id = pf.bead_id
+      AND t.work_id = pf.work_id
+  )
+ORDER BY pf.created_at ASC;
