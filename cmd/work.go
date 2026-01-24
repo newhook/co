@@ -769,14 +769,14 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 	// Remove git worktree if it exists
 	if work.WorktreePath != "" {
 		if err := worktree.RemoveForce(ctx, proj.MainRepoPath(), work.WorktreePath); err != nil {
-			// Warn but continue - worktree might not exist
+			fmt.Fprintf(w, "Warning: failed to remove worktree: %v\n", err)
 		}
 	}
 
 	// Remove work directory
 	workDir := filepath.Join(proj.Root, workID)
 	if err := os.RemoveAll(workDir); err != nil {
-		// Warn but continue - directory might not exist
+		fmt.Fprintf(w, "Warning: failed to remove work directory %s: %v\n", workDir, err)
 	}
 
 	// Delete work from database (also deletes associated tasks and relationships)
