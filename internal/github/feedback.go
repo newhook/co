@@ -611,11 +611,3 @@ func (p *FeedbackProcessor) truncateText(text string, maxLen int) string {
 	}
 	return text[:maxLen] + "..."
 }
-
-func (p *FeedbackProcessor) getFileName(path string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-	return path
-}
