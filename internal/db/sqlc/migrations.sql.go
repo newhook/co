@@ -13,7 +13,9 @@ import (
 const createMigrationsTable = `-- name: CreateMigrationsTable :exec
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version TEXT PRIMARY KEY,
-    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    name TEXT NOT NULL DEFAULT '',
+    down_sql TEXT NOT NULL DEFAULT ''
 )
 `
 

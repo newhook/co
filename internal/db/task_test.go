@@ -8,11 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// createTestWork creates a test work and returns the work ID
+func createTestWork(t *testing.T, db *DB) string {
+	t.Helper()
+	err := db.CreateWork(context.Background(), "test-work", "", "/tmp/worktree", "feat/test", "main", "root-issue", false)
+	require.NoError(t, err, "failed to create test work")
+	return "test-work"
+}
+
 func TestCreateTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	err := db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	err := db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, workID)
 	require.NoError(t, err, "CreateTask failed")
 
 	// Verify task was created
@@ -32,8 +41,9 @@ func TestCreateTask(t *testing.T) {
 func TestStartTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	err := db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
+	err := db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, workID)
 	require.NoError(t, err, "CreateTask failed")
 
 	err = db.StartTask(context.Background(), "task-1", "")
@@ -58,8 +68,9 @@ func TestStartTaskNotFound(t *testing.T) {
 func TestCompleteTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, workID)
 	db.StartTask(context.Background(), "task-1", "")
 
 	err := db.CompleteTask(context.Background(), "task-1", "https://github.com/example/pr/1")
@@ -82,8 +93,9 @@ func TestCompleteTaskNotFound(t *testing.T) {
 func TestFailTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, workID)
 	db.StartTask(context.Background(), "task-1", "")
 
 	err := db.FailTask(context.Background(), "task-1", "something went wrong")
@@ -115,8 +127,9 @@ func TestGetTaskNotFound(t *testing.T) {
 func TestGetTaskForBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, workID)
 
 	taskID, err := db.GetTaskForBead(context.Background(), "bead-1")
 	require.NoError(t, err, "GetTaskForBead failed")
@@ -135,8 +148,9 @@ func TestGetTaskForBead(t *testing.T) {
 func TestCompleteTaskBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, workID)
 
 	err := db.CompleteTaskBead(context.Background(), "task-1", "bead-1")
 	require.NoError(t, err, "CompleteTaskBead failed")
@@ -150,8 +164,9 @@ func TestCompleteTaskBead(t *testing.T) {
 func TestCompleteTaskBeadNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, workID)
 
 	err := db.CompleteTaskBead(context.Background(), "task-1", "nonexistent")
 	assert.Error(t, err, "expected error for nonexistent task bead")
@@ -160,8 +175,9 @@ func TestCompleteTaskBeadNotFound(t *testing.T) {
 func TestFailTaskBead(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, workID)
 
 	err := db.FailTaskBead(context.Background(), "task-1", "bead-1")
 	require.NoError(t, err, "FailTaskBead failed")
@@ -174,8 +190,9 @@ func TestFailTaskBead(t *testing.T) {
 func TestFailTaskBeadNotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, workID)
 
 	err := db.FailTaskBead(context.Background(), "task-1", "nonexistent")
 	assert.Error(t, err, "expected error for nonexistent task bead")
@@ -184,8 +201,9 @@ func TestFailTaskBeadNotFound(t *testing.T) {
 func TestIsTaskCompleted(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, workID)
 
 	// Initially not completed
 	total, completed, err := db.CountTaskBeadStatuses(context.Background(), "task-1")
@@ -206,9 +224,10 @@ func TestIsTaskCompleted(t *testing.T) {
 func TestIsTaskCompletedEmpty(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
 	// Task with no beads
-	_, err := db.Exec(`INSERT INTO tasks (id, status) VALUES ('empty-task', 'pending')`)
+	_, err := db.Exec(`INSERT INTO tasks (id, status, work_id) VALUES ('empty-task', 'pending', ?)`, workID)
 	require.NoError(t, err, "failed to create empty task")
 
 	total, completed, err := db.CountTaskBeadStatuses(context.Background(), "empty-task")
@@ -219,8 +238,9 @@ func TestIsTaskCompletedEmpty(t *testing.T) {
 func TestCheckAndCompleteTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1", "bead-2"}, 100, workID)
 	db.StartTask(context.Background(), "task-1", "")
 
 	// Not all beads completed yet
@@ -247,15 +267,16 @@ func TestCheckAndCompleteTask(t *testing.T) {
 func TestListTasks(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	workID := createTestWork(t, db)
 
 	// Create several tasks with different statuses
-	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, "")
-	db.CreateTask(context.Background(), "task-2", "implement", []string{"bead-2"}, 100, "")
+	db.CreateTask(context.Background(), "task-1", "implement", []string{"bead-1"}, 100, workID)
+	db.CreateTask(context.Background(), "task-2", "implement", []string{"bead-2"}, 100, workID)
 	db.StartTask(context.Background(), "task-2", "")
-	db.CreateTask(context.Background(), "task-3", "implement", []string{"bead-3"}, 100, "")
+	db.CreateTask(context.Background(), "task-3", "implement", []string{"bead-3"}, 100, workID)
 	db.StartTask(context.Background(), "task-3", "")
 	db.CompleteTask(context.Background(), "task-3", "")
-	db.CreateTask(context.Background(), "task-4", "implement", []string{"bead-4"}, 100, "")
+	db.CreateTask(context.Background(), "task-4", "implement", []string{"bead-4"}, 100, workID)
 	db.StartTask(context.Background(), "task-4", "")
 	db.FailTask(context.Background(), "task-4", "error")
 
