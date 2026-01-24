@@ -58,13 +58,15 @@ func (bc *BeadCreator) feedbackToBeadInfo(item FeedbackItem, rootIssueID string)
 	// Add feedback type to labels
 	labels = append(labels, "from-pr-feedback")
 
-	// Build metadata
-	metadata := make(map[string]string, len(item.Context)+3)
-	for k, v := range item.Context {
-		metadata[k] = v
-	}
-	metadata["source"] = item.Source
-	metadata["source_url"] = item.SourceURL
+	// Build metadata from typed context
+	metadata := make(map[string]string)
+	bc.addContextToMetadata(item, metadata)
+
+	// Add source info to metadata
+	metadata["source_type"] = string(item.Source.Type)
+	metadata["source_id"] = item.Source.ID
+	metadata["source_name"] = item.Source.Name
+	metadata["source_url"] = item.Source.URL
 	metadata["feedback_type"] = string(item.Type)
 
 	return BeadInfo{
@@ -75,6 +77,40 @@ func (bc *BeadCreator) feedbackToBeadInfo(item FeedbackItem, rootIssueID string)
 		ParentID:    rootIssueID,
 		Labels:      labels,
 		Metadata:    metadata,
+	}
+}
+
+// addContextToMetadata extracts typed context fields into metadata map.
+func (bc *BeadCreator) addContextToMetadata(item FeedbackItem, metadata map[string]string) {
+	switch {
+	case item.CICheck != nil:
+		metadata["check_name"] = item.CICheck.CheckName
+		metadata["state"] = item.CICheck.State
+	case item.Workflow != nil:
+		metadata["workflow"] = item.Workflow.WorkflowName
+		metadata["failure"] = item.Workflow.FailureDetail
+		metadata["run_id"] = fmt.Sprintf("%d", item.Workflow.RunID)
+		if item.Workflow.JobName != "" {
+			metadata["job_name"] = item.Workflow.JobName
+		}
+		if item.Workflow.StepName != "" {
+			metadata["step_name"] = item.Workflow.StepName
+		}
+	case item.Review != nil:
+		if item.Review.File != "" {
+			metadata["file"] = item.Review.File
+		}
+		if item.Review.Line != 0 {
+			metadata["line"] = fmt.Sprintf("%d", item.Review.Line)
+		}
+		metadata["reviewer"] = item.Review.Reviewer
+		metadata["comment_id"] = fmt.Sprintf("%d", item.Review.CommentID)
+		if item.Review.InReplyToID != 0 {
+			metadata["in_reply_to_id"] = fmt.Sprintf("%d", item.Review.InReplyToID)
+		}
+	case item.IssueComment != nil:
+		metadata["author"] = item.IssueComment.Author
+		metadata["comment_id"] = fmt.Sprintf("%d", item.IssueComment.CommentID)
 	}
 }
 
@@ -125,28 +161,14 @@ func (bc *BeadCreator) formatDescription(item FeedbackItem) string {
 	// Add source information
 	sb.WriteString("## Source\n")
 	sb.WriteString(fmt.Sprintf("- Type: %s\n", item.Type))
-	sb.WriteString(fmt.Sprintf("- From: %s\n", item.Source))
-	if item.SourceURL != "" {
-		sb.WriteString(fmt.Sprintf("- **GitHub Link**: %s\n", item.SourceURL))
+	sb.WriteString(fmt.Sprintf("- From: %s (%s)\n", item.Source.Name, item.Source.Type))
+	if item.Source.URL != "" {
+		sb.WriteString(fmt.Sprintf("- **GitHub Link**: %s\n", item.Source.URL))
 	}
 	sb.WriteString("\n_This issue was automatically created from GitHub PR feedback._")
 
 	// Add context if available
-	if len(item.Context) > 0 {
-		sb.WriteString("\n## Context\n")
-		for key, value := range item.Context {
-			// Format key nicely (capitalize first letter of each word)
-			formattedKey := strings.ReplaceAll(key, "_", " ")
-			words := strings.Fields(formattedKey)
-			for i, word := range words {
-				if len(word) > 0 {
-					words[i] = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
-				}
-			}
-			formattedKey = strings.Join(words, " ")
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", formattedKey, value))
-		}
-	}
+	bc.writeContextToDescription(&sb, item)
 
 	// Add resolution guidance based on type
 	sb.WriteString("\n## Resolution\n")
@@ -168,6 +190,47 @@ func (bc *BeadCreator) formatDescription(item FeedbackItem) string {
 	}
 
 	return sb.String()
+}
+
+// writeContextToDescription writes typed context fields to the description.
+func (bc *BeadCreator) writeContextToDescription(sb *strings.Builder, item FeedbackItem) {
+	hasContext := item.CICheck != nil || item.Workflow != nil || item.Review != nil || item.IssueComment != nil
+	if !hasContext {
+		return
+	}
+
+	sb.WriteString("\n## Context\n")
+
+	switch {
+	case item.CICheck != nil:
+		sb.WriteString(fmt.Sprintf("- Check Name: %s\n", item.CICheck.CheckName))
+		sb.WriteString(fmt.Sprintf("- State: %s\n", item.CICheck.State))
+	case item.Workflow != nil:
+		sb.WriteString(fmt.Sprintf("- Workflow: %s\n", item.Workflow.WorkflowName))
+		sb.WriteString(fmt.Sprintf("- Failure: %s\n", item.Workflow.FailureDetail))
+		sb.WriteString(fmt.Sprintf("- Run Id: %d\n", item.Workflow.RunID))
+		if item.Workflow.JobName != "" {
+			sb.WriteString(fmt.Sprintf("- Job Name: %s\n", item.Workflow.JobName))
+		}
+		if item.Workflow.StepName != "" {
+			sb.WriteString(fmt.Sprintf("- Step Name: %s\n", item.Workflow.StepName))
+		}
+	case item.Review != nil:
+		if item.Review.File != "" {
+			sb.WriteString(fmt.Sprintf("- File: %s\n", item.Review.File))
+		}
+		if item.Review.Line != 0 {
+			sb.WriteString(fmt.Sprintf("- Line: %d\n", item.Review.Line))
+		}
+		sb.WriteString(fmt.Sprintf("- Reviewer: %s\n", item.Review.Reviewer))
+		sb.WriteString(fmt.Sprintf("- Comment Id: %d\n", item.Review.CommentID))
+		if item.Review.InReplyToID != 0 {
+			sb.WriteString(fmt.Sprintf("- In Reply To Id: %d\n", item.Review.InReplyToID))
+		}
+	case item.IssueComment != nil:
+		sb.WriteString(fmt.Sprintf("- Author: %s\n", item.IssueComment.Author))
+		sb.WriteString(fmt.Sprintf("- Comment Id: %d\n", item.IssueComment.CommentID))
+	}
 }
 
 // deduplicateBeads removes duplicate or similar beads.

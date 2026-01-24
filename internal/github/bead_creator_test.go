@@ -26,13 +26,18 @@ func TestFeedbackToBeadInfo(t *testing.T) {
 		Type:        FeedbackTypeTest,
 		Title:       "Fix failing tests",
 		Description: "Unit tests are failing",
-		Source:      "CI: test-suite",
-		SourceURL:   "https://example.com/runs/123",
-		Priority:    2,
-		Actionable:  true,
-		Context: map[string]string{
-			"workflow": "Test Suite",
-			"failure":  "unit tests",
+		Source: SourceInfo{
+			Type: SourceTypeWorkflow,
+			ID:   "123",
+			Name: "test-suite",
+			URL:  "https://example.com/runs/123",
+		},
+		Priority:   2,
+		Actionable: true,
+		Workflow: &WorkflowContext{
+			WorkflowName:  "Test Suite",
+			FailureDetail: "unit tests",
+			RunID:         123,
 		},
 	}
 
@@ -65,8 +70,11 @@ func TestFeedbackToBeadInfo(t *testing.T) {
 	}
 
 	// Check metadata
-	if beadInfo.Metadata["source"] != "CI: test-suite" {
-		t.Errorf("Metadata[source] = %s, want CI: test-suite", beadInfo.Metadata["source"])
+	if beadInfo.Metadata["source_name"] != "test-suite" {
+		t.Errorf("Metadata[source_name] = %s, want test-suite", beadInfo.Metadata["source_name"])
+	}
+	if beadInfo.Metadata["source_type"] != string(SourceTypeWorkflow) {
+		t.Errorf("Metadata[source_type] = %s, want %s", beadInfo.Metadata["source_type"], SourceTypeWorkflow)
 	}
 	if beadInfo.Metadata["feedback_type"] != "test_failure" {
 		t.Errorf("Metadata[feedback_type] = %s, want test_failure", beadInfo.Metadata["feedback_type"])
@@ -137,11 +145,16 @@ func TestFormatDescription(t *testing.T) {
 	item := FeedbackItem{
 		Type:        FeedbackTypeTest,
 		Description: "Tests are failing",
-		Source:      "CI: test-suite",
-		SourceURL:   "https://example.com/runs/123",
-		Context: map[string]string{
-			"workflow":    "Test Suite",
-			"failed_step": "unit tests",
+		Source: SourceInfo{
+			Type: SourceTypeWorkflow,
+			ID:   "123",
+			Name: "test-suite",
+			URL:  "https://example.com/runs/123",
+		},
+		Workflow: &WorkflowContext{
+			WorkflowName:  "Test Suite",
+			FailureDetail: "unit tests",
+			RunID:         123,
 		},
 	}
 
@@ -427,13 +440,17 @@ func TestContextFormatting(t *testing.T) {
 	creator := &BeadCreator{}
 
 	item := FeedbackItem{
-		Type:        FeedbackTypeTest,
+		Type:        FeedbackTypeCI,
 		Description: "Test",
-		Source:      "Source",
-		Context: map[string]string{
-			"check_name":    "unit-tests",
-			"workflow_name": "CI Pipeline",
-			"file_path":     "/src/main.go",
+		Source: SourceInfo{
+			Type: SourceTypeCI,
+			ID:   "unit-tests",
+			Name: "unit-tests",
+			URL:  "",
+		},
+		CICheck: &CICheckContext{
+			CheckName: "unit-tests",
+			State:     "FAILURE",
 		},
 	}
 
@@ -443,10 +460,7 @@ func TestContextFormatting(t *testing.T) {
 	if !strings.Contains(description, "Check Name:") {
 		t.Error("Context key 'check_name' should be formatted as 'Check Name:'")
 	}
-	if !strings.Contains(description, "Workflow Name:") {
-		t.Error("Context key 'workflow_name' should be formatted as 'Workflow Name:'")
-	}
-	if !strings.Contains(description, "File Path:") {
-		t.Error("Context key 'file_path' should be formatted as 'File Path:'")
+	if !strings.Contains(description, "State:") {
+		t.Error("Context key 'state' should be formatted as 'State:'")
 	}
 }

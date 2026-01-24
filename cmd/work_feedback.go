@@ -129,7 +129,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 	for i, item := range feedbackItems {
 		// Check if this is a reply to an existing comment
-		if inReplyToID, ok := item.Context["in_reply_to_id"]; ok && inReplyToID != "" {
+		if inReplyToID := item.GetInReplyToID(); inReplyToID != "" {
 			// This is a reply - find the original comment's bead and add this as a comment
 			parentFeedback, err := database.GetFeedbackBySourceID(ctx, workID, inReplyToID)
 			if err != nil {
@@ -147,7 +147,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			}
 
 			// Check if this reply was already processed
-			if sourceID, ok := item.Context["source_id"]; ok && sourceID != "" {
+			if sourceID := item.GetSourceID(); sourceID != "" {
 				exists, err := database.HasExistingFeedbackBySourceID(ctx, workID, sourceID)
 				if err == nil && exists {
 					if !quiet {
@@ -158,7 +158,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			}
 
 			// Add the reply as a comment to the existing bead
-			commentText := fmt.Sprintf("Reply from %s:\n\n%s", item.Source, item.Description)
+			commentText := fmt.Sprintf("Reply from %s:\n\n%s", item.GetSourceName(), item.Description)
 			if err := beads.AddComment(ctx, *parentFeedback.BeadID, commentText, mainRepoPath); err != nil {
 				if !quiet {
 					fmt.Printf("%d. [ERROR] Failed to add comment to bead %s: %v\n", i+1, *parentFeedback.BeadID, err)
@@ -173,7 +173,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			// Store this reply in the database to track it was processed
 			// (using the same bead_id as the parent)
 			prFeedback, err := database.CreatePRFeedback(ctx, workID, work.PRURL, string(item.Type), item.Title,
-				item.Description, item.Source, item.SourceURL, item.Priority, item.Context)
+				item.Description, item.GetSourceName(), item.GetSourceURL(), item.Priority, item.ToContextMap())
 			if err == nil {
 				database.MarkFeedbackProcessed(ctx, prFeedback.ID, *parentFeedback.BeadID)
 			}
@@ -186,12 +186,12 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		var exists bool
 		var err error
 
-		if sourceID, ok := item.Context["source_id"]; ok && sourceID != "" {
+		if sourceID := item.GetSourceID(); sourceID != "" {
 			// Use the unique source ID for deduplication
 			exists, err = database.HasExistingFeedbackBySourceID(ctx, workID, sourceID)
 		} else {
 			// Fallback to title + source check (less reliable)
-			exists, err = database.HasExistingFeedback(ctx, workID, item.Title, item.Source)
+			exists, err = database.HasExistingFeedback(ctx, workID, item.Title, item.GetSourceName())
 		}
 
 		if err != nil {
@@ -210,12 +210,12 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 		if !quiet {
 			fmt.Printf("%d. %s\n", i+1, item.Title)
-			fmt.Printf("   Type: %s | Priority: P%d | Source: %s\n", item.Type, item.Priority, item.Source)
+			fmt.Printf("   Type: %s | Priority: P%d | Source: %s\n", item.Type, item.Priority, item.GetSourceName())
 		}
 
 		// Store feedback in database
 		prFeedback, err := database.CreatePRFeedback(ctx, workID, work.PRURL, string(item.Type), item.Title,
-			item.Description, item.Source, item.SourceURL, item.Priority, item.Context)
+			item.Description, item.GetSourceName(), item.GetSourceURL(), item.Priority, item.ToContextMap())
 		if err != nil {
 			if !quiet {
 				fmt.Printf("   Error storing feedback: %v\n", err)
@@ -225,14 +225,14 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 		// Create bead info with metadata for external-ref
 		metadata := map[string]string{
-			"source_url": item.SourceURL,
+			"source_url": item.GetSourceURL(),
 		}
 		// Add source_id if available
 		if prFeedback.SourceID != nil && *prFeedback.SourceID != "" {
 			metadata["source_id"] = *prFeedback.SourceID
 		}
 		// Add other context from item
-		for k, v := range item.Context {
+		for k, v := range item.ToContextMap() {
 			metadata[k] = v
 		}
 

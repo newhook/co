@@ -24,11 +24,91 @@ type FeedbackItem struct {
 	Type        FeedbackType
 	Title       string
 	Description string
-	Source      string // e.g., "CI: test-suite", "Review: johndoe"
-	SourceURL   string // Link to the specific failure/comment
-	Priority    int    // 0-4 (0=critical, 4=backlog)
-	Actionable  bool   // Whether this feedback requires action
-	Context     map[string]string // Additional context (file, line, etc.)
+	Source      SourceInfo // Structured source information
+	Priority    int        // 0-4 (0=critical, 4=backlog)
+	Actionable  bool       // Whether this feedback requires action
+
+	// Typed context fields (only one will be set based on Source.Type)
+	CICheck      *CICheckContext      // Set when Source.Type == SourceTypeCI
+	Workflow     *WorkflowContext     // Set when Source.Type == SourceTypeWorkflow
+	Review       *ReviewContext       // Set when Source.Type == SourceTypeReviewComment
+	IssueComment *IssueCommentContext // Set when Source.Type == SourceTypeIssueComment
+}
+
+// GetSourceID returns the source ID used for resolution tracking.
+// Returns empty string if not applicable.
+func (f FeedbackItem) GetSourceID() string {
+	return f.Source.ID
+}
+
+// GetInReplyToID returns the ID of the parent comment if this is a reply.
+// Returns empty string if this is not a reply.
+func (f FeedbackItem) GetInReplyToID() string {
+	if f.Review != nil && f.Review.InReplyToID != 0 {
+		return fmt.Sprintf("%d", f.Review.InReplyToID)
+	}
+	return ""
+}
+
+// GetSourceName returns a human-readable source name (e.g., "CI: test-suite").
+func (f FeedbackItem) GetSourceName() string {
+	switch f.Source.Type {
+	case SourceTypeCI:
+		return fmt.Sprintf("CI: %s", f.Source.Name)
+	case SourceTypeWorkflow:
+		return fmt.Sprintf("Workflow: %s", f.Source.Name)
+	case SourceTypeReviewComment:
+		return fmt.Sprintf("Review: %s", f.Source.Name)
+	case SourceTypeIssueComment:
+		return fmt.Sprintf("Comment: %s", f.Source.Name)
+	default:
+		return f.Source.Name
+	}
+}
+
+// GetSourceURL returns the URL to the source item.
+func (f FeedbackItem) GetSourceURL() string {
+	return f.Source.URL
+}
+
+// ToContextMap converts typed context fields to a legacy map[string]string.
+// This is provided for backwards compatibility with code that expects Context.
+func (f FeedbackItem) ToContextMap() map[string]string {
+	ctx := make(map[string]string)
+	ctx["source_id"] = f.Source.ID
+
+	switch {
+	case f.CICheck != nil:
+		ctx["check_name"] = f.CICheck.CheckName
+		ctx["state"] = f.CICheck.State
+	case f.Workflow != nil:
+		ctx["workflow"] = f.Workflow.WorkflowName
+		ctx["failure"] = f.Workflow.FailureDetail
+		ctx["run_id"] = fmt.Sprintf("%d", f.Workflow.RunID)
+		if f.Workflow.JobName != "" {
+			ctx["job_name"] = f.Workflow.JobName
+		}
+		if f.Workflow.StepName != "" {
+			ctx["step_name"] = f.Workflow.StepName
+		}
+	case f.Review != nil:
+		if f.Review.File != "" {
+			ctx["file"] = f.Review.File
+		}
+		if f.Review.Line != 0 {
+			ctx["line"] = fmt.Sprintf("%d", f.Review.Line)
+		}
+		ctx["reviewer"] = f.Review.Reviewer
+		ctx["comment_id"] = fmt.Sprintf("%d", f.Review.CommentID)
+		if f.Review.InReplyToID != 0 {
+			ctx["in_reply_to_id"] = fmt.Sprintf("%d", f.Review.InReplyToID)
+		}
+	case f.IssueComment != nil:
+		ctx["author"] = f.IssueComment.Author
+		ctx["comment_id"] = fmt.Sprintf("%d", f.IssueComment.CommentID)
+	}
+
+	return ctx
 }
 
 // FeedbackProcessor processes PR feedback and generates actionable items.
@@ -134,13 +214,17 @@ func (p *FeedbackProcessor) processStatusChecks(status *PRStatus) []FeedbackItem
 				Type:        feedbackType,
 				Title:       fmt.Sprintf("Fix %s failure", check.Context),
 				Description: check.Description,
-				Source:      fmt.Sprintf("CI: %s", check.Context),
-				SourceURL:   check.TargetURL,
-				Priority:    p.getPriorityForType(feedbackType),
-				Actionable:  true,
-				Context: map[string]string{
-					"check_name": check.Context,
-					"state":      check.State,
+				Source: SourceInfo{
+					Type: SourceTypeCI,
+					ID:   check.Context, // Use check name as ID for status checks
+					Name: check.Context,
+					URL:  check.TargetURL,
+				},
+				Priority:   p.getPriorityForType(feedbackType),
+				Actionable: true,
+				CICheck: &CICheckContext{
+					CheckName: check.Context,
+					State:     check.State,
 				},
 			}
 
@@ -163,18 +247,27 @@ func (p *FeedbackProcessor) processWorkflowRuns(status *PRStatus) []FeedbackItem
 			for _, detail := range failureDetails {
 				feedbackType := p.categorizeWorkflowFailure(workflow.Name, detail)
 
+				// Parse job and step from detail (format: "jobName: stepName" or just "jobName")
+				jobName, stepName := parseWorkflowDetail(detail)
+
 				item := FeedbackItem{
 					Type:        feedbackType,
 					Title:       fmt.Sprintf("Fix %s in %s", detail, workflow.Name),
 					Description: fmt.Sprintf("Workflow '%s' failed at: %s", workflow.Name, detail),
-					Source:      fmt.Sprintf("Workflow: %s", workflow.Name),
-					SourceURL:   workflow.URL,
-					Priority:    p.getPriorityForType(feedbackType),
-					Actionable:  true,
-					Context: map[string]string{
-						"workflow":   workflow.Name,
-						"failure":    detail,
-						"run_id":     fmt.Sprintf("%d", workflow.ID),
+					Source: SourceInfo{
+						Type: SourceTypeWorkflow,
+						ID:   fmt.Sprintf("%d", workflow.ID),
+						Name: workflow.Name,
+						URL:  workflow.URL,
+					},
+					Priority:   p.getPriorityForType(feedbackType),
+					Actionable: true,
+					Workflow: &WorkflowContext{
+						WorkflowName:  workflow.Name,
+						FailureDetail: detail,
+						RunID:         workflow.ID,
+						JobName:       jobName,
+						StepName:      stepName,
 					},
 				}
 
@@ -189,6 +282,15 @@ func (p *FeedbackProcessor) processWorkflowRuns(status *PRStatus) []FeedbackItem
 	return items
 }
 
+// parseWorkflowDetail extracts job and step names from failure detail.
+// Format is either "jobName: stepName" or just "jobName".
+func parseWorkflowDetail(detail string) (jobName, stepName string) {
+	if idx := strings.Index(detail, ": "); idx != -1 {
+		return detail[:idx], detail[idx+2:]
+	}
+	return detail, ""
+}
+
 // processReviews processes review comments.
 func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 	var items []FeedbackItem
@@ -200,14 +302,17 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 				Type:        FeedbackTypeReview,
 				Title:       fmt.Sprintf("Address review feedback from %s", review.Author),
 				Description: p.truncateText(review.Body, 500),
-				Source:      fmt.Sprintf("Review: %s", review.Author),
-				SourceURL:   status.URL, // Link to PR
-				Priority:    1, // High priority for requested changes
-				Actionable:  true,
-				Context: map[string]string{
-					"reviewer":   review.Author,
-					"review_id":  fmt.Sprintf("%d", review.ID),
-					"source_id":  fmt.Sprintf("%d", review.ID), // Store review ID as source_id for resolution tracking
+				Source: SourceInfo{
+					Type: SourceTypeReviewComment,
+					ID:   fmt.Sprintf("%d", review.ID),
+					Name: review.Author,
+					URL:  status.URL, // Link to PR
+				},
+				Priority:   1, // High priority for requested changes
+				Actionable: true,
+				Review: &ReviewContext{
+					Reviewer:  review.Author,
+					CommentID: int64(review.ID),
 				},
 			}
 
@@ -231,28 +336,25 @@ func (p *FeedbackProcessor) processReviews(status *PRStatus) []FeedbackItem {
 				lineNum = comment.OriginalLine
 			}
 
-			context := map[string]string{
-				"file":       comment.Path,
-				"line":       fmt.Sprintf("%d", lineNum),
-				"reviewer":   comment.Author,
-				"comment_id": fmt.Sprintf("%d", comment.ID),
-				"source_id":  fmt.Sprintf("%d", comment.ID), // Store comment ID as source_id for resolution tracking
-			}
-
-			// If this is a reply, include the parent comment ID
-			if comment.InReplyToID != 0 {
-				context["in_reply_to_id"] = fmt.Sprintf("%d", comment.InReplyToID)
-			}
-
 			item := FeedbackItem{
 				Type:        FeedbackTypeReview,
 				Title:       fmt.Sprintf("Fix issue in %s (line %d)", comment.Path, lineNum),
 				Description: p.truncateText(comment.Body, 300),
-				Source:      fmt.Sprintf("Review: %s", comment.Author),
-				SourceURL:   commentURL,
-				Priority:    2, // Medium priority for line comments
-				Actionable:  true,
-				Context:     context,
+				Source: SourceInfo{
+					Type: SourceTypeReviewComment,
+					ID:   fmt.Sprintf("%d", comment.ID),
+					Name: comment.Author,
+					URL:  commentURL,
+				},
+				Priority:   2, // Medium priority for line comments
+				Actionable: true,
+				Review: &ReviewContext{
+					File:        comment.Path,
+					Line:        lineNum,
+					Reviewer:    comment.Author,
+					CommentID:   int64(comment.ID),
+					InReplyToID: int64(comment.InReplyToID),
+				},
 			}
 
 			items = append(items, item)
@@ -279,14 +381,17 @@ func (p *FeedbackProcessor) processComments(status *PRStatus) []FeedbackItem {
 					Type:        feedbackType,
 					Title:       p.extractTitleFromComment(comment.Body),
 					Description: p.truncateText(comment.Body, 500),
-					Source:      fmt.Sprintf("Comment: %s", comment.Author),
-					SourceURL:   commentURL,
-					Priority:    p.getPriorityForType(feedbackType),
-					Actionable:  true,
-					Context: map[string]string{
-						"author":     comment.Author,
-						"comment_id": fmt.Sprintf("%d", comment.ID),
-						"source_id":  fmt.Sprintf("%d", comment.ID), // Store comment ID as source_id for resolution tracking
+					Source: SourceInfo{
+						Type: SourceTypeIssueComment,
+						ID:   fmt.Sprintf("%d", comment.ID),
+						Name: comment.Author,
+						URL:  commentURL,
+					},
+					Priority:   p.getPriorityForType(feedbackType),
+					Actionable: true,
+					IssueComment: &IssueCommentContext{
+						Author:    comment.Author,
+						CommentID: int64(comment.ID),
 					},
 				}
 
