@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/db"
 )
 
@@ -313,8 +314,8 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 			content.WriteString("Description:\n")
 			// Keep multiline but truncate to reasonable length
 			desc := rootBead.description
-			if len(desc) > 300 {
-				desc = desc[:297] + "..."
+			if ansi.StringWidth(desc) > 300 {
+				desc = ansi.Truncate(desc, 300, "...")
 			}
 			content.WriteString(tuiDimStyle.Render(desc))
 			content.WriteString("\n")
