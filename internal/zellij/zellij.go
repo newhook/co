@@ -98,6 +98,32 @@ func (c *Client) SessionExists(ctx context.Context, name string) (bool, error) {
 	return slices.Contains(sessions, name), nil
 }
 
+// IsSessionActive checks if a session exists and is active (not exited).
+func (c *Client) IsSessionActive(ctx context.Context, name string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "zellij", "list-sessions", "-n")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, nil
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			continue
+		}
+		if parts[0] == name {
+			// Session found - check if it's exited
+			return !strings.Contains(line, "EXITED"), nil
+		}
+	}
+	return false, nil
+}
+
 // CreateSession creates a new zellij session with the given name.
 // The session is started in the background (detached) using zellij attach -b.
 func (c *Client) CreateSession(ctx context.Context, name string) error {
@@ -110,15 +136,37 @@ func (c *Client) CreateSession(ctx context.Context, name string) error {
 	return nil
 }
 
-// EnsureSession creates a session if it doesn't already exist.
+// DeleteSession deletes a zellij session by name.
+func (c *Client) DeleteSession(ctx context.Context, name string) error {
+	cmd := exec.CommandContext(ctx, "zellij", "delete-session", name)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to delete zellij session: %w", err)
+	}
+	return nil
+}
+
+// EnsureSession creates a session if it doesn't exist, or deletes and recreates it if exited.
 func (c *Client) EnsureSession(ctx context.Context, name string) error {
+	active, err := c.IsSessionActive(ctx, name)
+	if err != nil {
+		return err
+	}
+	if active {
+		return nil
+	}
+
+	// Check if session exists but is exited
 	exists, err := c.SessionExists(ctx, name)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return nil
+		// Session is exited - delete it first
+		if err := c.DeleteSession(ctx, name); err != nil {
+			return fmt.Errorf("failed to delete exited session: %w", err)
+		}
 	}
+
 	return c.CreateSession(ctx, name)
 }
 
