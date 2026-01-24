@@ -44,9 +44,9 @@ func runEstimate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("score must be between 1 and 10, got %d", flagEstimateScore)
 	}
 
-	// Validate tokens range
-	if flagEstimateTokens < 5000 || flagEstimateTokens > 50000 {
-		return fmt.Errorf("tokens must be between 5000 and 50000, got %d", flagEstimateTokens)
+	// Validate tokens range (context window is 200K, allow up to 150K per task)
+	if flagEstimateTokens < 5000 || flagEstimateTokens > 150000 {
+		return fmt.Errorf("tokens must be between 5000 and 150000, got %d", flagEstimateTokens)
 	}
 
 	// Find project

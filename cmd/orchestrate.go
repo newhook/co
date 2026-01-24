@@ -356,11 +356,11 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 	estimator := task.NewLLMEstimator(proj.DB, work.WorktreePath, proj.Config.Project.Name, work.ID)
 	planner := task.NewDefaultPlanner(estimator)
 
-	// Use default budget of 70 for bin-packing
-	const budget = 70
-	fmt.Printf("Planning tasks with budget %d...\n", budget)
+	// Use token budget of 120K for bin-packing (context window is 200K, leave headroom)
+	const tokenBudget = 120000
+	fmt.Printf("Planning tasks with token budget %dK...\n", tokenBudget/1000)
 
-	tasks, err := planner.Plan(ctx, beadList, issuesResult.Dependencies, budget)
+	tasks, err := planner.Plan(ctx, beadList, issuesResult.Dependencies, tokenBudget)
 	if err != nil {
 		return fmt.Errorf("failed to plan tasks: %w", err)
 	}
