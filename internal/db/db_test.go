@@ -235,10 +235,14 @@ func TestTasksTableExists(t *testing.T) {
 	require.NoError(t, err, "failed to query tasks table")
 	assert.Equal(t, 0, count, "expected 0 tasks")
 
+	// Create a work first (tasks have FK to works)
+	_, err = db.Exec(`INSERT INTO works (id, status) VALUES ('work-1', 'pending')`)
+	require.NoError(t, err, "failed to insert work")
+
 	// Insert a task to verify schema
 	_, err = db.Exec(`
-		INSERT INTO tasks (id, status, complexity_budget, actual_complexity)
-		VALUES ('task-1', 'pending', 100, 50)
+		INSERT INTO tasks (id, status, complexity_budget, actual_complexity, work_id)
+		VALUES ('task-1', 'pending', 100, 50, 'work-1')
 	`)
 	require.NoError(t, err, "failed to insert task")
 
@@ -258,8 +262,12 @@ func TestTaskBeadsTableExists(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
+	// Create a work first (tasks have FK to works)
+	_, err := db.Exec(`INSERT INTO works (id, status) VALUES ('work-1', 'pending')`)
+	require.NoError(t, err, "failed to insert work")
+
 	// Create a task first (foreign key reference)
-	_, err := db.Exec(`INSERT INTO tasks (id, status) VALUES ('task-1', 'pending')`)
+	_, err = db.Exec(`INSERT INTO tasks (id, status, work_id) VALUES ('task-1', 'pending', 'work-1')`)
 	require.NoError(t, err, "failed to insert task")
 
 	// Insert task_beads entries

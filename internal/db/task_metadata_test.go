@@ -12,9 +12,10 @@ func TestSetAndGetTaskMetadata(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
+	workID := createTestWork(t, db)
 
 	// Create a task first
-	err := db.CreateTask(ctx, "task-1", "review", nil, 0, "")
+	err := db.CreateTask(ctx, "task-1", "review", nil, 0, workID)
 	require.NoError(t, err, "CreateTask failed")
 
 	// Set metadata
@@ -31,9 +32,10 @@ func TestGetTaskMetadata_NotFound(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
+	workID := createTestWork(t, db)
 
 	// Create a task first
-	err := db.CreateTask(ctx, "task-1", "review", nil, 0, "")
+	err := db.CreateTask(ctx, "task-1", "review", nil, 0, workID)
 	require.NoError(t, err, "CreateTask failed")
 
 	// Get non-existent metadata - should return empty string and nil error
@@ -46,9 +48,10 @@ func TestSetTaskMetadata_UpdateExisting(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
+	workID := createTestWork(t, db)
 
 	// Create a task first
-	err := db.CreateTask(ctx, "task-1", "review", nil, 0, "")
+	err := db.CreateTask(ctx, "task-1", "review", nil, 0, workID)
 	require.NoError(t, err, "CreateTask failed")
 
 	// Set metadata initially
@@ -69,9 +72,10 @@ func TestSetTaskMetadata_MultipleKeys(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
+	workID := createTestWork(t, db)
 
 	// Create a task first
-	err := db.CreateTask(ctx, "task-1", "review", nil, 0, "")
+	err := db.CreateTask(ctx, "task-1", "review", nil, 0, workID)
 	require.NoError(t, err, "CreateTask failed")
 
 	// Set multiple metadata keys
@@ -95,11 +99,12 @@ func TestTaskMetadata_IndependentPerTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
+	workID := createTestWork(t, db)
 
 	// Create two tasks
-	err := db.CreateTask(ctx, "task-1", "review", nil, 0, "")
+	err := db.CreateTask(ctx, "task-1", "review", nil, 0, workID)
 	require.NoError(t, err)
-	err = db.CreateTask(ctx, "task-2", "review", nil, 0, "")
+	err = db.CreateTask(ctx, "task-2", "review", nil, 0, workID)
 	require.NoError(t, err)
 
 	// Set different values for the same key on different tasks
@@ -122,10 +127,11 @@ func TestAutoWorkflowMetadata_ManualReviewTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
+	workID := createTestWork(t, db)
 
 	// Simulate creating a manual review task (like TUI does)
 	reviewTaskID := "work-1.review-1"
-	err := db.CreateTask(ctx, reviewTaskID, "review", nil, 0, "")
+	err := db.CreateTask(ctx, reviewTaskID, "review", nil, 0, workID)
 	require.NoError(t, err)
 
 	// Set auto_workflow=false as TUI does for manual reviews
@@ -142,10 +148,11 @@ func TestAutoWorkflowMetadata_AutomatedReviewTask(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
+	workID := createTestWork(t, db)
 
 	// Simulate creating an automated review task (no metadata set)
 	reviewTaskID := "work-1.review-1"
-	err := db.CreateTask(ctx, reviewTaskID, "review", nil, 0, "")
+	err := db.CreateTask(ctx, reviewTaskID, "review", nil, 0, workID)
 	require.NoError(t, err)
 
 	// Automated review tasks don't have auto_workflow metadata
