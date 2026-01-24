@@ -71,6 +71,21 @@ func (f FeedbackItem) GetSourceURL() string {
 	return f.Source.URL
 }
 
+// ToFeedbackContext creates a FeedbackContext from the item's typed context fields.
+func (f FeedbackItem) ToFeedbackContext() *FeedbackContext {
+	ctx := &FeedbackContext{
+		CI:       f.CICheck,
+		Workflow: f.Workflow,
+		Review:   f.Review,
+		Comment:  f.IssueComment,
+	}
+	// Return nil if no context is set
+	if ctx.CI == nil && ctx.Workflow == nil && ctx.Review == nil && ctx.Comment == nil {
+		return nil
+	}
+	return ctx
+}
+
 // ToContextMap converts typed context fields to a legacy map[string]string.
 // This is provided for backwards compatibility with code that expects Context.
 func (f FeedbackItem) ToContextMap() map[string]string {

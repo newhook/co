@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
@@ -172,8 +171,17 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 			// Store this reply in the database to track it was processed
 			// (using the same bead_id as the parent)
-			prFeedback, err := database.CreatePRFeedback(ctx, workID, work.PRURL, string(item.Type), item.Title,
-				item.Description, item.GetSourceName(), item.GetSourceURL(), item.Priority, item.ToContextMap())
+			prFeedback, err := database.CreatePRFeedbackFromParams(ctx, db.CreatePRFeedbackParams{
+				WorkID:       workID,
+				PRURL:        work.PRURL,
+				FeedbackType: string(item.Type),
+				Title:        item.Title,
+				Description:  item.Description,
+				Source:       item.Source,
+				Context:      item.ToFeedbackContext(),
+				Priority:     item.Priority,
+				Metadata:     item.ToContextMap(),
+			})
 			if err == nil {
 				database.MarkFeedbackProcessed(ctx, prFeedback.ID, *parentFeedback.BeadID)
 			}
@@ -213,9 +221,18 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			fmt.Printf("   Type: %s | Priority: P%d | Source: %s\n", item.Type, item.Priority, item.GetSourceName())
 		}
 
-		// Store feedback in database
-		prFeedback, err := database.CreatePRFeedback(ctx, workID, work.PRURL, string(item.Type), item.Title,
-			item.Description, item.GetSourceName(), item.GetSourceURL(), item.Priority, item.ToContextMap())
+		// Store feedback in database using structured source info
+		prFeedback, err := database.CreatePRFeedbackFromParams(ctx, db.CreatePRFeedbackParams{
+			WorkID:       workID,
+			PRURL:        work.PRURL,
+			FeedbackType: string(item.Type),
+			Title:        item.Title,
+			Description:  item.Description,
+			Source:       item.Source,
+			Context:      item.ToFeedbackContext(),
+			Priority:     item.Priority,
+			Metadata:     item.ToContextMap(),
+		})
 		if err != nil {
 			if !quiet {
 				fmt.Printf("   Error storing feedback: %v\n", err)
@@ -224,17 +241,9 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		}
 
 		// Create bead info with metadata for external-ref
-		metadata := map[string]string{
-			"source_url": item.GetSourceURL(),
-		}
-		// Add source_id if available
-		if prFeedback.SourceID != nil && *prFeedback.SourceID != "" {
-			metadata["source_id"] = *prFeedback.SourceID
-		}
-		// Add other context from item
-		for k, v := range item.ToContextMap() {
-			metadata[k] = v
-		}
+		// Use the structured source info directly - source_id is now a first-class field
+		metadata := item.ToContextMap()
+		metadata["source_url"] = item.Source.URL
 
 		beadInfo := github.BeadInfo{
 			Title:       item.Title,
@@ -261,38 +270,40 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		createdBeads = append(createdBeads, beadID)
 
 		// Post back to GitHub comment if this feedback came from a comment
-		if sourceID, ok := metadata["source_id"]; ok && sourceID != "" {
-			// Check if it's from a review comment or regular comment
+		// Use typed context to determine comment type and ID
+		if item.Source.ID != "" {
+			var commentID int64
 			isReviewComment := false
-			if _, ok := metadata["reviewer"]; ok {
-				// This is from a review comment
+
+			// Check for review comment context
+			if item.Review != nil && item.Review.CommentID != 0 {
+				commentID = item.Review.CommentID
 				isReviewComment = true
+			} else if item.IssueComment != nil && item.IssueComment.CommentID != 0 {
+				// Check for issue comment context
+				commentID = item.IssueComment.CommentID
 			}
 
-			// Create the acknowledgment message
-			ackMessage := fmt.Sprintf("✅ Created tracking issue **%s** for this feedback.\n\nTitle: %s\nPriority: P%d",
-				beadID, item.Title, item.Priority)
+			if commentID != 0 {
+				// Create the acknowledgment message
+				ackMessage := fmt.Sprintf("✅ Created tracking issue **%s** for this feedback.\n\nTitle: %s\nPriority: P%d",
+					beadID, item.Title, item.Priority)
 
-			// Post the acknowledgment
-			if commentIDStr, ok := metadata["comment_id"]; ok && commentIDStr != "" {
-				commentID, parseErr := strconv.Atoi(commentIDStr)
-				if parseErr == nil {
-					client := github.NewClient()
-					var postErr error
-					if isReviewComment {
-						postErr = client.PostReviewReply(ctx, work.PRURL, commentID, ackMessage)
-					} else {
-						postErr = client.PostReplyToComment(ctx, work.PRURL, commentID, ackMessage)
+				client := github.NewClient()
+				var postErr error
+				if isReviewComment {
+					postErr = client.PostReviewReply(ctx, work.PRURL, int(commentID), ackMessage)
+				} else {
+					postErr = client.PostReplyToComment(ctx, work.PRURL, int(commentID), ackMessage)
+				}
+
+				if postErr != nil {
+					if !quiet {
+						fmt.Printf("   Warning: Failed to post acknowledgment to GitHub: %v\n", postErr)
 					}
-
-					if postErr != nil {
-						if !quiet {
-							fmt.Printf("   Warning: Failed to post acknowledgment to GitHub: %v\n", postErr)
-						}
-					} else {
-						if !quiet {
-							fmt.Printf("   Posted acknowledgment to GitHub comment\n")
-						}
+				} else {
+					if !quiet {
+						fmt.Printf("   Posted acknowledgment to GitHub comment\n")
 					}
 				}
 			}
