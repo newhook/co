@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/progress"
 )
 
 // WorkSummaryPanel renders the right side of the work details view when the root issue is selected.
@@ -25,7 +26,7 @@ type WorkSummaryPanel struct {
 	viewport viewport.Model
 
 	// Data
-	focusedWork *WorkProgress
+	focusedWork *progress.WorkProgress
 }
 
 // NewWorkSummaryPanel creates a new WorkSummaryPanel
@@ -62,7 +63,7 @@ func (p *WorkSummaryPanel) SetFocus(focused bool) {
 }
 
 // SetFocusedWork updates the focused work
-func (p *WorkSummaryPanel) SetFocusedWork(focusedWork *WorkProgress) {
+func (p *WorkSummaryPanel) SetFocusedWork(focusedWork *progress.WorkProgress) {
 	p.focusedWork = focusedWork
 	// Reset viewport scroll when switching focus
 	p.viewport.SetYOffset(0)
@@ -273,7 +274,7 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 	content.WriteString("\n")
 
 	// Find root bead in workBeads
-	var rootBead *BeadProgress
+	var rootBead *progress.BeadProgress
 	for i := range p.focusedWork.WorkBeads {
 		if p.focusedWork.WorkBeads[i].ID == rootID {
 			rootBead = &p.focusedWork.WorkBeads[i]

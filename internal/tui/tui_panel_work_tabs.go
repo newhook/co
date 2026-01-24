@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/progress"
 )
 
 // WorkState represents the current state of a work for display purposes
@@ -29,7 +30,7 @@ type WorkTabsBar struct {
 	width int
 
 	// Data
-	workTiles          []*WorkProgress
+	workTiles          []*progress.WorkProgress
 	focusedWorkID      string
 	hoveredTabID       string
 	orchestratorHealth map[string]bool // workID -> orchestrator alive
@@ -71,7 +72,7 @@ func (b *WorkTabsBar) SetSize(width int) {
 }
 
 // SetWorkTiles updates the work tiles data
-func (b *WorkTabsBar) SetWorkTiles(workTiles []*WorkProgress) {
+func (b *WorkTabsBar) SetWorkTiles(workTiles []*progress.WorkProgress) {
 	b.workTiles = workTiles
 }
 
@@ -111,7 +112,7 @@ func (b *WorkTabsBar) Height() int {
 }
 
 // getWorkState determines the current state of a work for display
-func (b *WorkTabsBar) getWorkState(work *WorkProgress) WorkState {
+func (b *WorkTabsBar) getWorkState(work *progress.WorkProgress) WorkState {
 	if work == nil {
 		return WorkStateDead
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/progress"
 )
 
 // WorkOverviewPanel renders the left side of the work details view.
@@ -22,7 +23,7 @@ type WorkOverviewPanel struct {
 	focused bool
 
 	// Data
-	focusedWork         *WorkProgress
+	focusedWork         *progress.WorkProgress
 	selectedIndex       int  // 0 = root issue, 1+ = tasks, N+ = unassigned beads
 	hoveredIndex        int  // -1 = none, 0 = root issue, 1+ = tasks/unassigned beads
 	orchestratorHealthy bool // Whether the orchestrator process is running
@@ -49,7 +50,7 @@ func (p *WorkOverviewPanel) SetFocus(focused bool) {
 }
 
 // SetFocusedWork updates the focused work, preserving selection if valid
-func (p *WorkOverviewPanel) SetFocusedWork(focusedWork *WorkProgress) {
+func (p *WorkOverviewPanel) SetFocusedWork(focusedWork *progress.WorkProgress) {
 	p.focusedWork = focusedWork
 	// Validate current selection still exists
 	if focusedWork != nil {
@@ -94,7 +95,7 @@ func (p *WorkOverviewPanel) GetHoveredItem() int {
 }
 
 // GetFocusedWork returns the currently focused work, or nil if none
-func (p *WorkOverviewPanel) GetFocusedWork() *WorkProgress {
+func (p *WorkOverviewPanel) GetFocusedWork() *progress.WorkProgress {
 	return p.focusedWork
 }
 

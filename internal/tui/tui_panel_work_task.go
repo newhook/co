@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/progress"
 )
 
 // WorkTaskPanel renders the right side of the work details view when a task or unassigned bead is selected.
@@ -24,8 +25,8 @@ type WorkTaskPanel struct {
 	viewport viewport.Model
 
 	// Data
-	selectedTask   *TaskProgress // The selected task, or nil if unassigned bead
-	selectedBead   *BeadProgress // The selected unassigned bead, or nil if task
+	selectedTask   *progress.TaskProgress // The selected task, or nil if unassigned bead
+	selectedBead   *progress.BeadProgress // The selected unassigned bead, or nil if task
 	isUnassigned   bool          // True if showing an unassigned bead
 }
 
@@ -63,7 +64,7 @@ func (p *WorkTaskPanel) SetFocus(focused bool) {
 }
 
 // SetTask sets the task to display
-func (p *WorkTaskPanel) SetTask(task *TaskProgress) {
+func (p *WorkTaskPanel) SetTask(task *progress.TaskProgress) {
 	p.selectedTask = task
 	p.selectedBead = nil
 	p.isUnassigned = false
@@ -72,7 +73,7 @@ func (p *WorkTaskPanel) SetTask(task *TaskProgress) {
 }
 
 // SetUnassignedBead sets the unassigned bead to display
-func (p *WorkTaskPanel) SetUnassignedBead(bead *BeadProgress) {
+func (p *WorkTaskPanel) SetUnassignedBead(bead *progress.BeadProgress) {
 	p.selectedTask = nil
 	p.selectedBead = bead
 	p.isUnassigned = true
