@@ -123,8 +123,8 @@ func TestPlanSimple(t *testing.T) {
 
 	dependencies := map[string][]beads.Dependency{}
 
-	// Budget of 10 should fit all beads in one task (3+3+3=9)
-	tasks, err := planner.Plan(ctx, beadList, dependencies, 10)
+	// Token budget of 10000 should fit all beads (3000+3000+3000=9000 tokens)
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 10000)
 	require.NoError(t, err, "Plan failed")
 
 	assert.Len(t, tasks, 1, "expected 1 task")
@@ -146,8 +146,8 @@ func TestPlanSplitByBudget(t *testing.T) {
 
 	dependencies := map[string][]beads.Dependency{}
 
-	// Budget of 7 should split into multiple tasks
-	tasks, err := planner.Plan(ctx, beadList, dependencies, 7)
+	// Token budget of 7000 should split into multiple tasks (each bead is 5000 tokens)
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 7000)
 	require.NoError(t, err, "Plan failed")
 
 	assert.GreaterOrEqual(t, len(tasks), 2, "expected at least 2 tasks")
@@ -176,8 +176,8 @@ func TestPlanRespectsDependencies(t *testing.T) {
 		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
 	}
 
-	// Small budget to force multiple tasks
-	tasks, err := planner.Plan(ctx, beadList, dependencies, 4)
+	// Small token budget to force multiple tasks (each bead is 3000 tokens)
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 4000)
 	require.NoError(t, err, "Plan failed")
 
 	// Find which tasks contain a and b
@@ -199,7 +199,7 @@ func TestPlanEmpty(t *testing.T) {
 
 	dependencies := map[string][]beads.Dependency{}
 
-	tasks, err := planner.Plan(ctx, nil, dependencies, 10)
+	tasks, err := planner.Plan(ctx, nil, dependencies, 10000)
 	require.NoError(t, err, "Plan failed")
 
 	assert.Empty(t, tasks, "expected no tasks for empty input")
@@ -207,7 +207,7 @@ func TestPlanEmpty(t *testing.T) {
 
 func TestPlanFirstFitDecreasing(t *testing.T) {
 	ctx := context.Background()
-	// Larger beads are assigned first
+	// Larger beads are assigned first (by token estimate)
 	estimator := &mockEstimator{
 		scores: map[string]int{"small": 2, "medium": 4, "large": 6},
 	}
@@ -221,11 +221,11 @@ func TestPlanFirstFitDecreasing(t *testing.T) {
 
 	dependencies := map[string][]beads.Dependency{}
 
-	tasks, err := planner.Plan(ctx, beadList, dependencies, 10)
+	// Token budget of 10000: large (6000) goes first, then small (2000) fits, medium (4000) won't fit
+	// So we expect: task1=[large, small], task2=[medium]
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 10000)
 	require.NoError(t, err, "Plan failed")
 
-	// With budget 10, large (6) goes first, then small (2) fits, medium (4) won't fit
-	// So we expect: task1=[large, small], task2=[medium]
 	assert.Len(t, tasks, 2, "expected 2 tasks")
 }
 

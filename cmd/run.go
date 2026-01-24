@@ -307,8 +307,9 @@ func planBeadsWithComplexity(proj *project.Project, issuesResult *beads.BeadsWit
 		return nil, fmt.Errorf("estimation task %s spawned - re-run after it completes", result.TaskID)
 	}
 
-	// Plan tasks using the bin-packing algorithm with default budget of 70
-	planned, err := planner.Plan(ctx, beadList, issuesResult.Dependencies, 70)
+	// Plan tasks using token budget of 120K (context window is 200K, leave headroom)
+	const tokenBudget = 120000
+	planned, err := planner.Plan(ctx, beadList, issuesResult.Dependencies, tokenBudget)
 	if err != nil {
 		return nil, fmt.Errorf("failed to plan tasks: %w", err)
 	}
