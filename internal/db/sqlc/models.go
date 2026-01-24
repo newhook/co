@@ -47,12 +47,13 @@ type PrFeedback struct {
 	FeedbackType string         `json:"feedback_type"`
 	Title        string         `json:"title"`
 	Description  string         `json:"description"`
-	Source       string         `json:"source"`
 	SourceUrl    sql.NullString `json:"source_url"`
 	SourceID     sql.NullString `json:"source_id"`
+	SourceType   sql.NullString `json:"source_type"`
+	SourceName   sql.NullString `json:"source_name"`
+	Context      sql.NullString `json:"context"`
 	Priority     int64          `json:"priority"`
 	BeadID       sql.NullString `json:"bead_id"`
-	Metadata     string         `json:"metadata"`
 	CreatedAt    time.Time      `json:"created_at"`
 	ProcessedAt  sql.NullTime   `json:"processed_at"`
 	ResolvedAt   sql.NullTime   `json:"resolved_at"`

@@ -204,30 +204,6 @@ func TestTruncateText(t *testing.T) {
 	}
 }
 
-func TestGetFileName(t *testing.T) {
-	processor := &FeedbackProcessor{}
-
-	tests := []struct {
-		name     string
-		path     string
-		expected string
-	}{
-		{"Simple file", "file.go", "file.go"},
-		{"Path with folders", "src/pkg/file.go", "file.go"},
-		{"Deep path", "a/b/c/d/file.go", "file.go"},
-		{"Empty path", "", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := processor.getFileName(tt.path)
-			if result != tt.expected {
-				t.Errorf("getFileName(%s) = %s, want %s", tt.path, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestProcessStatusChecks(t *testing.T) {
 	processor := &FeedbackProcessor{
 		rules: DefaultFeedbackRules(),

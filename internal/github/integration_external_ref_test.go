@@ -145,7 +145,8 @@ func TestFeedbackProcessing_SourceIDAdded(t *testing.T) {
 	reviewItems := processor.processReviews(status)
 	if len(reviewItems) > 0 {
 		item := reviewItems[0]
-		if sourceID, ok := item.Context["source_id"]; !ok {
+		sourceID := item.GetSourceID()
+		if sourceID == "" {
 			t.Error("Expected source_id in review feedback context")
 		} else if sourceID != "999" {
 			t.Errorf("Expected source_id to be '999', got %q", sourceID)
@@ -156,7 +157,8 @@ func TestFeedbackProcessing_SourceIDAdded(t *testing.T) {
 	commentItems := processor.processComments(status)
 	if len(commentItems) > 0 {
 		item := commentItems[0]
-		if sourceID, ok := item.Context["source_id"]; !ok {
+		sourceID := item.GetSourceID()
+		if sourceID == "" {
 			t.Error("Expected source_id in comment feedback context")
 		} else if sourceID != "888" {
 			t.Errorf("Expected source_id to be '888', got %q", sourceID)

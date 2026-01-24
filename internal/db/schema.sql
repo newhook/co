@@ -179,12 +179,13 @@ CREATE TABLE pr_feedback (
     feedback_type TEXT NOT NULL, -- ci_failure, test_failure, lint_error, build_error, review_comment, security_issue, general
     title TEXT NOT NULL,
     description TEXT NOT NULL,
-    source TEXT NOT NULL, -- e.g., "CI: test-suite", "Review: johndoe"
     source_url TEXT,
     source_id TEXT, -- GitHub comment/check ID for resolution tracking
+    source_type TEXT, -- Structured type: ci, workflow, review_comment, issue_comment
+    source_name TEXT, -- Human-readable name (check name, workflow name, reviewer username)
+    context TEXT, -- JSON: structured context data (FeedbackContext)
     priority INTEGER NOT NULL DEFAULT 2, -- 0-4 (0=critical, 4=backlog)
     bead_id TEXT, -- ID of the bead created from this feedback (null if not created yet)
-    metadata TEXT NOT NULL DEFAULT '{}', -- JSON metadata
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     processed_at DATETIME, -- When the feedback was processed to create a bead
     resolved_at DATETIME, -- When the feedback was resolved on GitHub
@@ -195,6 +196,7 @@ CREATE INDEX idx_pr_feedback_work_id ON pr_feedback(work_id);
 CREATE INDEX idx_pr_feedback_bead_id ON pr_feedback(bead_id);
 CREATE INDEX idx_pr_feedback_processed ON pr_feedback(processed_at);
 CREATE INDEX idx_pr_feedback_resolution ON pr_feedback(bead_id, resolved_at);
+CREATE INDEX idx_pr_feedback_source_type ON pr_feedback(source_type);
 
 -- Scheduler table: manages scheduled tasks like PR feedback checks
 CREATE TABLE scheduler (

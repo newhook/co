@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/newhook/co/internal/db/sqlc"
+	"github.com/newhook/co/internal/github"
 )
 
 // convertPrFeedback converts a sqlc.PrFeedback to our PRFeedback struct.
@@ -22,7 +23,6 @@ func convertPrFeedback(f sqlc.PrFeedback) PRFeedback {
 		FeedbackType: f.FeedbackType,
 		Title:        f.Title,
 		Description:  f.Description,
-		Source:       f.Source,
 		SourceURL:    f.SourceUrl.String,
 		Priority:     int(f.Priority),
 		CreatedAt:    f.CreatedAt,
@@ -41,13 +41,20 @@ func convertPrFeedback(f sqlc.PrFeedback) PRFeedback {
 		result.ResolvedAt = &f.ResolvedAt.Time
 	}
 
-	// Parse metadata JSON
-	if f.Metadata != "" && f.Metadata != "{}" {
-		if err := json.Unmarshal([]byte(f.Metadata), &result.Metadata); err != nil {
-			result.Metadata = make(map[string]string)
+	// Parse new structured source fields
+	if f.SourceType.Valid {
+		result.SourceType = github.SourceType(f.SourceType.String)
+	}
+	if f.SourceName.Valid {
+		result.SourceName = f.SourceName.String
+	}
+
+	// Parse context JSON
+	if f.Context.Valid && f.Context.String != "" && f.Context.String != "{}" {
+		var ctx github.FeedbackContext
+		if err := json.Unmarshal([]byte(f.Context.String), &ctx); err == nil {
+			result.Context = &ctx
 		}
-	} else {
-		result.Metadata = make(map[string]string)
 	}
 
 	return result
@@ -61,65 +68,83 @@ type PRFeedback struct {
 	FeedbackType string
 	Title        string
 	Description  string
-	Source       string
-	SourceURL    string
-	SourceID     *string    // GitHub comment/check ID for resolution tracking
+	SourceURL    string                  // URL to the source item
+	SourceID     *string                 // GitHub comment/check ID for resolution tracking
+	SourceType   github.SourceType       // Structured type: ci, workflow, review_comment, issue_comment
+	SourceName   string                  // Human-readable name (check name, workflow name, reviewer)
+	Context      *github.FeedbackContext // Structured context data
 	Priority     int
 	BeadID       *string
-	Metadata     map[string]string
 	CreatedAt    time.Time
 	ProcessedAt  *time.Time
 	ResolvedAt   *time.Time // When the GitHub comment was resolved
 }
 
-// CreatePRFeedback creates a new PR feedback record.
-func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL, feedbackType, title, description, source, sourceURL string, priority int, metadata map[string]string) (*PRFeedback, error) {
+// IsReviewComment returns true if this feedback is from a GitHub review comment
+// that can be replied to and resolved.
+func (f *PRFeedback) IsReviewComment() bool {
+	return f.SourceType == github.SourceTypeReviewComment && f.SourceID != nil && *f.SourceID != ""
+}
+
+// CreatePRFeedbackParams holds parameters for creating a PR feedback record.
+type CreatePRFeedbackParams struct {
+	WorkID       string
+	PRURL        string
+	FeedbackType string
+	Title        string
+	Description  string
+	Source       github.SourceInfo       // Structured source info
+	Context      *github.FeedbackContext // Structured context (optional)
+	Priority     int
+}
+
+// CreatePRFeedback creates a new PR feedback record with structured source info.
+func (db *DB) CreatePRFeedbackFromParams(ctx context.Context, params CreatePRFeedbackParams) (*PRFeedback, error) {
 	id := uuid.New().String()
 
-	// Convert metadata to JSON
-	metadataJSON, err := json.Marshal(metadata)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+	// Convert context to JSON
+	var contextJSON sql.NullString
+	if params.Context != nil {
+		data, err := json.Marshal(params.Context)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal context: %w", err)
+		}
+		contextJSON = sql.NullString{String: string(data), Valid: true}
 	}
 
-	// Get source_id from metadata if present
-	var sourceID sql.NullString
-	if sid, ok := metadata["source_id"]; ok && sid != "" {
-		sourceID = sql.NullString{String: sid, Valid: true}
-	}
-
-	err = db.queries.CreatePRFeedback(ctx, sqlc.CreatePRFeedbackParams{
+	err := db.queries.CreatePRFeedback(ctx, sqlc.CreatePRFeedbackParams{
 		ID:           id,
-		WorkID:       workID,
-		PrUrl:        prURL,
-		FeedbackType: feedbackType,
-		Title:        title,
-		Description:  description,
-		Source:       source,
-		SourceUrl:    sql.NullString{String: sourceURL, Valid: sourceURL != ""},
-		SourceID:     sourceID,
-		Priority:     int64(priority),
-		Metadata:     string(metadataJSON),
+		WorkID:       params.WorkID,
+		PrUrl:        params.PRURL,
+		FeedbackType: params.FeedbackType,
+		Title:        params.Title,
+		Description:  params.Description,
+		SourceUrl:    sql.NullString{String: params.Source.URL, Valid: params.Source.URL != ""},
+		SourceID:     sql.NullString{String: params.Source.ID, Valid: params.Source.ID != ""},
+		Priority:     int64(params.Priority),
+		SourceType:   sql.NullString{String: string(params.Source.Type), Valid: params.Source.Type != ""},
+		SourceName:   sql.NullString{String: params.Source.Name, Valid: params.Source.Name != ""},
+		Context:      contextJSON,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PR feedback: %w", err)
 	}
 
+	sourceID := params.Source.ID
 	result := &PRFeedback{
 		ID:           id,
-		WorkID:       workID,
-		PRURL:        prURL,
-		FeedbackType: feedbackType,
-		Title:        title,
-		Description:  description,
-		Source:       source,
-		SourceURL:    sourceURL,
-		Priority:     priority,
-		Metadata:     metadata,
+		WorkID:       params.WorkID,
+		PRURL:        params.PRURL,
+		FeedbackType: params.FeedbackType,
+		Title:        params.Title,
+		Description:  params.Description,
+		SourceURL:    params.Source.URL,
+		SourceID:     &sourceID,
+		SourceType:   params.Source.Type,
+		SourceName:   params.Source.Name,
+		Context:      params.Context,
+		Priority:     params.Priority,
 		CreatedAt:    time.Now(),
-	}
-	if sourceID.Valid {
-		result.SourceID = &sourceID.String
 	}
 	return result, nil
 }
@@ -192,13 +217,13 @@ func (db *DB) GetFeedbackByBeadID(ctx context.Context, beadID string) (*PRFeedba
 }
 
 // HasExistingFeedback checks if feedback already exists for a specific source.
-// If sourceID is provided, it uses that as the unique identifier (e.g., GitHub comment ID).
-// Otherwise falls back to checking by title and source.
-func (db *DB) HasExistingFeedback(ctx context.Context, workID, title, source string) (bool, error) {
+// Falls back to checking by title, source_type, and source_name.
+func (db *DB) HasExistingFeedback(ctx context.Context, workID, title string, sourceType github.SourceType, sourceName string) (bool, error) {
 	count, err := db.queries.HasExistingFeedback(ctx, sqlc.HasExistingFeedbackParams{
-		WorkID: workID,
-		Title:  title,
-		Source: source,
+		WorkID:     workID,
+		Title:      title,
+		SourceType: sql.NullString{String: string(sourceType), Valid: sourceType != ""},
+		SourceName: sql.NullString{String: sourceName, Valid: sourceName != ""},
 	})
 	if err != nil {
 		return false, fmt.Errorf("failed to check existing feedback: %w", err)
