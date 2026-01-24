@@ -17,9 +17,13 @@ var (
 
 var completeCmd = &cobra.Command{
 	Use:   "complete <bead-id|task-id>",
-	Short: "Mark a bead or task as completed (or failed with --error)",
-	Long: `Mark a bead or task as completed in the tracking proj.DB. Called by Claude Code when work is done.
-With --error flag, marks the task as failed instead.`,
+	Short: "[Agent] Mark a bead or task as completed (or failed with --error)",
+	Long: `[Agent Command - Called by Claude Code, not for direct user invocation]
+
+Mark a bead or task as completed in the tracking database.
+With --error flag, marks the task as failed instead.
+
+This command is called by Claude Code during task execution to report completion status.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runComplete,
 }

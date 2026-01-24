@@ -26,9 +26,13 @@ import (
 const ControlPlaneTabName = "control"
 
 var controlCmd = &cobra.Command{
-	Use:    "control",
-	Short:  "Run the control plane for background task execution",
-	Long:   `The control plane runs as a long-lived process that watches for scheduled tasks across all works and executes them with retry support.`,
+	Use:   "control",
+	Short: "[Agent] Run the control plane for background task execution",
+	Long: `[Agent Command - Spawned automatically by the system, not for direct user invocation]
+
+The control plane runs as a long-lived process that watches for scheduled tasks
+across all works and executes them with retry support. It runs in a dedicated
+zellij tab named "control" and is spawned automatically.`,
 	Hidden: true,
 	RunE:   runControlPlane,
 }
