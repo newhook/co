@@ -35,6 +35,7 @@ var beadStatuses = []string{
 	beads.StatusInProgress,
 	beads.StatusBlocked,
 	beads.StatusDeferred,
+	beads.StatusClosed,
 }
 
 // BeadFormResult contains form values when submitted
