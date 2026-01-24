@@ -14,7 +14,7 @@ import (
 	"github.com/newhook/co/internal/orchestration"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
-	workpkg "github.com/newhook/co/internal/work"
+	"github.com/newhook/co/internal/work"
 	"github.com/spf13/cobra"
 )
 
@@ -49,30 +49,30 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	// Apply hooks.env to current process - inherited by child processes (Claude)
 	applyHooksEnv(proj.Config.Hooks.Env)
 
-	// Get work ID
+	// Get theWork ID
 	workID := flagOrchestrateWork
 	if workID == "" {
-		return fmt.Errorf("--work is required")
+		return fmt.Errorf("--theWork is required")
 	}
 
-	// Get work to verify it exists
-	work, err := proj.DB.GetWork(ctx, workID)
+	// Get theWork to verify it exists
+	theWork, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
+		return fmt.Errorf("failed to get theWork: %w", err)
 	}
-	if work == nil {
-		return fmt.Errorf("work %s not found", workID)
+	if theWork == nil {
+		return fmt.Errorf("theWork %s not found", workID)
 	}
 
-	fmt.Printf("=== Orchestrating work: %s ===\n", workID)
-	fmt.Printf("Worktree: %s\n", work.WorktreePath)
-	fmt.Printf("Branch: %s (base: %s)\n", work.BranchName, work.BaseBranch)
-	if work.Auto {
+	fmt.Printf("=== Orchestrating theWork: %s ===\n", workID)
+	fmt.Printf("Worktree: %s\n", theWork.WorktreePath)
+	fmt.Printf("Branch: %s (base: %s)\n", theWork.BranchName, theWork.BaseBranch)
+	if theWork.Auto {
 		fmt.Printf("Mode: Automated workflow\n")
 	}
 
-	// If this is an automated workflow work and no tasks exist yet, set up the automated workflow
-	if work.Auto {
+	// If this is an automated workflow theWork and no tasks exist yet, set up the automated workflow
+	if theWork.Auto {
 		tasks, err := proj.DB.GetWorkTasks(ctx, workID)
 		if err != nil {
 			return fmt.Errorf("failed to check for existing tasks: %w", err)
@@ -82,9 +82,9 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		if len(tasks) == 0 {
 			fmt.Println("\nSetting up automated workflow...")
 
-			// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
+			// Create estimate task from unassigned theWork beads (post-estimation will create implement tasks)
 			mainRepoPath := proj.MainRepoPath()
-			err := workpkg.CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, os.Stdout)
+			err := work.CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, os.Stdout)
 			if err != nil {
 				return fmt.Errorf("failed to create estimate task: %w", err)
 			}
@@ -123,7 +123,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			case <-ctx.Done():
 				return
 			case <-activityTicker.C:
-				// Update last_activity for all processing tasks of this work
+				// Update last_activity for all processing tasks of this theWork
 				if err := orchestration.UpdateWorkTaskActivity(ctx, proj.DB, workID); err != nil {
 					// Log but don't fail - this is just health monitoring
 					fmt.Printf("Warning: failed to update task activity: %v\n", err)
@@ -135,17 +135,17 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	// NOTE: Scheduler watching is now handled by the control plane globally.
 	// The control plane watches for scheduled tasks across ALL works and handles
 	// git push retries, PR feedback polling, etc. This allows scheduled tasks
-	// to be processed even when no orchestrator is running for a work.
+	// to be processed even when no orchestrator is running for a theWork.
 
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
 
-		// Check if work still exists (may have been destroyed)
-		work, err = proj.DB.GetWork(ctx, workID)
+		// Check if theWork still exists (may have been destroyed)
+		theWork, err = proj.DB.GetWork(ctx, workID)
 		if err != nil {
-			return fmt.Errorf("failed to check work status: %w", err)
+			return fmt.Errorf("failed to check theWork status: %w", err)
 		}
-		if work == nil {
+		if theWork == nil {
 			fmt.Println("Work has been destroyed, exiting orchestrator.")
 			return nil
 		}
@@ -160,7 +160,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			// No ready tasks - check if we're done or blocked
 			allTasks, err := proj.DB.GetWorkTasks(ctx, workID)
 			if err != nil {
-				return fmt.Errorf("failed to get work tasks: %w", err)
+				return fmt.Errorf("failed to get theWork tasks: %w", err)
 			}
 
 			pendingCount := 0
@@ -188,15 +188,15 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			// If there are failures, mark work as failed and halt
+			// If there are failures, mark theWork as failed and halt
 			if failedCount > 0 {
-				if work.Status != db.StatusFailed {
+				if theWork.Status != db.StatusFailed {
 					if err := proj.DB.FailWork(ctx, workID, fmt.Sprintf("%d task(s) failed", failedCount)); err != nil {
-						fmt.Printf("Warning: failed to mark work as failed: %v\n", err)
+						fmt.Printf("Warning: failed to mark theWork as failed: %v\n", err)
 					} else {
 						fmt.Printf("\n=== Work %s failed ===\n", workID)
-						fmt.Printf("%d task(s) failed. Resolve failures and restart the work.\n", failedCount)
-						work, _ = proj.DB.GetWork(ctx, workID)
+						fmt.Printf("%d task(s) failed. Resolve failures and restart the theWork.\n", failedCount)
+						theWork, _ = proj.DB.GetWork(ctx, workID)
 					}
 				}
 				// Wait for user to resolve and restart
@@ -212,10 +212,10 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			// All tasks completed - transition work to idle status (waiting for more tasks)
-			if completedCount > 0 && work.Status != db.StatusIdle {
+			// All tasks completed - transition theWork to idle status (waiting for more tasks)
+			if completedCount > 0 && theWork.Status != db.StatusIdle {
 				// Find PR URL from the PR task (if one exists, and we don't already have one)
-				prURL := work.PRURL // Start with existing PR URL
+				prURL := theWork.PRURL // Start with existing PR URL
 				if prURL == "" {
 					for _, t := range allTasks {
 						if t.TaskType == "pr" && t.Status == db.StatusCompleted && t.PRURL != "" {
@@ -229,7 +229,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				prFeedbackInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
 				commentResolutionInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
 				if err := proj.DB.IdleWorkAndScheduleFeedback(ctx, workID, prURL, prFeedbackInterval, commentResolutionInterval); err != nil {
-					fmt.Printf("Warning: failed to mark work as idle: %v\n", err)
+					fmt.Printf("Warning: failed to mark theWork as idle: %v\n", err)
 				} else {
 					fmt.Printf("\n=== Work %s idle ===\n", workID)
 					if prURL != "" {
@@ -237,8 +237,8 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 						fmt.Println("PR feedback polling scheduled")
 					}
 					fmt.Println("All tasks completed. Waiting for new tasks or explicit completion.")
-					// Refresh work status
-					work, _ = proj.DB.GetWork(ctx, workID)
+					// Refresh theWork status
+					theWork, _ = proj.DB.GetWork(ctx, workID)
 				}
 			}
 
@@ -262,7 +262,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Warning: failed to update task activity at start: %v\n", err)
 		}
 
-		if err := executeTask(proj, task, work); err != nil {
+		if err := executeTask(proj, task, theWork); err != nil {
 			return fmt.Errorf("task %s failed: %w", task.ID, err)
 		}
 	}
