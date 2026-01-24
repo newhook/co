@@ -407,7 +407,6 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 	return nil
 }
 
-
 // handleReviewFixLoop checks if a review task found issues and creates fix tasks.
 // If review passes (no issues), creates the PR task.
 // If review finds issues, creates fix tasks and a new review task.
@@ -456,7 +455,7 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 		fmt.Println("Review passed - checking for PR feedback...")
 
 		// Process PR feedback - creates beads but doesn't add them to work
-		_, err := ProcessPRFeedback(ctx, proj, proj.DB, work.ID, 2)
+		_, err := feedback.ProcessPRFeedback(ctx, proj, proj.DB, work.ID, 2)
 		if err != nil {
 			fmt.Printf("Warning: failed to check PR feedback: %v\n", err)
 		} else {
@@ -568,16 +567,4 @@ func splitEnvVar(s string) []string {
 		return []string{s}
 	}
 	return []string{s[:idx], s[idx+1:]}
-}
-
-// checkAndResolveComments checks for feedback items where the bead is closed and posts resolution comments to GitHub.
-// Delegates to internal/feedback.CheckAndResolveComments.
-func checkAndResolveComments(ctx context.Context, proj *project.Project, workID, prURL string) {
-	feedback.CheckAndResolveComments(ctx, proj, workID, prURL)
-}
-
-// checkAndResolveCommentsQuiet checks for feedback items quietly.
-// Delegates to internal/feedback.CheckAndResolveCommentsQuiet.
-func checkAndResolveCommentsQuiet(ctx context.Context, proj *project.Project, workID, prURL string) {
-	feedback.CheckAndResolveCommentsQuiet(ctx, proj, workID, prURL)
 }

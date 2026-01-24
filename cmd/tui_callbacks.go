@@ -5,9 +5,11 @@ import (
 	"io"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/progress"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/tui"
+	"github.com/newhook/co/internal/work"
 )
 
 // tuiCallbacks implements tui.Callbacks by delegating to cmd functions.
@@ -20,7 +22,7 @@ func newTUICallbacks() *tuiCallbacks {
 // Work operations
 
 func (c *tuiCallbacks) CollectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, beadsClient *beads.Client) ([]string, error) {
-	return collectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
+	return work.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
 }
 
 func (c *tuiCallbacks) CreateWorkAsync(ctx context.Context, proj *project.Project, branchName, baseBranch, rootIssueID string, auto bool) (*tui.CreateWorkAsyncResult, error) {
@@ -32,7 +34,7 @@ func (c *tuiCallbacks) CreateWorkAsync(ctx context.Context, proj *project.Projec
 }
 
 func (c *tuiCallbacks) AddBeadsToWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) (*tui.AddBeadsToWorkResult, error) {
-	result, err := AddBeadsToWork(ctx, proj, workID, beadIDs)
+	result, err := work.AddBeadsToWork(ctx, proj, workID, beadIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -40,21 +42,20 @@ func (c *tuiCallbacks) AddBeadsToWork(ctx context.Context, proj *project.Project
 }
 
 func (c *tuiCallbacks) AddBeadsToWorkInternal(ctx context.Context, proj *project.Project, workID string, beadIDs []string) error {
-	return addBeadsToWork(ctx, proj, workID, beadIDs)
+	return work.AddBeadsToWorkInternal(ctx, proj, workID, beadIDs)
 }
 
 // Control plane operations
 
 func (c *tuiCallbacks) EnsureControlPlane(ctx context.Context, projectName string, projectRoot string, w io.Writer) (bool, error) {
-	return EnsureControlPlane(ctx, projectName, projectRoot, w)
+	return control.EnsureControlPlane(ctx, projectName, projectRoot, w)
 }
 
 func (c *tuiCallbacks) ScheduleDestroyWorktree(ctx context.Context, proj *project.Project, workID string) error {
-	return ScheduleDestroyWorktree(ctx, proj, workID)
+	return control.ScheduleDestroyWorktree(ctx, proj, workID)
 }
 
 // Run operations
-
 func (c *tuiCallbacks) RunWork(ctx context.Context, proj *project.Project, workID string, usePlan bool, w io.Writer) (*tui.RunWorkResult, error) {
 	result, err := RunWork(ctx, proj, workID, usePlan, w)
 	if err != nil {
@@ -85,5 +86,5 @@ func (c *tuiCallbacks) FetchAllWorksPollData(ctx context.Context, proj *project.
 // Feedback operations
 
 func (c *tuiCallbacks) TriggerPRFeedbackCheck(ctx context.Context, proj *project.Project, workID string) error {
-	return TriggerPRFeedbackCheck(ctx, proj, workID)
+	return control.TriggerPRFeedbackCheck(ctx, proj, workID)
 }

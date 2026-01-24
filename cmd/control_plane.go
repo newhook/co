@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"io"
 
 	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/project"
@@ -51,34 +49,4 @@ func runControlPlane(cmd *cobra.Command, args []string) error {
 
 	// Start the control plane loop
 	return control.RunControlPlaneLoop(ctx, proj)
-}
-
-// ScheduleDestroyWorktree schedules a worktree destruction task for the control plane.
-// Delegates to internal/control.ScheduleDestroyWorktree.
-func ScheduleDestroyWorktree(ctx context.Context, proj *project.Project, workID string) error {
-	return control.ScheduleDestroyWorktree(ctx, proj, workID)
-}
-
-// SpawnControlPlane spawns the control plane in a zellij tab.
-// Delegates to internal/control.SpawnControlPlane.
-func SpawnControlPlane(ctx context.Context, projectName string, projectRoot string, w io.Writer) error {
-	return control.SpawnControlPlane(ctx, projectName, projectRoot, w)
-}
-
-// EnsureControlPlane ensures the control plane is running, spawning it if needed.
-// Delegates to internal/control.EnsureControlPlane.
-func EnsureControlPlane(ctx context.Context, projectName string, projectRoot string, w io.Writer) (bool, error) {
-	return control.EnsureControlPlane(ctx, projectName, projectRoot, w)
-}
-
-// IsControlPlaneRunning checks if the control plane is running for a specific project.
-// Delegates to internal/control.IsControlPlaneRunning.
-func IsControlPlaneRunning(ctx context.Context, projectRoot string) bool {
-	return control.IsControlPlaneRunning(ctx, projectRoot)
-}
-
-// TriggerPRFeedbackCheck schedules an immediate PR feedback check.
-// Delegates to internal/control.TriggerPRFeedbackCheck.
-func TriggerPRFeedbackCheck(ctx context.Context, proj *project.Project, workID string) error {
-	return control.TriggerPRFeedbackCheck(ctx, proj, workID)
 }

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -47,24 +46,6 @@ func init() {
 	pollCmd.Flags().DurationVarP(&flagPollInterval, "interval", "i", 2*time.Second, "polling interval")
 	pollCmd.Flags().StringVar(&flagPollProject, "project", "", "project directory (default: auto-detect)")
 	pollCmd.Flags().StringVar(&flagPollWork, "work", "", "work ID to monitor (default: auto-detect)")
-}
-
-// fetchTaskPollData fetches progress data for a single task.
-// Delegates to internal/progress.FetchTaskPollData.
-func fetchTaskPollData(ctx context.Context, proj *project.Project, taskID string) ([]*progress.WorkProgress, error) {
-	return progress.FetchTaskPollData(ctx, proj, taskID)
-}
-
-// fetchWorkPollData fetches progress data for a single work.
-// Delegates to internal/progress.FetchWorkPollData.
-func fetchWorkPollData(ctx context.Context, proj *project.Project, workID string) ([]*progress.WorkProgress, error) {
-	return progress.FetchWorkPollData(ctx, proj, workID)
-}
-
-// fetchAllWorksPollData fetches progress data for all works.
-// Delegates to internal/progress.FetchAllWorksPollData.
-func fetchAllWorksPollData(ctx context.Context, proj *project.Project) ([]*progress.WorkProgress, error) {
-	return progress.FetchAllWorksPollData(ctx, proj)
 }
 
 func runPoll(cmd *cobra.Command, args []string) error {
@@ -113,11 +94,11 @@ func runPoll(cmd *cobra.Command, args []string) error {
 			var works []*progress.WorkProgress
 			var err error
 			if taskID != "" {
-				works, err = fetchTaskPollData(ctx, proj, taskID)
+				works, err = progress.FetchTaskPollData(ctx, proj, taskID)
 			} else if workID != "" {
-				works, err = fetchWorkPollData(ctx, proj, workID)
+				works, err = progress.FetchWorkPollData(ctx, proj, workID)
 			} else {
-				works, err = fetchAllWorksPollData(ctx, proj)
+				works, err = progress.FetchAllWorksPollData(ctx, proj)
 			}
 			if err != nil {
 				fmt.Printf("[%s] Error: %v\n", time.Now().Format("15:04:05"), err)

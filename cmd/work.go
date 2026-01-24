@@ -168,13 +168,13 @@ Use this command to mark the work as truly completed (e.g., after PR is merged).
 }
 
 var (
-	flagBaseBranch  string
-	flagAutoRun     bool
-	flagReviewAuto  bool
-	flagAddWork     string
-	flagRemoveWork  string
-	flagBranchName  string
-	flagYes         bool
+	flagBaseBranch string
+	flagAutoRun    bool
+	flagReviewAuto bool
+	flagAddWork    string
+	flagRemoveWork string
+	flagBranchName string
+	flagYes        bool
 )
 
 func init() {
@@ -215,7 +215,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	beadID := args[0]
 
 	// Expand the bead (handles epics and transitive deps)
-	expandedIssueIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
+	expandedIssueIDs, err := work.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
 	if err != nil {
 		return fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 	}
@@ -246,8 +246,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		branchName = flagBranchName
 	} else {
 		// Generate branch name from issue titles
-		branchName = generateBranchNameFromIssues(groupIssues)
-		branchName, err = ensureUniqueBranchName(ctx, mainRepoPath, branchName)
+		branchName = work.GenerateBranchNameFromIssues(groupIssues)
+		branchName, err = work.EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
 		if err != nil {
 			return fmt.Errorf("failed to find unique branch name: %w", err)
 		}
@@ -313,7 +313,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add beads to work_beads
-	if err := addBeadsToWork(ctx, proj, workID, expandedIssueIDs); err != nil {
+	if err := work.AddBeadsToWorkInternal(ctx, proj, workID, expandedIssueIDs); err != nil {
 		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to add beads to work: %w", err)
@@ -366,14 +366,14 @@ func parseBeadArgs(ctx context.Context, args []string, beadsClient *beads.Client
 
 	for _, arg := range args {
 		// Split comma-separated bead IDs (commas and spaces both work as separators)
-		beadIDs := parseBeadIDs(arg)
+		beadIDs := work.ParseBeadIDs(arg)
 		if len(beadIDs) == 0 {
 			continue
 		}
 
 		for _, beadID := range beadIDs {
 			// Expand this bead (handles epics and transitive deps)
-			expandedIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
+			expandedIDs, err := work.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
 			if err != nil {
 				return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 			}
@@ -416,21 +416,6 @@ func promptForBranchName(proposed string) (string, error) {
 
 	// User entered a custom branch name directly
 	return response, nil
-}
-
-// addBeadsToWork adds beads to work_beads table.
-// Delegates to internal/work.AddBeadsToWorkInternal.
-func addBeadsToWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) error {
-	return work.AddBeadsToWorkInternal(ctx, proj, workID, beadIDs)
-}
-
-// AddBeadsToWorkResult is an alias for work.AddBeadsToWorkResult.
-type AddBeadsToWorkResult = work.AddBeadsToWorkResult
-
-// AddBeadsToWork adds beads to an existing work.
-// Delegates to internal/work.AddBeadsToWork.
-func AddBeadsToWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) (*AddBeadsToWorkResult, error) {
-	return work.AddBeadsToWork(ctx, proj, workID, beadIDs)
 }
 
 // WorkCreateResult contains the result of creating a work unit.
@@ -488,7 +473,7 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 
 	// Ensure unique branch name
 	var err error
-	branchName, err = ensureUniqueBranchName(ctx, mainRepoPath, branchName)
+	branchName, err = work.EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
 	}
@@ -570,77 +555,6 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 	}, nil
 }
 
-// CreateWorkFromBeads creates a work unit from a single bead ID.
-// It expands epics and transitive dependencies, generates a branch name from the bead titles,
-// and adds all beads to the work.
-// This is the core logic that can be called from both the CLI and TUI.
-func CreateWorkFromBeads(ctx context.Context, proj *project.Project, beadID string, baseBranch string, opts ...WorkCreateOptions) (*WorkCreateResult, error) {
-	if beadID == "" {
-		return nil, fmt.Errorf("no bead ID provided")
-	}
-
-	// Apply options
-	var opt WorkCreateOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
-
-	mainRepoPath := proj.MainRepoPath()
-	rootBeadID := beadID // This bead becomes the root issue
-
-	// Expand the bead (handles epics and transitive deps)
-	allExpandedIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
-	if err != nil {
-		return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
-	}
-
-	if len(allExpandedIDs) == 0 {
-		return nil, fmt.Errorf("no beads found after expansion")
-	}
-
-	// Get issue details for branch name generation
-	issuesResult, err := proj.Beads.GetBeadsWithDeps(ctx, allExpandedIDs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get issue details: %w", err)
-	}
-
-	// Convert to slice of issue pointers for branch name generation
-	var groupIssues []*beads.Bead
-	for _, issueID := range allExpandedIDs {
-		if issue, ok := issuesResult.Beads[issueID]; ok {
-			issueCopy := issue
-			groupIssues = append(groupIssues, &issueCopy)
-		}
-	}
-
-	// Generate branch name from issue titles
-	branchName := generateBranchNameFromIssues(groupIssues)
-	branchName, err = ensureUniqueBranchName(ctx, mainRepoPath, branchName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
-	}
-
-	// Create the work with the generated branch name
-	result, err := CreateWorkWithBranch(ctx, proj, branchName, baseBranch, rootBeadID, opt)
-	if err != nil {
-		return nil, err
-	}
-
-	// Add all expanded beads to the work
-	if err := addBeadsToWork(ctx, proj, result.WorkID, allExpandedIDs); err != nil {
-		// Work was created but beads failed to add - still return the result with error
-		return result, fmt.Errorf("work created but failed to add beads: %w", err)
-	}
-
-	return result, nil
-}
-
-// DestroyWork destroys a work unit and all its resources.
-// Delegates to internal/work.DestroyWork.
-func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
-	return work.DestroyWork(ctx, proj, workID, w)
-}
-
 // runAutomatedWorkflowForWork runs the full automated workflow for an existing work.
 // This includes: create estimate task -> execute -> review/fix loop -> PR
 // Delegates to runFullAutomatedWorkflow in run.go for the actual implementation.
@@ -678,11 +592,11 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Verify work exists
-	work, err := proj.DB.GetWork(ctx, workID)
+	theWork, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
-	if work == nil {
+	if theWork == nil {
 		return fmt.Errorf("work %s not found", workID)
 	}
 
@@ -708,7 +622,7 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add beads to work
-	if err := addBeadsToWork(ctx, proj, workID, beadIDs); err != nil {
+	if err := work.AddBeadsToWorkInternal(ctx, proj, workID, beadIDs); err != nil {
 		return fmt.Errorf("failed to add beads: %w", err)
 	}
 
@@ -960,7 +874,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 
 	// Destroy the work
-	if err := DestroyWork(ctx, proj, workID, os.Stdout); err != nil {
+	if err := work.DestroyWork(ctx, proj, workID, os.Stdout); err != nil {
 		return err
 	}
 

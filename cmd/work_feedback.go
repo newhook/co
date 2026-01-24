@@ -36,18 +36,6 @@ func init() {
 	workFeedbackCmd.Flags().IntVar(&feedbackMinPriority, "min-priority", 2, "Minimum priority for created beads (0-4, 0=critical)")
 }
 
-// ProcessPRFeedbackQuiet processes PR feedback without outputting to stdout.
-// Delegates to internal/feedback.ProcessPRFeedbackQuiet.
-func ProcessPRFeedbackQuiet(ctx context.Context, proj *project.Project, database *db.DB, workID string, minPriority int) (int, error) {
-	return feedback.ProcessPRFeedbackQuiet(ctx, proj, database, workID, minPriority)
-}
-
-// ProcessPRFeedback processes PR feedback for a work and creates beads.
-// Delegates to internal/feedback.ProcessPRFeedback.
-func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string, minPriority int) (int, error) {
-	return feedback.ProcessPRFeedback(ctx, proj, database, workID, minPriority)
-}
-
 func runWorkFeedback(cmd *cobra.Command, args []string) error {
 	ctx := GetContext()
 
@@ -77,7 +65,7 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 	}
 
 	// Call the internal function
-	_, err = ProcessPRFeedback(ctx, proj, proj.DB, workID, feedbackMinPriority)
+	_, err = feedback.ProcessPRFeedback(ctx, proj, proj.DB, workID, feedbackMinPriority)
 	return err
 }
 
