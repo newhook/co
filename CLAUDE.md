@@ -489,6 +489,6 @@ Runs the control plane for background task execution:
 - Long-lived process that watches for scheduled tasks across all works
 - Executes tasks asynchronously with retry support
 - Spawned automatically in a zellij tab named "control"
-- Handles task types: CreateWorktree, SpawnOrchestrator, DestroyWorktree, PRFeedback, etc.
+- Handles task types: CreateWorktree, SpawnOrchestrator, DestroyWorktree, PRFeedback, CommentResolution, GitPush, GitHubComment, GitHubResolveThread
 - Uses database change events for reactive execution (with 30s periodic fallback)
 - Managed via `SpawnControlPlane()` and `EnsureControlPlane()` functions
