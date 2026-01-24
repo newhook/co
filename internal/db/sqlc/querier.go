@@ -99,6 +99,7 @@ type Querier interface {
 	GetWorksWithPRs(ctx context.Context) ([]Work, error)
 	GetWorksWithUnseenChanges(ctx context.Context) ([]Work, error)
 	HasExistingFeedback(ctx context.Context, arg HasExistingFeedbackParams) (int64, error)
+	HasExistingFeedbackBySourceID(ctx context.Context, arg HasExistingFeedbackBySourceIDParams) (int64, error)
 	HasPendingDependencies(ctx context.Context, taskID string) (bool, error)
 	IdleWork(ctx context.Context, id string) (int64, error)
 	IdleWorkWithPR(ctx context.Context, arg IdleWorkWithPRParams) (int64, error)

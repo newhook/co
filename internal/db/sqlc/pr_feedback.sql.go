@@ -339,6 +339,23 @@ func (q *Queries) HasExistingFeedback(ctx context.Context, arg HasExistingFeedba
 	return count, err
 }
 
+const hasExistingFeedbackBySourceID = `-- name: HasExistingFeedbackBySourceID :one
+SELECT COUNT(*) as count FROM pr_feedback
+WHERE work_id = ? AND source_id = ?
+`
+
+type HasExistingFeedbackBySourceIDParams struct {
+	WorkID   string         `json:"work_id"`
+	SourceID sql.NullString `json:"source_id"`
+}
+
+func (q *Queries) HasExistingFeedbackBySourceID(ctx context.Context, arg HasExistingFeedbackBySourceIDParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, hasExistingFeedbackBySourceID, arg.WorkID, arg.SourceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const listPRFeedback = `-- name: ListPRFeedback :many
 SELECT id, work_id, pr_url, feedback_type, title, description, source, source_url, source_id, priority, bead_id, metadata, created_at, processed_at, resolved_at FROM pr_feedback WHERE work_id = ? ORDER BY created_at DESC
 `
