@@ -17,6 +17,7 @@ go test ./...
 - `cmd/list.go` - List command (list tracked beads)
 - `cmd/orchestrate.go` - Orchestrate command (internal, execute tasks)
 - `cmd/poll.go` - Poll command (monitor progress with text output)
+- `cmd/control_plane.go` - Control plane (internal, background task execution)
 - `cmd/proj.go` - Project management (create/destroy/status)
 - `cmd/run.go` - Run command (execute pending tasks or works)
 - `cmd/status.go` - Status command (show bead tracking status)
@@ -478,3 +479,16 @@ Creates a review task to examine code changes:
 - Claude examines the work's branch for quality and security issues
 - Generates unique review task IDs (w-xxx.review-1, w-xxx.review-2, etc.)
 - Use `--auto` for review-fix loop until clean (max 3 iterations)
+
+## Internal Commands
+
+These commands are hidden from help output and used internally by the orchestration system.
+
+### `co control`
+Runs the control plane for background task execution:
+- Long-lived process that watches for scheduled tasks across all works
+- Executes tasks asynchronously with retry support
+- Spawned automatically in a zellij tab named "control"
+- Handles task types: CreateWorktree, SpawnOrchestrator, DestroyWorktree, PRFeedback, etc.
+- Uses database change events for reactive execution (with 30s periodic fallback)
+- Managed via `SpawnControlPlane()` and `EnsureControlPlane()` functions
