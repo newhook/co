@@ -1,9 +1,9 @@
 -- name: CreatePRFeedback :exec
 INSERT INTO pr_feedback (
     id, work_id, pr_url, feedback_type, title, description,
-    source, source_url, source_id, priority, bead_id, metadata,
+    source_url, source_id, priority,
     source_type, source_name, context
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetPRFeedback :one
 SELECT * FROM pr_feedback WHERE id = ?;
@@ -46,7 +46,7 @@ WHERE id = ?;
 
 -- name: HasExistingFeedback :one
 SELECT COUNT(*) as count FROM pr_feedback
-WHERE work_id = ? AND title = ? AND source = ?;
+WHERE work_id = ? AND title = ? AND source_type = ? AND source_name = ?;
 
 -- name: DeletePRFeedback :exec
 DELETE FROM pr_feedback WHERE id = ?;

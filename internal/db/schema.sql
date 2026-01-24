@@ -179,7 +179,6 @@ CREATE TABLE pr_feedback (
     feedback_type TEXT NOT NULL, -- ci_failure, test_failure, lint_error, build_error, review_comment, security_issue, general
     title TEXT NOT NULL,
     description TEXT NOT NULL,
-    source TEXT NOT NULL, -- e.g., "CI: test-suite", "Review: johndoe" (legacy, kept for backwards compatibility)
     source_url TEXT,
     source_id TEXT, -- GitHub comment/check ID for resolution tracking
     source_type TEXT, -- Structured type: ci, workflow, review_comment, issue_comment
@@ -187,7 +186,6 @@ CREATE TABLE pr_feedback (
     context TEXT, -- JSON: structured context data (FeedbackContext)
     priority INTEGER NOT NULL DEFAULT 2, -- 0-4 (0=critical, 4=backlog)
     bead_id TEXT, -- ID of the bead created from this feedback (null if not created yet)
-    metadata TEXT NOT NULL DEFAULT '{}', -- JSON metadata
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     processed_at DATETIME, -- When the feedback was processed to create a bead
     resolved_at DATETIME, -- When the feedback was resolved on GitHub

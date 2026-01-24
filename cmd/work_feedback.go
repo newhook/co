@@ -180,7 +180,6 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 				Source:       item.Source,
 				Context:      item.ToFeedbackContext(),
 				Priority:     item.Priority,
-				Metadata:     item.ToContextMap(),
 			})
 			if err == nil {
 				database.MarkFeedbackProcessed(ctx, prFeedback.ID, *parentFeedback.BeadID)
@@ -198,8 +197,8 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			// Use the unique source ID for deduplication
 			exists, err = database.HasExistingFeedbackBySourceID(ctx, workID, sourceID)
 		} else {
-			// Fallback to title + source check (less reliable)
-			exists, err = database.HasExistingFeedback(ctx, workID, item.Title, item.GetSourceName())
+			// Fallback to title + source_type + source_name check (less reliable)
+			exists, err = database.HasExistingFeedback(ctx, workID, item.Title, item.Source.Type, item.Source.Name)
 		}
 
 		if err != nil {
@@ -231,7 +230,6 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			Source:       item.Source,
 			Context:      item.ToFeedbackContext(),
 			Priority:     item.Priority,
-			Metadata:     item.ToContextMap(),
 		})
 		if err != nil {
 			if !quiet {
