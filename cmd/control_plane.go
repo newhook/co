@@ -344,11 +344,12 @@ func handleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task 
 	}
 
 	// Remove git worktree if it exists
+	// Note: We continue even if this fails, because the worktree might not exist in git's records
+	// but the directory might still exist. The os.RemoveAll below will clean up the directory.
 	if work.WorktreePath != "" {
 		logging.Info("Removing git worktree", "work_id", workID, "path", work.WorktreePath)
 		if err := worktree.RemoveForce(ctx, proj.MainRepoPath(), work.WorktreePath); err != nil {
-			// This is a retriable error
-			return fmt.Errorf("failed to remove worktree: %w", err)
+			logging.Warn("failed to remove git worktree (continuing with directory removal)", "error", err, "work_id", workID)
 		}
 	}
 
