@@ -171,7 +171,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE id = ?
 `
@@ -200,6 +201,7 @@ func (q *Queries) GetWork(ctx context.Context, id string) (Work, error) {
 		&i.Approvers,
 		&i.LastPrPollAt,
 		&i.HasUnseenPrChanges,
+		&i.PrState,
 	)
 	return i, err
 }
@@ -223,7 +225,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE worktree_path LIKE ?
 LIMIT 1
@@ -253,6 +256,7 @@ func (q *Queries) GetWorkByDirectory(ctx context.Context, worktreePath string) (
 		&i.Approvers,
 		&i.LastPrPollAt,
 		&i.HasUnseenPrChanges,
+		&i.PrState,
 	)
 	return i, err
 }
@@ -351,7 +355,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE pr_url != ''
 ORDER BY created_at DESC
@@ -387,6 +392,7 @@ func (q *Queries) GetWorksWithPRs(ctx context.Context) ([]Work, error) {
 			&i.Approvers,
 			&i.LastPrPollAt,
 			&i.HasUnseenPrChanges,
+			&i.PrState,
 		); err != nil {
 			return nil, err
 		}
@@ -420,7 +426,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE has_unseen_pr_changes = TRUE
 ORDER BY created_at DESC
@@ -456,6 +463,7 @@ func (q *Queries) GetWorksWithUnseenChanges(ctx context.Context) ([]Work, error)
 			&i.Approvers,
 			&i.LastPrPollAt,
 			&i.HasUnseenPrChanges,
+			&i.PrState,
 		); err != nil {
 			return nil, err
 		}
@@ -534,7 +542,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 ORDER BY created_at DESC
 `
@@ -569,6 +578,7 @@ func (q *Queries) ListWorks(ctx context.Context) ([]Work, error) {
 			&i.Approvers,
 			&i.LastPrPollAt,
 			&i.HasUnseenPrChanges,
+			&i.PrState,
 		); err != nil {
 			return nil, err
 		}
@@ -602,7 +612,8 @@ SELECT id, status,
        approval_status,
        approvers,
        last_pr_poll_at,
-       has_unseen_pr_changes
+       has_unseen_pr_changes,
+       pr_state
 FROM works
 WHERE status = ?
 ORDER BY created_at DESC
@@ -638,6 +649,7 @@ func (q *Queries) ListWorksByStatus(ctx context.Context, status string) ([]Work,
 			&i.Approvers,
 			&i.LastPrPollAt,
 			&i.HasUnseenPrChanges,
+			&i.PrState,
 		); err != nil {
 			return nil, err
 		}
@@ -660,6 +672,27 @@ WHERE id = ?
 
 func (q *Queries) MarkWorkPRSeen(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markWorkPRSeen, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const mergeWork = `-- name: MergeWork :execrows
+UPDATE works
+SET status = 'merged',
+    pr_state = 'merged',
+    completed_at = ?
+WHERE id = ?
+`
+
+type MergeWorkParams struct {
+	CompletedAt sql.NullTime `json:"completed_at"`
+	ID          string       `json:"id"`
+}
+
+func (q *Queries) MergeWork(ctx context.Context, arg MergeWorkParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, mergeWork, arg.CompletedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -748,6 +781,7 @@ UPDATE works
 SET ci_status = ?,
     approval_status = ?,
     approvers = ?,
+    pr_state = ?,
     last_pr_poll_at = ?
 WHERE id = ?
 `
@@ -756,6 +790,7 @@ type UpdateWorkPRStatusParams struct {
 	CiStatus       string       `json:"ci_status"`
 	ApprovalStatus string       `json:"approval_status"`
 	Approvers      string       `json:"approvers"`
+	PrState        string       `json:"pr_state"`
 	LastPrPollAt   sql.NullTime `json:"last_pr_poll_at"`
 	ID             string       `json:"id"`
 }
@@ -765,6 +800,7 @@ func (q *Queries) UpdateWorkPRStatus(ctx context.Context, arg UpdateWorkPRStatus
 		arg.CiStatus,
 		arg.ApprovalStatus,
 		arg.Approvers,
+		arg.PrState,
 		arg.LastPrPollAt,
 		arg.ID,
 	)

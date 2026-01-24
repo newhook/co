@@ -17,6 +17,7 @@ const (
 	WorkStateCompleted                  // Work is completed
 	WorkStateFailed                     // Work failed
 	WorkStateDead                       // Orchestrator is dead
+	WorkStateMerged                     // PR was merged
 )
 
 // WorkTabsBar renders a horizontal tab bar showing all works.
@@ -124,6 +125,8 @@ func (b *WorkTabsBar) getWorkState(work *workProgress) WorkState {
 
 	// Then check work status
 	switch work.work.Status {
+	case db.StatusMerged:
+		return WorkStateMerged
 	case db.StatusCompleted:
 		return WorkStateCompleted
 	case db.StatusFailed:
@@ -211,6 +214,8 @@ func (b *WorkTabsBar) Render() string {
 		// Status icon
 		var icon string
 		switch workState {
+		case WorkStateMerged:
+			icon = "✓" // Checkmark for merged PRs
 		case WorkStateCompleted:
 			icon = "✓"
 		case WorkStateRunning:

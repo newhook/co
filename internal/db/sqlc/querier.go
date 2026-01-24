@@ -122,6 +122,7 @@ type Querier interface {
 	MarkTaskExecuting(ctx context.Context, id string) error
 	MarkTaskFailed(ctx context.Context, arg MarkTaskFailedParams) error
 	MarkWorkPRSeen(ctx context.Context, id string) (int64, error)
+	MergeWork(ctx context.Context, arg MergeWorkParams) (int64, error)
 	RecordMigration(ctx context.Context, version string) error
 	RecordMigrationWithDown(ctx context.Context, arg RecordMigrationWithDownParams) error
 	RemoveWorkBead(ctx context.Context, arg RemoveWorkBeadParams) (int64, error)

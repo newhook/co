@@ -1020,6 +1020,16 @@ func runWorkShow(cmd *cobra.Command, args []string) error {
 
 	if work.PRURL != "" {
 		fmt.Printf("PR URL: %s\n", work.PRURL)
+		// Display PR status details
+		if work.PRState != "" {
+			fmt.Printf("PR State: %s\n", work.PRState)
+		}
+		if work.CIStatus != "" {
+			fmt.Printf("CI Status: %s\n", work.CIStatus)
+		}
+		if work.ApprovalStatus != "" {
+			fmt.Printf("Approval Status: %s\n", work.ApprovalStatus)
+		}
 	}
 
 	if work.ErrorMessage != "" {

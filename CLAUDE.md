@@ -292,6 +292,11 @@ Works have the following status states:
                      └────────┘
                           │
                           └──► processing (co work restart)
+
+                     ┌────────┐
+                     │ merged │ ◄── (auto-detected when PR merged on GitHub)
+                     └────────┘
+                  (from idle or processing)
 ```
 
 | Status | Meaning |
@@ -301,11 +306,13 @@ Works have the following status states:
 | `idle` | All tasks done, waiting for more work (e.g., PR feedback) |
 | `completed` | Truly finished - explicitly closed by user |
 | `failed` | A task failed - requires user intervention |
+| `merged` | PR was merged on GitHub (auto-detected) |
 
 **Key behaviors:**
 - When all tasks complete successfully → work transitions to `idle` (not `completed`)
 - When a task fails → work transitions to `failed` and orchestrator halts
 - When new tasks are added to an idle work → work resumes to `processing`
+- When PR is merged on GitHub → work automatically transitions to `merged`
 - User must explicitly run `co work complete` to mark work as truly done
 - User must run `co work restart` to resume a failed work after fixing issues
 

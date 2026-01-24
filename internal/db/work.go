@@ -35,6 +35,7 @@ func workToLocal(w *sqlc.Work) *Work {
 		ApprovalStatus:     w.ApprovalStatus,
 		Approvers:          w.Approvers,
 		HasUnseenPRChanges: w.HasUnseenPrChanges,
+		PRState:            w.PrState,
 	}
 	if w.StartedAt.Valid {
 		work.StartedAt = &w.StartedAt.Time
@@ -70,6 +71,7 @@ type Work struct {
 	Approvers          string     // JSON array of usernames
 	LastPRPollAt       *time.Time
 	HasUnseenPRChanges bool
+	PRState            string // open, closed, merged
 }
 
 // CreateWork creates a new work unit.
@@ -689,17 +691,34 @@ func (db *DB) DeleteWork(ctx context.Context, workID string) error {
 // ciStatus: pending, success, failure
 // approvalStatus: pending, approved, changes_requested
 // approvers: JSON array of approver usernames
-func (db *DB) UpdateWorkPRStatus(ctx context.Context, id, ciStatus, approvalStatus, approvers string) error {
+func (db *DB) UpdateWorkPRStatus(ctx context.Context, id, ciStatus, approvalStatus, approvers, prState string) error {
 	now := time.Now()
 	rows, err := db.queries.UpdateWorkPRStatus(ctx, sqlc.UpdateWorkPRStatusParams{
 		CiStatus:       ciStatus,
 		ApprovalStatus: approvalStatus,
 		Approvers:      approvers,
+		PrState:        prState,
 		LastPrPollAt:   nullTime(now),
 		ID:             id,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update PR status for work %s: %w", id, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("work %s not found", id)
+	}
+	return nil
+}
+
+// MergeWork marks a work as merged (PR was merged on GitHub).
+func (db *DB) MergeWork(ctx context.Context, id string) error {
+	now := time.Now()
+	rows, err := db.queries.MergeWork(ctx, sqlc.MergeWorkParams{
+		CompletedAt: nullTime(now),
+		ID:          id,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to merge work %s: %w", id, err)
 	}
 	if rows == 0 {
 		return fmt.Errorf("work %s not found", id)

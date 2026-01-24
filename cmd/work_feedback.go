@@ -416,11 +416,12 @@ func updatePRStatusIfChanged(ctx context.Context, database *db.DB, work *db.Work
 	ciChanged := work.CIStatus != newStatus.CIStatus
 	approvalChanged := work.ApprovalStatus != newStatus.ApprovalStatus
 	approversChanged := !stringSlicesEqual(currentApprovers, newStatus.Approvers)
+	prStateChanged := work.PRState != newStatus.PRState
 
-	if !ciChanged && !approvalChanged && !approversChanged {
+	if !ciChanged && !approvalChanged && !approversChanged && !prStateChanged {
 		// No changes
 		if !quiet {
-			fmt.Printf("PR status unchanged: CI=%s, Approval=%s\n", work.CIStatus, work.ApprovalStatus)
+			fmt.Printf("PR status unchanged: CI=%s, Approval=%s, State=%s\n", work.CIStatus, work.ApprovalStatus, work.PRState)
 		}
 		return false
 	}
@@ -436,17 +437,32 @@ func updatePRStatusIfChanged(ctx context.Context, database *db.DB, work *db.Work
 		if approversChanged {
 			fmt.Printf("Approvers changed: %v -> %v\n", currentApprovers, newStatus.Approvers)
 		}
+		if prStateChanged {
+			fmt.Printf("PR state changed: %s -> %s\n", work.PRState, newStatus.PRState)
+		}
 	}
 
 	// Convert approvers to JSON
 	approversJSON := github.ApproversToJSON(newStatus.Approvers)
 
 	// Update the database
-	if err := database.UpdateWorkPRStatus(ctx, work.ID, newStatus.CIStatus, newStatus.ApprovalStatus, approversJSON); err != nil {
+	if err := database.UpdateWorkPRStatus(ctx, work.ID, newStatus.CIStatus, newStatus.ApprovalStatus, approversJSON, newStatus.PRState); err != nil {
 		if !quiet {
 			fmt.Printf("Warning: failed to update PR status: %v\n", err)
 		}
 		return false
+	}
+
+	// If PR was merged, transition work to merged status
+	if newStatus.PRState == db.PRStateMerged && work.Status != db.StatusMerged {
+		if !quiet {
+			fmt.Printf("PR merged! Transitioning work %s to merged status\n", work.ID)
+		}
+		if err := database.MergeWork(ctx, work.ID); err != nil {
+			if !quiet {
+				fmt.Printf("Warning: failed to mark work as merged: %v\n", err)
+			}
+		}
 	}
 
 	// Mark as having unseen changes
