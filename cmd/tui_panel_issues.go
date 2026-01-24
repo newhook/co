@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // IssuesPanel renders the issues list with filtering, tree structure, and selection.
@@ -306,9 +307,7 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 	if maxTitleLen < 10 {
 		maxTitleLen = 10
 	}
-	if len(title) > maxTitleLen {
-		title = title[:maxTitleLen-3] + "..."
-	}
+	title = ansi.Truncate(title, maxTitleLen, "...")
 
 	// Build styled line for normal display
 	var line string

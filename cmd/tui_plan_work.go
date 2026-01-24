@@ -294,21 +294,6 @@ func (m *planModel) openClaude() tea.Cmd {
 	}
 }
 
-// truncateString truncates a string to the specified length
-func truncateString(s string, maxLen int) string {
-	// Handle negative maxLen values
-	if maxLen < 0 {
-		return ""
-	}
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
-}
-
 // checkOrchestratorHealth checks if the orchestrator process is running for a work
 func checkOrchestratorHealth(ctx context.Context, workID string) bool {
 	// Check if an orchestrator process is running for this specific work

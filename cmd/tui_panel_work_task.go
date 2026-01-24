@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/db"
 )
 
@@ -167,7 +168,7 @@ func (p *WorkTaskPanel) renderTaskDetails(panelWidth int) string {
 		beadLine := fmt.Sprintf("  %s %s", statusStr, bead.id)
 		if bead.title != "" {
 			// "  ○ ID: " is about 8 chars prefix
-			beadLine += ": " + truncateString(bead.title, contentWidth-8-len(bead.id))
+			beadLine += ": " + ansi.Truncate(bead.title, contentWidth-8-len(bead.id), "...")
 		}
 		content.WriteString(beadLine + "\n")
 	}
@@ -178,7 +179,7 @@ func (p *WorkTaskPanel) renderTaskDetails(panelWidth int) string {
 		content.WriteString("\n")
 		content.WriteString(errorStyle.Render("Error:"))
 		content.WriteString("\n")
-		content.WriteString(truncateString(task.task.ErrorMessage, contentWidth))
+		content.WriteString(ansi.Truncate(task.task.ErrorMessage, contentWidth, "..."))
 	}
 
 	return content.String()
@@ -205,7 +206,7 @@ func (p *WorkTaskPanel) renderUnassignedBeadDetails(panelWidth int) string {
 
 	fmt.Fprintf(&content, "ID: %s\n", bead.id)
 	if bead.title != "" {
-		fmt.Fprintf(&content, "Title: %s\n", truncateString(bead.title, contentWidth-7))
+		fmt.Fprintf(&content, "Title: %s\n", ansi.Truncate(bead.title, contentWidth-7, "..."))
 	}
 	if bead.issueType != "" {
 		fmt.Fprintf(&content, "Type: %s\n", bead.issueType)
@@ -215,7 +216,7 @@ func (p *WorkTaskPanel) renderUnassignedBeadDetails(panelWidth int) string {
 
 	if bead.description != "" {
 		content.WriteString("\nDescription:\n")
-		content.WriteString(truncateString(bead.description, contentWidth))
+		content.WriteString(ansi.Truncate(bead.description, contentWidth, "..."))
 	}
 
 	return content.String()

@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/db"
 )
 
@@ -237,9 +238,7 @@ func (b *WorkTabsBar) Render() string {
 		if work.work.Name != "" {
 			name = work.work.Name
 		}
-		if len(name) > 20 {
-			name = name[:19] + "…"
-		}
+		name = ansi.Truncate(name, 20, "…")
 
 		// Tab content with optional unseen badge
 		tabContent := fmt.Sprintf(" %s %s", icon, name)

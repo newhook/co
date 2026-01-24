@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // StatusBarContext indicates which panel the status bar should show commands for
@@ -161,11 +162,14 @@ func (s *StatusBar) Render() string {
 	// Calculate available space for status message and truncate if needed
 	// The -4 accounts for padding (status bar has Padding(0,1) = 2) plus minimum gap
 	minPadding := 2
-	availableWidth := s.width - len(commandsPlain) - minPadding - 4
-	if len(statusPlain) > availableWidth && availableWidth > 6 {
-		// Truncate and add ellipsis (use "..." to keep byte count = display width)
-		truncatedPlain := statusPlain[:availableWidth-3] + "..."
+	commandsWidth := ansi.StringWidth(commandsPlain)
+	statusWidth := ansi.StringWidth(statusPlain)
+	availableWidth := s.width - commandsWidth - minPadding - 4
+	if statusWidth > availableWidth && availableWidth > 6 {
+		// Truncate with ellipsis using ansi.Truncate for proper UTF-8 handling
+		truncatedPlain := ansi.Truncate(statusPlain, availableWidth, "...")
 		statusPlain = truncatedPlain
+		statusWidth = ansi.StringWidth(statusPlain)
 		if s.statusIsError {
 			status = tuiErrorStyle.Render(truncatedPlain)
 		} else if s.loading {
@@ -178,7 +182,7 @@ func (s *StatusBar) Render() string {
 	}
 
 	// Build bar with commands left, status right
-	padding := max(s.width-len(commandsPlain)-len(statusPlain)-4, minPadding)
+	padding := max(s.width-commandsWidth-statusWidth-4, minPadding)
 	return tuiStatusBarStyle.Width(s.width).Render(commands + strings.Repeat(" ", padding) + status)
 }
 
