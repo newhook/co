@@ -84,3 +84,7 @@ WHERE pf.work_id = ?
       AND t.work_id = pf.work_id
   )
 ORDER BY pf.created_at ASC;
+
+-- name: HasExistingFeedbackBySourceID :one
+SELECT COUNT(*) as count FROM pr_feedback
+WHERE work_id = ? AND source_id = ?;

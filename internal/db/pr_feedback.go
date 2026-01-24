@@ -12,6 +12,47 @@ import (
 	"github.com/newhook/co/internal/db/sqlc"
 )
 
+// convertPrFeedback converts a sqlc.PrFeedback to our PRFeedback struct.
+// It handles: nullable fields, metadata JSON parsing, and field name mapping.
+func convertPrFeedback(f sqlc.PrFeedback) PRFeedback {
+	result := PRFeedback{
+		ID:           f.ID,
+		WorkID:       f.WorkID,
+		PRURL:        f.PrUrl,
+		FeedbackType: f.FeedbackType,
+		Title:        f.Title,
+		Description:  f.Description,
+		Source:       f.Source,
+		SourceURL:    f.SourceUrl.String,
+		Priority:     int(f.Priority),
+		CreatedAt:    f.CreatedAt,
+	}
+
+	if f.SourceID.Valid {
+		result.SourceID = &f.SourceID.String
+	}
+	if f.BeadID.Valid {
+		result.BeadID = &f.BeadID.String
+	}
+	if f.ProcessedAt.Valid {
+		result.ProcessedAt = &f.ProcessedAt.Time
+	}
+	if f.ResolvedAt.Valid {
+		result.ResolvedAt = &f.ResolvedAt.Time
+	}
+
+	// Parse metadata JSON
+	if f.Metadata != "" && f.Metadata != "{}" {
+		if err := json.Unmarshal([]byte(f.Metadata), &result.Metadata); err != nil {
+			result.Metadata = make(map[string]string)
+		}
+	} else {
+		result.Metadata = make(map[string]string)
+	}
+
+	return result
+}
+
 // PRFeedback represents a piece of feedback from a PR.
 type PRFeedback struct {
 	ID           string
@@ -42,27 +83,29 @@ func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL, feedbackType,
 	}
 
 	// Get source_id from metadata if present
-	var sourceID *string
+	var sourceID sql.NullString
 	if sid, ok := metadata["source_id"]; ok && sid != "" {
-		sourceID = &sid
+		sourceID = sql.NullString{String: sid, Valid: true}
 	}
 
-	query := `
-		INSERT INTO pr_feedback (
-			id, work_id, pr_url, feedback_type, title, description,
-			source, source_url, source_id, priority, metadata
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-
-	_, err = db.DB.ExecContext(ctx, query,
-		id, workID, prURL, feedbackType, title, description,
-		source, sourceURL, sourceID, priority, string(metadataJSON),
-	)
+	err = db.queries.CreatePRFeedback(ctx, sqlc.CreatePRFeedbackParams{
+		ID:           id,
+		WorkID:       workID,
+		PrUrl:        prURL,
+		FeedbackType: feedbackType,
+		Title:        title,
+		Description:  description,
+		Source:       source,
+		SourceUrl:    sql.NullString{String: sourceURL, Valid: sourceURL != ""},
+		SourceID:     sourceID,
+		Priority:     int64(priority),
+		Metadata:     string(metadataJSON),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PR feedback: %w", err)
 	}
 
-	return &PRFeedback{
+	result := &PRFeedback{
 		ID:           id,
 		WorkID:       workID,
 		PRURL:        prURL,
@@ -71,88 +114,40 @@ func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL, feedbackType,
 		Description:  description,
 		Source:       source,
 		SourceURL:    sourceURL,
-		SourceID:     sourceID,
 		Priority:     priority,
 		Metadata:     metadata,
 		CreatedAt:    time.Now(),
-	}, nil
+	}
+	if sourceID.Valid {
+		result.SourceID = &sourceID.String
+	}
+	return result, nil
 }
 
 // GetUnprocessedFeedback returns all unprocessed feedback for a work.
 func (db *DB) GetUnprocessedFeedback(ctx context.Context, workID string) ([]PRFeedback, error) {
-	query := `
-		SELECT id, work_id, pr_url, feedback_type, title, description,
-		       source, source_url, priority, bead_id, metadata, created_at, processed_at
-		FROM pr_feedback
-		WHERE work_id = ? AND processed_at IS NULL
-		ORDER BY priority ASC, created_at ASC
-	`
-
-	rows, err := db.DB.QueryContext(ctx, query, workID)
+	feedbacks, err := db.queries.ListUnprocessedPRFeedback(ctx, workID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query unprocessed feedback: %w", err)
 	}
-	defer rows.Close()
 
-	var feedbacks []PRFeedback
-	for rows.Next() {
-		var f PRFeedback
-		var beadID sql.NullString
-		var processedAt sql.NullTime
-		var metadataJSON string
-
-		err := rows.Scan(&f.ID, &f.WorkID, &f.PRURL, &f.FeedbackType,
-			&f.Title, &f.Description, &f.Source, &f.SourceURL,
-			&f.Priority, &beadID, &metadataJSON, &f.CreatedAt, &processedAt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan feedback row: %w", err)
-		}
-
-		if beadID.Valid {
-			f.BeadID = &beadID.String
-		}
-		if processedAt.Valid {
-			f.ProcessedAt = &processedAt.Time
-		}
-
-		// Parse metadata JSON
-		if metadataJSON != "" && metadataJSON != "{}" {
-			if err := json.Unmarshal([]byte(metadataJSON), &f.Metadata); err != nil {
-				// Log but don't fail on metadata parse errors
-				f.Metadata = make(map[string]string)
-			}
-		} else {
-			f.Metadata = make(map[string]string)
-		}
-
-		feedbacks = append(feedbacks, f)
+	result := make([]PRFeedback, len(feedbacks))
+	for i, f := range feedbacks {
+		result[i] = convertPrFeedback(f)
 	}
 
-	return feedbacks, rows.Err()
+	return result, nil
 }
 
 // MarkFeedbackProcessed marks feedback as processed and associates it with a bead.
 func (db *DB) MarkFeedbackProcessed(ctx context.Context, feedbackID, beadID string) error {
-	query := `
-		UPDATE pr_feedback
-		SET bead_id = ?, processed_at = ?
-		WHERE id = ?
-	`
-
-	result, err := db.DB.ExecContext(ctx, query, beadID, time.Now(), feedbackID)
+	err := db.queries.MarkPRFeedbackProcessed(ctx, sqlc.MarkPRFeedbackProcessedParams{
+		BeadID: sql.NullString{String: beadID, Valid: beadID != ""},
+		ID:     feedbackID,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to mark feedback as processed: %w", err)
 	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rows == 0 {
-		return fmt.Errorf("feedback %s not found", feedbackID)
-	}
-
 	return nil
 }
 
@@ -184,63 +179,27 @@ func (db *DB) GetUnassignedFeedbackBeadIDs(ctx context.Context, workID string) (
 
 // GetFeedbackByBeadID returns the feedback associated with a bead.
 func (db *DB) GetFeedbackByBeadID(ctx context.Context, beadID string) (*PRFeedback, error) {
-	query := `
-		SELECT id, work_id, pr_url, feedback_type, title, description,
-		       source, source_url, priority, bead_id, metadata, created_at, processed_at
-		FROM pr_feedback
-		WHERE bead_id = ?
-	`
-
-	var f PRFeedback
-	var beadIDNull sql.NullString
-	var processedAt sql.NullTime
-	var metadataJSON string
-
-	err := db.DB.QueryRowContext(ctx, query, beadID).Scan(
-		&f.ID, &f.WorkID, &f.PRURL, &f.FeedbackType,
-		&f.Title, &f.Description, &f.Source, &f.SourceURL,
-		&f.Priority, &beadIDNull, &metadataJSON, &f.CreatedAt, &processedAt,
-	)
+	f, err := db.queries.GetPRFeedbackByBead(ctx, sql.NullString{String: beadID, Valid: true})
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to query feedback by bead ID: %w", err)
 	}
 
-	if beadIDNull.Valid {
-		f.BeadID = &beadIDNull.String
-	}
-	if processedAt.Valid {
-		f.ProcessedAt = &processedAt.Time
-	}
-
-	// Parse metadata JSON
-	if metadataJSON != "" && metadataJSON != "{}" {
-		if err := json.Unmarshal([]byte(metadataJSON), &f.Metadata); err != nil {
-			f.Metadata = make(map[string]string)
-		}
-	} else {
-		f.Metadata = make(map[string]string)
-	}
-
-	return &f, nil
+	result := convertPrFeedback(f)
+	return &result, nil
 }
 
 // HasExistingFeedback checks if feedback already exists for a specific source.
 // If sourceID is provided, it uses that as the unique identifier (e.g., GitHub comment ID).
 // Otherwise falls back to checking by title and source.
 func (db *DB) HasExistingFeedback(ctx context.Context, workID, title, source string) (bool, error) {
-	// This method signature is kept for backward compatibility,
-	// but we should check if the source_id already exists in the database
-	// by looking at the metadata or source_id column
-	query := `
-		SELECT COUNT(*) FROM pr_feedback
-		WHERE work_id = ? AND title = ? AND source = ?
-	`
-
-	var count int
-	err := db.DB.QueryRowContext(ctx, query, workID, title, source).Scan(&count)
+	count, err := db.queries.HasExistingFeedback(ctx, sqlc.HasExistingFeedbackParams{
+		WorkID: workID,
+		Title:  title,
+		Source: source,
+	})
 	if err != nil {
 		return false, fmt.Errorf("failed to check existing feedback: %w", err)
 	}
@@ -251,13 +210,10 @@ func (db *DB) HasExistingFeedback(ctx context.Context, workID, title, source str
 // HasExistingFeedbackBySourceID checks if feedback already exists for a specific source ID.
 // This is the preferred method for checking duplicates when a unique source ID is available.
 func (db *DB) HasExistingFeedbackBySourceID(ctx context.Context, workID, sourceID string) (bool, error) {
-	query := `
-		SELECT COUNT(*) FROM pr_feedback
-		WHERE work_id = ? AND source_id = ?
-	`
-
-	var count int
-	err := db.DB.QueryRowContext(ctx, query, workID, sourceID).Scan(&count)
+	count, err := db.queries.HasExistingFeedbackBySourceID(ctx, sqlc.HasExistingFeedbackBySourceIDParams{
+		WorkID:   workID,
+		SourceID: sql.NullString{String: sourceID, Valid: true},
+	})
 	if err != nil {
 		return false, fmt.Errorf("failed to check existing feedback by source ID: %w", err)
 	}
@@ -273,107 +229,29 @@ func (db *DB) GetFeedbackBySourceID(ctx context.Context, workID, sourceID string
 		SourceID: sql.NullString{String: sourceID, Valid: true},
 	})
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to query feedback by source ID: %w", err)
 	}
 
-	result := &PRFeedback{
-		ID:           f.ID,
-		WorkID:       f.WorkID,
-		PRURL:        f.PrUrl,
-		FeedbackType: f.FeedbackType,
-		Title:        f.Title,
-		Description:  f.Description,
-		Source:       f.Source,
-		SourceURL:    f.SourceUrl.String,
-		Priority:     int(f.Priority),
-		CreatedAt:    f.CreatedAt,
-	}
-
-	if f.SourceID.Valid {
-		result.SourceID = &f.SourceID.String
-	}
-	if f.BeadID.Valid {
-		result.BeadID = &f.BeadID.String
-	}
-	if f.ProcessedAt.Valid {
-		result.ProcessedAt = &f.ProcessedAt.Time
-	}
-
-	// Parse metadata JSON
-	if f.Metadata != "" && f.Metadata != "{}" {
-		if err := json.Unmarshal([]byte(f.Metadata), &result.Metadata); err != nil {
-			result.Metadata = make(map[string]string)
-		}
-	} else {
-		result.Metadata = make(map[string]string)
-	}
-
-	return result, nil
+	result := convertPrFeedback(f)
+	return &result, nil
 }
 
 // GetUnresolvedFeedbackForClosedBeads returns feedback items where the associated bead is closed but not resolved on GitHub.
 func (db *DB) GetUnresolvedFeedbackForClosedBeads(ctx context.Context, workID string) ([]PRFeedback, error) {
-	query := `
-		SELECT pf.id, pf.work_id, pf.pr_url, pf.feedback_type, pf.title, pf.description,
-		       pf.source, pf.source_url, pf.source_id, pf.priority, pf.bead_id,
-		       pf.metadata, pf.created_at, pf.processed_at, pf.resolved_at
-		FROM pr_feedback pf
-		WHERE pf.work_id = ?
-		  AND pf.bead_id IS NOT NULL
-		  AND pf.resolved_at IS NULL
-		  AND pf.source_id IS NOT NULL
-		ORDER BY pf.created_at ASC
-	`
-
-	rows, err := db.DB.QueryContext(ctx, query, workID)
+	feedbacks, err := db.queries.GetUnresolvedFeedbackForWork(ctx, workID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query unresolved feedback: %w", err)
 	}
-	defer rows.Close()
 
-	var feedbacks []PRFeedback
-	for rows.Next() {
-		var f PRFeedback
-		var sourceID, beadID sql.NullString
-		var processedAt, resolvedAt sql.NullTime
-		var metadataJSON string
-
-		err := rows.Scan(&f.ID, &f.WorkID, &f.PRURL, &f.FeedbackType,
-			&f.Title, &f.Description, &f.Source, &f.SourceURL, &sourceID,
-			&f.Priority, &beadID, &metadataJSON, &f.CreatedAt, &processedAt, &resolvedAt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan feedback row: %w", err)
-		}
-
-		if sourceID.Valid {
-			f.SourceID = &sourceID.String
-		}
-		if beadID.Valid {
-			f.BeadID = &beadID.String
-		}
-		if processedAt.Valid {
-			f.ProcessedAt = &processedAt.Time
-		}
-		if resolvedAt.Valid {
-			f.ResolvedAt = &resolvedAt.Time
-		}
-
-		// Parse metadata JSON
-		if metadataJSON != "" && metadataJSON != "{}" {
-			if err := json.Unmarshal([]byte(metadataJSON), &f.Metadata); err != nil {
-				f.Metadata = make(map[string]string)
-			}
-		} else {
-			f.Metadata = make(map[string]string)
-		}
-
-		feedbacks = append(feedbacks, f)
+	result := make([]PRFeedback, len(feedbacks))
+	for i, f := range feedbacks {
+		result[i] = convertPrFeedback(f)
 	}
 
-	return feedbacks, rows.Err()
+	return result, nil
 }
 
 // GetUnresolvedFeedbackForBeads returns feedback items for specific beads that are not yet resolved on GitHub.
@@ -394,43 +272,9 @@ func (db *DB) GetUnresolvedFeedbackForBeads(ctx context.Context, beadIDs []strin
 		return nil, fmt.Errorf("failed to query unresolved feedback for beads: %w", err)
 	}
 
-	// Convert sqlc PrFeedback to our PRFeedback struct
 	result := make([]PRFeedback, len(feedbacks))
 	for i, f := range feedbacks {
-		result[i] = PRFeedback{
-			ID:           f.ID,
-			WorkID:       f.WorkID,
-			PRURL:        f.PrUrl,
-			FeedbackType: f.FeedbackType,
-			Title:        f.Title,
-			Description:  f.Description,
-			Source:       f.Source,
-			SourceURL:    f.SourceUrl.String,
-			Priority:     int(f.Priority),
-			CreatedAt:    f.CreatedAt,
-		}
-
-		if f.SourceID.Valid {
-			result[i].SourceID = &f.SourceID.String
-		}
-		if f.BeadID.Valid {
-			result[i].BeadID = &f.BeadID.String
-		}
-		if f.ProcessedAt.Valid {
-			result[i].ProcessedAt = &f.ProcessedAt.Time
-		}
-		if f.ResolvedAt.Valid {
-			result[i].ResolvedAt = &f.ResolvedAt.Time
-		}
-
-		// Parse metadata JSON
-		if f.Metadata != "" && f.Metadata != "{}" {
-			if err := json.Unmarshal([]byte(f.Metadata), &result[i].Metadata); err != nil {
-				result[i].Metadata = make(map[string]string)
-			}
-		} else {
-			result[i].Metadata = make(map[string]string)
-		}
+		result[i] = convertPrFeedback(f)
 	}
 
 	return result, nil
