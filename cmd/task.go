@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/newhook/co/internal/db"
@@ -344,36 +342,4 @@ func runTaskReset(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Reset task %s to pending\n", taskID)
 	return nil
-}
-
-
-// getCurrentTask tries to detect the current task from the environment.
-// This looks for a CO_TASK_ID environment variable that would be set by the
-// Claude Code session when running a task, or finds the current processing
-// review task for the work directory.
-func getCurrentTask(ctx context.Context, proj *project.Project) (string, error) {
-	// Check for CO_TASK_ID environment variable (set by task runner)
-	if taskID := os.Getenv("CO_TASK_ID"); taskID != "" {
-		return taskID, nil
-	}
-
-	// Fallback: try to find the most recent processing review task for the current work
-	workID, err := getCurrentWork(proj)
-	if err != nil {
-		return "", fmt.Errorf("not in a work directory: %w", err)
-	}
-
-	// Get all tasks for this work and find a processing review task
-	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get work tasks: %w", err)
-	}
-
-	for _, task := range tasks {
-		if task.TaskType == "review" && task.Status == db.StatusProcessing {
-			return task.ID, nil
-		}
-	}
-
-	return "", fmt.Errorf("no processing review task found for work %s", workID)
 }

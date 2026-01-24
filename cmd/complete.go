@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/feedback"
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -104,7 +105,8 @@ func runComplete(cmd *cobra.Command, args []string) error {
 			if len(parts) >= 1 {
 				workID := parts[0]
 				// Resolve feedback comments immediately
-				if err := ResolveFeedbackForBeads(ctx, proj.DB, proj.Beads, workID, closedBeadIDs); err != nil {
+
+				if err := feedback.ResolveFeedbackForBeads(ctx, proj.DB, proj.Beads, workID, closedBeadIDs); err != nil {
 					fmt.Printf("Warning: failed to resolve GitHub comments: %v\n", err)
 				}
 			}
@@ -152,7 +154,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 				parts := strings.Split(taskID, ".")
 				if len(parts) >= 1 {
 					workID := parts[0]
-					if err := ResolveFeedbackForBeads(ctx, proj.DB, proj.Beads, workID, taskBeadIDs); err != nil {
+					if err := feedback.ResolveFeedbackForBeads(ctx, proj.DB, proj.Beads, workID, taskBeadIDs); err != nil {
 						fmt.Printf("Warning: failed to resolve GitHub comments: %v\n", err)
 					}
 				}
