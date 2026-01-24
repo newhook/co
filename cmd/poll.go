@@ -56,7 +56,8 @@ type workProgress struct {
 	workBeads           []beadProgress // all beads assigned to this work
 	unassignedBeads     []beadProgress // beads in work but not assigned to any task
 	unassignedBeadCount int
-	feedbackCount       int // count of unresolved PR feedback items
+	feedbackCount       int      // count of unresolved PR feedback items
+	feedbackBeadIDs     []string // bead IDs from unassigned PR feedback
 
 	// PR status fields (populated from work record)
 	ciStatus           string   // pending, success, failure
@@ -299,10 +300,11 @@ func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 		wp.unassignedBeads = append(wp.unassignedBeads, bp)
 	}
 
-	// Get feedback count for this work
-	feedbackCount, err := proj.DB.CountUnresolvedFeedbackForWork(ctx, work.ID)
+	// Get unassigned feedback bead IDs for this work
+	feedbackBeadIDs, err := proj.DB.GetUnassignedFeedbackBeadIDs(ctx, work.ID)
 	if err == nil {
-		wp.feedbackCount = feedbackCount
+		wp.feedbackBeadIDs = feedbackBeadIDs
+		wp.feedbackCount = len(feedbackBeadIDs)
 	}
 
 	// Populate PR status fields from work record

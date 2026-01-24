@@ -292,7 +292,7 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 	if p.focusedWork.feedbackCount > 0 {
 		alertStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 		progressLine.WriteString("  ")
-		progressLine.WriteString(alertStyle.Render(fmt.Sprintf("● %d feedback", p.focusedWork.feedbackCount)))
+		progressLine.WriteString(alertStyle.Render("feedback"))
 	}
 
 	content.WriteString(progressLine.String() + "\n")

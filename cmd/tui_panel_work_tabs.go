@@ -243,6 +243,15 @@ func (b *WorkTabsBar) Render() string {
 			Background(tabBg)
 		content += tabStyle.Render(tabContent)
 
+		// Add pending work indicator (orange warning for feedback or unassigned beads)
+		if work.feedbackCount > 0 || work.unassignedBeadCount > 0 {
+			badgeStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("214")). // Orange for pending work
+				Background(tabBg)
+			content += badgeStyle.Render(" \uf071") // nf-fa-exclamation_triangle
+			currentX += 2
+		}
+
 		// Add unseen PR changes indicator (colored dot)
 		if work.hasUnseenPRChanges {
 			badgeStyle := lipgloss.NewStyle().

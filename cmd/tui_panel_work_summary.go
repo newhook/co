@@ -194,10 +194,11 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		approvalStyle := lipgloss.NewStyle().Foreground(approvalColor)
 		fmt.Fprintf(&content, "  Review: %s\n", approvalStyle.Render(approvalIcon+" "+approvalText))
 
-		// Feedback count (reference the existing feedbackCount if any)
+		// Feedback (show bead IDs)
 		if p.focusedWork.feedbackCount > 0 {
 			feedbackStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-			fmt.Fprintf(&content, "  Feedback: %s\n", feedbackStyle.Render(fmt.Sprintf("%d pending item(s)", p.focusedWork.feedbackCount)))
+			beadIDsStr := strings.Join(p.focusedWork.feedbackBeadIDs, ", ")
+			fmt.Fprintf(&content, "  Feedback: %s\n", feedbackStyle.Render(beadIDsStr))
 		}
 	}
 
@@ -255,7 +256,8 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		}
 		if p.focusedWork.feedbackCount > 0 {
 			alertStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-			content.WriteString(alertStyle.Render(fmt.Sprintf("  ● %d pending PR feedback item(s)\n", p.focusedWork.feedbackCount)))
+			beadIDsStr := strings.Join(p.focusedWork.feedbackBeadIDs, ", ")
+			content.WriteString(alertStyle.Render(fmt.Sprintf("  ● %d pending PR feedback: %s\n", p.focusedWork.feedbackCount, beadIDsStr)))
 		}
 	}
 

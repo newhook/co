@@ -23,6 +23,8 @@ type Querier interface {
 	CountEstimatedBeads(ctx context.Context, beadIds []string) (int64, error)
 	CountPendingTasksForWork(ctx context.Context, workID string) (int64, error)
 	CountTaskBeadStatuses(ctx context.Context, taskID string) (CountTaskBeadStatusesRow, error)
+	// Count PR feedback items that have beads which are not yet assigned to any task and not resolved/closed.
+	CountUnassignedFeedbackForWork(ctx context.Context, workID string) (int64, error)
 	CreateMigrationsTable(ctx context.Context) error
 	CreatePRFeedback(ctx context.Context, arg CreatePRFeedbackParams) error
 	CreateScheduledTask(ctx context.Context, arg CreateScheduledTaskParams) error
@@ -85,6 +87,8 @@ type Querier interface {
 	GetTaskForBead(ctx context.Context, beadID string) (string, error)
 	GetTaskMetadata(ctx context.Context, arg GetTaskMetadataParams) (string, error)
 	GetTasksWithActivity(ctx context.Context) ([]Task, error)
+	// Get bead IDs from PR feedback items that are not yet assigned to any task and not resolved/closed.
+	GetUnassignedFeedbackBeadIDs(ctx context.Context, workID string) ([]sql.NullString, error)
 	GetUnassignedWorkBeads(ctx context.Context, workID string) ([]WorkBead, error)
 	GetUnresolvedFeedbackForBeads(ctx context.Context, beadIds []sql.NullString) ([]PrFeedback, error)
 	GetUnresolvedFeedbackForWork(ctx context.Context, workID string) ([]PrFeedback, error)
