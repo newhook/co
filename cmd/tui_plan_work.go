@@ -268,6 +268,9 @@ func (m *planModel) openConsole() tea.Cmd {
 			return workCommandMsg{action: "Open console", workID: workID, err: err}
 		}
 
+		// Ensure control plane is running
+		EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
+
 		return workCommandMsg{action: "Open console", workID: workID}
 	}
 }

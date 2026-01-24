@@ -1,0 +1,300 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - gosec
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+
+  settings:
+    errcheck:
+      exclude-functions:
+        # Database operations
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Stmt).Close
+        - (*database/sql.Conn).Close
+        # File operations
+        - (*os.File).Close
+        - (os).Remove
+        - (os).RemoveAll
+        - (os).Setenv
+        - (os).Unsetenv
+        - (os).Chdir
+        - (os).MkdirAll
+        # Process operations
+        - (*os.Process).Kill
+        - (*os.Process).Signal
+        # IO operations
+        - (io.Closer).Close
+        # Print operations
+        - (fmt).Fprintf
+        - (fmt).Fprintln
+        - (fmt).Fprint
+        - (fmt).Scanln
+        - (fmt).Scanf
+        # Cobra flags
+        - (*github.com/spf13/cobra.Command).MarkFlagRequired
+
+    misspell:
+      locale: US
+
+    staticcheck:
+      checks:
+        - "all"
+        - "-QF1008"  # Allow explicit embedded field access for clarity
+
+  exclusions:
+    rules:
+      # Test files can ignore error returns
+      - path: _test\.go
+        linters:
+          - errcheck
+
+      # fsnotify watcher stop - best effort cleanup
+      - linters:
+          - errcheck
+        text: "watcher\\.Stop"
+
+      # Project close - deferred cleanup
+      - linters:
+          - errcheck
+        text: "proj\\.Close"
+
+      # Database mark operations in error handling paths
+      - linters:
+          - errcheck
+        text: "MarkTask(Completed|Failed)"
+
+      # Zellij operations - best effort
+      - linters:
+          - errcheck
+        text: "(SendCtrlC|CloseTab)"
+
+      # Worktree removal - best effort cleanup
+      - linters:
+          - errcheck
+        text: "worktree\\.RemoveForce"
+
+      # Process kill - best effort
+      - linters:
+          - errcheck
+        text: "KillProcess"
+
+      # Beads cache flush - best effort
+      - linters:
+          - errcheck
+        text: "FlushCache"
+
+      # Delete operations - best effort cleanup
+      - linters:
+          - errcheck
+        text: "DeleteWork"
+
+      # Feedback processing - best effort
+      - linters:
+          - errcheck
+        text: "MarkFeedbackProcessed"
+
+      # HTTP response body close
+      - linters:
+          - errcheck
+        text: "resp\\.Body\\.Close"
+
+      # Log file close
+      - linters:
+          - errcheck
+        text: "logFile\\.Close"
+
+      # fmt print functions - output errors are typically ignorable
+      - linters:
+          - errcheck
+        text: "fmt\\.(Fprint|Fprintf|Fprintln|Scanln|Scanf)"
+
+      # os.RemoveAll/Setenv in cleanup paths
+      - linters:
+          - errcheck
+        text: "os\\.(RemoveAll|Setenv)"
+
+      # G301: Directory permissions 0755 are acceptable for project dirs
+      - linters:
+          - gosec
+        text: "G301.*0755"
+
+      # G115: Integer overflow in backoff calculation is bounded
+      - path: internal/db/scheduler\.go
+        linters:
+          - gosec
+        text: "G115"
+
+      # G204: Subprocess with validated/controlled arguments
+      - path: internal/(git|worktree|process)/
+        linters:
+          - gosec
+        text: "G204"
+
+      # G304: File paths from config/known sources
+      - path: internal/(project|logging)/
+        linters:
+          - gosec
+        text: "G304"
+
+      # G306: 0644 permissions acceptable for log/data files
+      - linters:
+          - gosec
+        text: "G306.*0644"
+
+      # G404: Weak random OK for non-security name generation
+      - path: internal/names/
+        linters:
+          - gosec
+        text: "G404"
+
+      # G101: Test API key is not real credentials
+      - path: _test\.go
+        linters:
+          - gosec
+        text: "G101"
+
+      # G104: Unhandled errors in tests
+      - path: _test\.go
+        linters:
+          - gosec
+        text: "G104"
+
+      # G104: Unhandled errors in cleanup/best-effort paths
+      - path: cmd/(control_plane|orchestrate|work)\.go
+        linters:
+          - gosec
+        text: "G104"
+
+      # G301: 0755 dir permissions acceptable for work dirs
+      - path: cmd/(control_plane|work)\.go
+        linters:
+          - gosec
+        text: "G301"
+
+      # G204: gh CLI calls with validated input
+      - path: internal/github/
+        linters:
+          - gosec
+        text: "G204"
+
+      # G204: zellij calls with controlled arguments
+      - path: internal/zellij/
+        linters:
+          - gosec
+        text: "G204"
+
+      # G302: Log files can use 0644
+      - path: internal/logging/
+        linters:
+          - gosec
+        text: "G302"
+
+      # G306: Test files can use 0644
+      - path: _test\.go
+        linters:
+          - gosec
+        text: "G306"
+
+      # ST1000: Package comments not required
+      - linters:
+          - staticcheck
+        text: "ST1000"
+
+      # G204: bd CLI calls with controlled arguments
+      - path: internal/beads/
+        linters:
+          - gosec
+        text: "G204"
+
+      # G104/G301: Project setup - best effort cleanup and standard permissions
+      - path: internal/project/
+        linters:
+          - gosec
+        text: "G(104|301)"
+
+      # G301: Work dir creation with 0755
+      - path: cmd/work_automated\.go
+        linters:
+          - gosec
+        text: "G301"
+
+      # QF1003: if/else chains that could be switch - style preference
+      - linters:
+          - staticcheck
+        text: "QF1003"
+
+      # ST1020: Comment format on exported methods - allow flexibility
+      - linters:
+          - staticcheck
+        text: "ST1020"
+
+      # "cancelled" is valid British English, used in comments and API responses
+      - linters:
+          - misspell
+        text: "cancelled"
+
+      # G204: claude CLI calls with controlled arguments
+      - path: internal/claude/
+        linters:
+          - gosec
+        text: "G204"
+
+      # G104: Process signal and cleanup errors in claude package
+      - path: internal/claude/
+        linters:
+          - gosec
+        text: "G104"
+
+      # G301: Logging directory with 0755
+      - path: internal/logging/
+        linters:
+          - gosec
+        text: "G301"
+
+      # G104: Deferred close and cleanup operations
+      - linters:
+          - gosec
+        text: "G104.*(Close|MarkFlagRequired)"
+
+      # G104: Cleanup in beads client
+      - path: internal/beads/client\.go
+        linters:
+          - gosec
+        text: "G104"
+
+      # G104: Logging cleanup
+      - path: internal/logging/
+        linters:
+          - gosec
+        text: "G104"
+
+      # G104: Cobra MarkFlagRequired
+      - path: cmd/estimate\.go
+        linters:
+          - gosec
+        text: "G104"
+
+      # G104: DB close in error path
+      - path: internal/db/db\.go
+        linters:
+          - gosec
+        text: "G104"
+
+      # G104: Cleanup and best-effort operations in cmd package
+      - path: cmd/(scheduler_handler|tui_plan|tui_plan_work|work_automated|work_feedback)\.go
+        linters:
+          - gosec
+        text: "G104"

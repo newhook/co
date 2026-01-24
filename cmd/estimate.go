@@ -17,10 +17,13 @@ var (
 
 var estimateCmd = &cobra.Command{
 	Use:   "estimate <bead-id>",
-	Short: "Report complexity estimate for a bead (used by Claude during estimation)",
-	Long:  `Report complexity estimate for a bead. This command is called by Claude Code during estimation tasks.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runEstimate,
+	Short: "[Agent] Report complexity estimate for a bead",
+	Long: `[Agent Command - Called by Claude Code, not for direct user invocation]
+
+Report complexity estimate for a bead. This command is called by Claude Code
+during estimation tasks to report complexity scores and token estimates.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runEstimate,
 }
 
 func init() {

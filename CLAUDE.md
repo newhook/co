@@ -12,21 +12,29 @@ go test ./...
 ## Project Structure
 
 - `main.go` - CLI entry point (cobra)
-- `cmd/complete.go` - Complete command (mark beads/tasks as done or failed)
-- `cmd/estimate.go` - Estimate command (report complexity for beads)
-- `cmd/list.go` - List command (list tracked beads)
-- `cmd/orchestrate.go` - Orchestrate command (internal, execute tasks)
-- `cmd/poll.go` - Poll command (monitor progress with text output)
-- `cmd/control_plane.go` - Control plane (internal, background task execution)
+
+### User-Facing Commands
 - `cmd/proj.go` - Project management (create/destroy/status)
-- `cmd/run.go` - Run command (execute pending tasks or works)
-- `cmd/status.go` - Status command (show bead tracking status)
-- `cmd/sync.go` - Sync command (pull from upstream)
-- `cmd/task.go` - Task management (list/show/delete/reset/set-review-epic)
 - `cmd/work.go` - Work management (create/list/show/destroy/pr/review)
 - `cmd/work_automated.go` - Automated bead-to-PR workflow
 - `cmd/work_feedback.go` - PR feedback processing (fetch feedback, create beads)
+- `cmd/task.go` - Task management (list/show/delete/reset/set-review-epic)
+- `cmd/run.go` - Run command (execute pending tasks or works)
+- `cmd/list.go` - List command (list tracked beads)
+- `cmd/status.go` - Status command (show bead tracking status)
+- `cmd/poll.go` - Poll command (monitor progress with text output)
+- `cmd/sync.go` - Sync command (pull from upstream)
 - `cmd/linear.go` - Linear integration commands (import issues from Linear)
+
+### Agent Commands (called by Claude/orchestration)
+- `cmd/complete.go` - [Agent] Mark beads/tasks as done or failed
+- `cmd/estimate.go` - [Agent] Report complexity estimates for beads
+
+### Internal/Hidden Commands (spawned automatically)
+- `cmd/orchestrate.go` - [Hidden] Execute tasks for a work unit (zellij tab)
+- `cmd/control_plane.go` - [Hidden] Background task execution (zellij tab)
+
+### Internal Packages
 - `internal/beads/` - Beads database client (bd CLI wrapper)
 - `internal/linear/` - Linear MCP client and import logic
 - `internal/claude/` - Claude Code invocation
@@ -438,20 +446,7 @@ Associates a review epic with a review task:
 - Task is auto-detected from CO_TASK_ID env var or current processing review task
 - Use `--task` flag for explicit specification
 
-## Additional Commands
-
-### `co complete <bead-id|task-id>`
-Marks a bead or task as completed (or failed with --error):
-- Called by Claude Code when work is done
-- Supports both bead IDs and task IDs (task IDs contain dots like "w-xxx.1")
-- Use `--error "message"` to mark a task as failed
-- Use `--pr "url"` to associate a PR URL with completion
-
-### `co estimate <bead-id>`
-Reports complexity estimate for a bead:
-- Called by Claude Code during estimation tasks
-- Required flags: `--score` (1-10) and `--tokens` (5000-50000)
-- Optional: `--task` to specify the task ID
+## Additional User Commands
 
 ### `co list`
 Lists tracked beads in the database:
@@ -487,9 +482,32 @@ Creates a review task to examine code changes:
 - Generates unique review task IDs (w-xxx.review-1, w-xxx.review-2, etc.)
 - Use `--auto` for review-fix loop until clean (max 3 iterations)
 
-## Internal Commands
+## Agent Commands
 
-These commands are hidden from help output and used internally by the orchestration system.
+These commands are called by Claude Code or the orchestration system during task execution. They are not intended for direct user invocation. In help output, they are prefixed with `[Agent]`.
+
+### `co complete <bead-id|task-id>`
+Marks a bead or task as completed (or failed with --error):
+- Called by Claude Code when work is done
+- Supports both bead IDs and task IDs (task IDs contain dots like "w-xxx.1")
+- Use `--error "message"` to mark a task as failed
+- Use `--pr "url"` to associate a PR URL with completion
+
+### `co estimate <bead-id>`
+Reports complexity estimate for a bead:
+- Called by Claude Code during estimation tasks
+- Required flags: `--score` (1-10) and `--tokens` (5000-50000)
+- Optional: `--task` to specify the task ID
+
+## Internal Commands (Hidden)
+
+These commands are hidden from help output and spawned automatically by the orchestration system. Users should never need to run these directly.
+
+### `co orchestrate`
+Executes tasks for a work unit:
+- Polls for ready tasks and executes them sequentially
+- Runs in a zellij tab, spawned automatically when work is created
+- Monitors task completion and handles post-execution workflows
 
 ### `co control`
 Runs the control plane for background task execution:

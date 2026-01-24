@@ -26,21 +26,28 @@ import (
 const ControlPlaneTabName = "control"
 
 var controlCmd = &cobra.Command{
-	Use:    "control",
-	Short:  "Run the control plane for background task execution",
-	Long:   `The control plane runs as a long-lived process that watches for scheduled tasks across all works and executes them with retry support.`,
+	Use:   "control",
+	Short: "[Agent] Run the control plane for background task execution",
+	Long: `[Agent Command - Spawned automatically by the system, not for direct user invocation]
+
+The control plane runs as a long-lived process that watches for scheduled tasks
+across all works and executes them with retry support. It runs in a dedicated
+zellij tab named "control" and is spawned automatically.`,
 	Hidden: true,
 	RunE:   runControlPlane,
 }
 
+var controlRoot string
+
 func init() {
 	rootCmd.AddCommand(controlCmd)
+	controlCmd.Flags().StringVar(&controlRoot, "root", "", "Project root directory")
 }
 
 func runControlPlane(cmd *cobra.Command, args []string) error {
 	ctx := GetContext()
 
-	proj, err := project.Find(ctx, "")
+	proj, err := project.Find(ctx, controlRoot)
 	if err != nil {
 		return fmt.Errorf("not in a project directory: %w", err)
 	}
@@ -397,8 +404,8 @@ func SpawnControlPlane(ctx context.Context, projectName string, projectRoot stri
 		return nil
 	}
 
-	// Build the control plane command
-	controlPlaneCommand := "co control"
+	// Build the control plane command with project root for identification
+	controlPlaneCommand := fmt.Sprintf("co control --root %s", projectRoot)
 
 	// Create a new tab
 	fmt.Fprintf(w, "Creating control plane tab in session %s\n", sessionName)
@@ -442,8 +449,8 @@ func EnsureControlPlane(ctx context.Context, projectName string, projectRoot str
 		return true, nil
 	}
 
-	// Tab exists - check if process is running
-	pattern := "co control"
+	// Tab exists - check if process is running for this specific project
+	pattern := fmt.Sprintf("co control --root %s", projectRoot)
 	if running, err := process.IsProcessRunning(ctx, pattern); err == nil && running {
 		// Process is running
 		return false, nil
@@ -467,9 +474,9 @@ func EnsureControlPlane(ctx context.Context, projectName string, projectRoot str
 	return true, nil
 }
 
-// IsControlPlaneRunning checks if the control plane is running
-func IsControlPlaneRunning(ctx context.Context) bool {
-	pattern := "co control"
+// IsControlPlaneRunning checks if the control plane is running for a specific project
+func IsControlPlaneRunning(ctx context.Context, projectRoot string) bool {
+	pattern := fmt.Sprintf("co control --root %s", projectRoot)
 	running, _ := process.IsProcessRunning(ctx, pattern)
 	return running
 }
