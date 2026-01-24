@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -81,37 +82,9 @@ func (bc *BeadCreator) feedbackToBeadInfo(item FeedbackItem, rootIssueID string)
 }
 
 // addContextToMetadata extracts typed context fields into metadata map.
+// It merges the result of item.ToContextMap() into the provided metadata map.
 func (bc *BeadCreator) addContextToMetadata(item FeedbackItem, metadata map[string]string) {
-	switch {
-	case item.CICheck != nil:
-		metadata["check_name"] = item.CICheck.CheckName
-		metadata["state"] = item.CICheck.State
-	case item.Workflow != nil:
-		metadata["workflow"] = item.Workflow.WorkflowName
-		metadata["failure"] = item.Workflow.FailureDetail
-		metadata["run_id"] = fmt.Sprintf("%d", item.Workflow.RunID)
-		if item.Workflow.JobName != "" {
-			metadata["job_name"] = item.Workflow.JobName
-		}
-		if item.Workflow.StepName != "" {
-			metadata["step_name"] = item.Workflow.StepName
-		}
-	case item.Review != nil:
-		if item.Review.File != "" {
-			metadata["file"] = item.Review.File
-		}
-		if item.Review.Line != 0 {
-			metadata["line"] = fmt.Sprintf("%d", item.Review.Line)
-		}
-		metadata["reviewer"] = item.Review.Reviewer
-		metadata["comment_id"] = fmt.Sprintf("%d", item.Review.CommentID)
-		if item.Review.InReplyToID != 0 {
-			metadata["in_reply_to_id"] = fmt.Sprintf("%d", item.Review.InReplyToID)
-		}
-	case item.IssueComment != nil:
-		metadata["author"] = item.IssueComment.Author
-		metadata["comment_id"] = fmt.Sprintf("%d", item.IssueComment.CommentID)
-	}
+	maps.Copy(metadata, item.ToContextMap())
 }
 
 // getBeadType determines the bead type from feedback type.
