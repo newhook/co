@@ -12,6 +12,7 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/feedback"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/logging"
@@ -231,16 +232,8 @@ func HandlePRFeedbackTask(ctx context.Context, proj *project.Project, workID str
 
 	logging.Debug("Checking PR feedback", "pr_url", work.PRURL, "work_id", workID)
 
-	// Get callbacks
-	cb := GetCallbacks()
-	if cb == nil {
-		logging.Error("Control plane callbacks not set")
-		proj.DB.MarkTaskFailed(ctx, task.ID, "callbacks not initialized")
-		return
-	}
-
 	// Process PR feedback - creates beads but doesn't add them to work
-	createdCount, err := cb.ProcessPRFeedbackQuiet(ctx, proj, workID, 2)
+	createdCount, err := feedback.ProcessPRFeedbackQuiet(ctx, proj, proj.DB, workID, 2)
 	if err != nil {
 		logging.Error("Failed to check PR feedback", "error", err, "work_id", workID)
 		proj.DB.MarkTaskFailed(ctx, task.ID, err.Error())
@@ -280,16 +273,8 @@ func HandleCommentResolutionTask(ctx context.Context, proj *project.Project, wor
 		return
 	}
 
-	// Get callbacks
-	cb := GetCallbacks()
-	if cb == nil {
-		logging.Error("Control plane callbacks not set")
-		proj.DB.MarkTaskFailed(ctx, task.ID, "callbacks not initialized")
-		return
-	}
-
 	// Check and resolve comments
-	cb.CheckAndResolveCommentsQuiet(ctx, proj, workID, work.PRURL)
+	feedback.CheckAndResolveCommentsQuiet(ctx, proj, workID, work.PRURL)
 
 	// Mark as completed
 	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
