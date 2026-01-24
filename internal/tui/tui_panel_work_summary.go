@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ type WorkSummaryPanel struct {
 	viewport viewport.Model
 
 	// Data
-	focusedWork *workProgress
+	focusedWork *WorkProgress
 }
 
 // NewWorkSummaryPanel creates a new WorkSummaryPanel
@@ -62,7 +62,7 @@ func (p *WorkSummaryPanel) SetFocus(focused bool) {
 }
 
 // SetFocusedWork updates the focused work
-func (p *WorkSummaryPanel) SetFocusedWork(focusedWork *workProgress) {
+func (p *WorkSummaryPanel) SetFocusedWork(focusedWork *WorkProgress) {
 	p.focusedWork = focusedWork
 	// Reset viewport scroll when switching focus
 	p.viewport.SetYOffset(0)
@@ -126,7 +126,7 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 
 	// Work metadata
 	statusStyle := lipgloss.NewStyle()
-	switch p.focusedWork.work.Status {
+	switch p.focusedWork.Work.Status {
 	case db.StatusCompleted:
 		statusStyle = statusStyle.Foreground(lipgloss.Color("82"))
 	case db.StatusProcessing:
@@ -136,12 +136,12 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 	default:
 		statusStyle = statusStyle.Foreground(lipgloss.Color("247"))
 	}
-	fmt.Fprintf(&content, "Status: %s\n", statusStyle.Render(p.focusedWork.work.Status))
+	fmt.Fprintf(&content, "Status: %s\n", statusStyle.Render(p.focusedWork.Work.Status))
 
 	// PR URL (if available)
-	if p.focusedWork.work.PRURL != "" {
+	if p.focusedWork.Work.PRURL != "" {
 		prStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
-		fmt.Fprintf(&content, "PR: %s\n", prStyle.Render(p.focusedWork.work.PRURL))
+		fmt.Fprintf(&content, "PR: %s\n", prStyle.Render(p.focusedWork.Work.PRURL))
 
 		// PR Status section (only show if we have a PR)
 		content.WriteString("\n")
@@ -150,7 +150,7 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		content.WriteString("\n")
 
 		// CI Status
-		ciStatus := p.focusedWork.ciStatus
+		ciStatus := p.focusedWork.CIStatus
 		if ciStatus == "" {
 			ciStatus = "pending"
 		}
@@ -171,7 +171,7 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		fmt.Fprintf(&content, "  CI: %s\n", ciStyle.Render(ciIcon+" "+ciText))
 
 		// Approval Status
-		approvalStatus := p.focusedWork.approvalStatus
+		approvalStatus := p.focusedWork.ApprovalStatus
 		if approvalStatus == "" {
 			approvalStatus = "pending"
 		}
@@ -181,8 +181,8 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		switch approvalStatus {
 		case "approved":
 			approvalIcon = "✓"
-			if len(p.focusedWork.approvers) > 0 {
-				approvalText = "Approved by " + strings.Join(p.focusedWork.approvers, ", ")
+			if len(p.focusedWork.Approvers) > 0 {
+				approvalText = "Approved by " + strings.Join(p.focusedWork.Approvers, ", ")
 			} else {
 				approvalText = "Approved"
 			}
@@ -196,16 +196,16 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		fmt.Fprintf(&content, "  Review: %s\n", approvalStyle.Render(approvalIcon+" "+approvalText))
 
 		// Feedback (show bead IDs)
-		if p.focusedWork.feedbackCount > 0 {
+		if p.focusedWork.FeedbackCount > 0 {
 			feedbackStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-			beadIDsStr := strings.Join(p.focusedWork.feedbackBeadIDs, ", ")
+			beadIDsStr := strings.Join(p.focusedWork.FeedbackBeadIDs, ", ")
 			fmt.Fprintf(&content, "  Feedback: %s\n", feedbackStyle.Render(beadIDsStr))
 		}
 	}
 
 	// Creation time
-	if p.focusedWork.work.CreatedAt.Unix() > 0 {
-		timeAgo := time.Since(p.focusedWork.work.CreatedAt)
+	if p.focusedWork.Work.CreatedAt.Unix() > 0 {
+		timeAgo := time.Since(p.focusedWork.Work.CreatedAt)
 		var timeStr string
 		if timeAgo.Hours() < 1 {
 			timeStr = fmt.Sprintf("%d minutes ago", int(timeAgo.Minutes()))
@@ -220,14 +220,14 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 
 	// Progress
 	completedTasks := 0
-	for _, task := range p.focusedWork.tasks {
-		if task.task.Status == db.StatusCompleted {
+	for _, task := range p.focusedWork.Tasks {
+		if task.Task.Status == db.StatusCompleted {
 			completedTasks++
 		}
 	}
 	percentage := 0
-	if len(p.focusedWork.tasks) > 0 {
-		percentage = (completedTasks * 100) / len(p.focusedWork.tasks)
+	if len(p.focusedWork.Tasks) > 0 {
+		percentage = (completedTasks * 100) / len(p.focusedWork.Tasks)
 	}
 
 	progressStyle := lipgloss.NewStyle().Bold(true)
@@ -242,30 +242,30 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 	}
 	content.WriteString("Progress: ")
 	content.WriteString(progressStyle.Render(fmt.Sprintf("%d%%", percentage)))
-	fmt.Fprintf(&content, " (%d/%d tasks completed)\n", completedTasks, len(p.focusedWork.tasks))
+	fmt.Fprintf(&content, " (%d/%d tasks completed)\n", completedTasks, len(p.focusedWork.Tasks))
 
 	// Alerts/Warnings
-	if p.focusedWork.unassignedBeadCount > 0 || p.focusedWork.feedbackCount > 0 {
+	if p.focusedWork.UnassignedBeadCount > 0 || p.focusedWork.FeedbackCount > 0 {
 		content.WriteString("\n")
 		alertHeaderStyle := lipgloss.NewStyle().Bold(true)
 		content.WriteString(alertHeaderStyle.Render("Alerts:"))
 		content.WriteString("\n")
 
-		if p.focusedWork.unassignedBeadCount > 0 {
+		if p.focusedWork.UnassignedBeadCount > 0 {
 			warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-			content.WriteString(warningStyle.Render(fmt.Sprintf("  ⚠ %d unassigned bead(s) need attention\n", p.focusedWork.unassignedBeadCount)))
+			content.WriteString(warningStyle.Render(fmt.Sprintf("  ⚠ %d unassigned bead(s) need attention\n", p.focusedWork.UnassignedBeadCount)))
 		}
-		if p.focusedWork.feedbackCount > 0 {
+		if p.focusedWork.FeedbackCount > 0 {
 			alertStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-			beadIDsStr := strings.Join(p.focusedWork.feedbackBeadIDs, ", ")
-			content.WriteString(alertStyle.Render(fmt.Sprintf("  ● %d pending PR feedback: %s\n", p.focusedWork.feedbackCount, beadIDsStr)))
+			beadIDsStr := strings.Join(p.focusedWork.FeedbackBeadIDs, ", ")
+			content.WriteString(alertStyle.Render(fmt.Sprintf("  ● %d pending PR feedback: %s\n", p.focusedWork.FeedbackCount, beadIDsStr)))
 		}
 	}
 
 	content.WriteString("\n")
 
 	// == Root Issue Section ==
-	rootID := p.focusedWork.work.RootIssueID
+	rootID := p.focusedWork.Work.RootIssueID
 	issueHeaderStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
 	content.WriteString(issueHeaderStyle.Render("Root Issue"))
 	content.WriteString("\n")
@@ -273,19 +273,19 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 	content.WriteString("\n")
 
 	// Find root bead in workBeads
-	var rootBead *beadProgress
-	for i := range p.focusedWork.workBeads {
-		if p.focusedWork.workBeads[i].id == rootID {
-			rootBead = &p.focusedWork.workBeads[i]
+	var rootBead *BeadProgress
+	for i := range p.focusedWork.WorkBeads {
+		if p.focusedWork.WorkBeads[i].ID == rootID {
+			rootBead = &p.focusedWork.WorkBeads[i]
 			break
 		}
 	}
 
 	// If not found in workBeads, try unassignedBeads
 	if rootBead == nil {
-		for i := range p.focusedWork.unassignedBeads {
-			if p.focusedWork.unassignedBeads[i].id == rootID {
-				rootBead = &p.focusedWork.unassignedBeads[i]
+		for i := range p.focusedWork.UnassignedBeads {
+			if p.focusedWork.UnassignedBeads[i].ID == rootID {
+				rootBead = &p.focusedWork.UnassignedBeads[i]
 				break
 			}
 		}
@@ -294,9 +294,9 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 	// Display root issue details
 	if rootBead != nil {
 		// Title first (truncated to fit content width with some margin)
-		if rootBead.title != "" {
+		if rootBead.Title != "" {
 			titleStyle := lipgloss.NewStyle().Bold(true)
-			title := ansi.Truncate(rootBead.title, contentWidth-2, "...")
+			title := ansi.Truncate(rootBead.Title, contentWidth-2, "...")
 			content.WriteString(titleStyle.Render(title))
 			content.WriteString("\n")
 		}
@@ -304,16 +304,16 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		// Metadata line
 		fmt.Fprintf(&content, "%s  Type: %s  P%d  %s\n",
 			rootID,
-			rootBead.issueType,
-			rootBead.priority,
-			rootBead.beadStatus)
+			rootBead.IssueType,
+			rootBead.Priority,
+			rootBead.BeadStatus)
 
 		// Description (truncate to avoid layout issues)
-		if rootBead.description != "" {
+		if rootBead.Description != "" {
 			content.WriteString("\n")
 			content.WriteString("Description:\n")
 			// Keep multiline but truncate to reasonable length
-			desc := rootBead.description
+			desc := rootBead.Description
 			desc = ansi.Truncate(desc, 300, "...")
 			content.WriteString(tuiDimStyle.Render(desc))
 			content.WriteString("\n")
@@ -330,13 +330,13 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 	summaryHeaderStyle := lipgloss.NewStyle().Bold(true)
 	content.WriteString(summaryHeaderStyle.Render("Statistics:"))
 	content.WriteString("\n")
-	fmt.Fprintf(&content, "  Total Beads: %d\n", len(p.focusedWork.workBeads))
-	fmt.Fprintf(&content, "  Total Tasks: %d\n", len(p.focusedWork.tasks))
+	fmt.Fprintf(&content, "  Total Beads: %d\n", len(p.focusedWork.WorkBeads))
+	fmt.Fprintf(&content, "  Total Tasks: %d\n", len(p.focusedWork.Tasks))
 
 	// Count task types
 	var estimateTasks, implementTasks, reviewTasks int
-	for _, task := range p.focusedWork.tasks {
-		switch task.task.TaskType {
+	for _, task := range p.focusedWork.Tasks {
+		switch task.Task.TaskType {
 		case "estimate":
 			estimateTasks++
 		case "implement":

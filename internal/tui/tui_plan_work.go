@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"context"
@@ -110,7 +110,7 @@ func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
 
 // workTilesLoadedMsg indicates work tiles have been loaded
 type workTilesLoadedMsg struct {
-	works              []*workProgress
+	works              []*WorkProgress
 	orchestratorHealth map[string]bool // workID -> orchestrator alive
 	err                error
 }
@@ -127,7 +127,7 @@ func (m *planModel) loadWorkTiles() tea.Cmd {
 		orchestratorHealth := make(map[string]bool)
 		for _, work := range works {
 			if work != nil {
-				orchestratorHealth[work.work.ID] = checkOrchestratorHealth(m.ctx, work.work.ID)
+				orchestratorHealth[work.Work.ID] = checkOrchestratorHealth(m.ctx, work.Work.ID)
 			}
 		}
 

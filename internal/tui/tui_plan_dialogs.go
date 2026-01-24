@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"fmt"
@@ -170,8 +170,8 @@ func (m *planModel) renderDestroyConfirmContent() string {
 	workName := workID
 
 	// Try to get work name from focused work
-	if focusedWork := m.workDetails.GetFocusedWork(); focusedWork != nil && focusedWork.work.Name != "" {
-		workName = focusedWork.work.Name
+	if focusedWork := m.workDetails.GetFocusedWork(); focusedWork != nil && focusedWork.Work.Name != "" {
+		workName = focusedWork.Work.Name
 	}
 
 	content := fmt.Sprintf(`

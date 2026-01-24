@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"fmt"
@@ -24,8 +24,8 @@ type WorkTaskPanel struct {
 	viewport viewport.Model
 
 	// Data
-	selectedTask   *taskProgress // The selected task, or nil if unassigned bead
-	selectedBead   *beadProgress // The selected unassigned bead, or nil if task
+	selectedTask   *TaskProgress // The selected task, or nil if unassigned bead
+	selectedBead   *BeadProgress // The selected unassigned bead, or nil if task
 	isUnassigned   bool          // True if showing an unassigned bead
 }
 
@@ -63,7 +63,7 @@ func (p *WorkTaskPanel) SetFocus(focused bool) {
 }
 
 // SetTask sets the task to display
-func (p *WorkTaskPanel) SetTask(task *taskProgress) {
+func (p *WorkTaskPanel) SetTask(task *TaskProgress) {
 	p.selectedTask = task
 	p.selectedBead = nil
 	p.isUnassigned = false
@@ -72,7 +72,7 @@ func (p *WorkTaskPanel) SetTask(task *taskProgress) {
 }
 
 // SetUnassignedBead sets the unassigned bead to display
-func (p *WorkTaskPanel) SetUnassignedBead(bead *beadProgress) {
+func (p *WorkTaskPanel) SetUnassignedBead(bead *BeadProgress) {
 	p.selectedTask = nil
 	p.selectedBead = bead
 	p.isUnassigned = true
@@ -143,43 +143,43 @@ func (p *WorkTaskPanel) renderTaskDetails(panelWidth int) string {
 	// Account for padding (tuiPanelStyle has Padding(0, 1) = 2 chars total)
 	contentWidth := panelWidth - 2
 
-	fmt.Fprintf(&content, "ID: %s\n", task.task.ID)
-	fmt.Fprintf(&content, "Type: %s\n", task.task.TaskType)
-	fmt.Fprintf(&content, "Status: %s\n", task.task.Status)
+	fmt.Fprintf(&content, "ID: %s\n", task.Task.ID)
+	fmt.Fprintf(&content, "Type: %s\n", task.Task.TaskType)
+	fmt.Fprintf(&content, "Status: %s\n", task.Task.Status)
 
-	if task.task.ComplexityBudget > 0 {
-		fmt.Fprintf(&content, "Budget: %d\n", task.task.ComplexityBudget)
+	if task.Task.ComplexityBudget > 0 {
+		fmt.Fprintf(&content, "Budget: %d\n", task.Task.ComplexityBudget)
 	}
 
 	// Show task beads
-	fmt.Fprintf(&content, "\nBeads (%d):\n", len(task.beads))
-	for i, bead := range task.beads {
+	fmt.Fprintf(&content, "\nBeads (%d):\n", len(task.Beads))
+	for i, bead := range task.Beads {
 		if i >= 10 {
-			fmt.Fprintf(&content, "  ... and %d more\n", len(task.beads)-10)
+			fmt.Fprintf(&content, "  ... and %d more\n", len(task.Beads)-10)
 			break
 		}
 		statusStr := "○"
-		switch bead.status {
+		switch bead.Status {
 		case db.StatusCompleted:
 			statusStr = "✓"
 		case db.StatusProcessing:
 			statusStr = "●"
 		}
-		beadLine := fmt.Sprintf("  %s %s", statusStr, bead.id)
-		if bead.title != "" {
+		beadLine := fmt.Sprintf("  %s %s", statusStr, bead.ID)
+		if bead.Title != "" {
 			// "  ○ ID: " is about 8 chars prefix
-			beadLine += ": " + ansi.Truncate(bead.title, contentWidth-8-len(bead.id), "...")
+			beadLine += ": " + ansi.Truncate(bead.Title, contentWidth-8-len(bead.ID), "...")
 		}
 		content.WriteString(beadLine + "\n")
 	}
 
 	// Show error if failed
-	if task.task.Status == db.StatusFailed && task.task.ErrorMessage != "" {
+	if task.Task.Status == db.StatusFailed && task.Task.ErrorMessage != "" {
 		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 		content.WriteString("\n")
 		content.WriteString(errorStyle.Render("Error:"))
 		content.WriteString("\n")
-		content.WriteString(ansi.Truncate(task.task.ErrorMessage, contentWidth, "..."))
+		content.WriteString(ansi.Truncate(task.Task.ErrorMessage, contentWidth, "..."))
 	}
 
 	return content.String()
@@ -204,19 +204,19 @@ func (p *WorkTaskPanel) renderUnassignedBeadDetails(panelWidth int) string {
 	content.WriteString(tuiDimStyle.Render("[p] plan [r] run"))
 	content.WriteString("\n\n")
 
-	fmt.Fprintf(&content, "ID: %s\n", bead.id)
-	if bead.title != "" {
-		fmt.Fprintf(&content, "Title: %s\n", ansi.Truncate(bead.title, contentWidth-7, "..."))
+	fmt.Fprintf(&content, "ID: %s\n", bead.ID)
+	if bead.Title != "" {
+		fmt.Fprintf(&content, "Title: %s\n", ansi.Truncate(bead.Title, contentWidth-7, "..."))
 	}
-	if bead.issueType != "" {
-		fmt.Fprintf(&content, "Type: %s\n", bead.issueType)
+	if bead.IssueType != "" {
+		fmt.Fprintf(&content, "Type: %s\n", bead.IssueType)
 	}
-	fmt.Fprintf(&content, "Priority: %d\n", bead.priority)
-	fmt.Fprintf(&content, "Status: %s\n", bead.beadStatus)
+	fmt.Fprintf(&content, "Priority: %d\n", bead.Priority)
+	fmt.Fprintf(&content, "Status: %s\n", bead.BeadStatus)
 
-	if bead.description != "" {
+	if bead.Description != "" {
 		content.WriteString("\nDescription:\n")
-		content.WriteString(ansi.Truncate(bead.description, contentWidth, "..."))
+		content.WriteString(ansi.Truncate(bead.Description, contentWidth, "..."))
 	}
 
 	return content.String()

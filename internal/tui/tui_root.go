@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"context"
@@ -145,8 +145,8 @@ func (m rootModel) View() string {
 	return ""
 }
 
-// runRootTUI starts the TUI with the new root model
-func runRootTUI(ctx context.Context, proj *project.Project, enableMouse bool) error {
+// RunRootTUI starts the TUI with the new root model
+func RunRootTUI(ctx context.Context, proj *project.Project, enableMouse bool) error {
 	model := newRootModel(ctx, proj)
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}

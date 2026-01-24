@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
@@ -46,7 +46,7 @@ type WorkDetailsPanel struct {
 	showActionsPanel bool
 
 	// Data reference (shared with sub-panels)
-	focusedWork *workProgress
+	focusedWork *WorkProgress
 }
 
 // NewWorkDetailsPanel creates a new WorkDetailsPanel coordinator
@@ -98,14 +98,14 @@ func (p *WorkDetailsPanel) SetFocus(leftFocused, rightFocused bool) {
 }
 
 // SetFocusedWork updates the focused work, preserving selection if valid
-func (p *WorkDetailsPanel) SetFocusedWork(focusedWork *workProgress) {
+func (p *WorkDetailsPanel) SetFocusedWork(focusedWork *WorkProgress) {
 	// Check if the work has actually changed
 	workChanged := false
 	if p.focusedWork == nil && focusedWork != nil {
 		workChanged = true
 	} else if p.focusedWork != nil && focusedWork == nil {
 		workChanged = true
-	} else if p.focusedWork != nil && focusedWork != nil && p.focusedWork.work.ID != focusedWork.work.ID {
+	} else if p.focusedWork != nil && focusedWork != nil && p.focusedWork.Work.ID != focusedWork.Work.ID {
 		workChanged = true
 	}
 
@@ -137,19 +137,19 @@ func (p *WorkDetailsPanel) syncTaskPanel() {
 		return
 	}
 
-	tasksEndIdx := 1 + len(p.focusedWork.tasks)
+	tasksEndIdx := 1 + len(p.focusedWork.Tasks)
 
 	// Check if task is selected
 	taskIdx := selectedIndex - 1
-	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
-		p.taskPanel.SetTask(p.focusedWork.tasks[taskIdx])
+	if taskIdx >= 0 && taskIdx < len(p.focusedWork.Tasks) {
+		p.taskPanel.SetTask(p.focusedWork.Tasks[taskIdx])
 		return
 	}
 
 	// Check if unassigned bead is selected
 	unassignedIdx := selectedIndex - tasksEndIdx
-	if unassignedIdx >= 0 && unassignedIdx < len(p.focusedWork.unassignedBeads) {
-		bead := p.focusedWork.unassignedBeads[unassignedIdx]
+	if unassignedIdx >= 0 && unassignedIdx < len(p.focusedWork.UnassignedBeads) {
+		bead := p.focusedWork.UnassignedBeads[unassignedIdx]
 		p.taskPanel.SetUnassignedBead(&bead)
 		return
 	}
@@ -209,7 +209,7 @@ func (p *WorkDetailsPanel) GetSelectedIndex() int {
 }
 
 // GetFocusedWork returns the currently focused work, or nil if none
-func (p *WorkDetailsPanel) GetFocusedWork() *workProgress {
+func (p *WorkDetailsPanel) GetFocusedWork() *WorkProgress {
 	return p.focusedWork
 }
 
@@ -523,8 +523,8 @@ func (p *WorkDetailsPanel) DetectClickedTask(x, y int) string {
 		return "" // -1 = no click, 0 = root issue
 	}
 	taskIdx := itemIndex - 1
-	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
-		return p.focusedWork.tasks[taskIdx].task.ID
+	if taskIdx >= 0 && taskIdx < len(p.focusedWork.Tasks) {
+		return p.focusedWork.Tasks[taskIdx].Task.ID
 	}
 	return ""
 }

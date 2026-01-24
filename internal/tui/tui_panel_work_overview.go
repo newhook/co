@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ type WorkOverviewPanel struct {
 	focused bool
 
 	// Data
-	focusedWork         *workProgress
+	focusedWork         *WorkProgress
 	selectedIndex       int  // 0 = root issue, 1+ = tasks, N+ = unassigned beads
 	hoveredIndex        int  // -1 = none, 0 = root issue, 1+ = tasks/unassigned beads
 	orchestratorHealthy bool // Whether the orchestrator process is running
@@ -49,12 +49,12 @@ func (p *WorkOverviewPanel) SetFocus(focused bool) {
 }
 
 // SetFocusedWork updates the focused work, preserving selection if valid
-func (p *WorkOverviewPanel) SetFocusedWork(focusedWork *workProgress) {
+func (p *WorkOverviewPanel) SetFocusedWork(focusedWork *WorkProgress) {
 	p.focusedWork = focusedWork
 	// Validate current selection still exists
 	if focusedWork != nil {
 		// 0 = root, 1..n = tasks, n+1..m = unassigned beads
-		maxIndex := len(focusedWork.tasks) + len(focusedWork.unassignedBeads)
+		maxIndex := len(focusedWork.Tasks) + len(focusedWork.UnassignedBeads)
 		if p.selectedIndex > maxIndex {
 			p.selectedIndex = 0 // Reset to root issue
 		}
@@ -94,7 +94,7 @@ func (p *WorkOverviewPanel) GetHoveredItem() int {
 }
 
 // GetFocusedWork returns the currently focused work, or nil if none
-func (p *WorkOverviewPanel) GetFocusedWork() *workProgress {
+func (p *WorkOverviewPanel) GetFocusedWork() *WorkProgress {
 	return p.focusedWork
 }
 
@@ -104,8 +104,8 @@ func (p *WorkOverviewPanel) GetSelectedTaskID() string {
 		return ""
 	}
 	taskIdx := p.selectedIndex - 1
-	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
-		return p.focusedWork.tasks[taskIdx].task.ID
+	if taskIdx >= 0 && taskIdx < len(p.focusedWork.Tasks) {
+		return p.focusedWork.Tasks[taskIdx].Task.ID
 	}
 	return ""
 }
@@ -123,28 +123,28 @@ func (p *WorkOverviewPanel) GetSelectedBeadIDs() []string {
 	if p.selectedIndex == 0 {
 		// Root issue selected - return all work beads
 		var beadIDs []string
-		for _, bp := range p.focusedWork.workBeads {
-			beadIDs = append(beadIDs, bp.id)
+		for _, bp := range p.focusedWork.WorkBeads {
+			beadIDs = append(beadIDs, bp.ID)
 		}
 		return beadIDs
 	}
 
-	tasksEndIdx := 1 + len(p.focusedWork.tasks)
+	tasksEndIdx := 1 + len(p.focusedWork.Tasks)
 
 	// Task selected - return only task's beads
 	taskIdx := p.selectedIndex - 1
-	if taskIdx >= 0 && taskIdx < len(p.focusedWork.tasks) {
+	if taskIdx >= 0 && taskIdx < len(p.focusedWork.Tasks) {
 		var beadIDs []string
-		for _, bp := range p.focusedWork.tasks[taskIdx].beads {
-			beadIDs = append(beadIDs, bp.id)
+		for _, bp := range p.focusedWork.Tasks[taskIdx].Beads {
+			beadIDs = append(beadIDs, bp.ID)
 		}
 		return beadIDs
 	}
 
 	// Unassigned bead selected - return just that bead
 	unassignedIdx := p.selectedIndex - tasksEndIdx
-	if unassignedIdx >= 0 && unassignedIdx < len(p.focusedWork.unassignedBeads) {
-		return []string{p.focusedWork.unassignedBeads[unassignedIdx].id}
+	if unassignedIdx >= 0 && unassignedIdx < len(p.focusedWork.UnassignedBeads) {
+		return []string{p.focusedWork.UnassignedBeads[unassignedIdx].ID}
 	}
 
 	return nil
@@ -160,8 +160,8 @@ func (p *WorkOverviewPanel) SetSelectedTaskID(id string) {
 	if p.focusedWork == nil {
 		return
 	}
-	for i, task := range p.focusedWork.tasks {
-		if task.task.ID == id {
+	for i, task := range p.focusedWork.Tasks {
+		if task.Task.ID == id {
 			p.selectedIndex = i + 1 // +1 because 0 is root issue
 			return
 		}
@@ -184,7 +184,7 @@ func (p *WorkOverviewPanel) NavigateDown() {
 		return
 	}
 	// 0 = root, 1..n = tasks, n+1..m = unassigned beads
-	maxIndex := len(p.focusedWork.tasks) + len(p.focusedWork.unassignedBeads)
+	maxIndex := len(p.focusedWork.Tasks) + len(p.focusedWork.UnassignedBeads)
 	if p.selectedIndex < maxIndex {
 		p.selectedIndex++
 	}
@@ -203,16 +203,16 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 	contentWidth := panelWidth - 2
 
 	// Work header (1 line)
-	workHeader := fmt.Sprintf("%s %s", statusIcon(p.focusedWork.work.Status), p.focusedWork.work.ID)
-	if p.focusedWork.work.Name != "" {
+	workHeader := fmt.Sprintf("%s %s", statusIcon(p.focusedWork.Work.Status), p.focusedWork.Work.ID)
+	if p.focusedWork.Work.Name != "" {
 		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
 		// Calculate available space for name
-		maxNameLen := contentWidth - 4 - len(p.focusedWork.work.ID)
+		maxNameLen := contentWidth - 4 - len(p.focusedWork.Work.ID)
 
 		// Add creation time (if it will fit)
 		var timeStr string
-		if p.focusedWork.work.CreatedAt.Unix() > 0 {
-			timeAgo := time.Since(p.focusedWork.work.CreatedAt)
+		if p.focusedWork.Work.CreatedAt.Unix() > 0 {
+			timeAgo := time.Since(p.focusedWork.Work.CreatedAt)
 			if timeAgo.Hours() < 1 {
 				timeStr = fmt.Sprintf(" (%dm ago)", int(timeAgo.Minutes()))
 			} else if timeAgo.Hours() < 24 {
@@ -225,7 +225,7 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 		}
 
 		if maxNameLen > 0 {
-			workHeader += " " + nameStyle.Render(ansi.Truncate(p.focusedWork.work.Name, maxNameLen, "..."))
+			workHeader += " " + nameStyle.Render(ansi.Truncate(p.focusedWork.Work.Name, maxNameLen, "..."))
 		}
 
 		// Add time string at the end
@@ -235,8 +235,8 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 		}
 	} else {
 		// If no name, just show creation time
-		if p.focusedWork.work.CreatedAt.Unix() > 0 {
-			timeAgo := time.Since(p.focusedWork.work.CreatedAt)
+		if p.focusedWork.Work.CreatedAt.Unix() > 0 {
+			timeAgo := time.Since(p.focusedWork.Work.CreatedAt)
 			var timeStr string
 			if timeAgo.Hours() < 1 {
 				timeStr = fmt.Sprintf(" (%dm ago)", int(timeAgo.Minutes()))
@@ -252,21 +252,21 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 	}
 	content.WriteString(workHeader + "\n")
 	// Branch info (1 line) - "Branch: " is 8 chars
-	fmt.Fprintf(&content, "Branch: %s\n", ansi.Truncate(p.focusedWork.work.BranchName, contentWidth-8, "..."))
+	fmt.Fprintf(&content, "Branch: %s\n", ansi.Truncate(p.focusedWork.Work.BranchName, contentWidth-8, "..."))
 
 	// Progress percentage and warnings (1 line)
 	var progressLine strings.Builder
 
 	// Calculate progress
 	completedTasks := 0
-	for _, task := range p.focusedWork.tasks {
-		if task.task.Status == db.StatusCompleted {
+	for _, task := range p.focusedWork.Tasks {
+		if task.Task.Status == db.StatusCompleted {
 			completedTasks++
 		}
 	}
 	percentage := 0
-	if len(p.focusedWork.tasks) > 0 {
-		percentage = (completedTasks * 100) / len(p.focusedWork.tasks)
+	if len(p.focusedWork.Tasks) > 0 {
+		percentage = (completedTasks * 100) / len(p.focusedWork.Tasks)
 	}
 
 	// Progress percentage
@@ -282,15 +282,15 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 	}
 	progressLine.WriteString("Progress: ")
 	progressLine.WriteString(progressStyle.Render(fmt.Sprintf("%d%%", percentage)))
-	progressLine.WriteString(fmt.Sprintf(" (%d/%d tasks)", completedTasks, len(p.focusedWork.tasks)))
+	progressLine.WriteString(fmt.Sprintf(" (%d/%d tasks)", completedTasks, len(p.focusedWork.Tasks)))
 
 	// Warning badges
-	if p.focusedWork.unassignedBeadCount > 0 {
+	if p.focusedWork.UnassignedBeadCount > 0 {
 		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 		progressLine.WriteString("  ")
-		progressLine.WriteString(warningStyle.Render(fmt.Sprintf("⚠ %d unassigned", p.focusedWork.unassignedBeadCount)))
+		progressLine.WriteString(warningStyle.Render(fmt.Sprintf("⚠ %d unassigned", p.focusedWork.UnassignedBeadCount)))
 	}
-	if p.focusedWork.feedbackCount > 0 {
+	if p.focusedWork.FeedbackCount > 0 {
 		alertStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 		progressLine.WriteString("  ")
 		progressLine.WriteString(alertStyle.Render("feedback"))
@@ -300,15 +300,15 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 
 	// Orchestrator health (1 line) - only show if work is processing or has active tasks
 	hasActiveTask := false
-	for _, task := range p.focusedWork.tasks {
-		if task.task.Status == db.StatusProcessing {
+	for _, task := range p.focusedWork.Tasks {
+		if task.Task.Status == db.StatusProcessing {
 			hasActiveTask = true
 			break
 		}
 	}
 	// Base header lines: work header (1), branch (1), progress (1), separator (1) = 4
 	headerLines := 4
-	if p.focusedWork.work.Status == db.StatusProcessing || hasActiveTask {
+	if p.focusedWork.Work.Status == db.StatusProcessing || hasActiveTask {
 		if p.orchestratorHealthy {
 			healthStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 			content.WriteString(healthStyle.Render("✓ Orchestrator running"))
@@ -326,7 +326,7 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 	availableLines := max(panelHeight-headerLines-1, 1)
 
 	// Total items: 1 root issue + n tasks + unassigned beads (if any)
-	totalItems := 1 + len(p.focusedWork.tasks) + len(p.focusedWork.unassignedBeads)
+	totalItems := 1 + len(p.focusedWork.Tasks) + len(p.focusedWork.UnassignedBeads)
 
 	// Calculate scroll window
 	startIdx := 0
@@ -337,7 +337,7 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 
 	// Render visible items (use contentWidth which accounts for padding)
 	// Layout: index 0 = root issue, 1..n = tasks, n+1..m = unassigned beads
-	tasksEndIdx := 1 + len(p.focusedWork.tasks)
+	tasksEndIdx := 1 + len(p.focusedWork.Tasks)
 	for i := startIdx; i < endIdx; i++ {
 		if i == 0 {
 			// Root issue
@@ -345,13 +345,13 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 		} else if i < tasksEndIdx {
 			// Task (index i-1 in tasks array)
 			taskIdx := i - 1
-			if taskIdx < len(p.focusedWork.tasks) {
+			if taskIdx < len(p.focusedWork.Tasks) {
 				p.renderTaskLine(&content, taskIdx, contentWidth)
 			}
 		} else {
 			// Unassigned bead (index i - tasksEndIdx in unassignedBeads array)
 			unassignedIdx := i - tasksEndIdx
-			if unassignedIdx < len(p.focusedWork.unassignedBeads) {
+			if unassignedIdx < len(p.focusedWork.UnassignedBeads) {
 				p.renderUnassignedBeadLine(&content, unassignedIdx, contentWidth)
 			}
 		}
@@ -377,11 +377,11 @@ func (p *WorkOverviewPanel) renderRootIssueLine(content *strings.Builder, panelW
 	}
 
 	// Find root issue info from workBeads
-	rootID := p.focusedWork.work.RootIssueID
+	rootID := p.focusedWork.Work.RootIssueID
 	rootTitle := ""
-	for _, bead := range p.focusedWork.workBeads {
-		if bead.id == rootID {
-			rootTitle = bead.title
+	for _, bead := range p.focusedWork.WorkBeads {
+		if bead.ID == rootID {
+			rootTitle = bead.Title
 			break
 		}
 	}
@@ -424,7 +424,7 @@ func (p *WorkOverviewPanel) renderRootIssueLine(content *strings.Builder, panelW
 
 // renderTaskLine renders a task line
 func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int, panelWidth int) {
-	task := p.focusedWork.tasks[taskIdx]
+	task := p.focusedWork.Tasks[taskIdx]
 	itemIndex := taskIdx + 1 // +1 because 0 is root issue
 
 	isSelected := p.selectedIndex == itemIndex
@@ -437,7 +437,7 @@ func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int
 
 	// Status icon (plain or styled depending on hover/selected state)
 	statusStr := ""
-	switch task.task.Status {
+	switch task.Task.Status {
 	case db.StatusCompleted:
 		statusStr = "✓"
 	case db.StatusProcessing:
@@ -450,7 +450,7 @@ func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int
 
 	// Task type
 	taskType := "impl"
-	switch task.task.TaskType {
+	switch task.Task.TaskType {
 	case "estimate":
 		taskType = "est"
 	case "review":
@@ -462,17 +462,17 @@ func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int
 	content.WriteString(prefix)
 	if isSelected {
 		// Full selected style on entire line
-		textContent := fmt.Sprintf("%s %s [%s]", statusStr, task.task.ID, taskType)
+		textContent := fmt.Sprintf("%s %s [%s]", statusStr, task.Task.ID, taskType)
 		content.WriteString(tuiSelectedStyle.Render(textContent))
 	} else if isHovered {
 		// Orange text for hover on entire line
 		hoverStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-		textContent := fmt.Sprintf("%s %s [%s]", statusStr, task.task.ID, taskType)
+		textContent := fmt.Sprintf("%s %s [%s]", statusStr, task.Task.ID, taskType)
 		content.WriteString(hoverStyle.Render(textContent))
 	} else {
 		// Normal: styled status icon + dim text
 		var statusStyle lipgloss.Style
-		switch task.task.Status {
+		switch task.Task.Status {
 		case db.StatusCompleted:
 			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 		case db.StatusProcessing:
@@ -484,19 +484,19 @@ func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int
 		}
 		content.WriteString(statusStyle.Render(statusStr))
 		content.WriteString(" ")
-		content.WriteString(tuiDimStyle.Render(fmt.Sprintf("%s [%s]", task.task.ID, taskType)))
+		content.WriteString(tuiDimStyle.Render(fmt.Sprintf("%s [%s]", task.Task.ID, taskType)))
 	}
 	content.WriteString("\n")
 }
 
 // renderUnassignedBeadLine renders an unassigned bead line
 func (p *WorkOverviewPanel) renderUnassignedBeadLine(content *strings.Builder, beadIdx, panelWidth int) {
-	if beadIdx >= len(p.focusedWork.unassignedBeads) {
+	if beadIdx >= len(p.focusedWork.UnassignedBeads) {
 		return
 	}
 
-	bead := p.focusedWork.unassignedBeads[beadIdx]
-	tasksEndIdx := 1 + len(p.focusedWork.tasks)
+	bead := p.focusedWork.UnassignedBeads[beadIdx]
+	tasksEndIdx := 1 + len(p.focusedWork.Tasks)
 	itemIdx := tasksEndIdx + beadIdx
 
 	isSelected := p.selectedIndex == itemIdx
@@ -508,12 +508,12 @@ func (p *WorkOverviewPanel) renderUnassignedBeadLine(content *strings.Builder, b
 	}
 
 	// Build text portion (ID and title)
-	textPortion := bead.id
-	if bead.title != "" {
+	textPortion := bead.ID
+	if bead.Title != "" {
 		// Calculate max title length: panelWidth - prefix(2) - icon(1) - spaces(2) - ID - buffer
-		maxTitleLen := panelWidth - 2 - 1 - 2 - len(bead.id) - 4
+		maxTitleLen := panelWidth - 2 - 1 - 2 - len(bead.ID) - 4
 		if maxTitleLen > 0 {
-			textPortion += " " + ansi.Truncate(bead.title, maxTitleLen, "...")
+			textPortion += " " + ansi.Truncate(bead.Title, maxTitleLen, "...")
 		}
 	}
 
@@ -555,13 +555,13 @@ func (p *WorkOverviewPanel) DetectClickedItem(x, y, totalPanelHeight int) int {
 	// Plus orchestrator line (1) if work is processing or has active tasks
 	headerLines := 4
 	hasActiveTask := false
-	for _, task := range p.focusedWork.tasks {
-		if task.task.Status == db.StatusProcessing {
+	for _, task := range p.focusedWork.Tasks {
+		if task.Task.Status == db.StatusProcessing {
 			hasActiveTask = true
 			break
 		}
 	}
-	if p.focusedWork.work.Status == db.StatusProcessing || hasActiveTask {
+	if p.focusedWork.Work.Status == db.StatusProcessing || hasActiveTask {
 		headerLines = 5
 	}
 
@@ -582,7 +582,7 @@ func (p *WorkOverviewPanel) DetectClickedItem(x, y, totalPanelHeight int) int {
 	}
 
 	// Total items: root issue + tasks + unassigned beads
-	totalItems := 1 + len(p.focusedWork.tasks) + len(p.focusedWork.unassignedBeads)
+	totalItems := 1 + len(p.focusedWork.Tasks) + len(p.focusedWork.UnassignedBeads)
 
 	// Calculate scroll window (same as Render)
 	startIdx := 0

@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ type WorkActionsPanel struct {
 	focused bool
 
 	// Data
-	focusedWork *workProgress
+	focusedWork *WorkProgress
 
 	// Selected action index for navigation
 	selectedIndex int
@@ -98,7 +98,7 @@ func (p *WorkActionsPanel) SetFocus(focused bool) {
 }
 
 // SetFocusedWork updates the focused work
-func (p *WorkActionsPanel) SetFocusedWork(focusedWork *workProgress) {
+func (p *WorkActionsPanel) SetFocusedWork(focusedWork *WorkProgress) {
 	p.focusedWork = focusedWork
 }
 
@@ -158,8 +158,8 @@ func (p *WorkActionsPanel) Render(panelWidth int) string {
 	currentLine += 2
 
 	// Work info
-	workID := p.focusedWork.work.ID
-	workName := p.focusedWork.work.Name
+	workID := p.focusedWork.Work.ID
+	workName := p.focusedWork.Work.Name
 	if workName == "" {
 		workName = workID
 	}

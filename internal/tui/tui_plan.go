@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"context"
@@ -85,7 +85,7 @@ type planModel struct {
 	focusedWorkID          string          // ID of focused work (splits screen)
 	workSelectionCleared   bool            // User manually cleared work selection filter (don't auto-restore)
 	pendingWorkSelectIndex int             // Index of work to select after tiles load (-1 = none)
-	workTiles              []*workProgress // Cached work tiles for the tabs bar
+	workTiles              []*WorkProgress // Cached work tiles for the tabs bar
 	workDetailsFocusLeft   bool            // Whether left panel has focus in work details (true=left, false=right)
 
 	// Multi-select state
@@ -142,7 +142,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	ti.Width = 40
 
 	// Initialize beads database watcher
-	beadsDBPath := filepath.Join(proj.Root, "main", ".beads", "beads.db")
+	beadsDBPath := filepath.Join(proj.Root, "main", ".Beads", "beads.db")
 	beadsWatcher, err := beadswatcher.New(beadswatcher.DefaultConfig(beadsDBPath))
 	if err != nil {
 		// Log error but continue without watcher
@@ -1146,7 +1146,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Move to previous work tab
 			currentIndex := -1
 			for i, work := range m.workTiles {
-				if work != nil && work.work.ID == m.focusedWorkID {
+				if work != nil && work.Work.ID == m.focusedWorkID {
 					currentIndex = i
 					break
 				}
@@ -1161,7 +1161,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Move to next work tab
 			currentIndex := -1
 			for i, work := range m.workTiles {
-				if work != nil && work.work.ID == m.focusedWorkID {
+				if work != nil && work.Work.ID == m.focusedWorkID {
 					currentIndex = i
 					break
 				}
@@ -1210,7 +1210,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Show confirmation dialog for work destruction
 			// Check if work is currently processing
 			focusedWork := m.workDetails.GetFocusedWork()
-			if focusedWork != nil && focusedWork.work.Status == "processing" {
+			if focusedWork != nil && focusedWork.Work.Status == "processing" {
 				m.statusMessage = "Cannot destroy work that is currently processing"
 				m.statusIsError = true
 				return m, nil
@@ -1757,8 +1757,8 @@ func (m *planModel) updateWorkSelectionFilter() tea.Cmd {
 		}
 	} else {
 		// Root issue selected - set children filter to show dependents
-		if focusedWork.work.RootIssueID != "" {
-			m.filters.children = focusedWork.work.RootIssueID
+		if focusedWork.Work.RootIssueID != "" {
+			m.filters.children = focusedWork.Work.RootIssueID
 		}
 	}
 
@@ -1807,7 +1807,7 @@ func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
 	}
 
 	// Select the work
-	m.focusedWorkID = work.work.ID
+	m.focusedWorkID = work.Work.ID
 	m.viewMode = ViewNormal
 	// If we're already on work tabs, stay there, otherwise go to work details
 	if m.activePanel != PanelWorkTabs {
@@ -1830,9 +1830,9 @@ func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
 
 // findWorkByID finds a work by its ID in the cached work tiles.
 // Returns nil if not found.
-func (m *planModel) findWorkByID(id string) *workProgress {
+func (m *planModel) findWorkByID(id string) *WorkProgress {
 	for _, work := range m.workTiles {
-		if work != nil && work.work.ID == id {
+		if work != nil && work.Work.ID == id {
 			return work
 		}
 	}

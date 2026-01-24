@@ -6,6 +6,7 @@ import (
 
 	"github.com/newhook/co/internal/project"
 	cosignal "github.com/newhook/co/internal/signal"
+	"github.com/newhook/co/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +42,10 @@ var rootCmd = &cobra.Command{
 		}
 		defer proj.Close()
 
-		if err := runRootTUI(ctx, proj, !flagNoMouse); err != nil {
+		// Register TUI callbacks
+		tui.SetCallbacks(newTUICallbacks())
+
+		if err := tui.RunRootTUI(ctx, proj, !flagNoMouse); err != nil {
 			return fmt.Errorf("error running TUI: %w", err)
 		}
 		return nil

@@ -1,4 +1,4 @@
-package cmd
+package tui
 
 import (
 	"fmt"
@@ -29,7 +29,7 @@ type WorkTabsBar struct {
 	width int
 
 	// Data
-	workTiles          []*workProgress
+	workTiles          []*WorkProgress
 	focusedWorkID      string
 	hoveredTabID       string
 	orchestratorHealth map[string]bool // workID -> orchestrator alive
@@ -71,7 +71,7 @@ func (b *WorkTabsBar) SetSize(width int) {
 }
 
 // SetWorkTiles updates the work tiles data
-func (b *WorkTabsBar) SetWorkTiles(workTiles []*workProgress) {
+func (b *WorkTabsBar) SetWorkTiles(workTiles []*WorkProgress) {
 	b.workTiles = workTiles
 }
 
@@ -111,21 +111,21 @@ func (b *WorkTabsBar) Height() int {
 }
 
 // getWorkState determines the current state of a work for display
-func (b *WorkTabsBar) getWorkState(work *workProgress) WorkState {
+func (b *WorkTabsBar) getWorkState(work *WorkProgress) WorkState {
 	if work == nil {
 		return WorkStateDead
 	}
 
 	// Check if any task is running FIRST - this takes priority over work status
 	// because new tasks can be added to idle/completed works
-	for _, task := range work.tasks {
-		if task.task.Status == db.StatusProcessing {
+	for _, task := range work.Tasks {
+		if task.Task.Status == db.StatusProcessing {
 			return WorkStateRunning
 		}
 	}
 
 	// Then check work status
-	switch work.work.Status {
+	switch work.Work.Status {
 	case db.StatusMerged:
 		return WorkStateMerged
 	case db.StatusCompleted:
@@ -137,7 +137,7 @@ func (b *WorkTabsBar) getWorkState(work *workProgress) WorkState {
 	}
 
 	// Check orchestrator health
-	if alive, ok := b.orchestratorHealth[work.work.ID]; ok && !alive {
+	if alive, ok := b.orchestratorHealth[work.Work.ID]; ok && !alive {
 		return WorkStateDead
 	}
 
@@ -189,8 +189,8 @@ func (b *WorkTabsBar) Render() string {
 			continue
 		}
 
-		isActive := work.work.ID == b.focusedWorkID
-		isHovered := work.work.ID == b.hoveredTabID
+		isActive := work.Work.ID == b.focusedWorkID
+		isHovered := work.Work.ID == b.hoveredTabID
 		workState := b.getWorkState(work)
 
 		// Determine tab colors
@@ -234,9 +234,9 @@ func (b *WorkTabsBar) Render() string {
 		}
 
 		// Work name
-		name := work.work.ID
-		if work.work.Name != "" {
-			name = work.work.Name
+		name := work.Work.ID
+		if work.Work.Name != "" {
+			name = work.Work.Name
 		}
 		name = ansi.Truncate(name, 20, "…")
 
@@ -248,7 +248,7 @@ func (b *WorkTabsBar) Render() string {
 		content += tabStyle.Render(tabContent)
 
 		// Add pending work indicator (orange warning for feedback or unassigned beads)
-		if work.feedbackCount > 0 || work.unassignedBeadCount > 0 {
+		if work.FeedbackCount > 0 || work.UnassignedBeadCount > 0 {
 			badgeStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("214")). // Orange for pending work
 				Background(tabBg)
@@ -257,7 +257,7 @@ func (b *WorkTabsBar) Render() string {
 		}
 
 		// Add unseen PR changes indicator (colored dot)
-		if work.hasUnseenPRChanges {
+		if work.HasUnseenPRChanges {
 			badgeStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("81")). // Cyan dot for new changes
 				Background(tabBg)
@@ -278,7 +278,7 @@ func (b *WorkTabsBar) Render() string {
 
 		// Track region for click detection (endX is exclusive)
 		b.tabRegions = append(b.tabRegions, tabRegion{
-			workID: work.work.ID,
+			workID: work.Work.ID,
 			startX: regionStart,
 			endX:   currentX - 1,
 		})
