@@ -2,12 +2,12 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/progress"
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -49,278 +49,22 @@ func init() {
 	pollCmd.Flags().StringVar(&flagPollWork, "work", "", "work ID to monitor (default: auto-detect)")
 }
 
-// workProgress holds progress info for a work unit.
-type workProgress struct {
-	work                *db.Work
-	tasks               []*taskProgress
-	workBeads           []beadProgress // all beads assigned to this work
-	unassignedBeads     []beadProgress // beads in work but not assigned to any task
-	unassignedBeadCount int
-	feedbackCount       int      // count of unresolved PR feedback items
-	feedbackBeadIDs     []string // bead IDs from unassigned PR feedback
-
-	// PR status fields (populated from work record)
-	ciStatus           string   // pending, success, failure
-	approvalStatus     string   // pending, approved, changes_requested
-	approvers          []string // list of usernames who approved
-	hasUnseenPRChanges bool     // true if there are unseen PR changes
+// fetchTaskPollData fetches progress data for a single task.
+// Delegates to internal/progress.FetchTaskPollData.
+func fetchTaskPollData(ctx context.Context, proj *project.Project, taskID string) ([]*progress.WorkProgress, error) {
+	return progress.FetchTaskPollData(ctx, proj, taskID)
 }
 
-// taskProgress holds progress info for a task.
-type taskProgress struct {
-	task  *db.Task
-	beads []beadProgress
+// fetchWorkPollData fetches progress data for a single work.
+// Delegates to internal/progress.FetchWorkPollData.
+func fetchWorkPollData(ctx context.Context, proj *project.Project, workID string) ([]*progress.WorkProgress, error) {
+	return progress.FetchWorkPollData(ctx, proj, workID)
 }
 
-// beadProgress holds progress info for a bead.
-type beadProgress struct {
-	id          string
-	status      string
-	title       string
-	description string
-	beadStatus  string // status from beads (open/closed)
-	priority    int
-	issueType   string
-}
-
-// fetchTaskPollData fetches progress data for a single task
-func fetchTaskPollData(ctx context.Context, proj *project.Project, taskID string) ([]*workProgress, error) {
-	task, err := proj.DB.GetTask(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task: %w", err)
-	}
-	if task == nil {
-		return nil, fmt.Errorf("task %s not found", taskID)
-	}
-
-	// Get the work for this task
-	work, err := proj.DB.GetWork(ctx, task.WorkID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get work: %w", err)
-	}
-	if work == nil {
-		work = &db.Work{ID: task.WorkID, Status: "unknown"}
-	}
-
-	beadIDs, err := proj.DB.GetTaskBeads(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task beads: %w", err)
-	}
-
-	// Batch fetch all bead details
-	beadsResult, err := proj.Beads.GetBeadsWithDeps(ctx, beadIDs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get beads: %w", err)
-	}
-
-	tp := &taskProgress{task: task}
-	for _, beadID := range beadIDs {
-		status, err := proj.DB.GetTaskBeadStatus(ctx, taskID, beadID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get task bead status: %w", err)
-		}
-		if status == "" {
-			status = db.StatusPending
-		}
-		bp := beadProgress{id: beadID, status: status}
-		if bead := beadsResult.GetBead(beadID); bead != nil {
-			bp.title = bead.Title
-			bp.description = bead.Description
-			bp.beadStatus = bead.Status
-		}
-		tp.beads = append(tp.beads, bp)
-	}
-
-	return []*workProgress{{
-		work:  work,
-		tasks: []*taskProgress{tp},
-	}}, nil
-}
-
-// fetchWorkPollData fetches progress data for a single work
-func fetchWorkPollData(ctx context.Context, proj *project.Project, workID string) ([]*workProgress, error) {
-	work, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get work: %w", err)
-	}
-	if work == nil {
-		return nil, fmt.Errorf("work %s not found", workID)
-	}
-
-	wp, err := fetchWorkProgress(ctx, proj, work)
-	if err != nil {
-		return nil, err
-	}
-	return []*workProgress{wp}, nil
-}
-
-// fetchAllWorksPollData fetches progress data for all works
-func fetchAllWorksPollData(ctx context.Context, proj *project.Project) ([]*workProgress, error) {
-	allWorks, err := proj.DB.ListWorks(ctx, "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list works: %w", err)
-	}
-
-	works := make([]*workProgress, 0, len(allWorks))
-	for _, work := range allWorks {
-		wp, err := fetchWorkProgress(ctx, proj, work)
-		if err != nil {
-			continue // Skip works with errors
-		}
-		works = append(works, wp)
-	}
-	return works, nil
-}
-
-func fetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work) (*workProgress, error) {
-	wp := &workProgress{work: work}
-
-	tasks, err := proj.DB.GetWorkTasks(ctx, work.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get tasks: %w", err)
-	}
-
-	// Fetch all task beads for this work in a single query
-	allTaskBeads, err := proj.DB.GetTaskBeadsForWork(ctx, work.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task beads: %w", err)
-	}
-
-	// Get all work beads
-	allWorkBeads, err := proj.DB.GetWorkBeads(ctx, work.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get work beads: %w", err)
-	}
-
-	// Get unassigned beads for this work
-	unassignedWorkBeads, err := proj.DB.GetUnassignedWorkBeads(ctx, work.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get unassigned beads: %w", err)
-	}
-
-	// Collect all bead IDs for batch fetch
-	beadIDSet := make(map[string]struct{})
-	for _, tb := range allTaskBeads {
-		beadIDSet[tb.BeadID] = struct{}{}
-	}
-	for _, wb := range allWorkBeads {
-		beadIDSet[wb.BeadID] = struct{}{}
-	}
-	for _, wb := range unassignedWorkBeads {
-		beadIDSet[wb.BeadID] = struct{}{}
-	}
-	if work.RootIssueID != "" {
-		beadIDSet[work.RootIssueID] = struct{}{}
-	}
-
-	beadIDs := make([]string, 0, len(beadIDSet))
-	for id := range beadIDSet {
-		beadIDs = append(beadIDs, id)
-	}
-
-	// Batch fetch all bead details
-	beadsResult, err := proj.Beads.GetBeadsWithDeps(ctx, beadIDs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get beads: %w", err)
-	}
-
-	// Build a map of task ID -> beads for efficient lookup
-	taskBeadsMap := make(map[string][]db.TaskBeadInfo)
-	for _, tb := range allTaskBeads {
-		taskBeadsMap[tb.TaskID] = append(taskBeadsMap[tb.TaskID], tb)
-	}
-
-	for _, task := range tasks {
-		tp := &taskProgress{task: task}
-		for _, tb := range taskBeadsMap[task.ID] {
-			status := tb.Status
-			if status == "" {
-				status = db.StatusPending
-			}
-			bp := beadProgress{id: tb.BeadID, status: status}
-			if bead := beadsResult.GetBead(tb.BeadID); bead != nil {
-				bp.title = bead.Title
-				bp.description = bead.Description
-				bp.beadStatus = bead.Status
-			}
-			tp.beads = append(tp.beads, bp)
-		}
-		wp.tasks = append(wp.tasks, tp)
-	}
-
-	// Populate work beads
-	for _, wb := range allWorkBeads {
-		bp := beadProgress{id: wb.BeadID}
-		if bead := beadsResult.GetBead(wb.BeadID); bead != nil {
-			bp.title = bead.Title
-			bp.description = bead.Description
-			bp.beadStatus = bead.Status
-			bp.priority = bead.Priority
-			bp.issueType = bead.Type
-		}
-		wp.workBeads = append(wp.workBeads, bp)
-	}
-
-	// Ensure root issue is always available for display (it may not be in work_beads if it's an epic)
-	if work.RootIssueID != "" {
-		rootFound := false
-		for _, wb := range wp.workBeads {
-			if wb.id == work.RootIssueID {
-				rootFound = true
-				break
-			}
-		}
-		if !rootFound {
-			if rootBead := beadsResult.GetBead(work.RootIssueID); rootBead != nil {
-				bp := beadProgress{
-					id:          rootBead.ID,
-					title:       rootBead.Title,
-					description: rootBead.Description,
-					beadStatus:  rootBead.Status,
-					priority:    rootBead.Priority,
-					issueType:   rootBead.Type,
-				}
-				// Prepend root issue so it appears first
-				wp.workBeads = append([]beadProgress{bp}, wp.workBeads...)
-			}
-		}
-	}
-
-	// Populate unassigned beads
-	wp.unassignedBeadCount = len(unassignedWorkBeads)
-	for _, wb := range unassignedWorkBeads {
-		bp := beadProgress{id: wb.BeadID}
-		if bead := beadsResult.GetBead(wb.BeadID); bead != nil {
-			bp.title = bead.Title
-			bp.description = bead.Description
-			bp.beadStatus = bead.Status
-			bp.priority = bead.Priority
-			bp.issueType = bead.Type
-		}
-		wp.unassignedBeads = append(wp.unassignedBeads, bp)
-	}
-
-	// Get unassigned feedback bead IDs for this work
-	feedbackBeadIDs, err := proj.DB.GetUnassignedFeedbackBeadIDs(ctx, work.ID)
-	if err == nil {
-		wp.feedbackBeadIDs = feedbackBeadIDs
-		wp.feedbackCount = len(feedbackBeadIDs)
-	}
-
-	// Populate PR status fields from work record
-	wp.ciStatus = work.CIStatus
-	wp.approvalStatus = work.ApprovalStatus
-	wp.hasUnseenPRChanges = work.HasUnseenPRChanges
-
-	// Parse approvers JSON array
-	if work.Approvers != "" {
-		var approvers []string
-		if err := json.Unmarshal([]byte(work.Approvers), &approvers); err == nil {
-			wp.approvers = approvers
-		}
-	}
-
-	return wp, nil
+// fetchAllWorksPollData fetches progress data for all works.
+// Delegates to internal/progress.FetchAllWorksPollData.
+func fetchAllWorksPollData(ctx context.Context, proj *project.Project) ([]*progress.WorkProgress, error) {
+	return progress.FetchAllWorksPollData(ctx, proj)
 }
 
 func runPoll(cmd *cobra.Command, args []string) error {
@@ -366,7 +110,7 @@ func runPoll(cmd *cobra.Command, args []string) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			var works []*workProgress
+			var works []*progress.WorkProgress
 			var err error
 			if taskID != "" {
 				works, err = fetchTaskPollData(ctx, proj, taskID)
@@ -396,7 +140,7 @@ func runPoll(cmd *cobra.Command, args []string) error {
 			// Check if all work is complete
 			allComplete := true
 			for _, wp := range works {
-				if wp.work.Status != db.StatusCompleted {
+				if wp.Work.Status != db.StatusCompleted {
 					allComplete = false
 					break
 				}
@@ -410,9 +154,9 @@ func runPoll(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func printWorkProgress(wp *workProgress) {
+func printWorkProgress(wp *progress.WorkProgress) {
 	statusSymbol := "?"
-	switch wp.work.Status {
+	switch wp.Work.Status {
 	case db.StatusPending:
 		statusSymbol = "○"
 	case db.StatusProcessing:
@@ -423,28 +167,28 @@ func printWorkProgress(wp *workProgress) {
 		statusSymbol = "✗"
 	}
 
-	fmt.Printf("%s Work: %s (%s)\n", statusSymbol, wp.work.ID, wp.work.Status)
-	fmt.Printf("  Branch: %s\n", wp.work.BranchName)
-	if wp.work.RootIssueID != "" {
-		fmt.Printf("  Root Issue: %s\n", wp.work.RootIssueID)
+	fmt.Printf("%s Work: %s (%s)\n", statusSymbol, wp.Work.ID, wp.Work.Status)
+	fmt.Printf("  Branch: %s\n", wp.Work.BranchName)
+	if wp.Work.RootIssueID != "" {
+		fmt.Printf("  Root Issue: %s\n", wp.Work.RootIssueID)
 	}
 
-	if wp.work.PRURL != "" {
-		fmt.Printf("  PR: %s\n", wp.work.PRURL)
+	if wp.Work.PRURL != "" {
+		fmt.Printf("  PR: %s\n", wp.Work.PRURL)
 	}
 
 	completed := 0
-	for _, tp := range wp.tasks {
-		if tp.task.Status == db.StatusCompleted {
+	for _, tp := range wp.Tasks {
+		if tp.Task.Status == db.StatusCompleted {
 			completed++
 		}
 	}
-	fmt.Printf("  Progress: %d/%d tasks\n", completed, len(wp.tasks))
+	fmt.Printf("  Progress: %d/%d tasks\n", completed, len(wp.Tasks))
 
 	fmt.Println("  Tasks:")
-	for _, tp := range wp.tasks {
+	for _, tp := range wp.Tasks {
 		taskSymbol := "?"
-		switch tp.task.Status {
+		switch tp.Task.Status {
 		case db.StatusPending:
 			taskSymbol = "○"
 		case db.StatusProcessing:
@@ -455,16 +199,16 @@ func printWorkProgress(wp *workProgress) {
 			taskSymbol = "✗"
 		}
 
-		taskType := tp.task.TaskType
+		taskType := tp.Task.TaskType
 		if taskType == "" {
 			taskType = "implement"
 		}
 
-		fmt.Printf("    %s %s [%s]\n", taskSymbol, tp.task.ID, taskType)
+		fmt.Printf("    %s %s [%s]\n", taskSymbol, tp.Task.ID, taskType)
 
-		for _, bp := range tp.beads {
+		for _, bp := range tp.Beads {
 			beadSymbol := "○"
-			switch bp.status {
+			switch bp.Status {
 			case db.StatusCompleted:
 				beadSymbol = "✓"
 			case db.StatusProcessing:
@@ -472,11 +216,11 @@ func printWorkProgress(wp *workProgress) {
 			case db.StatusFailed:
 				beadSymbol = "✗"
 			}
-			fmt.Printf("      %s %s\n", beadSymbol, bp.id)
+			fmt.Printf("      %s %s\n", beadSymbol, bp.ID)
 		}
 
-		if tp.task.Status == db.StatusFailed && tp.task.ErrorMessage != "" {
-			fmt.Printf("      Error: %s\n", tp.task.ErrorMessage)
+		if tp.Task.Status == db.StatusFailed && tp.Task.ErrorMessage != "" {
+			fmt.Printf("      Error: %s\n", tp.Task.ErrorMessage)
 		}
 	}
 	fmt.Println()
