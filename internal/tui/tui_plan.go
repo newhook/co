@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/beads"
 	beadswatcher "github.com/newhook/co/internal/beads/watcher"
+	"github.com/newhook/co/internal/progress"
 	"github.com/newhook/co/internal/project"
 	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
 	"github.com/newhook/co/internal/zellij"
@@ -85,7 +86,7 @@ type planModel struct {
 	focusedWorkID          string          // ID of focused work (splits screen)
 	workSelectionCleared   bool            // User manually cleared work selection filter (don't auto-restore)
 	pendingWorkSelectIndex int             // Index of work to select after tiles load (-1 = none)
-	workTiles              []*WorkProgress // Cached work tiles for the tabs bar
+	workTiles              []*progress.WorkProgress // Cached work tiles for the tabs bar
 	workDetailsFocusLeft   bool            // Whether left panel has focus in work details (true=left, false=right)
 
 	// Multi-select state
@@ -1830,7 +1831,7 @@ func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
 
 // findWorkByID finds a work by its ID in the cached work tiles.
 // Returns nil if not found.
-func (m *planModel) findWorkByID(id string) *WorkProgress {
+func (m *planModel) findWorkByID(id string) *progress.WorkProgress {
 	for _, work := range m.workTiles {
 		if work != nil && work.Work.ID == id {
 			return work

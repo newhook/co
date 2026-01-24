@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/progress"
 )
 
 // WorkActionsPanel renders the right side of the work details view when showing work actions.
@@ -18,7 +19,7 @@ type WorkActionsPanel struct {
 	focused bool
 
 	// Data
-	focusedWork *WorkProgress
+	focusedWork *progress.WorkProgress
 
 	// Selected action index for navigation
 	selectedIndex int
@@ -98,7 +99,7 @@ func (p *WorkActionsPanel) SetFocus(focused bool) {
 }
 
 // SetFocusedWork updates the focused work
-func (p *WorkActionsPanel) SetFocusedWork(focusedWork *WorkProgress) {
+func (p *WorkActionsPanel) SetFocusedWork(focusedWork *progress.WorkProgress) {
 	p.focusedWork = focusedWork
 }
 

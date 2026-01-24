@@ -14,6 +14,7 @@ import (
 	"github.com/newhook/co/internal/orchestration"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
+	workpkg "github.com/newhook/co/internal/work"
 	"github.com/spf13/cobra"
 )
 
@@ -83,7 +84,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 
 			// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
 			mainRepoPath := proj.MainRepoPath()
-			err := CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, os.Stdout)
+			err := workpkg.CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, os.Stdout)
 			if err != nil {
 				return fmt.Errorf("failed to create estimate task: %w", err)
 			}

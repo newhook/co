@@ -3,6 +3,7 @@ package tui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/newhook/co/internal/progress"
 )
 
 // WorkDetailAction represents an action result from the work details panel
@@ -46,7 +47,7 @@ type WorkDetailsPanel struct {
 	showActionsPanel bool
 
 	// Data reference (shared with sub-panels)
-	focusedWork *WorkProgress
+	focusedWork *progress.WorkProgress
 }
 
 // NewWorkDetailsPanel creates a new WorkDetailsPanel coordinator
@@ -98,7 +99,7 @@ func (p *WorkDetailsPanel) SetFocus(leftFocused, rightFocused bool) {
 }
 
 // SetFocusedWork updates the focused work, preserving selection if valid
-func (p *WorkDetailsPanel) SetFocusedWork(focusedWork *WorkProgress) {
+func (p *WorkDetailsPanel) SetFocusedWork(focusedWork *progress.WorkProgress) {
 	// Check if the work has actually changed
 	workChanged := false
 	if p.focusedWork == nil && focusedWork != nil {
@@ -209,7 +210,7 @@ func (p *WorkDetailsPanel) GetSelectedIndex() int {
 }
 
 // GetFocusedWork returns the currently focused work, or nil if none
-func (p *WorkDetailsPanel) GetFocusedWork() *WorkProgress {
+func (p *WorkDetailsPanel) GetFocusedWork() *progress.WorkProgress {
 	return p.focusedWork
 }
 

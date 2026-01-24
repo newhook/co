@@ -9,9 +9,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/newhook/co/internal/claude"
+	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/process"
+	"github.com/newhook/co/internal/progress"
+	"github.com/newhook/co/internal/work"
 )
 
 // sessionName returns the zellij session name for this project
@@ -56,7 +59,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		logging.Debug("executeCreateWork started", "beadID", beadID, "branchName", branchName, "auto", auto)
 
 		// Collect the bead and any transitive dependencies (or children if it has parent-child relationships)
-		allIssueIDs, err := collectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
+		allIssueIDs, err := work.CollectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
 		if err != nil {
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
 		}
@@ -66,7 +69,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		}
 
 		// Create work asynchronously (DB operations only, schedules tasks for control plane)
-		result, err := CreateWorkAsync(m.ctx, m.proj, branchName, "main", beadID, auto)
+		result, err := work.CreateWorkAsync(m.ctx, m.proj, branchName, "main", beadID, auto)
 		if err != nil {
 			logging.Error("executeCreateWork CreateWorkWithBranch failed", "beadID", beadID, "error", err)
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
@@ -75,7 +78,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 
 		// Add beads to the work
 		logging.Debug("executeCreateWork adding beads to work", "workID", result.WorkID, "beadCount", len(allIssueIDs))
-		if err := addBeadsToWork(m.ctx, m.proj, result.WorkID, allIssueIDs); err != nil {
+		if err := work.AddBeadsToWorkInternal(m.ctx, m.proj, result.WorkID, allIssueIDs); err != nil {
 			logging.Error("executeCreateWork addBeadsToWork failed", "workID", result.WorkID, "error", err)
 			// Work was created but beads couldn't be added - don't fail completely
 			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
@@ -83,7 +86,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		logging.Debug("executeCreateWork beads added successfully", "workID", result.WorkID)
 
 		// Ensure control plane is running to process the worktree creation task
-		_, err = EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
+		_, err = control.EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
 		if err != nil {
 			// Non-fatal: work was created but control plane might need manual start
 			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but control plane failed: %w", err)}
@@ -97,7 +100,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
 	return func() tea.Msg {
 		// Use internal function instead of CLI
-		_, err := AddBeadsToWork(m.ctx, m.proj, workID, beadIDs)
+		_, err := work.AddBeadsToWork(m.ctx, m.proj, workID, beadIDs)
 		if err != nil {
 			beadIDsStr := strings.Join(beadIDs, ", ")
 			return beadAddedToWorkMsg{beadID: beadIDsStr, workID: workID, err: fmt.Errorf("failed to add issues to work: %w", err)}
@@ -110,7 +113,7 @@ func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
 
 // workTilesLoadedMsg indicates work tiles have been loaded
 type workTilesLoadedMsg struct {
-	works              []*WorkProgress
+	works              []*progress.WorkProgress
 	orchestratorHealth map[string]bool // workID -> orchestrator alive
 	err                error
 }
@@ -118,7 +121,7 @@ type workTilesLoadedMsg struct {
 // loadWorkTiles loads work data for the work tabs bar
 func (m *planModel) loadWorkTiles() tea.Cmd {
 	return func() tea.Msg {
-		works, err := fetchAllWorksPollData(m.ctx, m.proj)
+		works, err := progress.FetchAllWorksPollData(m.ctx, m.proj)
 		if err != nil {
 			return workTilesLoadedMsg{err: err}
 		}
@@ -140,7 +143,7 @@ func (m *planModel) loadWorkTiles() tea.Cmd {
 // destroyWork schedules a work destruction task via the control plane
 func (m *planModel) destroyWork(workID string) tea.Cmd {
 	return func() tea.Msg {
-		if err := ScheduleDestroyWorktree(m.ctx, m.proj, workID); err != nil {
+		if err := control.ScheduleDestroyWorktree(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Destroy work", workID: workID, err: err}
 		}
 		return workCommandMsg{action: "Destroy work scheduled", workID: workID}
@@ -158,13 +161,13 @@ func (m *planModel) runFocusedWork(autoGroup bool) tea.Cmd {
 	return func() tea.Msg {
 		if autoGroup {
 			// Use auto mode - creates estimate task and lets orchestrator handle grouping
-			_, err := RunWorkAuto(m.ctx, m.proj, workID, io.Discard)
+			_, err := work.RunWorkAuto(m.ctx, m.proj, workID, io.Discard)
 			if err != nil {
 				return workCommandMsg{action: "Run work", workID: workID, err: err}
 			}
 		} else {
 			// Use direct mode - creates one task per bead
-			_, err := RunWork(m.ctx, m.proj, workID, false, io.Discard)
+			_, err := work.RunWork(m.ctx, m.proj, workID, false, io.Discard)
 			if err != nil {
 				return workCommandMsg{action: "Run work", workID: workID, err: err}
 			}
@@ -269,7 +272,7 @@ func (m *planModel) openConsole() tea.Cmd {
 		}
 
 		// Ensure control plane is running
-		EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
+		control.EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
 
 		return workCommandMsg{action: "Open console", workID: workID}
 	}
@@ -350,7 +353,7 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 func (m *planModel) checkPRFeedback() tea.Cmd {
 	workID := m.focusedWorkID
 	return func() tea.Msg {
-		if err := TriggerPRFeedbackCheck(m.ctx, m.proj, workID); err != nil {
+		if err := control.TriggerPRFeedbackCheck(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Check PR feedback", workID: workID, err: err}
 		}
 		return workCommandMsg{action: "PR feedback check triggered", workID: workID}

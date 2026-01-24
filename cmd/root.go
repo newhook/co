@@ -42,9 +42,6 @@ var rootCmd = &cobra.Command{
 		}
 		defer proj.Close()
 
-		// Register TUI callbacks
-		tui.SetCallbacks(newTUICallbacks())
-
 		if err := tui.RunRootTUI(ctx, proj, !flagNoMouse); err != nil {
 			return fmt.Errorf("error running TUI: %w", err)
 		}
