@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
@@ -14,214 +12,44 @@ import (
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/work"
 	"github.com/newhook/co/internal/worktree"
 )
 
 // generateBranchNameFromIssue creates a git-friendly branch name from an issue's title.
-// It converts the title to lowercase, replaces spaces with hyphens,
-// removes special characters, and prefixes with "feat/".
+// Delegates to internal/work.GenerateBranchNameFromIssue.
 func generateBranchNameFromIssue(issue *beads.Bead) string {
-	title := issue.Title
-
-	// Convert to lowercase
-	title = strings.ToLower(title)
-
-	// Replace spaces and underscores with hyphens
-	title = strings.ReplaceAll(title, " ", "-")
-	title = strings.ReplaceAll(title, "_", "-")
-
-	// Remove characters that aren't alphanumeric or hyphens
-	reg := regexp.MustCompile(`[^a-z0-9-]`)
-	title = reg.ReplaceAllString(title, "")
-
-	// Collapse multiple hyphens into one
-	reg = regexp.MustCompile(`-+`)
-	title = reg.ReplaceAllString(title, "-")
-
-	// Trim leading/trailing hyphens
-	title = strings.Trim(title, "-")
-
-	// Truncate if too long (git branch names can be long, but let's be reasonable)
-	if len(title) > 50 {
-		title = title[:50]
-		// Don't end with a hyphen
-		title = strings.TrimRight(title, "-")
-	}
-
-	// Add prefix based on common conventions
-	return fmt.Sprintf("feat/%s", title)
+	return work.GenerateBranchNameFromIssue(issue)
 }
 
 // parseBeadIDs parses a comma-delimited string of bead IDs into a slice.
-// It trims whitespace from each ID and filters out empty strings.
+// Delegates to internal/work.ParseBeadIDs.
 func parseBeadIDs(beadIDStr string) []string {
-	if beadIDStr == "" {
-		return nil
-	}
-
-	parts := strings.Split(beadIDStr, ",")
-	var result []string
-	for _, part := range parts {
-		id := strings.TrimSpace(part)
-		if id != "" {
-			result = append(result, id)
-		}
-	}
-	return result
+	return work.ParseBeadIDs(beadIDStr)
 }
 
 // generateBranchNameFromIssues creates a git-friendly branch name from multiple issues' titles.
-// For a single issue, it uses that issue's title.
-// For multiple issues, it combines titles (truncated) or uses a generic name if too long.
+// Delegates to internal/work.GenerateBranchNameFromIssues.
 func generateBranchNameFromIssues(issues []*beads.Bead) string {
-	if len(issues) == 0 {
-		return "feat/automated-work"
-	}
-
-	if len(issues) == 1 {
-		return generateBranchNameFromIssue(issues[0])
-	}
-
-	// For multiple issues, combine their titles
-	var titles []string
-	for _, issue := range issues {
-		titles = append(titles, issue.Title)
-	}
-	combined := strings.Join(titles, " and ")
-
-	// Convert to lowercase
-	combined = strings.ToLower(combined)
-
-	// Replace spaces and underscores with hyphens
-	combined = strings.ReplaceAll(combined, " ", "-")
-	combined = strings.ReplaceAll(combined, "_", "-")
-
-	// Remove characters that aren't alphanumeric or hyphens
-	reg := regexp.MustCompile(`[^a-z0-9-]`)
-	combined = reg.ReplaceAllString(combined, "")
-
-	// Collapse multiple hyphens into one
-	reg = regexp.MustCompile(`-+`)
-	combined = reg.ReplaceAllString(combined, "-")
-
-	// Trim leading/trailing hyphens
-	combined = strings.Trim(combined, "-")
-
-	// Truncate if too long (git branch names can be long, but let's be reasonable)
-	if len(combined) > 50 {
-		combined = combined[:50]
-		// Don't end with a hyphen
-		combined = strings.TrimRight(combined, "-")
-	}
-
-	return fmt.Sprintf("feat/%s", combined)
+	return work.GenerateBranchNameFromIssues(issues)
 }
 
 // collectIssuesForMultipleIDs collects all issues to include for multiple bead IDs.
-// It collects transitive dependencies for each bead and deduplicates the results.
+// Delegates to internal/work.CollectIssuesForMultipleIDs.
 func collectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, beadsClient *beads.Client) (*beads.BeadsWithDepsResult, error) {
-	// Use a map to deduplicate issue IDs
-	issueIDSet := make(map[string]bool)
-
-	for _, beadID := range beadIDList {
-		issueIDs, err := collectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
-		if err != nil {
-			return nil, err
-		}
-		for _, id := range issueIDs {
-			issueIDSet[id] = true
-		}
-	}
-
-	// Convert set to slice
-	var issueIDs []string
-	for id := range issueIDSet {
-		issueIDs = append(issueIDs, id)
-	}
-
-	// Get all issues with dependencies in one call
-	return beadsClient.GetBeadsWithDeps(ctx, issueIDs)
+	return work.CollectIssuesForMultipleIDs(ctx, beadIDList, beadsClient)
 }
 
 // ensureUniqueBranchName checks if a branch already exists and appends a suffix if needed.
-// Returns a unique branch name that doesn't conflict with existing branches.
+// Delegates to internal/work.EnsureUniqueBranchName.
 func ensureUniqueBranchName(ctx context.Context, repoPath, baseName string) (string, error) {
-	// Check if the base name is available
-	if !git.BranchExists(ctx, repoPath, baseName) {
-		return baseName, nil
-	}
-
-	// Try appending suffixes until we find an available name
-	for i := 2; i <= 100; i++ {
-		candidate := fmt.Sprintf("%s-%d", baseName, i)
-		if !git.BranchExists(ctx, repoPath, candidate) {
-			return candidate, nil
-		}
-	}
-
-	return "", fmt.Errorf("could not find unique branch name after 100 attempts (base: %s)", baseName)
+	return work.EnsureUniqueBranchName(ctx, repoPath, baseName)
 }
 
 // collectIssueIDsForAutomatedWorkflow collects all issue IDs to include in the workflow.
-// For an issue with parent-child dependents, it includes all children recursively.
-// For other issues, it includes all transitive dependencies.
+// Delegates to internal/work.CollectIssueIDsForAutomatedWorkflow.
 func collectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, beadsClient *beads.Client) ([]string, error) {
-	if beadsClient == nil {
-		return nil, fmt.Errorf("beads client is nil")
-	}
-
-	// First, get the main issue
-	mainIssue, err := beadsClient.GetBead(ctx, beadID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bead %s: %w", beadID, err)
-	}
-	if mainIssue == nil {
-		return nil, fmt.Errorf("bead %s not found", beadID)
-	}
-
-	// Check if this issue has children (parent-child relationships)
-	var hasChildren bool
-	for _, dep := range mainIssue.Dependents {
-		if dep.Type == "parent-child" {
-			hasChildren = true
-			break
-		}
-	}
-
-	if hasChildren {
-		// Collect all children recursively
-		allIssues, err := beadsClient.GetBeadWithChildren(ctx, beadID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get children for %s: %w", beadID, err)
-		}
-
-		// Include all open issues for tracking
-		var result []string
-		for _, issue := range allIssues {
-			// Skip closed issues
-			if issue.Status == beads.StatusClosed {
-				continue
-			}
-			result = append(result, issue.ID)
-		}
-		return result, nil
-	}
-
-	// For regular issues, collect transitive dependencies
-	transitiveIssues, err := beadsClient.GetTransitiveDependencies(ctx, beadID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract issue IDs, filtering out closed issues
-	var issueIDs []string
-	for _, issue := range transitiveIssues {
-		if issue.Status != beads.StatusClosed {
-			issueIDs = append(issueIDs, issue.ID)
-		}
-	}
-
-	return issueIDs, nil
+	return work.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
 }
 
 // runWorkCreateWithBeads creates a work unit with an auto-generated branch name from a single root bead.
