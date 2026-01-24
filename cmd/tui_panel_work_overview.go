@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/db"
 )
 
@@ -224,7 +225,7 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 		}
 
 		if maxNameLen > 0 {
-			workHeader += " " + nameStyle.Render(truncateString(p.focusedWork.work.Name, maxNameLen))
+			workHeader += " " + nameStyle.Render(ansi.Truncate(p.focusedWork.work.Name, maxNameLen, "..."))
 		}
 
 		// Add time string at the end
@@ -251,7 +252,7 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 	}
 	content.WriteString(workHeader + "\n")
 	// Branch info (1 line) - "Branch: " is 8 chars
-	fmt.Fprintf(&content, "Branch: %s\n", truncateString(p.focusedWork.work.BranchName, contentWidth-8))
+	fmt.Fprintf(&content, "Branch: %s\n", ansi.Truncate(p.focusedWork.work.BranchName, contentWidth-8, "..."))
 
 	// Progress percentage and warnings (1 line)
 	var progressLine strings.Builder
@@ -401,7 +402,7 @@ func (p *WorkOverviewPanel) renderRootIssueLine(content *strings.Builder, panelW
 		// Calculate max title length: panelWidth - prefix(2) - icon(1) - spaces(2) - ID - buffer
 		maxTitleLen := panelWidth - 2 - 1 - 2 - len(rootID) - 4
 		if maxTitleLen > 0 {
-			textPortion += " " + truncateString(rootTitle, maxTitleLen)
+			textPortion += " " + ansi.Truncate(rootTitle, maxTitleLen, "...")
 		}
 	}
 
@@ -512,7 +513,7 @@ func (p *WorkOverviewPanel) renderUnassignedBeadLine(content *strings.Builder, b
 		// Calculate max title length: panelWidth - prefix(2) - icon(1) - spaces(2) - ID - buffer
 		maxTitleLen := panelWidth - 2 - 1 - 2 - len(bead.id) - 4
 		if maxTitleLen > 0 {
-			textPortion += " " + truncateString(bead.title, maxTitleLen)
+			textPortion += " " + ansi.Truncate(bead.title, maxTitleLen, "...")
 		}
 	}
 

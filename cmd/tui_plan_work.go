@@ -8,7 +8,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
@@ -293,19 +292,6 @@ func (m *planModel) openClaude() tea.Cmd {
 
 		return workCommandMsg{action: "Open Claude", workID: workID}
 	}
-}
-
-// truncateString truncates a string to the specified display width.
-// Uses ansi.Truncate for proper UTF-8 and ANSI escape sequence handling.
-func truncateString(s string, maxLen int) string {
-	// Handle negative maxLen values
-	if maxLen < 0 {
-		return ""
-	}
-	if ansi.StringWidth(s) <= maxLen {
-		return s
-	}
-	return ansi.Truncate(s, maxLen, "...")
 }
 
 // checkOrchestratorHealth checks if the orchestrator process is running for a work

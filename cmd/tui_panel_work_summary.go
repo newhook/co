@@ -296,7 +296,7 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		// Title first (truncated to fit content width with some margin)
 		if rootBead.title != "" {
 			titleStyle := lipgloss.NewStyle().Bold(true)
-			title := truncateString(rootBead.title, contentWidth-2)
+			title := ansi.Truncate(rootBead.title, contentWidth-2, "...")
 			content.WriteString(titleStyle.Render(title))
 			content.WriteString("\n")
 		}
