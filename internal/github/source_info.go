@@ -48,3 +48,12 @@ type IssueCommentContext struct {
 	Author    string // Username of the comment author
 	CommentID int64  // ID of the comment
 }
+
+// FeedbackContext holds source-specific context data.
+// Only one field will be non-nil, based on the source type.
+type FeedbackContext struct {
+	CI       *CICheckContext      `json:"ci,omitempty"`
+	Workflow *WorkflowContext     `json:"workflow,omitempty"`
+	Review   *ReviewContext       `json:"review,omitempty"`
+	Comment  *IssueCommentContext `json:"comment,omitempty"`
+}

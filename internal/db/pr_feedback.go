@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/newhook/co/internal/db/sqlc"
+	"github.com/newhook/co/internal/github"
 )
 
 // convertPrFeedback converts a sqlc.PrFeedback to our PRFeedback struct.
@@ -41,6 +42,22 @@ func convertPrFeedback(f sqlc.PrFeedback) PRFeedback {
 		result.ResolvedAt = &f.ResolvedAt.Time
 	}
 
+	// Parse new structured source fields
+	if f.SourceType.Valid {
+		result.SourceType = github.SourceType(f.SourceType.String)
+	}
+	if f.SourceName.Valid {
+		result.SourceName = f.SourceName.String
+	}
+
+	// Parse context JSON
+	if f.Context.Valid && f.Context.String != "" && f.Context.String != "{}" {
+		var ctx github.FeedbackContext
+		if err := json.Unmarshal([]byte(f.Context.String), &ctx); err == nil {
+			result.Context = &ctx
+		}
+	}
+
 	// Parse metadata JSON
 	if f.Metadata != "" && f.Metadata != "{}" {
 		if err := json.Unmarshal([]byte(f.Metadata), &result.Metadata); err != nil {
@@ -61,9 +78,12 @@ type PRFeedback struct {
 	FeedbackType string
 	Title        string
 	Description  string
-	Source       string
-	SourceURL    string
-	SourceID     *string    // GitHub comment/check ID for resolution tracking
+	Source       string                  // Legacy: "CI: x", "Review: y" format (kept for backwards compatibility)
+	SourceURL    string                  // URL to the source item
+	SourceID     *string                 // GitHub comment/check ID for resolution tracking
+	SourceType   github.SourceType       // Structured type: ci, workflow, review_comment, issue_comment
+	SourceName   string                  // Human-readable name (check name, workflow name, reviewer)
+	Context      *github.FeedbackContext // Structured context data
 	Priority     int
 	BeadID       *string
 	Metadata     map[string]string
@@ -72,7 +92,21 @@ type PRFeedback struct {
 	ResolvedAt   *time.Time // When the GitHub comment was resolved
 }
 
+// CreatePRFeedbackParams holds parameters for creating a PR feedback record.
+type CreatePRFeedbackParams struct {
+	WorkID       string
+	PRURL        string
+	FeedbackType string
+	Title        string
+	Description  string
+	Source       github.SourceInfo        // Structured source info
+	Context      *github.FeedbackContext  // Structured context (optional)
+	Priority     int
+	Metadata     map[string]string        // Additional metadata
+}
+
 // CreatePRFeedback creates a new PR feedback record.
+// Deprecated: Use CreatePRFeedbackFromParams for new code with structured source info.
 func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL, feedbackType, title, description, source, sourceURL string, priority int, metadata map[string]string) (*PRFeedback, error) {
 	id := uuid.New().String()
 
@@ -88,6 +122,9 @@ func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL, feedbackType,
 		sourceID = sql.NullString{String: sid, Valid: true}
 	}
 
+	// Try to infer source_type and source_name from legacy source string
+	sourceType, sourceName := parseSourceString(source)
+
 	err = db.queries.CreatePRFeedback(ctx, sqlc.CreatePRFeedbackParams{
 		ID:           id,
 		WorkID:       workID,
@@ -100,6 +137,9 @@ func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL, feedbackType,
 		SourceID:     sourceID,
 		Priority:     int64(priority),
 		Metadata:     string(metadataJSON),
+		SourceType:   sql.NullString{String: string(sourceType), Valid: sourceType != ""},
+		SourceName:   sql.NullString{String: sourceName, Valid: sourceName != ""},
+		Context:      sql.NullString{Valid: false}, // No context in legacy API
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PR feedback: %w", err)
@@ -114,6 +154,8 @@ func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL, feedbackType,
 		Description:  description,
 		Source:       source,
 		SourceURL:    sourceURL,
+		SourceType:   sourceType,
+		SourceName:   sourceName,
 		Priority:     priority,
 		Metadata:     metadata,
 		CreatedAt:    time.Now(),
@@ -122,6 +164,123 @@ func (db *DB) CreatePRFeedback(ctx context.Context, workID, prURL, feedbackType,
 		result.SourceID = &sourceID.String
 	}
 	return result, nil
+}
+
+// CreatePRFeedbackFromParams creates a new PR feedback record with structured source info.
+func (db *DB) CreatePRFeedbackFromParams(ctx context.Context, params CreatePRFeedbackParams) (*PRFeedback, error) {
+	id := uuid.New().String()
+
+	// Convert metadata to JSON
+	metadataJSON := "{}"
+	if params.Metadata != nil {
+		data, err := json.Marshal(params.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+		metadataJSON = string(data)
+	}
+
+	// Convert context to JSON
+	var contextJSON sql.NullString
+	if params.Context != nil {
+		data, err := json.Marshal(params.Context)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal context: %w", err)
+		}
+		contextJSON = sql.NullString{String: string(data), Valid: true}
+	}
+
+	// Generate legacy source string for backwards compatibility
+	legacySource := formatSourceString(params.Source.Type, params.Source.Name)
+
+	err := db.queries.CreatePRFeedback(ctx, sqlc.CreatePRFeedbackParams{
+		ID:           id,
+		WorkID:       params.WorkID,
+		PrUrl:        params.PRURL,
+		FeedbackType: params.FeedbackType,
+		Title:        params.Title,
+		Description:  params.Description,
+		Source:       legacySource,
+		SourceUrl:    sql.NullString{String: params.Source.URL, Valid: params.Source.URL != ""},
+		SourceID:     sql.NullString{String: params.Source.ID, Valid: params.Source.ID != ""},
+		Priority:     int64(params.Priority),
+		Metadata:     metadataJSON,
+		SourceType:   sql.NullString{String: string(params.Source.Type), Valid: params.Source.Type != ""},
+		SourceName:   sql.NullString{String: params.Source.Name, Valid: params.Source.Name != ""},
+		Context:      contextJSON,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PR feedback: %w", err)
+	}
+
+	sourceID := params.Source.ID
+	result := &PRFeedback{
+		ID:           id,
+		WorkID:       params.WorkID,
+		PRURL:        params.PRURL,
+		FeedbackType: params.FeedbackType,
+		Title:        params.Title,
+		Description:  params.Description,
+		Source:       legacySource,
+		SourceURL:    params.Source.URL,
+		SourceID:     &sourceID,
+		SourceType:   params.Source.Type,
+		SourceName:   params.Source.Name,
+		Context:      params.Context,
+		Priority:     params.Priority,
+		Metadata:     params.Metadata,
+		CreatedAt:    time.Now(),
+	}
+	return result, nil
+}
+
+// parseSourceString parses a legacy source string like "CI: test-suite" into type and name.
+func parseSourceString(source string) (github.SourceType, string) {
+	if len(source) < 3 {
+		return "", source
+	}
+
+	// Find the colon separator
+	for i := 0; i < len(source)-1; i++ {
+		if source[i] == ':' {
+			prefix := source[:i]
+			name := source[i+1:]
+			// Trim leading space from name
+			if len(name) > 0 && name[0] == ' ' {
+				name = name[1:]
+			}
+
+			switch prefix {
+			case "CI":
+				return github.SourceTypeCI, name
+			case "Workflow":
+				return github.SourceTypeWorkflow, name
+			case "Review":
+				return github.SourceTypeReviewComment, name
+			case "Comment":
+				return github.SourceTypeIssueComment, name
+			}
+			break
+		}
+	}
+
+	return "", source
+}
+
+// formatSourceString generates a legacy source string from type and name.
+func formatSourceString(sourceType github.SourceType, name string) string {
+	switch sourceType {
+	case github.SourceTypeCI:
+		return "CI: " + name
+	case github.SourceTypeWorkflow:
+		return "Workflow: " + name
+	case github.SourceTypeReviewComment:
+		return "Review: " + name
+	case github.SourceTypeIssueComment:
+		return "Comment: " + name
+	default:
+		return name
+	}
 }
 
 // GetUnprocessedFeedback returns all unprocessed feedback for a work.
