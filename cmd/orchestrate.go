@@ -5,20 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
+	"github.com/newhook/co/internal/orchestration"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
 	"github.com/spf13/cobra"
 )
-
-// Spinner frames for animated waiting display
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 var (
 	flagOrchestrateWork string
@@ -99,7 +96,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	// Reset any stuck processing tasks from a previous run
 	// When the orchestrator restarts, any tasks that were processing are now orphaned
 	// since the Claude process was killed along with the orchestrator
-	if err := resetStuckProcessingTasks(ctx, proj, workID); err != nil {
+	if err := orchestration.ResetStuckProcessingTasks(ctx, proj, workID); err != nil {
 		return fmt.Errorf("failed to reset stuck tasks: %w", err)
 	}
 
@@ -126,7 +123,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				return
 			case <-activityTicker.C:
 				// Update last_activity for all processing tasks of this work
-				if err := updateWorkTaskActivity(ctx, proj.DB, workID); err != nil {
+				if err := orchestration.UpdateWorkTaskActivity(ctx, proj.DB, workID); err != nil {
 					// Log but don't fail - this is just health monitoring
 					fmt.Printf("Warning: failed to update task activity: %v\n", err)
 				}
@@ -186,7 +183,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			// If tasks are processing, wait and retry
 			if processingCount > 0 {
 				msg := fmt.Sprintf("Waiting for %d processing task(s)...", processingCount)
-				spinnerWait(msg, 5*time.Second)
+				orchestration.SpinnerWait(msg, 5*time.Second)
 				continue
 			}
 
@@ -203,14 +200,14 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 				}
 				// Wait for user to resolve and restart
 				msg := fmt.Sprintf("Work failed: %d task(s) failed. Waiting for restart...", failedCount)
-				spinnerWait(msg, 10*time.Second)
+				orchestration.SpinnerWait(msg, 10*time.Second)
 				continue
 			}
 
 			// If pending tasks exist but none are ready, they're blocked
 			if pendingCount > 0 {
 				msg := fmt.Sprintf("Waiting: %d pending task(s) blocked by dependencies...", pendingCount)
-				spinnerWait(msg, 5*time.Second)
+				orchestration.SpinnerWait(msg, 5*time.Second)
 				continue
 			}
 
@@ -251,7 +248,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			} else {
 				msg = "No tasks yet. Waiting for tasks to be created..."
 			}
-			spinnerWait(msg, 5*time.Second)
+			orchestration.SpinnerWait(msg, 5*time.Second)
 			continue
 		}
 
@@ -411,50 +408,6 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 }
 
 
-// updateWorkTaskActivity updates the last_activity timestamp for all processing tasks of a work.
-func updateWorkTaskActivity(ctx context.Context, db *db.DB, workID string) error {
-	// Get all processing tasks for this work
-	tasks, err := db.GetWorkTasks(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work tasks: %w", err)
-	}
-
-	// Update activity for each processing task
-	for _, task := range tasks {
-		if task.Status == "processing" {
-			if err := db.UpdateTaskActivity(ctx, task.ID, time.Now()); err != nil {
-				// Log but don't fail on individual task updates
-				fmt.Printf("Warning: failed to update activity for task %s: %v\n", task.ID, err)
-			}
-		}
-	}
-	return nil
-}
-
-// spinnerWait displays an animated spinner with a message for the specified duration.
-// The spinner updates every 100ms to create a smooth animation effect.
-// Does not print a newline so the spinner can continue on the same line.
-// Note: The control plane handles scheduled tasks globally, and the orchestrator
-// uses database watchers for Claude monitoring. Polling is a safety net.
-func spinnerWait(msg string, duration time.Duration) {
-	// Reduce polling intervals - control plane handles scheduler tasks globally
-	// Claude monitoring uses database watcher (monitorClaude)
-	// This polling is just a safety net for the main orchestrator loop
-	maxDuration := 2 * time.Second
-	if duration > maxDuration {
-		duration = maxDuration
-	}
-
-	start := time.Now()
-	frameIdx := 0
-	for time.Since(start) < duration {
-		fmt.Printf("\r%s %s", spinnerFrames[frameIdx], msg)
-		frameIdx = (frameIdx + 1) % len(spinnerFrames)
-		time.Sleep(100 * time.Millisecond)
-	}
-	// Don't print newline - let caller decide or let next spinnerWait overwrite
-}
-
 // handleReviewFixLoop checks if a review task found issues and creates fix tasks.
 // If review passes (no issues), creates the PR task.
 // If review finds issues, creates fix tasks and a new review task.
@@ -470,7 +423,7 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 	}
 
 	// Count how many review iterations we've had
-	reviewCount := countReviewIterations(proj, work.ID)
+	reviewCount := orchestration.CountReviewIterations(ctx, proj.DB, work.ID)
 	maxIterations := proj.Config.Workflow.GetMaxReviewIterations()
 	if reviewCount >= maxIterations {
 		fmt.Printf("Warning: Maximum review iterations (%d) reached, proceeding to PR\n", maxIterations)
@@ -587,24 +540,6 @@ func createPRTask(proj *project.Project, work *db.Work, reviewTaskID string) err
 	return nil
 }
 
-// countReviewIterations counts how many review tasks exist for a work unit.
-func countReviewIterations(proj *project.Project, workID string) int {
-	ctx := GetContext()
-	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
-	if err != nil {
-		return 0
-	}
-
-	count := 0
-	reviewPrefix := workID + ".review"
-	for _, task := range tasks {
-		if strings.HasPrefix(task.ID, reviewPrefix) {
-			count++
-		}
-	}
-	return count
-}
-
 // applyHooksEnv sets environment variables from the hooks.env config.
 // Variables are set on the current process and inherited by child processes.
 // Format: ["KEY=value", "PATH=/a/b:$PATH"]
@@ -633,157 +568,6 @@ func splitEnvVar(s string) []string {
 		return []string{s}
 	}
 	return []string{s[:idx], s[idx+1:]}
-}
-
-// resetStuckProcessingTasks finds tasks that are stuck in "processing" status
-// and resets them to "pending". This happens when the orchestrator is killed
-// while a task is running - the Claude process is also killed, but the task
-// remains marked as processing in the database.
-//
-// This function preserves partial bead progress by checking the actual bead
-// status in beads.jsonl before resetting. Beads that are already closed are
-// marked as completed in the task, not reset to pending.
-func resetStuckProcessingTasks(ctx context.Context, proj *project.Project, workID string) error {
-	// Get all tasks for this work
-	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
-	if err != nil {
-		return err
-	}
-
-	resetCount := 0
-	for _, t := range tasks {
-		if t.Status == db.StatusProcessing {
-			fmt.Printf("Resetting stuck task %s from processing to pending...\n", t.ID)
-
-			// Preserve partial bead progress by checking actual bead status
-			preservedCount, resetBeadCount, err := resetTaskBeadsWithProgress(ctx, proj, t.ID, workID)
-			if err != nil {
-				return fmt.Errorf("failed to reset task beads for %s: %w", t.ID, err)
-			}
-
-			if preservedCount > 0 {
-				fmt.Printf("  Preserved %d already-completed bead(s), reset %d bead(s)\n", preservedCount, resetBeadCount)
-				logging.Info("preserved partial bead progress during task reset",
-					"task_id", t.ID,
-					"preserved_count", preservedCount,
-					"reset_count", resetBeadCount,
-				)
-			}
-
-			if err := proj.DB.ResetTaskStatus(ctx, t.ID); err != nil {
-				return fmt.Errorf("failed to reset task %s: %w", t.ID, err)
-			}
-
-			// Log task reset event
-			logging.Debug("task reset from processing to pending on orchestrator startup",
-				"event_type", "task_reset",
-				"task_id", t.ID,
-				"work_id", workID,
-				"preserved_beads", preservedCount,
-				"reset_beads", resetBeadCount,
-			)
-
-			resetCount++
-		}
-	}
-
-	if resetCount > 0 {
-		fmt.Printf("Reset %d stuck task(s)\n", resetCount)
-	}
-
-	return nil
-}
-
-// resetTaskBeadsWithProgress resets task bead statuses while preserving progress.
-// It checks the actual bead status in beads.jsonl and only resets beads that
-// are not already closed. Returns (preserved count, reset count, error).
-// Also logs recovery events for audit trail.
-func resetTaskBeadsWithProgress(ctx context.Context, proj *project.Project, taskID, workID string) (int, int, error) {
-	// Get all beads in this task with their current status
-	taskBeads, err := proj.DB.GetTaskBeadsWithStatus(ctx, taskID)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get task beads: %w", err)
-	}
-
-	if len(taskBeads) == 0 {
-		return 0, 0, nil
-	}
-
-	// Collect bead IDs to check their actual status
-	beadIDs := make([]string, len(taskBeads))
-	for i, tb := range taskBeads {
-		beadIDs[i] = tb.BeadID
-	}
-
-	// Get actual bead status from beads.jsonl
-	beadsResult, err := proj.Beads.GetBeadsWithDeps(ctx, beadIDs)
-	if err != nil {
-		// If we can't check bead status, fall back to resetting all
-		logging.Warn("could not check bead status, falling back to full reset",
-			"task_id", taskID,
-			"error", err,
-		)
-		if err := proj.DB.ResetTaskBeadStatuses(ctx, taskID); err != nil {
-			return 0, 0, err
-		}
-		return 0, len(taskBeads), nil
-	}
-
-	preservedCount := 0
-	resetCount := 0
-
-	for _, tb := range taskBeads {
-		// Check if the bead is closed in beads.jsonl
-		actualBead, found := beadsResult.Beads[tb.BeadID]
-		if found && actualBead.Status == beads.StatusClosed {
-			// Bead is closed in beads.jsonl - mark it as completed in task_beads
-			if tb.Status != db.StatusCompleted {
-				if err := proj.DB.CompleteTaskBead(ctx, taskID, tb.BeadID); err != nil {
-					logging.Warn("failed to mark closed bead as completed",
-						"task_id", taskID,
-						"bead_id", tb.BeadID,
-						"error", err,
-					)
-				} else {
-					preservedCount++
-					// Log bead preserved event
-					logging.Debug("bead already closed in beads.jsonl, preserving completed status",
-						"event_type", "bead_preserved",
-						"task_id", taskID,
-						"work_id", workID,
-						"bead_id", tb.BeadID,
-						"previous_task_status", tb.Status,
-					)
-				}
-			} else {
-				// Already marked as completed
-				preservedCount++
-			}
-		} else {
-			// Bead is not closed - reset to pending
-			if tb.Status != db.StatusPending {
-				if err := proj.DB.ResetTaskBeadStatus(ctx, taskID, tb.BeadID); err != nil {
-					logging.Warn("failed to reset bead status",
-						"task_id", taskID,
-						"bead_id", tb.BeadID,
-						"error", err,
-					)
-				} else {
-					resetCount++
-					// Log bead reset event
-					logging.Debug("bead not closed, resetting to pending",
-						"event_type", "bead_reset",
-						"task_id", taskID,
-						"work_id", workID,
-						"bead_id", tb.BeadID,
-						"previous_task_status", tb.Status,
-					)
-				}
-			}
-		}
-	}
-
-	return preservedCount, resetCount, nil
 }
 
 // checkAndResolveComments checks for feedback items where the bead is closed and posts resolution comments to GitHub
