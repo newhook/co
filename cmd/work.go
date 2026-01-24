@@ -337,7 +337,15 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// If --auto, run the full automated workflow
 	if flagAutoRun {
 		fmt.Println("\nRunning automated workflow...")
-		return runAutomatedWorkflowForWork(proj, workID, worktreePath, os.Stdout)
+		result, err := workpkg.RunWorkAuto(ctx, proj, workID, os.Stdout)
+		if err != nil {
+			return fmt.Errorf("failed to run automated workflow: %w", err)
+		}
+		if result.OrchestratorSpawned {
+			fmt.Println("Orchestrator spawned in zellij tab.")
+		}
+		fmt.Println("Switch to the zellij session to monitor progress.")
+		return nil
 	}
 
 	// Spawn the orchestrator for this work
@@ -544,23 +552,6 @@ func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName
 		BaseBranch:   baseBranch,
 		RootIssueID:  rootIssueID,
 	}, nil
-}
-
-// runAutomatedWorkflowForWork runs the full automated workflow for an existing work.
-// This includes: create estimate task -> execute -> review/fix loop -> PR
-// Delegates to runFullAutomatedWorkflow in run.go for the actual implementation.
-// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func runAutomatedWorkflowForWork(proj *project.Project, workID, worktreePath string, w io.Writer) error {
-	ctx := GetContext()
-	mainRepoPath := proj.MainRepoPath()
-
-	// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
-	err := workpkg.CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, w)
-	if err != nil {
-		return fmt.Errorf("failed to create estimate task: %w", err)
-	}
-
-	return workpkg.RunFullAutomatedWorkflow(ctx, proj, workID, worktreePath, w)
 }
 
 // runWorkAdd adds beads to an existing work.

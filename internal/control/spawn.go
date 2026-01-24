@@ -77,8 +77,7 @@ func EnsureControlPlane(ctx context.Context, projectName string, projectRoot str
 	}
 
 	// Tab exists - check if process is running for this specific project
-	pattern := fmt.Sprintf("co control --root %s", projectRoot)
-	if running, err := process.IsProcessRunning(ctx, pattern); err == nil && running {
+	if IsControlPlaneRunning(ctx, projectRoot) {
 		// Process is running
 		return false, nil
 	}
