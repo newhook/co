@@ -193,35 +193,6 @@ func CreateEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project,
 	return nil
 }
 
-// RunFullAutomatedWorkflow runs the complete automated workflow:
-// 1. Execute all implement tasks
-// 2. Run review-fix loop until clean
-// 3. Create PR
-// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func RunFullAutomatedWorkflow(ctx context.Context, proj *project.Project, workID, worktreePath string, w io.Writer) error {
-	// Get work details for friendly name
-	work, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
-	}
-	if work == nil {
-		return fmt.Errorf("work %s not found", workID)
-	}
-
-	// Spawn the orchestrator which will handle the tasks
-	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, work.Name, w); err != nil {
-		return fmt.Errorf("failed to spawn orchestrator: %w", err)
-	}
-
-	fmt.Fprintln(w, "Automated workflow started in zellij tab.")
-	fmt.Fprintln(w, "The orchestrator will:")
-	fmt.Fprintln(w, "  1. Execute all implement tasks")
-	fmt.Fprintln(w, "  2. Run review-fix loop until clean")
-	fmt.Fprintln(w, "  3. Create a pull request")
-
-	return nil
-}
-
 // createTasksFromWorkBeads creates tasks from unassigned beads in work_beads.
 // If usePlan is true, uses LLM complexity estimation to group beads.
 // Returns the number of tasks created.
