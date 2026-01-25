@@ -15,16 +15,15 @@ import (
 )
 
 // CheckAndResolveComments checks for feedback items and resolves those with closed beads.
-func CheckAndResolveComments(ctx context.Context, proj *project.Project, workID string) {
+func CheckAndResolveComments(ctx context.Context, proj *project.Project, workID string) error {
 	// Get unresolved feedback items for this work
 	feedbacks, err := proj.DB.GetUnresolvedFeedbackForWork(ctx, workID)
 	if err != nil {
-		logging.Error("failed to get unresolved feedback", "error", err)
-		return
+		return fmt.Errorf("failed to get unresolved feedback: %w", err)
 	}
 
 	if len(feedbacks) == 0 {
-		return
+		return nil
 	}
 
 	logging.Debug("checking feedback items for resolution", "count", len(feedbacks))
@@ -57,6 +56,7 @@ func CheckAndResolveComments(ctx context.Context, proj *project.Project, workID 
 	if resolvedCount > 0 {
 		logging.Debug("resolved feedback items", "count", resolvedCount)
 	}
+	return nil
 }
 
 // ResolveFeedbackForBeads posts resolution comments on GitHub for closed beads.
