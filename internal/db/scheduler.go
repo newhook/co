@@ -182,7 +182,7 @@ func (db *DB) MarkTaskFailed(ctx context.Context, taskID string, errorMessage st
 // ScheduleOrUpdateTask schedules a new task or updates existing one.
 // If a pending task of the same type exists, it updates the scheduled time.
 // Otherwise, it creates a new scheduled task.
-func (db *DB) ScheduleOrUpdateTask(ctx context.Context, workID string, taskType string, scheduledAt time.Time, metadata map[string]string) (*ScheduledTask, error) {
+func (db *DB) ScheduleOrUpdateTask(ctx context.Context, workID string, taskType string, scheduledAt time.Time) (*ScheduledTask, error) {
 	// Check if there's already a pending task of this type
 	existing, err := db.GetPendingTaskByType(ctx, workID, taskType)
 	if err != nil {
@@ -200,12 +200,12 @@ func (db *DB) ScheduleOrUpdateTask(ctx context.Context, workID string, taskType 
 	}
 
 	// Create a new scheduled task
-	return db.ScheduleTask(ctx, workID, taskType, scheduledAt, metadata)
+	return db.ScheduleTask(ctx, workID, taskType, scheduledAt, nil)
 }
 
 // TriggerTaskNow schedules a task to run immediately.
-func (db *DB) TriggerTaskNow(ctx context.Context, workID string, taskType string, metadata map[string]string) (*ScheduledTask, error) {
-	return db.ScheduleOrUpdateTask(ctx, workID, taskType, time.Now(), metadata)
+func (db *DB) TriggerTaskNow(ctx context.Context, workID string, taskType string) (*ScheduledTask, error) {
+	return db.ScheduleOrUpdateTask(ctx, workID, taskType, time.Now())
 }
 
 // WatchSchedulerChanges returns tasks that have been updated since the given time.

@@ -120,38 +120,27 @@ func (w *WorkflowConfig) GetMaxReviewIterations() int {
 }
 
 // SchedulerConfig contains scheduler timing configuration.
-// All intervals can be overridden via environment variables.
 type SchedulerConfig struct {
 	// PRFeedbackIntervalMinutes is the interval between PR feedback checks.
-	// Can also be set via CO_PR_FEEDBACK_INTERVAL_MINUTES environment variable.
 	// Defaults to 5 minutes when not specified.
 	PRFeedbackIntervalMinutes *int `toml:"pr_feedback_interval_minutes"`
 
 	// CommentResolutionIntervalMinutes is the interval between comment resolution checks.
-	// Can also be set via CO_COMMENT_RESOLUTION_INTERVAL_MINUTES environment variable.
 	// Defaults to 5 minutes when not specified.
 	CommentResolutionIntervalMinutes *int `toml:"comment_resolution_interval_minutes"`
 
 	// SchedulerPollSeconds is the scheduler polling interval.
-	// Can also be set via CO_SCHEDULER_POLL_SECONDS environment variable.
 	// Defaults to 1 second when not specified.
 	SchedulerPollSeconds *int `toml:"scheduler_poll_seconds"`
 
 	// ActivityUpdateSeconds is the interval for updating task activity timestamps.
-	// Can also be set via CO_ACTIVITY_UPDATE_SECONDS environment variable.
 	// Defaults to 30 seconds when not specified.
 	ActivityUpdateSeconds *int `toml:"activity_update_seconds"`
 }
 
 // GetPRFeedbackInterval returns the PR feedback check interval.
-// Checks environment variable CO_PR_FEEDBACK_INTERVAL_MINUTES first,
-// then config value, then defaults to 5 minutes.
+// Defaults to 5 minutes when not specified.
 func (s *SchedulerConfig) GetPRFeedbackInterval() time.Duration {
-	if envVal := os.Getenv("CO_PR_FEEDBACK_INTERVAL_MINUTES"); envVal != "" {
-		if minutes, err := parseMinutes(envVal); err == nil && minutes > 0 {
-			return time.Duration(minutes) * time.Minute
-		}
-	}
 	if s.PRFeedbackIntervalMinutes != nil && *s.PRFeedbackIntervalMinutes > 0 {
 		return time.Duration(*s.PRFeedbackIntervalMinutes) * time.Minute
 	}
@@ -159,14 +148,8 @@ func (s *SchedulerConfig) GetPRFeedbackInterval() time.Duration {
 }
 
 // GetCommentResolutionInterval returns the comment resolution check interval.
-// Checks environment variable CO_COMMENT_RESOLUTION_INTERVAL_MINUTES first,
-// then config value, then defaults to 5 minutes.
+// Defaults to 5 minutes when not specified.
 func (s *SchedulerConfig) GetCommentResolutionInterval() time.Duration {
-	if envVal := os.Getenv("CO_COMMENT_RESOLUTION_INTERVAL_MINUTES"); envVal != "" {
-		if minutes, err := parseMinutes(envVal); err == nil && minutes > 0 {
-			return time.Duration(minutes) * time.Minute
-		}
-	}
 	if s.CommentResolutionIntervalMinutes != nil && *s.CommentResolutionIntervalMinutes > 0 {
 		return time.Duration(*s.CommentResolutionIntervalMinutes) * time.Minute
 	}
@@ -174,14 +157,8 @@ func (s *SchedulerConfig) GetCommentResolutionInterval() time.Duration {
 }
 
 // GetSchedulerPollInterval returns the scheduler polling interval.
-// Checks environment variable CO_SCHEDULER_POLL_SECONDS first,
-// then config value, then defaults to 1 second.
+// Defaults to 1 second when not specified.
 func (s *SchedulerConfig) GetSchedulerPollInterval() time.Duration {
-	if envVal := os.Getenv("CO_SCHEDULER_POLL_SECONDS"); envVal != "" {
-		if seconds, err := parseSeconds(envVal); err == nil && seconds > 0 {
-			return time.Duration(seconds) * time.Second
-		}
-	}
 	if s.SchedulerPollSeconds != nil && *s.SchedulerPollSeconds > 0 {
 		return time.Duration(*s.SchedulerPollSeconds) * time.Second
 	}
@@ -189,32 +166,12 @@ func (s *SchedulerConfig) GetSchedulerPollInterval() time.Duration {
 }
 
 // GetActivityUpdateInterval returns the activity update interval.
-// Checks environment variable CO_ACTIVITY_UPDATE_SECONDS first,
-// then config value, then defaults to 30 seconds.
+// Defaults to 30 seconds when not specified.
 func (s *SchedulerConfig) GetActivityUpdateInterval() time.Duration {
-	if envVal := os.Getenv("CO_ACTIVITY_UPDATE_SECONDS"); envVal != "" {
-		if seconds, err := parseSeconds(envVal); err == nil && seconds > 0 {
-			return time.Duration(seconds) * time.Second
-		}
-	}
 	if s.ActivityUpdateSeconds != nil && *s.ActivityUpdateSeconds > 0 {
 		return time.Duration(*s.ActivityUpdateSeconds) * time.Second
 	}
 	return 30 * time.Second
-}
-
-// parseMinutes parses a string as minutes.
-func parseMinutes(s string) (int, error) {
-	var minutes int
-	_, err := fmt.Sscanf(s, "%d", &minutes)
-	return minutes, err
-}
-
-// parseSeconds parses a string as seconds.
-func parseSeconds(s string) (int, error) {
-	var seconds int
-	_, err := fmt.Sscanf(s, "%d", &seconds)
-	return seconds, err
 }
 
 // LoadConfig reads and parses a config.toml file.
