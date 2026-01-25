@@ -7,10 +7,31 @@ import (
 	"strings"
 )
 
+// ProcessLister provides an interface for listing processes.
+type ProcessLister interface {
+	GetProcessList(ctx context.Context) ([]string, error)
+}
+
+// ProcessKiller provides an interface for killing processes.
+type ProcessKiller interface {
+	KillByPattern(ctx context.Context, pattern string) error
+}
+
+// defaultLister is the default implementation using system commands.
+var defaultLister ProcessLister = &systemProcessLister{}
+
+// defaultKiller is the default implementation using system commands.
+var defaultKiller ProcessKiller = &systemProcessKiller{}
+
 // IsProcessRunning checks if a process with the given pattern is running.
 // The pattern is matched against the full command line of the process.
 func IsProcessRunning(ctx context.Context, pattern string) (bool, error) {
-	processes, err := getProcessList(ctx)
+	return IsProcessRunningWith(ctx, pattern, defaultLister)
+}
+
+// IsProcessRunningWith checks if a process is running using the provided lister.
+func IsProcessRunningWith(ctx context.Context, pattern string, lister ProcessLister) (bool, error) {
+	processes, err := lister.GetProcessList(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to get process list: %w", err)
 	}
@@ -27,5 +48,34 @@ func IsProcessRunning(ctx context.Context, pattern string) (bool, error) {
 // KillProcess kills all processes matching the given pattern.
 // The pattern is matched against the full command line of the process.
 func KillProcess(ctx context.Context, pattern string) error {
-	return killProcessByPattern(ctx, pattern)
+	return KillProcessWith(ctx, pattern, defaultLister, defaultKiller)
+}
+
+// KillProcessWith kills processes using the provided lister and killer.
+func KillProcessWith(ctx context.Context, pattern string, lister ProcessLister, killer ProcessKiller) error {
+	// Empty pattern would match all processes - this is dangerous and likely a bug
+	if pattern == "" {
+		return fmt.Errorf("empty pattern not allowed: would match all processes")
+	}
+
+	// First check if any process matches
+	processes, err := lister.GetProcessList(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get process list: %w", err)
+	}
+
+	found := false
+	for _, proc := range processes {
+		if strings.Contains(proc, pattern) {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		// No process found, nothing to kill
+		return nil
+	}
+
+	return killer.KillByPattern(ctx, pattern)
 }
