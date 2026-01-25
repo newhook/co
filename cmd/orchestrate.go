@@ -344,8 +344,9 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 		return fmt.Errorf("planner returned no tasks for %d beads", len(beadIDs))
 	}
 
-	// Create implement tasks
+	// Create implement tasks and track beadID → taskID mapping
 	var implementTaskIDs []string
+	beadToTask := make(map[string]string) // beadID → taskID
 	for _, t := range tasks {
 		nextNum, err := proj.DB.GetNextTaskNumber(ctx, work.ID)
 		if err != nil {
@@ -362,9 +363,48 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 			return fmt.Errorf("failed to add dependency for %s: %w", taskID, err)
 		}
 
+		// Track which task each bead is in
+		for _, beadID := range t.BeadIDs {
+			beadToTask[beadID] = taskID
+		}
+
 		implementTaskIDs = append(implementTaskIDs, taskID)
 		fmt.Printf("Created implement task %s (complexity: %d) with %d bead(s): %v\n",
 			taskID, t.Complexity, len(t.BeadIDs), t.BeadIDs)
+	}
+
+	// Compute inter-task dependencies from bead dependencies.
+	// If bead A (in task X) depends on bead B (in task Y where Y != X), task X depends on task Y.
+	interTaskDeps := make(map[string]map[string]bool) // taskID → set of dependent taskIDs
+	for beadID, deps := range issuesResult.Dependencies {
+		taskID, ok := beadToTask[beadID]
+		if !ok {
+			continue // bead not in our task set
+		}
+		for _, dep := range deps {
+			depTaskID, ok := beadToTask[dep.DependsOnID]
+			if !ok {
+				continue // dependency not in our task set
+			}
+			if taskID == depTaskID {
+				continue // same task, no inter-task dependency
+			}
+			// taskID depends on depTaskID
+			if interTaskDeps[taskID] == nil {
+				interTaskDeps[taskID] = make(map[string]bool)
+			}
+			interTaskDeps[taskID][depTaskID] = true
+		}
+	}
+
+	// Add inter-task dependencies to database
+	for taskID, depTaskIDs := range interTaskDeps {
+		for depTaskID := range depTaskIDs {
+			if err := proj.DB.AddTaskDependency(ctx, taskID, depTaskID); err != nil {
+				return fmt.Errorf("failed to add inter-task dependency %s -> %s: %w", taskID, depTaskID, err)
+			}
+			fmt.Printf("Added inter-task dependency: %s depends on %s\n", taskID, depTaskID)
+		}
 	}
 
 	// Create review task (depends on all implement tasks)
