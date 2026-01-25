@@ -47,17 +47,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		fmt.Printf("Root issue: %s\n", work.RootIssueID)
 	}
 
-	// Create feedback integration with custom rules
-	rules := &FeedbackRules{
-		CreateBeadForFailedChecks:   true,
-		CreateBeadForTestFailures:   true,
-		CreateBeadForLintErrors:     true,
-		CreateBeadForReviewComments: true,
-		IgnoreDraftPRs:              false,
-		MinimumPriority:             minPriority,
-	}
-
-	integration := NewIntegration(rules)
+	integration := NewIntegration(minPriority)
 
 	// Extract and store PR status (CI status, approval status)
 	if !quiet {

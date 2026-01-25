@@ -7,61 +7,20 @@ import (
 	"github.com/newhook/co/internal/github"
 )
 
-func TestDefaultFeedbackRules(t *testing.T) {
-	rules := DefaultFeedbackRules()
-
-	if rules == nil {
-		t.Fatal("DefaultFeedbackRules returned nil")
-	}
-
-	if !rules.CreateBeadForFailedChecks {
-		t.Error("CreateBeadForFailedChecks should be true by default")
-	}
-
-	if !rules.CreateBeadForTestFailures {
-		t.Error("CreateBeadForTestFailures should be true by default")
-	}
-
-	if !rules.CreateBeadForLintErrors {
-		t.Error("CreateBeadForLintErrors should be true by default")
-	}
-
-	if !rules.CreateBeadForReviewComments {
-		t.Error("CreateBeadForReviewComments should be true by default")
-	}
-
-	if !rules.IgnoreDraftPRs {
-		t.Error("IgnoreDraftPRs should be true by default")
-	}
-
-	if rules.MinimumPriority != 2 {
-		t.Errorf("MinimumPriority should be 2, got %d", rules.MinimumPriority)
-	}
-}
-
 func TestNewFeedbackProcessor(t *testing.T) {
 	client := &github.Client{}
 
-	// Test with nil rules (should use defaults)
-	processor := NewFeedbackProcessor(client, nil)
+	processor := NewFeedbackProcessor(client, 2)
 	if processor == nil {
 		t.Fatal("NewFeedbackProcessor returned nil")
 	}
-	if processor.rules == nil {
-		t.Error("processor.rules should not be nil")
+	if processor.minPriority != 2 {
+		t.Errorf("minPriority = %d, want 2", processor.minPriority)
 	}
 
-	// Test with custom rules
-	customRules := &FeedbackRules{
-		CreateBeadForFailedChecks: false,
-		MinimumPriority:           1,
-	}
-	processor = NewFeedbackProcessor(client, customRules)
-	if processor.rules.CreateBeadForFailedChecks {
-		t.Error("Custom rules not applied")
-	}
-	if processor.rules.MinimumPriority != 1 {
-		t.Errorf("Custom MinimumPriority not applied, got %d", processor.rules.MinimumPriority)
+	processor = NewFeedbackProcessor(client, 1)
+	if processor.minPriority != 1 {
+		t.Errorf("minPriority = %d, want 1", processor.minPriority)
 	}
 }
 
@@ -208,7 +167,7 @@ func TestTruncateText(t *testing.T) {
 
 func TestProcessStatusChecks(t *testing.T) {
 	processor := &FeedbackProcessor{
-		rules: DefaultFeedbackRules(),
+		minPriority: 2,
 	}
 
 	status := &github.PRStatus{
@@ -263,7 +222,7 @@ func TestProcessStatusChecks(t *testing.T) {
 
 func TestProcessWorkflowRuns(t *testing.T) {
 	processor := &FeedbackProcessor{
-		rules: DefaultFeedbackRules(),
+		minPriority: 2,
 	}
 
 	status := &github.PRStatus{
@@ -314,7 +273,7 @@ func TestProcessWorkflowRuns(t *testing.T) {
 
 func TestProcessReviews(t *testing.T) {
 	processor := &FeedbackProcessor{
-		rules: DefaultFeedbackRules(),
+		minPriority: 2,
 	}
 
 	status := &github.PRStatus{
@@ -378,15 +337,8 @@ func TestProcessReviews(t *testing.T) {
 
 func TestFilterByMinimumPriority(t *testing.T) {
 	processor := &FeedbackProcessor{
-		client: &github.Client{},
-		rules: &FeedbackRules{
-			CreateBeadForFailedChecks:   true,
-			CreateBeadForTestFailures:   true,
-			CreateBeadForLintErrors:     true,
-			CreateBeadForReviewComments: true,
-			IgnoreDraftPRs:              false,
-			MinimumPriority:             2, // Only priority 0, 1, 2
-		},
+		client:      &github.Client{},
+		minPriority: 2, // Only priority 0, 1, 2
 	}
 
 	// Create mock feedback items with different priorities
@@ -402,7 +354,7 @@ func TestFilterByMinimumPriority(t *testing.T) {
 	// Simulate the filtering logic from ProcessPRFeedback
 	filtered := make([]github.FeedbackItem, 0, len(items))
 	for _, item := range items {
-		if item.Priority <= processor.rules.MinimumPriority && item.Actionable {
+		if item.Priority <= processor.minPriority && item.Actionable {
 			filtered = append(filtered, item)
 		}
 	}
@@ -417,71 +369,6 @@ func TestFilterByMinimumPriority(t *testing.T) {
 		if filtered[i].Title != title {
 			t.Errorf("Item %d title = %s, want %s", i, filtered[i].Title, title)
 		}
-	}
-}
-
-func TestShouldCreateBeadForWorkflow(t *testing.T) {
-	tests := []struct {
-		name         string
-		rules        *FeedbackRules
-		feedbackType github.FeedbackType
-		expected     bool
-	}{
-		{
-			name: "Test failure with test beads enabled",
-			rules: &FeedbackRules{
-				CreateBeadForTestFailures: true,
-				CreateBeadForFailedChecks: false,
-				CreateBeadForLintErrors:   false,
-			},
-			feedbackType: github.FeedbackTypeTest,
-			expected:     true,
-		},
-		{
-			name: "Test failure with test beads disabled",
-			rules: &FeedbackRules{
-				CreateBeadForTestFailures: false,
-			},
-			feedbackType: github.FeedbackTypeTest,
-			expected:     false,
-		},
-		{
-			name: "Lint error with lint beads enabled",
-			rules: &FeedbackRules{
-				CreateBeadForLintErrors: true,
-			},
-			feedbackType: github.FeedbackTypeLint,
-			expected:     true,
-		},
-		{
-			name: "Build failure with failed checks enabled",
-			rules: &FeedbackRules{
-				CreateBeadForFailedChecks: true,
-			},
-			feedbackType: github.FeedbackTypeBuild,
-			expected:     true,
-		},
-		{
-			name: "Security issue (always created)",
-			rules: &FeedbackRules{
-				CreateBeadForFailedChecks: false,
-				CreateBeadForTestFailures: false,
-				CreateBeadForLintErrors:   false,
-			},
-			feedbackType: github.FeedbackTypeSecurity,
-			expected:     true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			processor := &FeedbackProcessor{rules: tt.rules}
-			result := processor.shouldCreateBeadForWorkflow(tt.feedbackType)
-			if result != tt.expected {
-				t.Errorf("shouldCreateBeadForWorkflow(%v) = %v, want %v",
-					tt.feedbackType, result, tt.expected)
-			}
-		})
 	}
 }
 
@@ -633,7 +520,7 @@ func TestExtractTitleFromComment(t *testing.T) {
 
 func TestProcessComments(t *testing.T) {
 	processor := &FeedbackProcessor{
-		rules: DefaultFeedbackRules(),
+		minPriority: 2,
 	}
 
 	status := &github.PRStatus{

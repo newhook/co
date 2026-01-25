@@ -30,9 +30,9 @@ type Integration struct {
 }
 
 // NewIntegration creates a new feedback integration.
-func NewIntegration(rules *FeedbackRules) *Integration {
+func NewIntegration(minPriority int) *Integration {
 	client := github.NewClient()
-	processor := NewFeedbackProcessor(client, rules)
+	processor := NewFeedbackProcessor(client, minPriority)
 
 	return &Integration{
 		client:    client,

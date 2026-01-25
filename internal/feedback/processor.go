@@ -8,48 +8,17 @@ import (
 	"github.com/newhook/co/internal/github"
 )
 
-// FeedbackRules defines configurable rules for feedback processing.
-type FeedbackRules struct {
-	// CreateBeadForFailedChecks creates beads for failed status checks
-	CreateBeadForFailedChecks bool
-	// CreateBeadForTestFailures creates beads for test failures
-	CreateBeadForTestFailures bool
-	// CreateBeadForLintErrors creates beads for lint errors
-	CreateBeadForLintErrors bool
-	// CreateBeadForReviewComments creates beads for review comments requesting changes
-	CreateBeadForReviewComments bool
-	// IgnoreDraftPRs skips processing for draft PRs
-	IgnoreDraftPRs bool
-	// MinimumPriority sets the minimum priority for created beads (0-4)
-	MinimumPriority int
-}
-
-// DefaultFeedbackRules returns default feedback processing rules.
-func DefaultFeedbackRules() *FeedbackRules {
-	return &FeedbackRules{
-		CreateBeadForFailedChecks:   true,
-		CreateBeadForTestFailures:   true,
-		CreateBeadForLintErrors:     true,
-		CreateBeadForReviewComments: true,
-		IgnoreDraftPRs:              true,
-		MinimumPriority:             2, // Default to medium priority
-	}
-}
-
 // FeedbackProcessor processes PR feedback and generates actionable items.
 type FeedbackProcessor struct {
-	client *github.Client
-	rules  *FeedbackRules
+	client      *github.Client
+	minPriority int
 }
 
 // NewFeedbackProcessor creates a new feedback processor.
-func NewFeedbackProcessor(client *github.Client, rules *FeedbackRules) *FeedbackProcessor {
-	if rules == nil {
-		rules = DefaultFeedbackRules()
-	}
+func NewFeedbackProcessor(client *github.Client, minPriority int) *FeedbackProcessor {
 	return &FeedbackProcessor{
-		client: client,
-		rules:  rules,
+		client:      client,
+		minPriority: minPriority,
 	}
 }
 
@@ -61,28 +30,24 @@ func (p *FeedbackProcessor) ProcessPRFeedback(ctx context.Context, prURL string)
 		return nil, fmt.Errorf("failed to fetch PR status: %w", err)
 	}
 
-	// Skip draft PRs if configured
-	if p.rules.IgnoreDraftPRs && strings.EqualFold(status.State, "draft") {
+	// Skip draft PRs
+	if strings.EqualFold(status.State, "draft") {
 		return nil, nil
 	}
 
 	var items []github.FeedbackItem
 
 	// Process status checks
-	if p.rules.CreateBeadForFailedChecks {
-		checkItems := p.processStatusChecks(status)
-		items = append(items, checkItems...)
-	}
+	checkItems := p.processStatusChecks(status)
+	items = append(items, checkItems...)
 
 	// Process workflow runs
 	workflowItems := p.processWorkflowRuns(status)
 	items = append(items, workflowItems...)
 
 	// Process reviews
-	if p.rules.CreateBeadForReviewComments {
-		reviewItems := p.processReviews(status)
-		items = append(items, reviewItems...)
-	}
+	reviewItems := p.processReviews(status)
+	items = append(items, reviewItems...)
 
 	// Process general comments
 	commentItems := p.processComments(status)
@@ -91,7 +56,7 @@ func (p *FeedbackProcessor) ProcessPRFeedback(ctx context.Context, prURL string)
 	// Filter by minimum priority
 	filtered := make([]github.FeedbackItem, 0, len(items))
 	for _, item := range items {
-		if item.Priority <= p.rules.MinimumPriority && item.Actionable {
+		if item.Priority <= p.minPriority && item.Actionable {
 			filtered = append(filtered, item)
 		}
 	}
@@ -168,10 +133,7 @@ func (p *FeedbackProcessor) processWorkflowRuns(status *github.PRStatus) []githu
 					},
 				}
 
-				// Only create beads for relevant failure types
-				if p.shouldCreateBeadForWorkflow(feedbackType) {
-					items = append(items, item)
-				}
+				items = append(items, item)
 			}
 		}
 	}
@@ -357,19 +319,6 @@ func (p *FeedbackProcessor) extractWorkflowFailures(workflow github.WorkflowRun)
 	}
 
 	return failures
-}
-
-func (p *FeedbackProcessor) shouldCreateBeadForWorkflow(feedbackType github.FeedbackType) bool {
-	switch feedbackType {
-	case github.FeedbackTypeTest:
-		return p.rules.CreateBeadForTestFailures
-	case github.FeedbackTypeLint:
-		return p.rules.CreateBeadForLintErrors
-	case github.FeedbackTypeBuild, github.FeedbackTypeCI:
-		return p.rules.CreateBeadForFailedChecks
-	default:
-		return true
-	}
 }
 
 func (p *FeedbackProcessor) isActionableComment(body string) bool {
