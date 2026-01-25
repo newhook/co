@@ -297,7 +297,7 @@ func (db *DB) ScheduleTaskWithRetry(ctx context.Context, workID, taskType string
 		maxAttempts = DefaultMaxAttempts
 	}
 
-	err := db.queries.CreateScheduledTaskWithRetry(ctx, sqlc.CreateScheduledTaskWithRetryParams{
+	err = db.queries.CreateScheduledTaskWithRetry(ctx, sqlc.CreateScheduledTaskWithRetryParams{
 		ID:             id,
 		WorkID:         workID,
 		TaskType:       taskType,
