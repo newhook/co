@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
-	"github.com/newhook/co/internal/process"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
@@ -537,23 +537,23 @@ func SpawnPlanSession(ctx context.Context, beadID string, projectName string, ma
 // This is used for resilience - if the orchestrator crashes or is killed, it can be restarted.
 // Returns true if the orchestrator was spawned, false if it was already running.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func EnsureWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) (bool, error) {
+// The database parameter is used to check orchestrator heartbeat status.
+func EnsureWorkOrchestrator(ctx context.Context, database *db.DB, workID string, projectName string, workDir string, friendlyName string, w io.Writer) (bool, error) {
 	sessionName := SessionNameForProject(projectName)
 	tabName := FormatTabName("work", workID, friendlyName)
 
 	// Check if the tab already exists
 	if TabExists(ctx, sessionName, tabName) {
 		// Tab exists, but we need to check if the orchestrator is actually running
-		// Check for running orchestrator process
-		pattern := fmt.Sprintf("co orchestrate --work %s", workID)
-		if running, err := process.IsProcessRunning(ctx, pattern); err == nil && running {
-			// Process is running
-			fmt.Fprintf(w, "Work orchestrator tab %s already exists and process is running\n", tabName)
+		// Check for orchestrator heartbeat in database
+		if alive, err := database.IsOrchestratorAlive(ctx, workID, db.DefaultStalenessThreshold); err == nil && alive {
+			// Orchestrator is alive
+			fmt.Fprintf(w, "Work orchestrator tab %s already exists and orchestrator is alive\n", tabName)
 			return false, nil
 		}
 
-		// Tab exists but process is not running - orchestrator is dead
-		fmt.Fprintf(w, "Work orchestrator tab %s exists but process is dead - restarting...\n", tabName)
+		// Tab exists but orchestrator is dead - restart
+		fmt.Fprintf(w, "Work orchestrator tab %s exists but orchestrator is dead - restarting...\n", tabName)
 
 		// Try to close the dead tab first
 		zc := zellij.New()

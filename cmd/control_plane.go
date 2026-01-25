@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/newhook/co/internal/control"
+	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/procmon"
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -43,10 +45,17 @@ func runControlPlane(cmd *cobra.Command, args []string) error {
 	// Apply hooks.env to current process - inherited by child processes
 	applyHooksEnv(proj.Config.Hooks.Env)
 
+	// Register this control plane process for heartbeat monitoring
+	procManager := procmon.NewManager(proj.DB, db.DefaultHeartbeatInterval)
+	if err := procManager.RegisterControlPlane(ctx); err != nil {
+		return fmt.Errorf("failed to register control plane: %w", err)
+	}
+	defer procManager.Stop()
+
 	fmt.Println("=== Control Plane Started ===")
 	fmt.Printf("Project: %s\n", proj.Config.Project.Name)
 	fmt.Println("Watching for scheduled tasks across all works...")
 
 	// Start the control plane loop
-	return control.RunControlPlaneLoop(ctx, proj)
+	return control.RunControlPlaneLoop(ctx, proj, procManager)
 }

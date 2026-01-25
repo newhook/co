@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/claude"
+	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
-	"github.com/newhook/co/internal/process"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
@@ -56,7 +56,6 @@ func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 // EnsureControlPlane ensures the control plane is running, spawning it if needed
 func EnsureControlPlane(ctx context.Context, proj *project.Project) error {
 	projectName := proj.Config.Project.Name
-	projectRoot := proj.Root
 	sessionName := claude.SessionNameForProject(projectName)
 	zc := zellij.New()
 
@@ -83,13 +82,13 @@ func EnsureControlPlane(ctx context.Context, proj *project.Project) error {
 		return nil
 	}
 
-	// Tab exists - check if process is running for this specific project
-	running, err := IsControlPlaneRunning(ctx, projectRoot)
+	// Tab exists - check if control plane has a recent heartbeat
+	alive, err := proj.DB.IsControlPlaneAlive(ctx, db.DefaultStalenessThreshold)
 	if err != nil {
-		return fmt.Errorf("failed to check control plane running state: %w", err)
+		return fmt.Errorf("failed to check control plane status: %w", err)
 	}
-	if running {
-		// Process is running
+	if alive {
+		// Control plane is alive
 		return nil
 	}
 
@@ -111,12 +110,12 @@ func EnsureControlPlane(ctx context.Context, proj *project.Project) error {
 	return nil
 }
 
-// IsControlPlaneRunning checks if the control plane is running for a specific project
-func IsControlPlaneRunning(ctx context.Context, projectRoot string) (bool, error) {
-	pattern := fmt.Sprintf("co control --root %s", projectRoot)
-	running, err := process.IsProcessRunning(ctx, pattern)
+// IsControlPlaneRunning checks if the control plane is running using database heartbeat.
+// Deprecated: Use proj.DB.IsControlPlaneAlive directly instead.
+func IsControlPlaneRunning(ctx context.Context, proj *project.Project) (bool, error) {
+	alive, err := proj.DB.IsControlPlaneAlive(ctx, db.DefaultStalenessThreshold)
 	if err != nil {
-		return false, fmt.Errorf("failed to check control plane process: %w", err)
+		return false, fmt.Errorf("failed to check control plane status: %w", err)
 	}
-	return running, nil
+	return alive, nil
 }

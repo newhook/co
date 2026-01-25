@@ -57,7 +57,7 @@ func RunWorkWithOptions(ctx context.Context, proj *project.Project, workID strin
 	}
 
 	// Ensure orchestrator is running
-	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, w)
+	spawned, err := claude.EnsureWorkOrchestrator(ctx, proj.DB, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure orchestrator: %w", err)
 	}
@@ -108,7 +108,7 @@ func RunWorkAuto(ctx context.Context, proj *project.Project, workID string, w io
 	}
 
 	// Ensure orchestrator is running
-	spawned, err := claude.EnsureWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, w)
+	spawned, err := claude.EnsureWorkOrchestrator(ctx, proj.DB, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure orchestrator: %w", err)
 	}
