@@ -71,7 +71,7 @@ func RunControlPlaneLoop(ctx context.Context, proj *project.Project, procManager
 		case <-cleanupTimer.C:
 			// Periodic cleanup of stale processes
 			logging.Debug("Control plane cleaning up stale processes")
-			if err := procManager.KillStaleProcesses(ctx); err != nil {
+			if err := procManager.CleanupStaleProcessRecords(ctx); err != nil {
 				logging.Warn("failed to cleanup stale processes", "error", err)
 			}
 			cleanupTimer.Reset(cleanupInterval)

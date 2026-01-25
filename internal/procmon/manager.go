@@ -141,9 +141,9 @@ func (m *Manager) IsControlPlaneAlive(ctx context.Context) (bool, error) {
 	return m.db.IsControlPlaneAlive(ctx, db.DefaultStalenessThreshold)
 }
 
-// KillStaleProcesses removes processes with stale heartbeats.
+// CleanupStaleProcessRecords removes database records for processes with stale heartbeats.
 // This should be called periodically by a cleanup routine.
-func (m *Manager) KillStaleProcesses(ctx context.Context) error {
+func (m *Manager) CleanupStaleProcessRecords(ctx context.Context) error {
 	staleProcs, err := m.db.GetStaleProcesses(ctx, db.DefaultStalenessThreshold)
 	if err != nil {
 		return fmt.Errorf("failed to get stale processes: %w", err)
