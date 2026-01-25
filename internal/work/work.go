@@ -121,7 +121,7 @@ func CreateWorkAsync(ctx context.Context, proj *project.Project, branchName, bas
 	if auto {
 		autoStr = "true"
 	}
-	_, err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeCreateWorktree, time.Now(), map[string]string{
+	err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeCreateWorktree, time.Now(), map[string]string{
 		"branch":        branchName,
 		"base_branch":   baseBranch,
 		"root_issue_id": rootIssueID,

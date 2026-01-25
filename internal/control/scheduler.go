@@ -14,7 +14,7 @@ import (
 // This is the preferred way to destroy a worktree as it runs asynchronously with retry support.
 func ScheduleDestroyWorktree(ctx context.Context, proj *project.Project, workID string) error {
 	idempotencyKey := fmt.Sprintf("destroy-worktree-%s", workID)
-	_, err := proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeDestroyWorktree, time.Now(), nil, idempotencyKey, db.DefaultMaxAttempts)
+	err := proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeDestroyWorktree, time.Now(), nil, idempotencyKey, db.DefaultMaxAttempts)
 	if err != nil {
 		return fmt.Errorf("failed to schedule destroy worktree task: %w", err)
 	}

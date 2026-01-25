@@ -86,7 +86,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		logging.Debug("executeCreateWork beads added successfully", "workID", result.WorkID)
 
 		// Ensure control plane is running to process the worktree creation task
-		_, err = control.EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
+		err = control.EnsureControlPlane(m.ctx, m.proj)
 		if err != nil {
 			// Non-fatal: work was created but control plane might need manual start
 			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but control plane failed: %w", err)}
@@ -272,7 +272,10 @@ func (m *planModel) openConsole() tea.Cmd {
 		}
 
 		// Ensure control plane is running
-		control.EnsureControlPlane(m.ctx, m.proj.Config.Project.Name, m.proj.Root, io.Discard)
+		err = control.EnsureControlPlane(m.ctx, m.proj)
+		if err != nil {
+			return workCommandMsg{action: "Control plane", workID: workID, err: err}
+		}
 
 		return workCommandMsg{action: "Open console", workID: workID}
 	}

@@ -3,11 +3,12 @@ package control
 import (
 	"context"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/newhook/co/internal/claude"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/process"
+	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/zellij"
 )
 
@@ -15,7 +16,9 @@ import (
 const TabName = "control"
 
 // SpawnControlPlane spawns the control plane in a zellij tab
-func SpawnControlPlane(ctx context.Context, projectName string, projectRoot string, w io.Writer) error {
+func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
+	projectName := proj.Config.Project.Name
+	projectRoot := proj.Root
 	sessionName := claude.SessionNameForProject(projectName)
 	zc := zellij.New()
 
@@ -27,7 +30,6 @@ func SpawnControlPlane(ctx context.Context, projectName string, projectRoot stri
 	// Check if control plane tab already exists
 	tabExists, _ := zc.TabExists(ctx, sessionName, TabName)
 	if tabExists {
-		fmt.Fprintf(w, "Control plane tab already exists\n")
 		return nil
 	}
 
@@ -35,55 +37,64 @@ func SpawnControlPlane(ctx context.Context, projectName string, projectRoot stri
 	controlPlaneCommand := fmt.Sprintf("co control --root %s", projectRoot)
 
 	// Create a new tab
-	fmt.Fprintf(w, "Creating control plane tab in session %s\n", sessionName)
 	if err := zc.CreateTab(ctx, sessionName, TabName, projectRoot); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
 	// Switch to the tab and execute
 	if err := zc.SwitchToTab(ctx, sessionName, TabName); err != nil {
-		fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
+		return fmt.Errorf("switching to tab failed: %w", err)
 	}
 
-	fmt.Fprintf(w, "Executing: %s\n", controlPlaneCommand)
 	if err := zc.ExecuteCommand(ctx, sessionName, controlPlaneCommand); err != nil {
 		return fmt.Errorf("failed to execute control plane command: %w", err)
 	}
 
-	fmt.Fprintf(w, "Control plane spawned in zellij session %s, tab %s\n", sessionName, TabName)
 	return nil
 }
 
 // EnsureControlPlane ensures the control plane is running, spawning it if needed
-func EnsureControlPlane(ctx context.Context, projectName string, projectRoot string, w io.Writer) (bool, error) {
+func EnsureControlPlane(ctx context.Context, proj *project.Project) error {
+	projectName := proj.Config.Project.Name
+	projectRoot := proj.Root
 	sessionName := claude.SessionNameForProject(projectName)
 	zc := zellij.New()
 
 	// Check if session exists
-	exists, _ := zc.SessionExists(ctx, sessionName)
+	exists, err := zc.SessionExists(ctx, sessionName)
+	if err != nil {
+		return fmt.Errorf("failed to check session existence: %w", err)
+	}
 	if !exists {
 		// No session yet - will be created when needed
-		return false, nil
+		return nil
 	}
 
 	// Check if control plane tab exists
-	tabExists, _ := zc.TabExists(ctx, sessionName, TabName)
+	tabExists, err := zc.TabExists(ctx, sessionName, TabName)
+	if err != nil {
+		return fmt.Errorf("failed to check tab existence: %w", err)
+	}
 	if !tabExists {
 		// No tab - spawn control plane
-		if err := SpawnControlPlane(ctx, projectName, projectRoot, w); err != nil {
-			return false, err
+		if err := SpawnControlPlane(ctx, proj); err != nil {
+			return err
 		}
-		return true, nil
+		return nil
 	}
 
 	// Tab exists - check if process is running for this specific project
-	if IsControlPlaneRunning(ctx, projectRoot) {
+	running, err := IsControlPlaneRunning(ctx, projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to check control plane running state: %w", err)
+	}
+	if running {
 		// Process is running
-		return false, nil
+		return nil
 	}
 
 	// Tab exists but process is dead - restart
-	fmt.Fprintf(w, "Control plane tab exists but process is dead - restarting...\n")
+	logging.Debug("Control plane tab exists but process is dead - restarting...")
 
 	// Try to close the dead tab first
 	if err := zc.SwitchToTab(ctx, sessionName, TabName); err == nil {
@@ -94,15 +105,18 @@ func EnsureControlPlane(ctx context.Context, projectName string, projectRoot str
 	}
 
 	// Spawn a new one
-	if err := SpawnControlPlane(ctx, projectName, projectRoot, w); err != nil {
-		return false, err
+	if err := SpawnControlPlane(ctx, proj); err != nil {
+		return err
 	}
-	return true, nil
+	return nil
 }
 
 // IsControlPlaneRunning checks if the control plane is running for a specific project
-func IsControlPlaneRunning(ctx context.Context, projectRoot string) bool {
+func IsControlPlaneRunning(ctx context.Context, projectRoot string) (bool, error) {
 	pattern := fmt.Sprintf("co control --root %s", projectRoot)
-	running, _ := process.IsProcessRunning(ctx, pattern)
-	return running
+	running, err := process.IsProcessRunning(ctx, pattern)
+	if err != nil {
+		return false, fmt.Errorf("failed to check control plane process: %w", err)
+	}
+	return running, nil
 }
