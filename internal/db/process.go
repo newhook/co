@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -58,6 +59,19 @@ func (db *DB) RegisterProcess(ctx context.Context, id, processType string, workI
 // UpdateHeartbeat updates the heartbeat timestamp for a process.
 func (db *DB) UpdateHeartbeat(ctx context.Context, id string) error {
 	err := db.queries.UpdateHeartbeat(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to update heartbeat: %w", err)
+	}
+	return nil
+}
+
+// UpdateHeartbeatWithTime updates the heartbeat timestamp for a process with an explicit time.
+// This is useful for testing where time needs to be controlled.
+func (db *DB) UpdateHeartbeatWithTime(ctx context.Context, id string, t time.Time) error {
+	err := db.queries.UpdateHeartbeatWithTime(ctx, sqlc.UpdateHeartbeatWithTimeParams{
+		Heartbeat: t,
+		ID:        id,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to update heartbeat: %w", err)
 	}
@@ -133,7 +147,7 @@ func (db *DB) UnregisterProcess(ctx context.Context, id string) error {
 func (db *DB) GetOrchestratorProcess(ctx context.Context, workID string) (*Process, error) {
 	row, err := db.queries.GetOrchestratorProcess(ctx, sql.NullString{String: workID, Valid: true})
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get orchestrator process: %w", err)
@@ -145,7 +159,7 @@ func (db *DB) GetOrchestratorProcess(ctx context.Context, workID string) (*Proce
 func (db *DB) GetControlPlaneProcess(ctx context.Context) (*Process, error) {
 	row, err := db.queries.GetControlPlaneProcess(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get control plane process: %w", err)

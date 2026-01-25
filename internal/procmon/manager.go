@@ -21,11 +21,13 @@ type Manager struct {
 	procType  string
 	workID    *string
 	heartbeat time.Duration
+	nowFunc   func() time.Time // For testing; defaults to time.Now
 
-	mu       sync.Mutex
-	running  bool
-	stopCh   chan struct{}
+	mu        sync.Mutex
+	running   bool
+	stopCh    chan struct{}
 	stoppedCh chan struct{}
+	triggerCh chan chan error // For testing: trigger immediate heartbeat
 }
 
 // NewManager creates a new process manager.
@@ -36,7 +38,14 @@ func NewManager(database *db.DB, heartbeatInterval time.Duration) *Manager {
 	return &Manager{
 		db:        database,
 		heartbeat: heartbeatInterval,
+		nowFunc:   time.Now,
 	}
+}
+
+// SetNowFunc sets the time function used for heartbeat updates.
+// This is primarily for testing purposes.
+func (m *Manager) SetNowFunc(f func() time.Time) {
+	m.nowFunc = f
 }
 
 // RegisterControlPlane registers this process as the control plane.
@@ -90,6 +99,7 @@ func (m *Manager) startHeartbeat() {
 	m.running = true
 	m.stopCh = make(chan struct{})
 	m.stoppedCh = make(chan struct{})
+	m.triggerCh = make(chan chan error)
 
 	go func() {
 		defer close(m.stoppedCh)
@@ -101,12 +111,31 @@ func (m *Manager) startHeartbeat() {
 			case <-m.stopCh:
 				return
 			case <-ticker.C:
-				if err := m.db.UpdateHeartbeat(context.Background(), m.id); err != nil {
+				if err := m.db.UpdateHeartbeatWithTime(context.Background(), m.id, m.nowFunc()); err != nil {
 					logging.Warn("failed to update heartbeat", "id", m.id, "error", err)
 				}
+			case resultCh := <-m.triggerCh:
+				err := m.db.UpdateHeartbeatWithTime(context.Background(), m.id, m.nowFunc())
+				resultCh <- err
 			}
 		}
 	}()
+}
+
+// TriggerHeartbeat forces an immediate heartbeat update and waits for it to complete.
+// This is primarily for testing purposes to avoid time-based sleeps.
+func (m *Manager) TriggerHeartbeat() error {
+	m.mu.Lock()
+	if !m.running {
+		m.mu.Unlock()
+		return fmt.Errorf("manager not running")
+	}
+	triggerCh := m.triggerCh
+	m.mu.Unlock()
+
+	resultCh := make(chan error, 1)
+	triggerCh <- resultCh
+	return <-resultCh
 }
 
 // Stop gracefully shuts down the manager and unregisters the process.
@@ -141,9 +170,9 @@ func (m *Manager) IsControlPlaneAlive(ctx context.Context) (bool, error) {
 	return m.db.IsControlPlaneAlive(ctx, db.DefaultStalenessThreshold)
 }
 
-// KillStaleProcesses removes processes with stale heartbeats.
+// CleanupStaleProcessRecords removes database records for processes with stale heartbeats.
 // This should be called periodically by a cleanup routine.
-func (m *Manager) KillStaleProcesses(ctx context.Context) error {
+func (m *Manager) CleanupStaleProcessRecords(ctx context.Context) error {
 	staleProcs, err := m.db.GetStaleProcesses(ctx, db.DefaultStalenessThreshold)
 	if err != nil {
 		return fmt.Errorf("failed to get stale processes: %w", err)

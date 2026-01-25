@@ -11,6 +11,11 @@ UPDATE processes
 SET heartbeat = CURRENT_TIMESTAMP
 WHERE id = ?;
 
+-- name: UpdateHeartbeatWithTime :exec
+UPDATE processes
+SET heartbeat = ?
+WHERE id = ?;
+
 -- name: GetProcess :one
 SELECT * FROM processes WHERE id = ?;
 
