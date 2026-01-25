@@ -1,0 +1,32 @@
+pre-commit:
+  parallel: true
+  commands:
+    trailing-whitespace:
+      glob: "*.{go,md,yaml,yml,toml,json}"
+      run: |
+        for file in {staged_files}; do
+          if [ -f "$file" ]; then
+            sed -i '' 's/[[:space:]]*$//' "$file"
+            git add "$file"
+          fi
+        done
+
+    end-of-file-fixer:
+      glob: "*.{go,md,yaml,yml,toml,json}"
+      run: |
+        for file in {staged_files}; do
+          if [ -f "$file" ] && [ -s "$file" ]; then
+            if [ "$(tail -c1 "$file" | wc -l)" -eq 0 ]; then
+              echo "" >> "$file"
+              git add "$file"
+            fi
+          fi
+        done
+
+    check-yaml:
+      glob: "*.{yaml,yml}"
+      run: yq eval '.' {staged_files} > /dev/null
+
+    golangci-lint:
+      glob: "*.go"
+      run: golangci-lint run --timeout=5m --new-from-rev=HEAD~1 {staged_files}

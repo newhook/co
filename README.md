@@ -602,6 +602,14 @@ co/
 
 ## Development
 
+### Setup
+
+```bash
+mise install && lefthook install
+```
+
+This installs development tools and git hooks for linting.
+
 ### Run Tests
 
 ```bash
