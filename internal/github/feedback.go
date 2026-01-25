@@ -66,11 +66,6 @@ func (f FeedbackItem) GetSourceName() string {
 	}
 }
 
-// GetSourceURL returns the URL to the source item.
-func (f FeedbackItem) GetSourceURL() string {
-	return f.Source.URL
-}
-
 // ToFeedbackContext creates a FeedbackContext from the item's typed context fields.
 func (f FeedbackItem) ToFeedbackContext() *FeedbackContext {
 	ctx := &FeedbackContext{

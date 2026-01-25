@@ -13,29 +13,32 @@ import (
 	"github.com/newhook/co/internal/beads"
 )
 
+// BeadInfo represents information for creating a bead.
+type BeadInfo struct {
+	Title       string
+	Description string
+	Type        string // task, bug, feature
+	Priority    int    // 0-4
+	ParentID    string // Parent issue ID (root_issue_id)
+	Labels      []string
+	Metadata    map[string]string
+}
+
 // Integration handles the integration between GitHub PR feedback and beads.
 type Integration struct {
 	client    *Client
 	processor *FeedbackProcessor
-	creator   *BeadCreator
 }
 
 // NewIntegration creates a new GitHub integration.
 func NewIntegration(rules *FeedbackRules) *Integration {
 	client := NewClient()
 	processor := NewFeedbackProcessor(client, rules)
-	creator := NewBeadCreator(processor)
 
 	return &Integration{
 		client:    client,
 		processor: processor,
-		creator:   creator,
 	}
-}
-
-// ProcessPRFeedback processes PR feedback and returns bead info.
-func (i *Integration) ProcessPRFeedback(ctx context.Context, prURL, rootIssueID string) ([]BeadInfo, error) {
-	return i.creator.ProcessPRAndCreateBeadInfo(ctx, prURL, rootIssueID)
 }
 
 // extractGitHubID extracts a GitHub identifier from a URL
@@ -218,25 +221,6 @@ func (i *Integration) CreateBeadFromFeedback(ctx context.Context, beadDir string
 	return beadID, nil
 }
 
-// AddBeadToWork adds a bead to a work using the work_beads table.
-// The beadsClient is used to verify the bead exists.
-func (i *Integration) AddBeadToWork(ctx context.Context, beadsClient *beads.Client, workID, beadID string) error {
-	// This would typically be done through the database, but since we're using
-	// the bd CLI as the source of truth, we need to ensure the bead is properly
-	// tracked in the work_beads table. This is handled by the orchestrator.
-	// For now, we'll just verify the bead exists.
-
-	bead, err := beadsClient.GetBead(ctx, beadID)
-	if err != nil {
-		return fmt.Errorf("failed to check bead %s: %w", beadID, err)
-	}
-	if bead == nil {
-		return fmt.Errorf("bead %s not found", beadID)
-	}
-
-	return nil
-}
-
 // FetchAndStoreFeedback fetches PR feedback and stores it in the database.
 // This is called by the orchestrator to populate the pr_feedback table.
 func (i *Integration) FetchAndStoreFeedback(ctx context.Context, prURL string) ([]FeedbackItem, error) {
@@ -409,102 +393,4 @@ func ApproversFromJSON(jsonStr string) []string {
 		return []string{}
 	}
 	return approvers
-}
-
-// PollPRStatus polls a PR for status changes.
-func (i *Integration) PollPRStatus(ctx context.Context, prURL string, interval time.Duration, callback func(*PRStatus) error) error {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			status, err := i.client.GetPRStatus(ctx, prURL)
-			if err != nil {
-				// Log error but continue polling
-				fmt.Printf("Error fetching PR status: %v\n", err)
-				continue
-			}
-
-			if err := callback(status); err != nil {
-				return err
-			}
-
-			// Stop polling if PR is closed or merged
-			if status.State == "CLOSED" || status.State == "MERGED" {
-				return nil
-			}
-		}
-	}
-}
-
-// CheckForNewFeedback checks if there's new feedback since the last check.
-func (i *Integration) CheckForNewFeedback(ctx context.Context, prURL string, lastCheck time.Time) ([]FeedbackItem, error) {
-	allFeedback, err := i.processor.ProcessPRFeedback(ctx, prURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter for feedback created after lastCheck
-	var newFeedback []FeedbackItem
-	for _, item := range allFeedback {
-		// Since FeedbackItem doesn't have a timestamp, we'd need to enhance
-		// the structure or track this differently. For now, return all feedback.
-		// In a real implementation, we'd check timestamps from the API responses.
-		newFeedback = append(newFeedback, item)
-	}
-
-	return newFeedback, nil
-}
-
-// ResolveFeedback marks feedback as resolved when its associated bead is completed.
-// The beadsClient is used to check the bead's status.
-func (i *Integration) ResolveFeedback(ctx context.Context, beadsClient *beads.Client, beadID string) error {
-	// Check if the bead is closed
-	bead, err := beadsClient.GetBead(ctx, beadID)
-	if err != nil {
-		return fmt.Errorf("failed to check bead status: %w", err)
-	}
-	if bead == nil {
-		return fmt.Errorf("bead %s not found", beadID)
-	}
-
-	// Check if the bead is closed
-	if bead.Status == beads.StatusClosed {
-		return nil
-	}
-
-	return fmt.Errorf("bead %s is not closed (status: %s)", beadID, bead.Status)
-}
-
-// CreateBeadsForWork creates beads for all unprocessed feedback for a work.
-func (i *Integration) CreateBeadsForWork(ctx context.Context, beadDir string, beadsClient *beads.Client, workID, prURL, rootIssueID string) ([]string, error) {
-	// Fetch all feedback
-	beadInfos, err := i.ProcessPRFeedback(ctx, prURL, rootIssueID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process PR feedback: %w", err)
-	}
-
-	var createdBeadIDs []string
-
-	// Create beads for each feedback item
-	for _, beadInfo := range beadInfos {
-		beadID, err := i.CreateBeadFromFeedback(ctx, beadDir, beadInfo)
-		if err != nil {
-			// Log error but continue with other beads
-			fmt.Printf("Failed to create bead for '%s': %v\n", beadInfo.Title, err)
-			continue
-		}
-
-		createdBeadIDs = append(createdBeadIDs, beadID)
-
-		// Add bead to work
-		if err := i.AddBeadToWork(ctx, beadsClient, workID, beadID); err != nil {
-			fmt.Printf("Failed to add bead %s to work %s: %v\n", beadID, workID, err)
-		}
-	}
-
-	return createdBeadIDs, nil
 }

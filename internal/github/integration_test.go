@@ -2,12 +2,8 @@ package github
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
-	"time"
-
-	"github.com/newhook/co/internal/beads"
 )
 
 func TestNewIntegration(t *testing.T) {
@@ -22,14 +18,11 @@ func TestNewIntegration(t *testing.T) {
 	if integration.processor == nil {
 		t.Error("integration.processor should not be nil")
 	}
-	if integration.creator == nil {
-		t.Error("integration.creator should not be nil")
-	}
 
 	// Test with custom rules
 	customRules := &FeedbackRules{
 		CreateBeadForFailedChecks: false,
-		MinimumPriority:          1,
+		MinimumPriority:           1,
 	}
 	integration = NewIntegration(customRules)
 	if integration.processor.rules.CreateBeadForFailedChecks {
@@ -70,31 +63,6 @@ func TestFetchAndStoreFeedback(t *testing.T) {
 	})
 }
 
-func TestProcessPRFeedback(t *testing.T) {
-	integration := NewIntegration(nil)
-	ctx := context.Background()
-	prURL := "https://github.com/user/repo/pull/123"
-	rootIssueID := "beads-123"
-
-	t.Run("Valid inputs", func(t *testing.T) {
-		// Skip if no GitHub token is available
-		t.Skip("Skipping test that requires GitHub API access")
-
-		beadInfos, err := integration.ProcessPRFeedback(ctx, prURL, rootIssueID)
-		if err == nil {
-			if beadInfos == nil {
-				t.Error("Expected bead infos, got nil")
-			}
-			// Check that parent IDs are set correctly
-			for _, info := range beadInfos {
-				if info.ParentID != rootIssueID {
-					t.Errorf("Expected ParentID to be %s, got %s", rootIssueID, info.ParentID)
-				}
-			}
-		}
-	})
-}
-
 func TestCreateBeadFromFeedback(t *testing.T) {
 	integration := NewIntegration(nil)
 	ctx := context.Background()
@@ -107,7 +75,7 @@ func TestCreateBeadFromFeedback(t *testing.T) {
 		ParentID:    "beads-123",
 		Labels:      []string{"test-failure", "from-pr-feedback"},
 		Metadata: map[string]string{
-			"source": "CI: test-suite",
+			"source":        "CI: test-suite",
 			"feedback_type": "test_failure",
 		},
 	}
@@ -137,151 +105,6 @@ func TestCreateBeadFromFeedback(t *testing.T) {
 		_, err := integration.CreateBeadFromFeedback(ctx, t.TempDir(), invalidInfo)
 		if err == nil {
 			t.Error("Expected error for empty title")
-		}
-	})
-}
-
-func TestAddBeadToWork(t *testing.T) {
-	integration := NewIntegration(nil)
-	ctx := context.Background()
-
-	t.Run("Add existing bead", func(t *testing.T) {
-		// This test requires a beads.Client and existing beads
-		t.Skip("Skipping test that requires beads.Client and existing data")
-
-		// Would need: beadsClient, _ := beads.NewClient(ctx, beads.DefaultClientConfig(dbPath))
-		var beadsClient *beads.Client // nil for skipped test
-		err := integration.AddBeadToWork(ctx, beadsClient, "w-abc", "beads-123")
-		// The actual implementation just verifies the bead exists
-		// Real work addition is handled by the orchestrator
-		if err != nil {
-			// Expected if bead doesn't exist
-			t.Logf("Error (expected if bead doesn't exist): %v", err)
-		}
-	})
-
-	t.Run("Add non-existent bead", func(t *testing.T) {
-		// This test requires a beads.Client
-		t.Skip("Skipping test that requires beads.Client")
-
-		var beadsClient *beads.Client // nil for skipped test
-		err := integration.AddBeadToWork(ctx, beadsClient, "w-abc", "beads-nonexistent")
-		if err == nil {
-			t.Error("Expected error for non-existent bead")
-		}
-	})
-}
-
-func TestCheckForNewFeedback(t *testing.T) {
-	integration := NewIntegration(nil)
-	ctx := context.Background()
-	prURL := "https://github.com/user/repo/pull/123"
-	lastCheck := time.Now().Add(-1 * time.Hour)
-
-	t.Run("Check for new feedback", func(t *testing.T) {
-		// Skip if no GitHub token is available
-		t.Skip("Skipping test that requires GitHub API access")
-
-		items, err := integration.CheckForNewFeedback(ctx, prURL, lastCheck)
-		if err == nil {
-			if items == nil {
-				t.Error("Expected feedback items (even if empty), got nil")
-			}
-		}
-	})
-}
-
-func TestResolveFeedback(t *testing.T) {
-	integration := NewIntegration(nil)
-	ctx := context.Background()
-
-	t.Run("Resolve closed bead", func(t *testing.T) {
-		// This test requires a beads.Client and a closed bead
-		t.Skip("Skipping test that requires beads.Client and existing data")
-
-		var beadsClient *beads.Client // nil for skipped test
-		err := integration.ResolveFeedback(ctx, beadsClient, "beads-123")
-		// Will fail if bead doesn't exist or isn't closed
-		if err != nil {
-			t.Logf("Error (expected if bead doesn't exist or isn't closed): %v", err)
-		}
-	})
-
-	t.Run("Resolve open bead", func(t *testing.T) {
-		// This test requires a beads.Client and an open bead
-		t.Skip("Skipping test that requires beads.Client and existing data")
-
-		var beadsClient *beads.Client // nil for skipped test
-		err := integration.ResolveFeedback(ctx, beadsClient, "beads-456")
-		// Should fail if bead is still open
-		if err == nil {
-			t.Error("Expected error for open bead")
-		}
-	})
-}
-
-func TestCreateBeadsForWork(t *testing.T) {
-	integration := NewIntegration(nil)
-	ctx := context.Background()
-	workID := "w-abc"
-	prURL := "https://github.com/user/repo/pull/123"
-	rootIssueID := "beads-123"
-
-	t.Run("Create beads for work", func(t *testing.T) {
-		// This test requires GitHub API access and beads.Client
-		t.Skip("Skipping test that requires GitHub API and beads.Client")
-
-		var beadsClient *beads.Client // nil for skipped test
-		beadIDs, err := integration.CreateBeadsForWork(ctx, t.TempDir(), beadsClient, workID, prURL, rootIssueID)
-		if err == nil {
-			if beadIDs == nil {
-				t.Error("Expected bead IDs (even if empty), got nil")
-			}
-			for _, id := range beadIDs {
-				if !hasPrefix(id, "beads-") {
-					t.Errorf("Expected bead ID to start with 'beads-', got %s", id)
-				}
-			}
-		}
-	})
-}
-
-func TestPollPRStatus(t *testing.T) {
-	integration := NewIntegration(nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	prURL := "https://github.com/user/repo/pull/123"
-	callCount := 0
-
-	t.Run("Poll with callback", func(t *testing.T) {
-		// This test simulates polling without actual API calls
-		err := integration.PollPRStatus(ctx, prURL, 50*time.Millisecond, func(status *PRStatus) error {
-			callCount++
-			if callCount > 1 {
-				// Simulate PR closed after first check
-				status.State = "CLOSED"
-			}
-			return nil
-		})
-
-		// Should exit due to context timeout or simulated closure
-		if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-			t.Errorf("Unexpected error: %v", err)
-		}
-	})
-
-	t.Run("Poll with error callback", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-
-		expectedErr := errors.New("callback error")
-		err := integration.PollPRStatus(ctx, prURL, 50*time.Millisecond, func(status *PRStatus) error {
-			return expectedErr
-		})
-
-		if err != expectedErr && !errors.Is(err, context.DeadlineExceeded) {
-			t.Errorf("Expected callback error or timeout, got %v", err)
 		}
 	})
 }
