@@ -20,22 +20,10 @@ var (
 			Bold(true).
 			Foreground(lipgloss.Color("214")) // Orange for hotkeys
 
-	tuiActiveTabStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("99"))
-
-	tuiInactiveTabStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("247"))
-
 	tuiPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("62")).
 			Padding(0, 1)
-
-	tuiActivePanelStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("99")).
-				Padding(0, 1)
 
 	tuiSelectedStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -72,10 +60,6 @@ var (
 
 	tuiHelpStyle = lipgloss.NewStyle().
 			Padding(2, 4).
-			Background(lipgloss.Color("235"))
-
-	tuiAssignStyle = lipgloss.NewStyle().
-			Padding(1, 2).
 			Background(lipgloss.Color("235"))
 
 	// Status indicator styles
@@ -158,23 +142,13 @@ const (
 	ViewHelp
 )
 
-// workItem represents a work unit for selection
-type workItem struct {
-	id             string
-	status         string
-	branch         string
-	rootIssueID    string
-	rootIssueTitle string
-}
-
 // beadItem represents a bead in the beads panel with TUI-specific display state.
 // It embeds beads.BeadWithDeps to access domain data directly.
 type beadItem struct {
 	*beads.BeadWithDeps
 
 	// TUI-specific display state
-	selected          bool     // for multi-select
-	isReady           bool     // computed ready state
+	isReady bool // computed ready state
 	treeDepth         int      // depth in tree view (0 = root)
 	assignedWorkID    string   // work ID if already assigned to a work (empty = not assigned)
 	isClosedParent    bool     // true if this is a closed bead included for tree context (has visible children)
@@ -285,7 +259,7 @@ func styleButtonWithHover(text string, hovered bool) string {
 
 
 // fetchBeadsWithFilters fetches and filters beads based on provided filters
-func fetchBeadsWithFilters(ctx context.Context, beadsClient *beads.Client, mainRepoPath string, filters beadFilters) ([]beadItem, error) {
+func fetchBeadsWithFilters(ctx context.Context, beadsClient *beads.Client, _ string, filters beadFilters) ([]beadItem, error) {
 	// For "ready" status, use bd ready command
 	if filters.status == "ready" {
 		return fetchReadyBeads(ctx, beadsClient, filters)

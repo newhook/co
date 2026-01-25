@@ -17,6 +17,8 @@ import (
 var testMigrationsFS embed.FS
 
 // hasColumn checks if a table has a specific column
+//
+//nolint:unparam // table parameter allows different table names in future tests
 func hasColumn(ctx context.Context, db *sql.DB, table, column string) (bool, error) {
 	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
 	if err != nil {
@@ -37,16 +39,6 @@ func hasColumn(ctx context.Context, db *sql.DB, table, column string) (bool, err
 		}
 	}
 	return false, rows.Err()
-}
-
-// tableExists checks if a table exists in the database
-func tableExists(ctx context.Context, db *sql.DB, table string) (bool, error) {
-	var count int
-	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count)
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
 }
 
 // TestRunMigrations tests the basic migration functionality

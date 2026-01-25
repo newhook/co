@@ -331,7 +331,7 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 		// database check only tells us if it's alive)
 		pattern := fmt.Sprintf("co orchestrate --work %s", workID)
 		if alive := checkOrchestratorHealth(m.ctx, m.proj.DB, workID); alive {
-			process.KillProcess(m.ctx, pattern)
+			_ = process.KillProcess(m.ctx, pattern)
 			time.Sleep(500 * time.Millisecond)
 		}
 

@@ -130,7 +130,7 @@ func CreateWorkAsync(ctx context.Context, proj *project.Project, branchName, bas
 	}, fmt.Sprintf("create-worktree-%s", workID), db.DefaultMaxAttempts)
 	if err != nil {
 		// Work record created but task scheduling failed - cleanup
-		proj.DB.DeleteWork(ctx, workID)
+		_ = proj.DB.DeleteWork(ctx, workID)
 		return nil, fmt.Errorf("failed to schedule worktree creation: %w", err)
 	}
 
@@ -167,10 +167,8 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 	}
 
 	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
-	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, w); err != nil {
-		// Continue with destruction even if tab termination fails
-		// Caller can log this warning if needed
-	}
+	// Continue with destruction even if tab termination fails
+	_ = claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, w)
 
 	// Remove git worktree if it exists
 	if work.WorktreePath != "" {

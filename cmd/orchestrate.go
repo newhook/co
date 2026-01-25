@@ -173,7 +173,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 					} else {
 						fmt.Printf("\n=== Work %s failed ===\n", workID)
 						fmt.Printf("%d task(s) failed. Resolve failures and restart the theWork.\n", failedCount)
-						theWork, _ = proj.DB.GetWork(ctx, workID)
+						_, _ = proj.DB.GetWork(ctx, workID)
 					}
 				}
 				// Wait for user to resolve and restart
@@ -215,7 +215,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 					}
 					fmt.Println("All tasks completed. Waiting for new tasks or explicit completion.")
 					// Refresh theWork status
-					theWork, _ = proj.DB.GetWork(ctx, workID)
+					_, _ = proj.DB.GetWork(ctx, workID)
 				}
 			}
 

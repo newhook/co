@@ -55,13 +55,13 @@ func HandleCreateWorktreeTask(ctx context.Context, proj *project.Project, task *
 		mainRepoPath := proj.MainRepoPath()
 
 		// Create work directory
-		if err := os.Mkdir(workDir, 0755); err != nil && !os.IsExist(err) {
+		if err := os.Mkdir(workDir, 0750); err != nil && !os.IsExist(err) {
 			return fmt.Errorf("failed to create work directory: %w", err)
 		}
 
 		// Create git worktree with new branch
 		if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
-			os.RemoveAll(workDir)
+			_ = os.RemoveAll(workDir)
 			return fmt.Errorf("failed to create worktree: %w", err)
 		}
 

@@ -18,10 +18,10 @@ func HandleTaskError(ctx context.Context, proj *project.Project, task *db.Schedu
 		if err := proj.DB.RescheduleWithBackoff(ctx, task.ID, errMsg); err != nil {
 			logging.Error("Failed to reschedule task", "task_id", task.ID, "error", err)
 			// Fall back to marking as failed
-			proj.DB.MarkTaskFailed(ctx, task.ID, errMsg)
+			_ = proj.DB.MarkTaskFailed(ctx, task.ID, errMsg)
 		}
 	} else {
 		logging.Warn("Task exhausted retries", "task_id", task.ID, "attempts", task.AttemptCount+1, "max_attempts", task.MaxAttempts)
-		proj.DB.MarkTaskFailed(ctx, task.ID, errMsg)
+		_ = proj.DB.MarkTaskFailed(ctx, task.ID, errMsg)
 	}
 }

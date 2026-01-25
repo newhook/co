@@ -307,8 +307,8 @@ func (p *LinearImportPanel) Render() string {
 	content.WriteString("\n\n")
 
 	// Render Ok and Cancel buttons
-	okLabel := "  Ok  "
-	cancelLabel := "Cancel"
+	var okLabel string
+	var cancelLabel string
 	focusHint := ""
 
 	if p.focusIdx == 5 {

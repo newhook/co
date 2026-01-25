@@ -311,7 +311,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Type == beadswatcher.DBChanged {
 			// Flush cache and trigger data reload
 			if m.proj.Beads != nil {
-				m.proj.Beads.FlushCache(m.ctx)
+				_ = m.proj.Beads.FlushCache(m.ctx)
 			}
 			// Trigger data reload and wait for next watcher event
 			return m, tea.Batch(m.refreshData(), m.waitForWatcherEvent())

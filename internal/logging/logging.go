@@ -25,8 +25,6 @@ var (
 	logFile *os.File
 	// mu protects concurrent access to the logger.
 	mu sync.RWMutex
-	// initialized tracks whether the logger has been initialized.
-	initialized bool
 )
 
 // Init initializes the logger with the project root path.
@@ -72,7 +70,6 @@ func Init(projectRoot string) error {
 		Level: slog.LevelDebug,
 	})
 	defaultLogger = slog.New(handler)
-	initialized = true
 
 	return nil
 }

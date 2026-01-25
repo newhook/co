@@ -424,7 +424,7 @@ func (p *WorkOverviewPanel) renderRootIssueLine(content *strings.Builder, panelW
 }
 
 // renderTaskLine renders a task line
-func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int, panelWidth int) {
+func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int, _ int) {
 	task := p.focusedWork.Tasks[taskIdx]
 	itemIndex := taskIdx + 1 // +1 because 0 is root issue
 

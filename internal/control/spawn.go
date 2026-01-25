@@ -97,9 +97,9 @@ func EnsureControlPlane(ctx context.Context, proj *project.Project) error {
 
 	// Try to close the dead tab first
 	if err := zc.SwitchToTab(ctx, sessionName, TabName); err == nil {
-		zc.SendCtrlC(ctx, sessionName)
+		_ = zc.SendCtrlC(ctx, sessionName)
 		time.Sleep(zc.CtrlCDelay)
-		zc.CloseTab(ctx, sessionName)
+		_ = zc.CloseTab(ctx, sessionName)
 		time.Sleep(500 * time.Millisecond)
 	}
 
