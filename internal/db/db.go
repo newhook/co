@@ -27,6 +27,20 @@ const (
 	PRStateMerged = "merged"
 )
 
+// CI status constants
+const (
+	CIStatusPending = "pending"
+	CIStatusSuccess = "success"
+	CIStatusFailure = "failure"
+)
+
+// Approval status constants
+const (
+	ApprovalStatusPending          = "pending"
+	ApprovalStatusApproved         = "approved"
+	ApprovalStatusChangesRequested = "changes_requested"
+)
+
 // DB wraps the SQLite database connection and sqlc queries.
 type DB struct {
 	*sql.DB
