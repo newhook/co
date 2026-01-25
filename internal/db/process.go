@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -133,7 +134,7 @@ func (db *DB) UnregisterProcess(ctx context.Context, id string) error {
 func (db *DB) GetOrchestratorProcess(ctx context.Context, workID string) (*Process, error) {
 	row, err := db.queries.GetOrchestratorProcess(ctx, sql.NullString{String: workID, Valid: true})
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get orchestrator process: %w", err)
@@ -145,7 +146,7 @@ func (db *DB) GetOrchestratorProcess(ctx context.Context, workID string) (*Proce
 func (db *DB) GetControlPlaneProcess(ctx context.Context) (*Process, error) {
 	row, err := db.queries.GetControlPlaneProcess(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get control plane process: %w", err)
