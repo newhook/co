@@ -310,7 +310,10 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 	orchestrateCommand := fmt.Sprintf("co orchestrate --work %s", workID)
 
 	// Check if tab already exists
-	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
+	tabExists, err := zc.TabExists(ctx, sessionName, tabName)
+	if err != nil {
+		return fmt.Errorf("failed to check if tab exists: %w", err)
+	}
 	if tabExists {
 		fmt.Fprintf(w, "Tab %s already exists, reusing...\n", tabName)
 

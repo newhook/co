@@ -269,16 +269,17 @@ func schedulerToLocal(s *sqlc.Scheduler) *ScheduledTask {
 
 // ScheduleTaskWithRetry schedules a new task with retry support and an idempotency key.
 // If a task with the same idempotency key already exists, it returns that task instead.
-func (db *DB) ScheduleTaskWithRetry(ctx context.Context, workID, taskType string, scheduledAt time.Time, metadata map[string]string, idempotencyKey string, maxAttempts int) (*ScheduledTask, error) {
-	// Check if task with this idempotency key already exists
-	if idempotencyKey != "" {
-		existing, err := db.GetTaskByIdempotencyKey(ctx, idempotencyKey)
-		if err != nil {
-			return nil, err
-		}
-		if existing != nil {
-			return existing, nil
-		}
+func (db *DB) ScheduleTaskWithRetry(ctx context.Context, workID, taskType string, scheduledAt time.Time, metadata map[string]string, idempotencyKey string, maxAttempts int) error {
+	if idempotencyKey == "" {
+		return fmt.Errorf("idempotency key is required for scheduling task with retry")
+	}
+
+	existing, err := db.GetTaskByIdempotencyKey(ctx, idempotencyKey)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return nil
 	}
 
 	id := uuid.New().String()
@@ -287,7 +288,7 @@ func (db *DB) ScheduleTaskWithRetry(ctx context.Context, workID, taskType string
 	if metadata != nil {
 		data, err := json.Marshal(metadata)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
 		metadataJSON = string(data)
 	}
@@ -296,7 +297,7 @@ func (db *DB) ScheduleTaskWithRetry(ctx context.Context, workID, taskType string
 		maxAttempts = DefaultMaxAttempts
 	}
 
-	err := db.queries.CreateScheduledTaskWithRetry(ctx, sqlc.CreateScheduledTaskWithRetryParams{
+	err = db.queries.CreateScheduledTaskWithRetry(ctx, sqlc.CreateScheduledTaskWithRetryParams{
 		ID:             id,
 		WorkID:         workID,
 		TaskType:       taskType,
@@ -308,27 +309,10 @@ func (db *DB) ScheduleTaskWithRetry(ctx context.Context, workID, taskType string
 		IdempotencyKey: sql.NullString{String: idempotencyKey, Valid: idempotencyKey != ""},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to schedule task with retry: %w", err)
+		return fmt.Errorf("failed to schedule task with retry: %w", err)
 	}
 
-	var idempotencyKeyPtr *string
-	if idempotencyKey != "" {
-		idempotencyKeyPtr = &idempotencyKey
-	}
-
-	return &ScheduledTask{
-		ID:             id,
-		WorkID:         workID,
-		TaskType:       taskType,
-		ScheduledAt:    scheduledAt,
-		Status:         TaskStatusPending,
-		Metadata:       metadata,
-		AttemptCount:   0,
-		MaxAttempts:    maxAttempts,
-		IdempotencyKey: idempotencyKeyPtr,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-	}, nil
+	return nil
 }
 
 // GetTaskByIdempotencyKey retrieves a task by its idempotency key.

@@ -65,6 +65,21 @@ func RunControlPlaneLoop(ctx context.Context, proj *project.Project) error {
 	}
 }
 
+// TaskHandler is the signature for all scheduled task handlers.
+type TaskHandler func(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error
+
+// taskHandlers maps task types to their handler functions.
+var taskHandlers = map[string]TaskHandler{
+	db.TaskTypeCreateWorktree:      HandleCreateWorktreeTask,
+	db.TaskTypeSpawnOrchestrator:   HandleSpawnOrchestratorTask,
+	db.TaskTypePRFeedback:          HandlePRFeedbackTask,
+	db.TaskTypeCommentResolution:   HandleCommentResolutionTask,
+	db.TaskTypeGitPush:             HandleGitPushTask,
+	db.TaskTypeGitHubComment:       HandleGitHubCommentTask,
+	db.TaskTypeGitHubResolveThread: HandleGitHubResolveThreadTask,
+	db.TaskTypeDestroyWorktree:     HandleDestroyWorktreeTask,
+}
+
 // ProcessAllDueTasks checks for and executes any scheduled tasks that are due across all works
 func ProcessAllDueTasks(ctx context.Context, proj *project.Project) {
 	// Get the next due task globally (not work-specific)
@@ -96,34 +111,21 @@ func ProcessAllDueTasks(ctx context.Context, proj *project.Project) {
 		}
 
 		// Execute based on task type
-		var taskErr error
-		switch task.TaskType {
-		case db.TaskTypeCreateWorktree:
-			taskErr = HandleCreateWorktreeTask(ctx, proj, task)
-		case db.TaskTypeSpawnOrchestrator:
-			taskErr = HandleSpawnOrchestratorTask(ctx, proj, task)
-		case db.TaskTypePRFeedback:
-			HandlePRFeedbackTask(ctx, proj, task.WorkID, task)
-		case db.TaskTypeCommentResolution:
-			HandleCommentResolutionTask(ctx, proj, task.WorkID, task)
-		case db.TaskTypeGitPush:
-			taskErr = HandleGitPushTask(ctx, proj, task.WorkID, task)
-		case db.TaskTypeGitHubComment:
-			taskErr = HandleGitHubCommentTask(ctx, proj, task.WorkID, task)
-		case db.TaskTypeGitHubResolveThread:
-			taskErr = HandleGitHubResolveThreadTask(ctx, proj, task.WorkID, task)
-		case db.TaskTypeDestroyWorktree:
-			taskErr = HandleDestroyWorktreeTask(ctx, proj, task)
-		default:
-			taskErr = fmt.Errorf("unknown task type: %s", task.TaskType)
+		if handler, ok := taskHandlers[task.TaskType]; ok {
+			err = handler(ctx, proj, task)
+		} else {
+			err = fmt.Errorf("unknown task type: %s", task.TaskType)
 		}
 
 		// Handle task result
-		if taskErr != nil {
-			fmt.Printf("[%s] Task failed: %s\n", time.Now().Format("15:04:05"), taskErr)
-			HandleTaskError(ctx, proj, task, taskErr.Error())
+		if err != nil {
+			fmt.Printf("[%s] Task failed: %s\n", time.Now().Format("15:04:05"), err)
+			HandleTaskError(ctx, proj, task, err.Error())
 		} else {
 			fmt.Printf("[%s] Task completed: %s\n", time.Now().Format("15:04:05"), task.TaskType)
+			if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
+				logging.Warn("failed to mark task as completed", "error", err, "task_id", task.ID)
+			}
 		}
 	}
 }

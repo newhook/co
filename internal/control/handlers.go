@@ -44,9 +44,8 @@ func HandleCreateWorktreeTask(ctx context.Context, proj *project.Project, task *
 		return fmt.Errorf("failed to get work: %w", err)
 	}
 	if work == nil {
-		// Work was deleted - mark task as completed (nothing to do)
-		logging.Info("Work not found, marking task as completed", "work_id", workID)
-		proj.DB.MarkTaskCompleted(ctx, task.ID)
+		// Work was deleted - nothing to do
+		logging.Info("Work not found, task will be marked completed", "work_id", workID)
 		return nil
 	}
 
@@ -93,11 +92,6 @@ func HandleCreateWorktreeTask(ctx context.Context, proj *project.Project, task *
 
 	logging.Info("Worktree created and pushed successfully", "work_id", workID)
 
-	// Mark task as completed
-	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
-		logging.Warn("failed to mark task as completed", "error", err)
-	}
-
 	// Schedule orchestrator spawn task
 	_, err = proj.DB.ScheduleTask(ctx, workID, db.TaskTypeSpawnOrchestrator, time.Now(), map[string]string{
 		"worker_name": workerName,
@@ -124,9 +118,8 @@ func HandleSpawnOrchestratorTask(ctx context.Context, proj *project.Project, tas
 		return fmt.Errorf("failed to get work: %w", err)
 	}
 	if work == nil {
-		// Work was deleted - mark task as completed (nothing to do)
-		logging.Info("Work not found, marking task as completed", "work_id", workID)
-		proj.DB.MarkTaskCompleted(ctx, task.ID)
+		// Work was deleted - nothing to do
+		logging.Info("Work not found, task will be marked completed", "work_id", workID)
 		return nil
 	}
 
@@ -140,11 +133,6 @@ func HandleSpawnOrchestratorTask(ctx context.Context, proj *project.Project, tas
 	}
 
 	logging.Info("Orchestrator spawned successfully", "work_id", workID)
-
-	// Mark task as completed
-	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
-		logging.Warn("failed to mark task as completed", "error", err)
-	}
 
 	return nil
 }
@@ -163,9 +151,8 @@ func HandleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task 
 		return fmt.Errorf("failed to get work: %w", err)
 	}
 	if work == nil {
-		// Work was already deleted - mark task as completed
-		logging.Info("Work not found, marking task as completed", "work_id", workID)
-		proj.DB.MarkTaskCompleted(ctx, task.ID)
+		// Work was already deleted - nothing to do
+		logging.Info("Work not found, task will be marked completed", "work_id", workID)
 		return nil
 	}
 
@@ -209,25 +196,21 @@ func HandleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task 
 
 	logging.Info("Worktree destroyed successfully", "work_id", workID)
 
-	// Mark task as completed
-	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
-		logging.Warn("failed to mark task as completed", "error", err)
-	}
-
 	return nil
 }
 
 // HandlePRFeedbackTask handles a scheduled PR feedback check.
-func HandlePRFeedbackTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) {
+// Returns nil on success, error on failure (caller handles retry/completion).
+func HandlePRFeedbackTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+	workID := task.WorkID
 	logging.Debug("Starting PR feedback check task", "task_id", task.ID, "work_id", workID)
 
 	// Get work details
 	work, err := proj.DB.GetWork(ctx, workID)
 	if err != nil || work == nil || work.PRURL == "" {
 		logging.Debug("No PR URL for work, not rescheduling", "work_id", workID, "has_pr", work != nil && work.PRURL != "")
-		// Mark task as completed but don't reschedule - scheduling happens when PR is created
-		proj.DB.MarkTaskCompleted(ctx, task.ID)
-		return
+		// Don't reschedule - scheduling happens when PR is created
+		return nil
 	}
 
 	logging.Debug("Checking PR feedback", "pr_url", work.PRURL, "work_id", workID)
@@ -235,50 +218,42 @@ func HandlePRFeedbackTask(ctx context.Context, proj *project.Project, workID str
 	// Process PR feedback - creates beads but doesn't add them to work
 	createdCount, err := feedback.ProcessPRFeedbackQuiet(ctx, proj, proj.DB, workID, 2)
 	if err != nil {
-		logging.Error("Failed to check PR feedback", "error", err, "work_id", workID)
-		proj.DB.MarkTaskFailed(ctx, task.ID, err.Error())
-	} else {
-		if createdCount > 0 {
-			logging.Info("Created beads from PR feedback", "count", createdCount, "work_id", workID)
-		} else {
-			logging.Debug("No new PR feedback found", "work_id", workID)
-		}
-
-		// Mark as completed
-		if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
-			logging.Warn("failed to mark task as completed", "error", err, "task_id", task.ID)
-		} else {
-			logging.Debug("Task completed successfully", "task_id", task.ID, "work_id", workID)
-		}
-
-		// Schedule next check using configured interval
-		nextInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
-		nextCheck := time.Now().Add(nextInterval)
-		_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypePRFeedback, nextCheck, nil)
-		if err != nil {
-			logging.Warn("failed to schedule next PR feedback check", "error", err, "work_id", workID)
-		} else {
-			logging.Info("Scheduled next PR feedback check", "work_id", workID, "next_check", nextCheck.Format(time.RFC3339), "interval", nextInterval)
-		}
+		return fmt.Errorf("failed to check PR feedback: %w", err)
 	}
+
+	if createdCount > 0 {
+		logging.Info("Created beads from PR feedback", "count", createdCount, "work_id", workID)
+	} else {
+		logging.Debug("No new PR feedback found", "work_id", workID)
+	}
+
+	// Schedule next check using configured interval
+	nextInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
+	nextCheck := time.Now().Add(nextInterval)
+	_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypePRFeedback, nextCheck, nil)
+	if err != nil {
+		logging.Warn("failed to schedule next PR feedback check", "error", err, "work_id", workID)
+	} else {
+		logging.Info("Scheduled next PR feedback check", "work_id", workID, "next_check", nextCheck.Format(time.RFC3339), "interval", nextInterval)
+	}
+
+	return nil
 }
 
 // HandleCommentResolutionTask handles a scheduled comment resolution check.
-func HandleCommentResolutionTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) {
+// Returns nil on success, error on failure (caller handles retry/completion).
+func HandleCommentResolutionTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+	workID := task.WorkID
 	// Get work details
 	work, err := proj.DB.GetWork(ctx, workID)
 	if err != nil || work == nil || work.PRURL == "" {
-		// Mark task as completed but don't reschedule - scheduling happens when PR is created
-		proj.DB.MarkTaskCompleted(ctx, task.ID)
-		return
+		// Don't reschedule - scheduling happens when PR is created
+		return nil
 	}
 
 	// Check and resolve comments
-	feedback.CheckAndResolveCommentsQuiet(ctx, proj, workID, work.PRURL)
-
-	// Mark as completed
-	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
-		logging.Warn("failed to mark task as completed", "error", err)
+	if err := feedback.CheckAndResolveComments(ctx, proj, workID); err != nil {
+		return fmt.Errorf("failed to check and resolve comments: %w", err)
 	}
 
 	// Schedule next check using configured interval
@@ -288,11 +263,14 @@ func HandleCommentResolutionTask(ctx context.Context, proj *project.Project, wor
 	if err != nil {
 		logging.Warn("failed to schedule next comment resolution check", "error", err)
 	}
+
+	return nil
 }
 
 // HandleGitPushTask handles a scheduled git push task with retry support.
 // Returns nil on success, error on failure (caller handles retry/completion).
-func HandleGitPushTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) error {
+func HandleGitPushTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+	workID := task.WorkID
 	// Get branch and directory from metadata
 	branch := task.Metadata["branch"]
 	dir := task.Metadata["dir"]
@@ -319,16 +297,13 @@ func HandleGitPushTask(ctx context.Context, proj *project.Project, workID string
 
 	logging.Info("Git push succeeded", "branch", branch, "work_id", workID)
 
-	// Mark task as completed
-	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
-		logging.Warn("failed to mark git push task as completed", "error", err)
-	}
 	return nil
 }
 
 // HandleGitHubCommentTask handles a scheduled GitHub comment posting task.
 // Returns nil on success, error on failure (caller handles retry/completion).
-func HandleGitHubCommentTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) error {
+func HandleGitHubCommentTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+	workID := task.WorkID
 	// Get comment details from metadata
 	prURL := task.Metadata["pr_url"]
 	body := task.Metadata["body"]
@@ -360,16 +335,13 @@ func HandleGitHubCommentTask(ctx context.Context, proj *project.Project, workID 
 
 	logging.Info("GitHub comment posted successfully", "pr_url", prURL, "work_id", workID)
 
-	// Mark task as completed
-	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
-		logging.Warn("failed to mark GitHub comment task as completed", "error", err)
-	}
 	return nil
 }
 
 // HandleGitHubResolveThreadTask handles a scheduled GitHub thread resolution task.
 // Returns nil on success, error on failure (caller handles retry/completion).
-func HandleGitHubResolveThreadTask(ctx context.Context, proj *project.Project, workID string, task *db.ScheduledTask) error {
+func HandleGitHubResolveThreadTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+	workID := task.WorkID
 	// Get thread details from metadata
 	prURL := task.Metadata["pr_url"]
 	commentIDStr := task.Metadata["comment_id"]
@@ -392,10 +364,6 @@ func HandleGitHubResolveThreadTask(ctx context.Context, proj *project.Project, w
 
 	logging.Info("GitHub thread resolved successfully", "pr_url", prURL, "comment_id", commentID, "work_id", workID)
 
-	// Mark task as completed
-	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
-		logging.Warn("failed to mark GitHub resolve thread task as completed", "error", err)
-	}
 	return nil
 }
 

@@ -240,49 +240,6 @@ func statusIcon(status string) string {
 	}
 }
 
-// statusIconPlain returns the icon without styling (for use in selected items)
-func statusIconPlain(status string) string {
-	switch status {
-	// Internal db statuses
-	case db.StatusPending:
-		return "○"
-	case db.StatusProcessing:
-		return "●"
-	case db.StatusCompleted:
-		return "✓"
-	case db.StatusFailed:
-		return "✗"
-	// Bead statuses from bd CLI
-	case "open":
-		return "○"
-	case "in_progress":
-		return "●"
-	case "blocked":
-		return "◐"
-	case "deferred":
-		return "❄"
-	case "closed":
-		return "✓"
-	default:
-		return "?"
-	}
-}
-
-// statusStyled returns a styled status string
-func statusStyled(status string) string {
-	switch status {
-	case db.StatusPending:
-		return statusPending.Render(status)
-	case db.StatusProcessing:
-		return statusProcessing.Render(status)
-	case db.StatusCompleted:
-		return statusCompleted.Render(status)
-	case db.StatusFailed:
-		return statusFailed.Render(status)
-	default:
-		return status
-	}
-}
 
 // styleHotkeys styles text with hotkeys like "[c]reate [d]elete" by coloring the keys
 // The keys inside brackets are rendered with tuiHotkeyStyle
@@ -326,65 +283,6 @@ func styleButtonWithHover(text string, hovered bool) string {
 	return styleHotkeys(text)
 }
 
-// GridConfig holds the computed dimensions for a grid layout
-type GridConfig struct {
-	Cols       int
-	Rows       int
-	CellWidth  int
-	CellHeight int
-}
-
-// CalculateGridDimensions computes optimal grid layout based on item count and screen size
-func CalculateGridDimensions(numItems, screenWidth, screenHeight int) GridConfig {
-	if numItems == 0 {
-		return GridConfig{Cols: 1, Rows: 1, CellWidth: screenWidth, CellHeight: screenHeight}
-	}
-
-	// Aim for roughly square cells, considering terminal is usually wider than tall
-	// Each cell needs minimum 30 chars wide and 10 lines tall
-	minCellWidth := 30
-	minCellHeight := 10
-
-	maxCols := screenWidth / minCellWidth
-	if maxCols < 1 {
-		maxCols = 1
-	}
-	maxRows := screenHeight / minCellHeight
-	if maxRows < 1 {
-		maxRows = 1
-	}
-
-	var gridCols, gridRows int
-
-	// Find layout that fits all items
-	if numItems <= maxCols {
-		// Single row
-		gridCols = numItems
-		gridRows = 1
-	} else if numItems <= maxCols*2 {
-		// Two rows
-		gridCols = (numItems + 1) / 2
-		gridRows = 2
-	} else {
-		// Fill grid
-		gridCols = maxCols
-		gridRows = (numItems + maxCols - 1) / maxCols
-		if gridRows > maxRows {
-			gridRows = maxRows
-		}
-	}
-
-	// Calculate actual cell dimensions
-	cellWidth := screenWidth / gridCols
-	cellHeight := screenHeight / gridRows
-
-	return GridConfig{
-		Cols:       gridCols,
-		Rows:       gridRows,
-		CellWidth:  cellWidth,
-		CellHeight: cellHeight,
-	}
-}
 
 // fetchBeadsWithFilters fetches and filters beads based on provided filters
 func fetchBeadsWithFilters(ctx context.Context, beadsClient *beads.Client, mainRepoPath string, filters beadFilters) ([]beadItem, error) {
