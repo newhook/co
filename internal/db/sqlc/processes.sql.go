@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const deleteProcess = `-- name: DeleteProcess :exec
@@ -254,5 +255,21 @@ WHERE id = ?
 
 func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, updateHeartbeat, id)
+	return err
+}
+
+const updateHeartbeatWithTime = `-- name: UpdateHeartbeatWithTime :exec
+UPDATE processes
+SET heartbeat = ?
+WHERE id = ?
+`
+
+type UpdateHeartbeatWithTimeParams struct {
+	Heartbeat time.Time `json:"heartbeat"`
+	ID        string    `json:"id"`
+}
+
+func (q *Queries) UpdateHeartbeatWithTime(ctx context.Context, arg UpdateHeartbeatWithTimeParams) error {
+	_, err := q.db.ExecContext(ctx, updateHeartbeatWithTime, arg.Heartbeat, arg.ID)
 	return err
 }

@@ -21,10 +21,11 @@ type Manager struct {
 	procType  string
 	workID    *string
 	heartbeat time.Duration
+	nowFunc   func() time.Time // For testing; defaults to time.Now
 
-	mu       sync.Mutex
-	running  bool
-	stopCh   chan struct{}
+	mu        sync.Mutex
+	running   bool
+	stopCh    chan struct{}
 	stoppedCh chan struct{}
 }
 
@@ -36,7 +37,14 @@ func NewManager(database *db.DB, heartbeatInterval time.Duration) *Manager {
 	return &Manager{
 		db:        database,
 		heartbeat: heartbeatInterval,
+		nowFunc:   time.Now,
 	}
+}
+
+// SetNowFunc sets the time function used for heartbeat updates.
+// This is primarily for testing purposes.
+func (m *Manager) SetNowFunc(f func() time.Time) {
+	m.nowFunc = f
 }
 
 // RegisterControlPlane registers this process as the control plane.
@@ -101,7 +109,7 @@ func (m *Manager) startHeartbeat() {
 			case <-m.stopCh:
 				return
 			case <-ticker.C:
-				if err := m.db.UpdateHeartbeat(context.Background(), m.id); err != nil {
+				if err := m.db.UpdateHeartbeatWithTime(context.Background(), m.id, m.nowFunc()); err != nil {
 					logging.Warn("failed to update heartbeat", "id", m.id, "error", err)
 				}
 			}

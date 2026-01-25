@@ -65,6 +65,19 @@ func (db *DB) UpdateHeartbeat(ctx context.Context, id string) error {
 	return nil
 }
 
+// UpdateHeartbeatWithTime updates the heartbeat timestamp for a process with an explicit time.
+// This is useful for testing where time needs to be controlled.
+func (db *DB) UpdateHeartbeatWithTime(ctx context.Context, id string, t time.Time) error {
+	err := db.queries.UpdateHeartbeatWithTime(ctx, sqlc.UpdateHeartbeatWithTimeParams{
+		Heartbeat: t,
+		ID:        id,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update heartbeat: %w", err)
+	}
+	return nil
+}
+
 // IsOrchestratorAlive checks if an orchestrator for the given work ID has a recent heartbeat.
 func (db *DB) IsOrchestratorAlive(ctx context.Context, workID string, threshold time.Duration) (bool, error) {
 	// Convert threshold to negative seconds for SQL datetime comparison

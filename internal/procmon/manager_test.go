@@ -120,35 +120,42 @@ func TestHeartbeatUpdates(t *testing.T) {
 	// Use short heartbeat interval for testing
 	m := NewManager(database, 50*time.Millisecond)
 
+	// Use a mock time function that returns a time far in the future
+	// This ensures the updated heartbeat is definitely after the initial
+	// (which is set by SQLite CURRENT_TIMESTAMP during registration)
+	mockTime := time.Date(2099, 1, 1, 12, 0, 0, 0, time.UTC)
+	m.SetNowFunc(func() time.Time {
+		return mockTime
+	})
+
 	err := m.RegisterControlPlane(ctx)
 	require.NoError(t, err)
 
-	// Get initial heartbeat
+	// Get initial heartbeat (set by SQLite CURRENT_TIMESTAMP during registration)
 	proc, err := database.GetControlPlaneProcess(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, proc)
 	initialHeartbeat := proc.Heartbeat
 
-	// Wait for heartbeat to update (allow several heartbeat cycles)
-	// Use a polling loop instead of a fixed sleep for reliability
-	var updatedHeartbeat time.Time
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		time.Sleep(30 * time.Millisecond)
-		proc, err = database.GetControlPlaneProcess(ctx)
-		if err != nil {
-			continue
-		}
-		if proc != nil && proc.Heartbeat.After(initialHeartbeat) {
-			updatedHeartbeat = proc.Heartbeat
-			break
-		}
-	}
+	// Wait for at least one heartbeat tick
+	time.Sleep(100 * time.Millisecond)
+
+	// Read updated heartbeat
+	proc, err = database.GetControlPlaneProcess(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, proc)
+	updatedHeartbeat := proc.Heartbeat
 
 	// Stop before assertions to prevent goroutine leak
 	m.Stop()
 
-	assert.True(t, updatedHeartbeat.After(initialHeartbeat), "heartbeat should have been updated")
+	// The updated heartbeat should be our mock time (2099), which is after
+	// the initial heartbeat (set by SQLite CURRENT_TIMESTAMP)
+	assert.True(t, updatedHeartbeat.After(initialHeartbeat),
+		"heartbeat should have been updated (initial: %v, updated: %v)",
+		initialHeartbeat, updatedHeartbeat)
+	assert.Equal(t, mockTime, updatedHeartbeat,
+		"heartbeat should be set to mock time")
 }
 
 func TestIsOrchestratorAlive(t *testing.T) {
