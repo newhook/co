@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // MockClient is a mock implementation of the Linear client for testing
@@ -29,15 +32,9 @@ func TestFetcherErrorHandling(t *testing.T) {
 		}
 
 		result, err := fetcher.FetchAndImport(ctx, "https://not-linear.com/issue/123", nil)
-		if err == nil {
-			t.Error("Expected error for invalid URL, got nil")
-		}
-		if result.Error == nil {
-			t.Error("Expected result.Error to be set")
-		}
-		if result.Success {
-			t.Error("Expected success to be false")
-		}
+		require.Error(t, err, "expected error for invalid URL")
+		assert.NotNil(t, result.Error, "expected result.Error to be set")
+		assert.False(t, result.Success, "expected success to be false")
 	})
 
 	t.Run("empty input", func(t *testing.T) {
@@ -48,12 +45,8 @@ func TestFetcherErrorHandling(t *testing.T) {
 		}
 
 		result, err := fetcher.FetchAndImport(ctx, "", nil)
-		if err == nil {
-			t.Error("Expected error for empty input, got nil")
-		}
-		if result.Error == nil {
-			t.Error("Expected result.Error to be set")
-		}
+		require.Error(t, err, "expected error for empty input")
+		assert.NotNil(t, result.Error, "expected result.Error to be set")
 	})
 
 	t.Run("whitespace only input", func(t *testing.T) {
@@ -64,12 +57,8 @@ func TestFetcherErrorHandling(t *testing.T) {
 		}
 
 		result, err := fetcher.FetchAndImport(ctx, "   ", nil)
-		if err == nil {
-			t.Error("Expected error for whitespace input, got nil")
-		}
-		if result.Error == nil {
-			t.Error("Expected result.Error to be set")
-		}
+		require.Error(t, err, "expected error for whitespace input")
+		assert.NotNil(t, result.Error, "expected result.Error to be set")
 	})
 
 	t.Run("invalid issue ID format", func(t *testing.T) {
@@ -80,22 +69,18 @@ func TestFetcherErrorHandling(t *testing.T) {
 		}
 
 		invalidIDs := []string{
-			"ENG123",      // missing dash
-			"ENG-",        // missing number
-			"123-ENG",     // reversed format
-			"ENG_123",     // wrong separator
-			"ENG-12-34",   // too many parts
+			"ENG123",    // missing dash
+			"ENG-",      // missing number
+			"123-ENG",   // reversed format
+			"ENG_123",   // wrong separator
+			"ENG-12-34", // too many parts
 		}
 
 		for _, id := range invalidIDs {
 			t.Run("invalid_id_"+id, func(t *testing.T) {
 				result, err := fetcher.FetchAndImport(ctx, id, nil)
-				if err == nil {
-					t.Errorf("Expected error for invalid ID %s, got nil", id)
-				}
-				if result.Error == nil {
-					t.Errorf("Expected result.Error to be set for %s", id)
-				}
+				require.Error(t, err, "expected error for invalid ID %s", id)
+				assert.NotNil(t, result.Error, "expected result.Error to be set for %s", id)
 			})
 		}
 	})
@@ -110,18 +95,10 @@ func TestFetcherErrorHandling(t *testing.T) {
 		}
 
 		result, err := fetcher.FetchAndImport(ctx, "ENG-123", nil)
-		if err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
-		if !result.Success {
-			t.Error("Expected success for cached result")
-		}
-		if result.BeadID != "beads-abc" {
-			t.Errorf("Expected beadID beads-abc, got %s", result.BeadID)
-		}
-		if result.SkipReason != "already imported (cached)" {
-			t.Errorf("Expected skip reason 'already imported (cached)', got %s", result.SkipReason)
-		}
+		require.NoError(t, err)
+		assert.True(t, result.Success, "expected success for cached result")
+		assert.Equal(t, "beads-abc", result.BeadID)
+		assert.Equal(t, "already imported (cached)", result.SkipReason)
 	})
 }
 
@@ -191,12 +168,8 @@ func TestFetchBatchErrorHandling(t *testing.T) {
 		}
 
 		results, err := fetcher.FetchBatch(ctx, []string{}, nil)
-		if err != nil {
-			t.Errorf("Unexpected error for empty batch: %v", err)
-		}
-		if len(results) != 0 {
-			t.Errorf("Expected 0 results, got %d", len(results))
-		}
+		require.NoError(t, err, "unexpected error for empty batch")
+		assert.Empty(t, results)
 	})
 
 	t.Run("batch with mixed valid and invalid IDs", func(t *testing.T) {
@@ -212,16 +185,10 @@ func TestFetchBatchErrorHandling(t *testing.T) {
 
 		ids := []string{"ENG-123", "INVALID", "ENG-456"}
 		results, err := fetcher.FetchBatch(ctx, ids, nil)
-		if err != nil {
-			t.Errorf("Batch should continue on individual errors: %v", err)
-		}
-		if len(results) != 3 {
-			t.Errorf("Expected 3 results, got %d", len(results))
-		}
+		require.NoError(t, err, "batch should continue on individual errors")
+		require.Len(t, results, 3)
 		// Second result should have an error
-		if results[1].Error == nil {
-			t.Error("Expected error for invalid ID in batch")
-		}
+		assert.NotNil(t, results[1].Error, "expected error for invalid ID in batch")
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
@@ -250,18 +217,10 @@ func TestFetchBatchErrorHandling(t *testing.T) {
 func TestNewFetcher(t *testing.T) {
 	t.Run("creates fetcher with valid API key", func(t *testing.T) {
 		fetcher, err := NewFetcher("test-api-key", ".")
-		if err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
-		if fetcher == nil {
-			t.Fatal("Expected non-nil fetcher")
-		}
-		if fetcher.client == nil {
-			t.Error("Expected client to be initialized")
-		}
-		if fetcher.beadsCache == nil {
-			t.Error("Expected beadsCache to be initialized")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, fetcher)
+		assert.NotNil(t, fetcher.client, "expected client to be initialized")
+		assert.NotNil(t, fetcher.beadsCache, "expected beadsCache to be initialized")
 	})
 
 	t.Run("fails with empty API key", func(t *testing.T) {
@@ -269,23 +228,15 @@ func TestNewFetcher(t *testing.T) {
 		t.Setenv("LINEAR_API_KEY", "")
 
 		fetcher, err := NewFetcher("", ".")
-		if err == nil {
-			t.Error("Expected error for empty API key")
-		}
-		if fetcher != nil {
-			t.Error("Expected nil fetcher on error")
-		}
+		require.Error(t, err, "expected error for empty API key")
+		assert.Nil(t, fetcher, "expected nil fetcher on error")
 	})
 
 	t.Run("uses environment variable when API key not provided", func(t *testing.T) {
 		t.Setenv("LINEAR_API_KEY", "env-test-key")
 
 		fetcher, err := NewFetcher("", ".")
-		if err != nil {
-			t.Errorf("Unexpected error: %v", err)
-		}
-		if fetcher == nil {
-			t.Error("Expected non-nil fetcher")
-		}
+		require.NoError(t, err)
+		assert.NotNil(t, fetcher)
 	})
 }
