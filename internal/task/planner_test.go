@@ -251,3 +251,247 @@ func TestCanAddToTask(t *testing.T) {
 	assigned["a"] = 1
 	assert.False(t, canAddToTask("b", 0, assigned, graph), "b should not be addable to task 0 (before dependency in task 1)")
 }
+
+// TestPlanChainDependencySplitAcrossTasks tests that beads with chain dependency
+// (A→B→C) split across tasks create a task chain with correct ordering.
+func TestPlanChainDependencySplitAcrossTasks(t *testing.T) {
+	ctx := context.Background()
+	// Small budget to force each bead into separate task
+	estimator := &mockEstimator{
+		scores: map[string]int{"a": 5, "b": 5, "c": 5},
+	}
+	planner := NewDefaultPlanner(estimator)
+
+	beadList := []beads.Bead{
+		{ID: "a", Title: "A"},
+		{ID: "b", Title: "B"},
+		{ID: "c", Title: "C"},
+	}
+
+	// Chain: c depends on b, b depends on a
+	dependencies := map[string][]beads.Dependency{
+		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
+		"c": {{IssueID: "c", DependsOnID: "b", Type: "blocks"}},
+	}
+
+	// Budget of 6000 allows one bead per task (each is 5000 tokens)
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 6000)
+	require.NoError(t, err, "Plan failed")
+	require.Len(t, tasks, 3, "expected 3 tasks for 3 beads with chain dependency")
+
+	// Find which task contains each bead
+	taskForBead := make(map[string]int)
+	for i, task := range tasks {
+		for _, id := range task.BeadIDs {
+			taskForBead[id] = i
+		}
+	}
+
+	// Verify chain ordering: task(a) < task(b) < task(c)
+	assert.Less(t, taskForBead["a"], taskForBead["b"], "a should be in earlier task than b")
+	assert.Less(t, taskForBead["b"], taskForBead["c"], "b should be in earlier task than c")
+}
+
+// TestPlanDiamondDependencySplitAcrossTasks tests that beads with diamond dependency
+// create the correct task graph. Diamond: A, B depend on nothing; C depends on both A and B.
+func TestPlanDiamondDependencySplitAcrossTasks(t *testing.T) {
+	ctx := context.Background()
+	estimator := &mockEstimator{
+		scores: map[string]int{"a": 5, "b": 5, "c": 5, "d": 5},
+	}
+	planner := NewDefaultPlanner(estimator)
+
+	// Diamond: a and b are independent, c depends on both, d depends on c
+	beadList := []beads.Bead{
+		{ID: "a", Title: "A"},
+		{ID: "b", Title: "B"},
+		{ID: "c", Title: "C"},
+		{ID: "d", Title: "D"},
+	}
+
+	dependencies := map[string][]beads.Dependency{
+		"c": {
+			{IssueID: "c", DependsOnID: "a", Type: "blocks"},
+			{IssueID: "c", DependsOnID: "b", Type: "blocks"},
+		},
+		"d": {{IssueID: "d", DependsOnID: "c", Type: "blocks"}},
+	}
+
+	// Budget of 6000 allows one bead per task
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 6000)
+	require.NoError(t, err, "Plan failed")
+	require.Len(t, tasks, 4, "expected 4 tasks for 4 beads with diamond dependency")
+
+	// Find which task contains each bead
+	taskForBead := make(map[string]int)
+	for i, task := range tasks {
+		for _, id := range task.BeadIDs {
+			taskForBead[id] = i
+		}
+	}
+
+	// c depends on both a and b, so task(c) > task(a) and task(c) > task(b)
+	assert.Less(t, taskForBead["a"], taskForBead["c"], "a should be in earlier task than c")
+	assert.Less(t, taskForBead["b"], taskForBead["c"], "b should be in earlier task than c")
+	// d depends on c
+	assert.Less(t, taskForBead["c"], taskForBead["d"], "c should be in earlier task than d")
+}
+
+// TestPlanSameTaskDependenciesNoSelfDep tests that beads in the same task
+// with dependencies do not create self-dependency (task depending on itself).
+func TestPlanSameTaskDependenciesNoSelfDep(t *testing.T) {
+	ctx := context.Background()
+	estimator := &mockEstimator{
+		scores: map[string]int{"a": 2, "b": 2},
+	}
+	planner := NewDefaultPlanner(estimator)
+
+	beadList := []beads.Bead{
+		{ID: "a", Title: "A"},
+		{ID: "b", Title: "B"},
+	}
+
+	// b depends on a
+	dependencies := map[string][]beads.Dependency{
+		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
+	}
+
+	// Large budget to fit both beads in same task (each is 2000 tokens)
+	tasks, err := planner.Plan(ctx, beadList, dependencies, 10000)
+	require.NoError(t, err, "Plan failed")
+	require.Len(t, tasks, 1, "expected 1 task with both beads")
+
+	// Both beads should be in the same task
+	taskForBead := make(map[string]int)
+	for i, task := range tasks {
+		for _, id := range task.BeadIDs {
+			taskForBead[id] = i
+		}
+	}
+
+	assert.Equal(t, taskForBead["a"], taskForBead["b"], "a and b should be in the same task")
+}
+
+// ComputeInterTaskDeps is a helper function that mimics the inter-task dependency
+// computation logic from handlePostEstimation. Used for testing.
+func ComputeInterTaskDeps(tasks []Task, dependencies map[string][]beads.Dependency) map[int][]int {
+	// Build beadID → task index mapping
+	beadToTask := make(map[string]int)
+	for i, t := range tasks {
+		for _, beadID := range t.BeadIDs {
+			beadToTask[beadID] = i
+		}
+	}
+
+	// Compute inter-task dependencies
+	// Returns map of taskIdx → list of task indices it depends on
+	interTaskDeps := make(map[int]map[int]bool)
+	for beadID, deps := range dependencies {
+		taskIdx, ok := beadToTask[beadID]
+		if !ok {
+			continue
+		}
+		for _, dep := range deps {
+			depTaskIdx, ok := beadToTask[dep.DependsOnID]
+			if !ok {
+				continue
+			}
+			if taskIdx == depTaskIdx {
+				continue // same task, no inter-task dependency
+			}
+			if interTaskDeps[taskIdx] == nil {
+				interTaskDeps[taskIdx] = make(map[int]bool)
+			}
+			interTaskDeps[taskIdx][depTaskIdx] = true
+		}
+	}
+
+	// Convert to slice representation
+	result := make(map[int][]int)
+	for taskIdx, depSet := range interTaskDeps {
+		for depIdx := range depSet {
+			result[taskIdx] = append(result[taskIdx], depIdx)
+		}
+	}
+	return result
+}
+
+// TestComputeInterTaskDepsChain tests inter-task dependency computation for chain.
+func TestComputeInterTaskDepsChain(t *testing.T) {
+	// Chain: c depends on b, b depends on a - each in separate task
+	tasks := []Task{
+		{ID: "task-1", BeadIDs: []string{"a"}},
+		{ID: "task-2", BeadIDs: []string{"b"}},
+		{ID: "task-3", BeadIDs: []string{"c"}},
+	}
+
+	dependencies := map[string][]beads.Dependency{
+		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
+		"c": {{IssueID: "c", DependsOnID: "b", Type: "blocks"}},
+	}
+
+	interDeps := ComputeInterTaskDeps(tasks, dependencies)
+
+	// task-2 (index 1) should depend on task-1 (index 0)
+	require.Contains(t, interDeps, 1, "task-2 should have dependencies")
+	assert.Contains(t, interDeps[1], 0, "task-2 should depend on task-1")
+
+	// task-3 (index 2) should depend on task-2 (index 1)
+	require.Contains(t, interDeps, 2, "task-3 should have dependencies")
+	assert.Contains(t, interDeps[2], 1, "task-3 should depend on task-2")
+
+	// task-1 (index 0) should have no dependencies
+	assert.NotContains(t, interDeps, 0, "task-1 should have no inter-task dependencies")
+}
+
+// TestComputeInterTaskDepsDiamond tests inter-task dependency computation for diamond.
+func TestComputeInterTaskDepsDiamond(t *testing.T) {
+	// Diamond: a and b independent, c depends on both, d depends on c
+	tasks := []Task{
+		{ID: "task-1", BeadIDs: []string{"a"}},
+		{ID: "task-2", BeadIDs: []string{"b"}},
+		{ID: "task-3", BeadIDs: []string{"c"}},
+		{ID: "task-4", BeadIDs: []string{"d"}},
+	}
+
+	dependencies := map[string][]beads.Dependency{
+		"c": {
+			{IssueID: "c", DependsOnID: "a", Type: "blocks"},
+			{IssueID: "c", DependsOnID: "b", Type: "blocks"},
+		},
+		"d": {{IssueID: "d", DependsOnID: "c", Type: "blocks"}},
+	}
+
+	interDeps := ComputeInterTaskDeps(tasks, dependencies)
+
+	// task-3 (index 2) should depend on both task-1 (index 0) and task-2 (index 1)
+	require.Contains(t, interDeps, 2, "task-3 should have dependencies")
+	assert.Contains(t, interDeps[2], 0, "task-3 should depend on task-1")
+	assert.Contains(t, interDeps[2], 1, "task-3 should depend on task-2")
+
+	// task-4 (index 3) should depend on task-3 (index 2)
+	require.Contains(t, interDeps, 3, "task-4 should have dependencies")
+	assert.Contains(t, interDeps[3], 2, "task-4 should depend on task-3")
+
+	// task-1 and task-2 should have no dependencies
+	assert.NotContains(t, interDeps, 0, "task-1 should have no inter-task dependencies")
+	assert.NotContains(t, interDeps, 1, "task-2 should have no inter-task dependencies")
+}
+
+// TestComputeInterTaskDepsSameTaskNoDeps tests that beads in the same task
+// do not create self-dependencies.
+func TestComputeInterTaskDepsSameTaskNoDeps(t *testing.T) {
+	// Both beads in same task, b depends on a
+	tasks := []Task{
+		{ID: "task-1", BeadIDs: []string{"a", "b"}},
+	}
+
+	dependencies := map[string][]beads.Dependency{
+		"b": {{IssueID: "b", DependsOnID: "a", Type: "blocks"}},
+	}
+
+	interDeps := ComputeInterTaskDeps(tasks, dependencies)
+
+	// No inter-task dependencies since both beads are in the same task
+	assert.Empty(t, interDeps, "same-task dependencies should not create inter-task deps")
+}
