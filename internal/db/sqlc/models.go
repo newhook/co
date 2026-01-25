@@ -59,6 +59,16 @@ type PrFeedback struct {
 	ResolvedAt   sql.NullTime   `json:"resolved_at"`
 }
 
+type Process struct {
+	ID          string         `json:"id"`
+	ProcessType string         `json:"process_type"`
+	WorkID      sql.NullString `json:"work_id"`
+	Pid         int64          `json:"pid"`
+	Hostname    string         `json:"hostname"`
+	Heartbeat   time.Time      `json:"heartbeat"`
+	StartedAt   time.Time      `json:"started_at"`
+}
+
 type Scheduler struct {
 	ID             string         `json:"id"`
 	WorkID         string         `json:"work_id"`

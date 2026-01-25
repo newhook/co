@@ -12,6 +12,7 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback"
 	"github.com/newhook/co/internal/orchestration"
+	"github.com/newhook/co/internal/procmon"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
 	"github.com/newhook/co/internal/work"
@@ -101,36 +102,12 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to reset stuck tasks: %w", err)
 	}
 
-	// Start activity tracker for health monitoring in a separate goroutine
-	// This avoids the busy loop issue from having a select with default in the main loop
-	activityInterval := proj.Config.Scheduler.GetActivityUpdateInterval()
-	activityTicker := time.NewTicker(activityInterval)
-	defer activityTicker.Stop()
-
-	// Run activity updates in background
-	go func() {
-		// Recover from any panics to prevent health monitoring from stopping
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Error: activity tracker panicked: %v\n", r)
-				// Log the panic but don't crash the entire orchestrator
-				// The main loop will continue running
-			}
-		}()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-activityTicker.C:
-				// Update last_activity for all processing tasks of this theWork
-				if err := orchestration.UpdateWorkTaskActivity(ctx, proj.DB, workID); err != nil {
-					// Log but don't fail - this is just health monitoring
-					fmt.Printf("Warning: failed to update task activity: %v\n", err)
-				}
-			}
-		}
-	}()
+	// Register this orchestrator process for heartbeat monitoring
+	procManager := procmon.NewManager(proj.DB, db.DefaultHeartbeatInterval)
+	if err := procManager.RegisterOrchestrator(ctx, workID); err != nil {
+		return fmt.Errorf("failed to register orchestrator: %w", err)
+	}
+	defer procManager.Stop()
 
 	// NOTE: Scheduler watching is now handled by the control plane globally.
 	// The control plane watches for scheduled tasks across ALL works and handles
