@@ -36,7 +36,9 @@ type Querier interface {
 	DeleteMigration(ctx context.Context, version string) error
 	DeletePRFeedback(ctx context.Context, id string) error
 	DeletePRFeedbackForWork(ctx context.Context, workID string) error
+	DeleteProcess(ctx context.Context, id string) error
 	DeleteScheduledTask(ctx context.Context, id string) error
+	DeleteStaleProcesses(ctx context.Context, dollar_1 sql.NullString) error
 	DeleteTask(ctx context.Context, id string) (int64, error)
 	DeleteTaskBeadsByTask(ctx context.Context, taskID string) (int64, error)
 	DeleteTaskBeadsForWork(ctx context.Context, workID string) (int64, error)
@@ -57,25 +59,31 @@ type Querier interface {
 	// This is used by plan mode to show which beads are already assigned.
 	GetAllAssignedBeads(ctx context.Context) ([]GetAllAssignedBeadsRow, error)
 	GetAllCachedComplexity(ctx context.Context) ([]GetAllCachedComplexityRow, error)
+	GetAllProcesses(ctx context.Context) ([]Process, error)
 	GetAllTaskMetadata(ctx context.Context, taskID string) ([]GetAllTaskMetadataRow, error)
 	GetAndIncrementTaskCounter(ctx context.Context, workID string) (int64, error)
 	GetAppliedMigrations(ctx context.Context) ([]string, error)
 	GetBead(ctx context.Context, id string) (Bead, error)
 	GetBeadStatus(ctx context.Context, id string) (string, error)
 	GetCachedComplexity(ctx context.Context, arg GetCachedComplexityParams) (GetCachedComplexityRow, error)
+	GetControlPlaneProcess(ctx context.Context) (Process, error)
 	GetLastMigration(ctx context.Context) (string, error)
 	GetLastWorkID(ctx context.Context) (string, error)
 	GetMaxWorkBeadPosition(ctx context.Context, workID string) (int64, error)
 	GetMigrationDownSQL(ctx context.Context, version string) (GetMigrationDownSQLRow, error)
 	GetNextScheduledTask(ctx context.Context) (Scheduler, error)
+	GetOrchestratorProcess(ctx context.Context, workID sql.NullString) (Process, error)
 	GetOverdueTasks(ctx context.Context) ([]Scheduler, error)
 	GetPRFeedback(ctx context.Context, id string) (PrFeedback, error)
 	GetPRFeedbackByBead(ctx context.Context, beadID sql.NullString) (PrFeedback, error)
 	GetPRFeedbackBySourceID(ctx context.Context, arg GetPRFeedbackBySourceIDParams) (PrFeedback, error)
 	GetPendingTaskByType(ctx context.Context, arg GetPendingTaskByTypeParams) (Scheduler, error)
+	GetProcess(ctx context.Context, id string) (Process, error)
+	GetProcessByWorkID(ctx context.Context, workID sql.NullString) (Process, error)
 	GetReadyTasksForWork(ctx context.Context, workID string) ([]GetReadyTasksForWorkRow, error)
 	GetScheduledTaskByID(ctx context.Context, id string) (Scheduler, error)
 	GetScheduledTasksForWork(ctx context.Context, workID string) ([]Scheduler, error)
+	GetStaleProcesses(ctx context.Context, dollar_1 sql.NullString) ([]Process, error)
 	GetTask(ctx context.Context, id string) (GetTaskRow, error)
 	GetTaskBeadStatus(ctx context.Context, arg GetTaskBeadStatusParams) (string, error)
 	GetTaskBeads(ctx context.Context, taskID string) ([]string, error)
@@ -106,6 +114,8 @@ type Querier interface {
 	IncrementAttemptAndReschedule(ctx context.Context, arg IncrementAttemptAndRescheduleParams) error
 	InitializeTaskCounter(ctx context.Context, workID string) error
 	IsBeadInTask(ctx context.Context, arg IsBeadInTaskParams) (bool, error)
+	IsControlPlaneAlive(ctx context.Context, dollar_1 sql.NullString) (int64, error)
+	IsOrchestratorAlive(ctx context.Context, arg IsOrchestratorAliveParams) (int64, error)
 	ListBeads(ctx context.Context) ([]Bead, error)
 	ListBeadsByStatus(ctx context.Context, status string) ([]Bead, error)
 	ListMigrationVersions(ctx context.Context) ([]string, error)
@@ -126,6 +136,7 @@ type Querier interface {
 	MergeWork(ctx context.Context, arg MergeWorkParams) (int64, error)
 	RecordMigration(ctx context.Context, version string) error
 	RecordMigrationWithDown(ctx context.Context, arg RecordMigrationWithDownParams) error
+	RegisterProcess(ctx context.Context, arg RegisterProcessParams) error
 	RemoveWorkBead(ctx context.Context, arg RemoveWorkBeadParams) (int64, error)
 	RescheduleTask(ctx context.Context, arg RescheduleTaskParams) error
 	ResetTaskBeadStatus(ctx context.Context, arg ResetTaskBeadStatusParams) (int64, error)
@@ -139,6 +150,7 @@ type Querier interface {
 	StartBead(ctx context.Context, arg StartBeadParams) error
 	StartTask(ctx context.Context, arg StartTaskParams) (int64, error)
 	StartWork(ctx context.Context, arg StartWorkParams) (int64, error)
+	UpdateHeartbeat(ctx context.Context, id string) error
 	UpdateMigrationDownSQL(ctx context.Context, arg UpdateMigrationDownSQLParams) error
 	UpdateScheduledTaskTime(ctx context.Context, arg UpdateScheduledTaskTimeParams) error
 	UpdateTaskActivity(ctx context.Context, arg UpdateTaskActivityParams) (int64, error)

@@ -46,6 +46,7 @@ go test ./...
 - `internal/project/` - Project discovery and configuration
 - `internal/worktree/` - Git worktree operations
 - `internal/logging/` - Structured logging using slog
+- `internal/procmon/` - Database-backed process monitoring with heartbeats
 
 ## External Dependencies
 

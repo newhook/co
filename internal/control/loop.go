@@ -8,12 +8,13 @@ import (
 
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
+	"github.com/newhook/co/internal/procmon"
 	"github.com/newhook/co/internal/project"
 	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
 )
 
 // RunControlPlaneLoop runs the main control plane event loop
-func RunControlPlaneLoop(ctx context.Context, proj *project.Project) error {
+func RunControlPlaneLoop(ctx context.Context, proj *project.Project, procManager *procmon.Manager) error {
 	// Initialize tracking database watcher
 	trackingDBPath := filepath.Join(proj.Root, ".co", "tracking.db")
 	watcher, err := trackingwatcher.New(trackingwatcher.DefaultConfig(trackingDBPath))
@@ -36,6 +37,11 @@ func RunControlPlaneLoop(ctx context.Context, proj *project.Project) error {
 	checkInterval := 30 * time.Second
 	checkTimer := time.NewTimer(checkInterval)
 	defer checkTimer.Stop()
+
+	// Set up periodic cleanup timer for stale processes
+	cleanupInterval := 60 * time.Second
+	cleanupTimer := time.NewTimer(cleanupInterval)
+	defer cleanupTimer.Stop()
 
 	for {
 		select {
@@ -61,6 +67,14 @@ func RunControlPlaneLoop(ctx context.Context, proj *project.Project) error {
 			logging.Debug("Control plane periodic check")
 			ProcessAllDueTasks(ctx, proj)
 			checkTimer.Reset(checkInterval)
+
+		case <-cleanupTimer.C:
+			// Periodic cleanup of stale processes
+			logging.Debug("Control plane cleaning up stale processes")
+			if err := procManager.KillStaleProcesses(ctx); err != nil {
+				logging.Warn("failed to cleanup stale processes", "error", err)
+			}
+			cleanupTimer.Reset(cleanupInterval)
 		}
 	}
 }

@@ -508,7 +508,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					focusedWork := m.findWorkByID(m.focusedWorkID)
 					m.workDetails.SetFocusedWork(focusedWork)
 					m.workDetails.SetSelectedIndex(0)
-					m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.focusedWorkID))
+					m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.proj.DB, m.focusedWorkID))
 
 					return m, m.updateWorkSelectionFilter()
 				}
@@ -1823,7 +1823,7 @@ func (m *planModel) doSelectWorkAtIndex(index int) (tea.Model, tea.Cmd) {
 	// Set up the work details panel
 	m.workDetails.SetFocusedWork(work)
 	m.workDetails.SetSelectedIndex(0)
-	m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.focusedWorkID))
+	m.workDetails.SetOrchestratorHealth(checkOrchestratorHealth(m.ctx, m.proj.DB, m.focusedWorkID))
 
 	// Update the filter and refresh
 	return m, m.updateWorkSelectionFilter()

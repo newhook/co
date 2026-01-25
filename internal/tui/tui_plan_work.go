@@ -130,7 +130,7 @@ func (m *planModel) loadWorkTiles() tea.Cmd {
 		orchestratorHealth := make(map[string]bool)
 		for _, work := range works {
 			if work != nil {
-				orchestratorHealth[work.Work.ID] = checkOrchestratorHealth(m.ctx, work.Work.ID)
+				orchestratorHealth[work.Work.ID] = checkOrchestratorHealth(m.ctx, m.proj.DB, work.Work.ID)
 			}
 		}
 
@@ -303,12 +303,14 @@ func (m *planModel) openClaude() tea.Cmd {
 	}
 }
 
-// checkOrchestratorHealth checks if the orchestrator process is running for a work
-func checkOrchestratorHealth(ctx context.Context, workID string) bool {
-	// Check if an orchestrator process is running for this specific work
-	pattern := "co orchestrate --work " + workID
-	running, _ := process.IsProcessRunning(ctx, pattern)
-	return running
+// checkOrchestratorHealth checks if the orchestrator has a recent heartbeat for a work
+func checkOrchestratorHealth(ctx context.Context, database *db.DB, workID string) bool {
+	// Check if an orchestrator has a recent heartbeat in the database
+	alive, err := database.IsOrchestratorAlive(ctx, workID, db.DefaultStalenessThreshold)
+	if err != nil {
+		return false
+	}
+	return alive
 }
 
 // restartOrchestrator kills and restarts the orchestrator for the focused work
@@ -324,9 +326,11 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
-		// Kill any existing orchestrator process
+		// Kill any existing orchestrator process using pattern-based kill
+		// (we use pattern-based kill since we need to actually terminate the process,
+		// database check only tells us if it's alive)
 		pattern := fmt.Sprintf("co orchestrate --work %s", workID)
-		if running, _ := process.IsProcessRunning(m.ctx, pattern); running {
+		if alive := checkOrchestratorHealth(m.ctx, m.proj.DB, workID); alive {
 			process.KillProcess(m.ctx, pattern)
 			time.Sleep(500 * time.Millisecond)
 		}
@@ -334,6 +338,7 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 		// Spawn a new orchestrator
 		spawned, err := claude.EnsureWorkOrchestrator(
 			m.ctx,
+			m.proj.DB,
 			workID,
 			m.proj.Config.Project.Name,
 			work.WorktreePath,
