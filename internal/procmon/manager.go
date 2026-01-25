@@ -27,6 +27,7 @@ type Manager struct {
 	running   bool
 	stopCh    chan struct{}
 	stoppedCh chan struct{}
+	triggerCh chan chan error // For testing: trigger immediate heartbeat
 }
 
 // NewManager creates a new process manager.
@@ -98,6 +99,7 @@ func (m *Manager) startHeartbeat() {
 	m.running = true
 	m.stopCh = make(chan struct{})
 	m.stoppedCh = make(chan struct{})
+	m.triggerCh = make(chan chan error)
 
 	go func() {
 		defer close(m.stoppedCh)
@@ -112,9 +114,28 @@ func (m *Manager) startHeartbeat() {
 				if err := m.db.UpdateHeartbeatWithTime(context.Background(), m.id, m.nowFunc()); err != nil {
 					logging.Warn("failed to update heartbeat", "id", m.id, "error", err)
 				}
+			case resultCh := <-m.triggerCh:
+				err := m.db.UpdateHeartbeatWithTime(context.Background(), m.id, m.nowFunc())
+				resultCh <- err
 			}
 		}
 	}()
+}
+
+// TriggerHeartbeat forces an immediate heartbeat update and waits for it to complete.
+// This is primarily for testing purposes to avoid time-based sleeps.
+func (m *Manager) TriggerHeartbeat() error {
+	m.mu.Lock()
+	if !m.running {
+		m.mu.Unlock()
+		return fmt.Errorf("manager not running")
+	}
+	triggerCh := m.triggerCh
+	m.mu.Unlock()
+
+	resultCh := make(chan error, 1)
+	triggerCh <- resultCh
+	return <-resultCh
 }
 
 // Stop gracefully shuts down the manager and unregisters the process.

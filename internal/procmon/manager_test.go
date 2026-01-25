@@ -117,8 +117,9 @@ func TestHeartbeatUpdates(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	// Use short heartbeat interval for testing
-	m := NewManager(database, 50*time.Millisecond)
+	// Use a long heartbeat interval since we'll trigger manually
+	m := NewManager(database, time.Hour)
+	defer m.Stop()
 
 	// Use a mock time function that returns a time far in the future
 	// This ensures the updated heartbeat is definitely after the initial
@@ -137,17 +138,15 @@ func TestHeartbeatUpdates(t *testing.T) {
 	require.NotNil(t, proc)
 	initialHeartbeat := proc.Heartbeat
 
-	// Wait for at least one heartbeat tick
-	time.Sleep(100 * time.Millisecond)
+	// Trigger an immediate heartbeat update (no sleep needed)
+	err = m.TriggerHeartbeat()
+	require.NoError(t, err)
 
 	// Read updated heartbeat
 	proc, err = database.GetControlPlaneProcess(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, proc)
 	updatedHeartbeat := proc.Heartbeat
-
-	// Stop before assertions to prevent goroutine leak
-	m.Stop()
 
 	// The updated heartbeat should be our mock time (2099), which is after
 	// the initial heartbeat (set by SQLite CURRENT_TIMESTAMP)
