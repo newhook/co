@@ -153,17 +153,17 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		// CI Status
 		ciStatus := p.focusedWork.CIStatus
 		if ciStatus == "" {
-			ciStatus = "pending"
+			ciStatus = db.CIStatusPending
 		}
 		ciIcon := "⏳"
 		ciText := "Pending"
 		ciColor := lipgloss.Color("226") // yellow
 		switch ciStatus {
-		case "success":
+		case db.CIStatusSuccess:
 			ciIcon = "✓"
 			ciText = "Passing"
 			ciColor = lipgloss.Color("82") // green
-		case "failure":
+		case db.CIStatusFailure:
 			ciIcon = "✗"
 			ciText = "Failing"
 			ciColor = lipgloss.Color("196") // red
@@ -174,13 +174,13 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		// Approval Status
 		approvalStatus := p.focusedWork.ApprovalStatus
 		if approvalStatus == "" {
-			approvalStatus = "pending"
+			approvalStatus = db.ApprovalStatusPending
 		}
 		approvalIcon := "⏳"
 		approvalText := "Awaiting review"
 		approvalColor := lipgloss.Color("247") // dim
 		switch approvalStatus {
-		case "approved":
+		case db.ApprovalStatusApproved:
 			approvalIcon = "✓"
 			if len(p.focusedWork.Approvers) > 0 {
 				approvalText = "Approved by " + strings.Join(p.focusedWork.Approvers, ", ")
@@ -188,7 +188,7 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 				approvalText = "Approved"
 			}
 			approvalColor = lipgloss.Color("82") // green
-		case "changes_requested":
+		case db.ApprovalStatusChangesRequested:
 			approvalIcon = "⚠"
 			approvalText = "Changes requested"
 			approvalColor = lipgloss.Color("214") // orange

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/github"
 )
 
@@ -16,7 +17,7 @@ func TestExtractCIStatus(t *testing.T) {
 		{
 			name:     "no checks or workflows",
 			status:   &github.PRStatus{},
-			expected: "pending",
+			expected: db.CIStatusPending,
 		},
 		{
 			name: "all status checks success",
@@ -27,7 +28,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Context: "test3", State: "SKIPPED"},
 				},
 			},
-			expected: "success",
+			expected: db.CIStatusSuccess,
 		},
 		{
 			name: "one status check failure",
@@ -37,7 +38,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Context: "test2", State: "FAILURE"},
 				},
 			},
-			expected: "failure",
+			expected: db.CIStatusFailure,
 		},
 		{
 			name: "one status check pending",
@@ -47,7 +48,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Context: "test2", State: "PENDING"},
 				},
 			},
-			expected: "pending",
+			expected: db.CIStatusPending,
 		},
 		{
 			name: "status check with empty state is pending",
@@ -57,7 +58,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Context: "test2", State: ""},
 				},
 			},
-			expected: "pending",
+			expected: db.CIStatusPending,
 		},
 		{
 			name: "status check error",
@@ -66,7 +67,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Context: "test1", State: "ERROR"},
 				},
 			},
-			expected: "failure",
+			expected: db.CIStatusFailure,
 		},
 		{
 			name: "all workflows success",
@@ -76,7 +77,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Name: "Lint", Status: "completed", Conclusion: "success"},
 				},
 			},
-			expected: "success",
+			expected: db.CIStatusSuccess,
 		},
 		{
 			name: "workflow failure",
@@ -85,7 +86,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Name: "CI", Status: "completed", Conclusion: "failure"},
 				},
 			},
-			expected: "failure",
+			expected: db.CIStatusFailure,
 		},
 		{
 			name: "workflow in progress",
@@ -94,7 +95,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Name: "CI", Status: "in_progress", Conclusion: ""},
 				},
 			},
-			expected: "pending",
+			expected: db.CIStatusPending,
 		},
 		{
 			name: "workflow queued",
@@ -103,7 +104,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Name: "CI", Status: "queued", Conclusion: ""},
 				},
 			},
-			expected: "pending",
+			expected: db.CIStatusPending,
 		},
 		{
 			name: "workflow skipped counts as success",
@@ -112,7 +113,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Name: "CI", Status: "completed", Conclusion: "skipped"},
 				},
 			},
-			expected: "success",
+			expected: db.CIStatusSuccess,
 		},
 		{
 			name: "mixed checks and workflows all success",
@@ -124,7 +125,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Name: "CI", Status: "completed", Conclusion: "success"},
 				},
 			},
-			expected: "success",
+			expected: db.CIStatusSuccess,
 		},
 		{
 			name: "check failure takes precedence over workflow success",
@@ -136,7 +137,7 @@ func TestExtractCIStatus(t *testing.T) {
 					{Name: "CI", Status: "completed", Conclusion: "success"},
 				},
 			},
-			expected: "failure",
+			expected: db.CIStatusFailure,
 		},
 	}
 
@@ -163,7 +164,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 		{
 			name:              "no reviews",
 			status:            &github.PRStatus{},
-			expectedStatus:    "pending",
+			expectedStatus:    db.ApprovalStatusPending,
 			expectedApprovers: []string{},
 		},
 		{
@@ -173,7 +174,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 					{ID: 1, State: "APPROVED", Author: "user1", CreatedAt: now},
 				},
 			},
-			expectedStatus:    "approved",
+			expectedStatus:    db.ApprovalStatusApproved,
 			expectedApprovers: []string{"user1"},
 		},
 		{
@@ -184,7 +185,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 					{ID: 2, State: "APPROVED", Author: "user2", CreatedAt: now},
 				},
 			},
-			expectedStatus:    "approved",
+			expectedStatus:    db.ApprovalStatusApproved,
 			expectedApprovers: []string{"user1", "user2"},
 		},
 		{
@@ -194,7 +195,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 					{ID: 1, State: "CHANGES_REQUESTED", Author: "user1", CreatedAt: now},
 				},
 			},
-			expectedStatus:    "changes_requested",
+			expectedStatus:    db.ApprovalStatusChangesRequested,
 			expectedApprovers: []string{},
 		},
 		{
@@ -205,7 +206,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 					{ID: 2, State: "CHANGES_REQUESTED", Author: "user2", CreatedAt: now},
 				},
 			},
-			expectedStatus:    "changes_requested",
+			expectedStatus:    db.ApprovalStatusChangesRequested,
 			expectedApprovers: []string{"user1"},
 		},
 		{
@@ -215,7 +216,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 					{ID: 1, State: "COMMENTED", Author: "user1", CreatedAt: now},
 				},
 			},
-			expectedStatus:    "pending",
+			expectedStatus:    db.ApprovalStatusPending,
 			expectedApprovers: []string{},
 		},
 		{
@@ -226,7 +227,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 					{ID: 2, State: "APPROVED", Author: "user1", CreatedAt: now},
 				},
 			},
-			expectedStatus:    "approved",
+			expectedStatus:    db.ApprovalStatusApproved,
 			expectedApprovers: []string{"user1"},
 		},
 		{
@@ -237,7 +238,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 					{ID: 2, State: "CHANGES_REQUESTED", Author: "user1", CreatedAt: now},
 				},
 			},
-			expectedStatus:    "changes_requested",
+			expectedStatus:    db.ApprovalStatusChangesRequested,
 			expectedApprovers: []string{},
 		},
 		{
@@ -247,7 +248,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 					{ID: 1, State: "APPROVED", Author: "github-actions[bot]", CreatedAt: now},
 				},
 			},
-			expectedStatus:    "approved",
+			expectedStatus:    db.ApprovalStatusApproved,
 			expectedApprovers: []string{"github-actions[bot]"},
 		},
 		{
@@ -259,7 +260,7 @@ func TestExtractApprovalStatus(t *testing.T) {
 					{ID: 3, State: "COMMENTED", Author: "user3", CreatedAt: now},
 				},
 			},
-			expectedStatus:    "approved",
+			expectedStatus:    db.ApprovalStatusApproved,
 			expectedApprovers: []string{"user1"},
 		},
 	}
@@ -302,8 +303,8 @@ func TestExtractStatusFromPRStatus(t *testing.T) {
 		{
 			name:              "empty status",
 			status:            &github.PRStatus{},
-			expectedCI:        "pending",
-			expectedApproval:  "pending",
+			expectedCI:        db.CIStatusPending,
+			expectedApproval:  db.ApprovalStatusPending,
 			expectedApprovers: []string{},
 		},
 		{
@@ -316,8 +317,8 @@ func TestExtractStatusFromPRStatus(t *testing.T) {
 					{ID: 1, State: "APPROVED", Author: "reviewer", CreatedAt: now},
 				},
 			},
-			expectedCI:        "success",
-			expectedApproval:  "approved",
+			expectedCI:        db.CIStatusSuccess,
+			expectedApproval:  db.ApprovalStatusApproved,
 			expectedApprovers: []string{"reviewer"},
 		},
 		{
@@ -330,8 +331,8 @@ func TestExtractStatusFromPRStatus(t *testing.T) {
 					{ID: 1, State: "APPROVED", Author: "reviewer", CreatedAt: now},
 				},
 			},
-			expectedCI:        "failure",
-			expectedApproval:  "approved",
+			expectedCI:        db.CIStatusFailure,
+			expectedApproval:  db.ApprovalStatusApproved,
 			expectedApprovers: []string{"reviewer"},
 		},
 		{
@@ -344,8 +345,8 @@ func TestExtractStatusFromPRStatus(t *testing.T) {
 					{ID: 1, State: "CHANGES_REQUESTED", Author: "reviewer", CreatedAt: now},
 				},
 			},
-			expectedCI:        "success",
-			expectedApproval:  "changes_requested",
+			expectedCI:        db.CIStatusSuccess,
+			expectedApproval:  db.ApprovalStatusChangesRequested,
 			expectedApprovers: []string{},
 		},
 	}

@@ -22,8 +22,8 @@ type PRStatusInfo struct {
 // ExtractStatusFromPRStatus extracts CI and approval status from a PRStatus object.
 func ExtractStatusFromPRStatus(status *github.PRStatus) *PRStatusInfo {
 	info := &PRStatusInfo{
-		CIStatus:       "pending",
-		ApprovalStatus: "pending",
+		CIStatus:       db.CIStatusPending,
+		ApprovalStatus: db.ApprovalStatusPending,
 		Approvers:      []string{},
 		PRState:        normalizePRState(status.State),
 	}
@@ -43,18 +43,18 @@ func ExtractStatusFromPRStatus(status *github.PRStatus) *PRStatusInfo {
 func normalizePRState(state string) string {
 	switch strings.ToUpper(state) {
 	case "OPEN":
-		return "open"
+		return db.PRStateOpen
 	case "CLOSED":
-		return "closed"
+		return db.PRStateClosed
 	case "MERGED":
-		return "merged"
+		return db.PRStateMerged
 	default:
-		return "open" // Default to open if unknown
+		return db.PRStateOpen // Default to open if unknown
 	}
 }
 
 // extractCIStatus determines the overall CI status from status checks and workflows.
-// Returns: "pending", "success", or "failure"
+// Returns: db.CIStatusPending, db.CIStatusSuccess, or db.CIStatusFailure
 func extractCIStatus(status *github.PRStatus) string {
 	// Check workflow runs first (GitHub Actions)
 	hasWorkflows := len(status.Workflows) > 0
@@ -62,18 +62,18 @@ func extractCIStatus(status *github.PRStatus) string {
 
 	if !hasWorkflows && !hasStatusChecks {
 		// No CI configured
-		return "pending"
+		return db.CIStatusPending
 	}
 
 	// Check for any failures
 	for _, workflow := range status.Workflows {
 		if workflow.Conclusion == "failure" {
-			return "failure"
+			return db.CIStatusFailure
 		}
 	}
 	for _, check := range status.StatusChecks {
 		if check.State == "FAILURE" || check.State == "ERROR" {
-			return "failure"
+			return db.CIStatusFailure
 		}
 	}
 
@@ -81,24 +81,24 @@ func extractCIStatus(status *github.PRStatus) string {
 	for _, workflow := range status.Workflows {
 		if workflow.Status == "in_progress" || workflow.Status == "queued" ||
 			(workflow.Status == "completed" && workflow.Conclusion == "") {
-			return "pending"
+			return db.CIStatusPending
 		}
 	}
 	for _, check := range status.StatusChecks {
 		if check.State == "PENDING" || check.State == "" {
-			return "pending"
+			return db.CIStatusPending
 		}
 	}
 
 	// If we have at least some completed checks/workflows and no failures or pending
-	return "success"
+	return db.CIStatusSuccess
 }
 
 // extractApprovalStatus determines the approval status from reviews.
-// Returns: (status, approvers) where status is "pending", "approved", or "changes_requested"
+// Returns: (status, approvers) where status is db.ApprovalStatusPending, db.ApprovalStatusApproved, or db.ApprovalStatusChangesRequested
 func extractApprovalStatus(status *github.PRStatus) (string, []string) {
 	if len(status.Reviews) == 0 {
-		return "pending", []string{}
+		return db.ApprovalStatusPending, []string{}
 	}
 
 	// Track the latest review state per user
@@ -137,12 +137,12 @@ func extractApprovalStatus(status *github.PRStatus) (string, []string) {
 	// If at least one reviewer has approved (and no changes requested), status is "approved"
 	// Otherwise, status is "pending"
 	if hasChangesRequested {
-		return "changes_requested", approvers
+		return db.ApprovalStatusChangesRequested, approvers
 	}
 	if len(approvers) > 0 {
-		return "approved", approvers
+		return db.ApprovalStatusApproved, approvers
 	}
-	return "pending", []string{}
+	return db.ApprovalStatusPending, []string{}
 }
 
 // ApproversToJSON converts a list of approvers to a JSON string.
