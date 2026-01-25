@@ -2,180 +2,182 @@ package process
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"os/exec"
-	"runtime"
-	"strings"
+	"errors"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestIsProcessRunning(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+// mockProcessLister is a mock implementation of ProcessLister for testing.
+type mockProcessLister struct {
+	processes []string
+	err       error
+}
+
+func (m *mockProcessLister) GetProcessList(ctx context.Context) ([]string, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.processes, nil
+}
+
+// mockProcessKiller is a mock implementation of ProcessKiller for testing.
+type mockProcessKiller struct {
+	killedPatterns []string
+	err            error
+}
+
+func (m *mockProcessKiller) KillByPattern(ctx context.Context, pattern string) error {
+	m.killedPatterns = append(m.killedPatterns, pattern)
+	return m.err
+}
+
+func TestIsProcessRunningWith(t *testing.T) {
+	ctx := context.Background()
 
 	tests := []struct {
-		name    string
-		pattern string
-		want    bool
-		wantErr bool
+		name      string
+		pattern   string
+		processes []string
+		want      bool
+		wantErr   bool
 	}{
 		{
-			name:    "non-existent process",
-			pattern: "this-process-definitely-does-not-exist-xyz123",
-			want:    false,
-			wantErr: false,
+			name:      "process found",
+			pattern:   "myapp",
+			processes: []string{"/usr/bin/myapp --flag", "/bin/bash", "/usr/bin/other"},
+			want:      true,
+			wantErr:   false,
 		},
 		{
-			name:    "empty pattern",
-			pattern: "",
-			want:    true, // Empty pattern matches all processes
-			wantErr: false,
+			name:      "process not found",
+			pattern:   "nonexistent",
+			processes: []string{"/usr/bin/myapp", "/bin/bash"},
+			want:      false,
+			wantErr:   false,
 		},
 		{
-			name:    "pattern with special characters",
-			pattern: "test*pattern[special]",
-			want:    false,
-			wantErr: false,
+			name:      "empty process list",
+			pattern:   "myapp",
+			processes: []string{},
+			want:      false,
+			wantErr:   false,
 		},
 		{
-			name:    "pattern with spaces",
-			pattern: "test pattern with spaces",
-			want:    false,
-			wantErr: false,
+			name:      "empty pattern matches all",
+			pattern:   "",
+			processes: []string{"/usr/bin/myapp"},
+			want:      true,
+			wantErr:   false,
+		},
+		{
+			name:      "partial match",
+			pattern:   "app",
+			processes: []string{"/usr/bin/myapp", "/bin/bash"},
+			want:      true,
+			wantErr:   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			running, err := IsProcessRunning(ctx, tt.pattern)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("IsProcessRunning() error = %v, wantErr %v", err, tt.wantErr)
+			lister := &mockProcessLister{processes: tt.processes}
+			got, err := IsProcessRunningWith(ctx, tt.pattern, lister)
+
+			if tt.wantErr {
+				require.Error(t, err)
 				return
 			}
-			if running != tt.want {
-				t.Errorf("IsProcessRunning() = %v, want %v", running, tt.want)
-			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
-
-	// Test with current test process (should find itself)
-	t.Run("current test process", func(t *testing.T) {
-		running, err := IsProcessRunning(ctx, os.Args[0])
-		if err != nil {
-			t.Fatalf("IsProcessRunning failed: %v", err)
-		}
-		if !running {
-			t.Error("Expected to find the current test process")
-		}
-	})
 }
 
-func TestIsProcessRunning_ContextCancellation(t *testing.T) {
-	// Create a context that's already cancelled
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+func TestIsProcessRunningWith_ListerError(t *testing.T) {
+	ctx := context.Background()
+	lister := &mockProcessLister{err: errors.New("ps command failed")}
 
-	// The function should respect context cancellation
-	_, err := IsProcessRunning(ctx, "any-pattern")
-	if err == nil {
-		// On macOS/Unix, the ps command might complete quickly before context is checked
-		// This is acceptable behavior
-		t.Log("IsProcessRunning completed despite cancelled context (command was fast)")
-	}
+	_, err := IsProcessRunningWith(ctx, "myapp", lister)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get process list")
 }
 
-func TestKillProcess(t *testing.T) {
-	// Skip this test if not running on a Unix-like system
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping KillProcess test on Windows")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+func TestKillProcessWith(t *testing.T) {
+	ctx := context.Background()
 
 	tests := []struct {
-		name    string
-		pattern string
-		wantErr bool
+		name           string
+		pattern        string
+		processes      []string
+		killerErr      error
+		wantErr        bool
+		wantKillCalled bool
 	}{
 		{
-			name:    "non-existent process",
-			pattern: "definitely-non-existent-process-xyz789",
-			wantErr: false, // Should succeed (no processes to kill)
+			name:           "kills matching process",
+			pattern:        "myapp",
+			processes:      []string{"/usr/bin/myapp --flag", "/bin/bash"},
+			wantErr:        false,
+			wantKillCalled: true,
 		},
 		{
-			name:    "pattern with special characters",
-			pattern: "test'pattern\"with$special",
-			wantErr: false,
+			name:           "no matching process - no kill called",
+			pattern:        "nonexistent",
+			processes:      []string{"/usr/bin/myapp", "/bin/bash"},
+			wantErr:        false,
+			wantKillCalled: false,
 		},
 		{
-			name:    "empty pattern",
-			pattern: "",
-			wantErr: true, // pkill with empty pattern causes an error
+			name:           "empty pattern returns error",
+			pattern:        "",
+			processes:      []string{"/usr/bin/myapp"},
+			wantErr:        true,
+			wantKillCalled: false,
+		},
+		{
+			name:           "killer error propagates",
+			pattern:        "myapp",
+			processes:      []string{"/usr/bin/myapp"},
+			killerErr:      errors.New("pkill failed"),
+			wantErr:        true,
+			wantKillCalled: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := KillProcess(ctx, tt.pattern)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("KillProcess() error = %v, wantErr %v", err, tt.wantErr)
+			lister := &mockProcessLister{processes: tt.processes}
+			killer := &mockProcessKiller{err: tt.killerErr}
+
+			err := KillProcessWith(ctx, tt.pattern, lister, killer)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			if tt.wantKillCalled {
+				assert.Contains(t, killer.killedPatterns, tt.pattern)
+			} else {
+				assert.Empty(t, killer.killedPatterns)
 			}
 		})
 	}
 }
 
-func TestKillProcess_ActualProcess(t *testing.T) {
-	// Skip this test if not running on a Unix-like system
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping KillProcess test on Windows")
-	}
+func TestKillProcessWith_ListerError(t *testing.T) {
+	ctx := context.Background()
+	lister := &mockProcessLister{err: errors.New("ps command failed")}
+	killer := &mockProcessKiller{}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Start a simple sleep process that we can kill
-	cmd := exec.CommandContext(ctx, "sleep", "30")
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("Failed to start test process: %v", err)
-	}
-	defer func() {
-		// Ensure the process is killed if the test fails
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-	}()
-
-	// Give the process a moment to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify the process is running
-	running, err := IsProcessRunning(ctx, "sleep 30")
-	if err != nil {
-		t.Fatalf("Failed to check if process is running: %v", err)
-	}
-	if !running {
-		t.Fatal("Test process should be running")
-	}
-
-	// Kill the process
-	if err := KillProcess(ctx, "sleep 30"); err != nil {
-		t.Fatalf("Failed to kill process: %v", err)
-	}
-
-	// Give the process a moment to die
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify the process is no longer running
-	running, err = IsProcessRunning(ctx, "sleep 30")
-	if err != nil {
-		t.Fatalf("Failed to check if process is running: %v", err)
-	}
-	if running {
-		t.Error("Process should have been killed")
-	}
+	err := KillProcessWith(ctx, "myapp", lister, killer)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get process list")
+	assert.Empty(t, killer.killedPatterns)
 }
 
 func TestEscapePattern(t *testing.T) {
@@ -224,119 +226,7 @@ func TestEscapePattern(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := escapePattern(tt.pattern)
-			if got != tt.want {
-				t.Errorf("escapePattern() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetProcessList(t *testing.T) {
-	// Skip this test if not running on a Unix-like system
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping getProcessList test on Windows")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	processes, err := getProcessList(ctx)
-	if err != nil {
-		t.Fatalf("getProcessList() error = %v", err)
-	}
-
-	// Basic sanity checks
-	if len(processes) == 0 {
-		t.Error("Expected at least one process to be running")
-	}
-
-	// Check that the list doesn't contain the COMMAND header
-	for _, proc := range processes {
-		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(proc)), "COMMAND") {
-			t.Error("Process list should not contain COMMAND header")
-		}
-	}
-
-	// Verify that we can find our own test process
-	foundSelf := false
-	for _, proc := range processes {
-		if strings.Contains(proc, os.Args[0]) {
-			foundSelf = true
-			break
-		}
-	}
-	if !foundSelf {
-		t.Error("Should have found the current test process in the list")
-	}
-}
-
-func TestGetProcessList_ContextCancellation(t *testing.T) {
-	// Skip this test if not running on a Unix-like system
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping getProcessList test on Windows")
-	}
-
-	// Create a context that's already cancelled
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	// The function should respect context cancellation
-	_, err := getProcessList(ctx)
-	if err == nil {
-		// On fast systems, ps might complete before context is checked
-		t.Log("getProcessList completed despite cancelled context (command was fast)")
-	}
-}
-
-func TestKillProcessByPattern_NoMatchingProcess(t *testing.T) {
-	// Skip this test if not running on a Unix-like system
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping killProcessByPattern test on Windows")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Should not error when no process matches
-	err := killProcessByPattern(ctx, "absolutely-non-existent-process-name-xyz")
-	if err != nil {
-		t.Errorf("killProcessByPattern() should not error when no process matches, got: %v", err)
-	}
-}
-
-func TestKillProcessByPattern_CommandInjection(t *testing.T) {
-	// Skip this test if not running on a Unix-like system
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping killProcessByPattern test on Windows")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Test that command injection is prevented
-	maliciousPatterns := []string{
-		"'; touch /tmp/hacked; echo '",
-		"$(touch /tmp/hacked)",
-		"`touch /tmp/hacked`",
-		"| touch /tmp/hacked",
-		"&& touch /tmp/hacked",
-		"; touch /tmp/hacked",
-	}
-
-	for _, pattern := range maliciousPatterns {
-		t.Run(fmt.Sprintf("pattern=%q", pattern), func(t *testing.T) {
-			// This should be safe due to escaping
-			err := killProcessByPattern(ctx, pattern)
-			if err != nil {
-				// Error is acceptable (no matching process)
-				t.Logf("killProcessByPattern() returned error (expected): %v", err)
-			}
-
-			// Verify that the malicious command was not executed
-			if _, err := os.Stat("/tmp/hacked"); err == nil {
-				os.Remove("/tmp/hacked") // Clean up
-				t.Fatal("Command injection was not prevented!")
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

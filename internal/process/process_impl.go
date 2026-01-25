@@ -9,6 +9,22 @@ import (
 	"strings"
 )
 
+// systemProcessLister implements ProcessLister using system commands.
+type systemProcessLister struct{}
+
+// GetProcessList returns a list of all running processes with their command lines.
+func (s *systemProcessLister) GetProcessList(ctx context.Context) ([]string, error) {
+	return getProcessList(ctx)
+}
+
+// systemProcessKiller implements ProcessKiller using system commands.
+type systemProcessKiller struct{}
+
+// KillByPattern kills processes matching the pattern using pkill.
+func (s *systemProcessKiller) KillByPattern(ctx context.Context, pattern string) error {
+	return killByPattern(ctx, pattern)
+}
+
 // getProcessList returns a list of all running processes with their command lines.
 // On Unix systems, we use 'ps' command to get the process list.
 func getProcessList(ctx context.Context) ([]string, error) {
@@ -48,28 +64,8 @@ func escapePattern(pattern string) string {
 	return "'" + escaped + "'"
 }
 
-// killProcessByPattern kills all processes matching the given pattern.
-func killProcessByPattern(ctx context.Context, pattern string) error {
-	// First, find the processes that match the pattern
-	processes, err := getProcessList(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get process list: %w", err)
-	}
-
-	// Check if any process matches the pattern
-	found := false
-	for _, proc := range processes {
-		if strings.Contains(proc, pattern) {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		// No process found, nothing to kill
-		return nil
-	}
-
+// killByPattern kills all processes matching the given pattern using pkill.
+func killByPattern(ctx context.Context, pattern string) error {
 	// Escape the pattern to prevent command injection
 	escapedPattern := escapePattern(pattern)
 
@@ -80,7 +76,7 @@ func killProcessByPattern(ctx context.Context, pattern string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
 	if err != nil {
 		// Check if the error is because no processes were found (exit code 1)
 		var exitErr *exec.ExitError
