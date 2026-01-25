@@ -259,6 +259,8 @@ When implementing changes:
 
 All PRs must be squash merged.
 
+**NEVER use `git commit --amend`.** Always create new commits. If you need to fix something, make a new commit - the squash merge will clean up the history.
+
 ## Project Model
 
 All commands require a project context. Projects are created with `co proj create` and have this structure:
