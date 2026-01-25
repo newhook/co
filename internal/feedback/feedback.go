@@ -146,7 +146,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 				Priority:     item.Priority,
 			})
 			if err == nil {
-				database.MarkFeedbackProcessed(ctx, prFeedback.ID, *parentFeedback.BeadID)
+				_ = database.MarkFeedbackProcessed(ctx, prFeedback.ID, *parentFeedback.BeadID)
 			}
 
 			continue

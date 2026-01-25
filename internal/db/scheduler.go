@@ -40,7 +40,7 @@ const (
 	TaskTypeDestroyWorktree     = "destroy_worktree"
 )
 
-// Default max attempts for retry tasks
+// DefaultMaxAttempts is the default max attempts for retry tasks.
 const DefaultMaxAttempts = 5
 
 // OptimisticExecutionDelay is how long to wait before the scheduler picks up

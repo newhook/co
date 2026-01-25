@@ -214,7 +214,7 @@ func (p *CreateWorkPanel) Render() string {
 	currentLine += 2
 
 	// Branch name input
-	branchLabel := "Branch name:"
+	var branchLabel string
 	if p.fieldIdx == 0 {
 		branchLabel = tuiSuccessStyle.Render("Branch name:") + " " + tuiDimStyle.Render("(editing)")
 	} else {

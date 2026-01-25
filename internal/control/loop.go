@@ -23,7 +23,7 @@ func RunControlPlaneLoop(ctx context.Context, proj *project.Project, procManager
 	}
 
 	if err := watcher.Start(); err != nil {
-		watcher.Stop()
+		_ = watcher.Stop()
 		return fmt.Errorf("failed to start tracking watcher: %w", err)
 	}
 	defer watcher.Stop()

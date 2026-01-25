@@ -49,17 +49,14 @@ func (c *InMemoryCacheManager[K, V]) GetMultiple(ctx context.Context, keys []str
 
 	isEveryFieldNil := true
 	values := make(map[string]V, len(keys))
-	missingKeys := make([]string, 0)
 	for _, key := range keys {
 		value, found := c.cache.Get(key)
 		if !found {
-			missingKeys = append(missingKeys, key)
 			continue
 		}
 
 		v, ok := value.(V)
 		if !ok {
-			missingKeys = append(missingKeys, key)
 			continue
 		}
 

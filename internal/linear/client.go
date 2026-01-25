@@ -35,7 +35,7 @@ func NewClient(apiKey string) (*Client, error) {
 		apiKey = os.Getenv("LINEAR_API_KEY")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("Linear API key not provided and LINEAR_API_KEY environment variable not set")
+		return nil, fmt.Errorf("linear API key not provided and LINEAR_API_KEY environment variable not set")
 	}
 
 	return &Client{

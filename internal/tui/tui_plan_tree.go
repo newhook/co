@@ -21,11 +21,8 @@ func buildBeadTree(ctx context.Context, items []beadItem, client *beads.Client) 
 		itemMap[items[i].ID] = &items[i]
 	}
 
-	// Collect all issue IDs
-	issueIDs := make([]string, 0, len(items))
-	for i := range items {
-		issueIDs = append(issueIDs, items[i].ID)
-	}
+	// Collect all issue IDs (used in getBlockingDepIDs closure below)
+	_ = len(items) // issueIDs would be used for dependency lookups if needed
 
 	// Helper to extract blocking dependency IDs from a beadItem
 	getBlockingDepIDs := func(item *beadItem) []string {

@@ -39,7 +39,7 @@ func taskRowToLocal(t *sqlc.GetTaskRow) *Task {
 
 // listTaskRowToLocal converts a ListTasksRow/ListTasksByStatusRow to local Task
 func listTaskRowToLocal(id string, status string, taskType string, complexityBudget int64, actualComplexity int64,
-	workID string, worktreePath string, prUrl string, errorMessage string,
+	workID string, worktreePath string, prURL string, errorMessage string,
 	startedAt sql.NullTime, completedAt sql.NullTime, createdAt time.Time,
 	spawnedAt sql.NullTime, spawnStatus string) *Task {
 
@@ -51,7 +51,7 @@ func listTaskRowToLocal(id string, status string, taskType string, complexityBud
 		ActualComplexity: int(actualComplexity),
 		WorkID:           workID,
 		WorktreePath:     worktreePath,
-		PRURL:            prUrl,
+		PRURL:            prURL,
 		ErrorMessage:     errorMessage,
 		CreatedAt:        createdAt,
 		SpawnStatus:      spawnStatus,

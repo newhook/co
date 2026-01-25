@@ -203,7 +203,7 @@ func handleClaudeExit(ctx context.Context, database *db.DB, taskID string, exitE
 		if dbErr := database.FailTask(ctx, taskID, fmt.Sprintf("Claude exited with error: %v", exitErr)); dbErr != nil {
 			fmt.Printf("Warning: failed to mark task as failed: %v\n", dbErr)
 		}
-		return fmt.Errorf("Claude exited with error: %w", exitErr)
+		return fmt.Errorf("claude exited with error: %w", exitErr)
 	}
 
 	// Claude exited successfully - check task status

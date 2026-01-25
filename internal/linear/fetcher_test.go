@@ -254,7 +254,7 @@ func TestNewFetcher(t *testing.T) {
 			t.Errorf("Unexpected error: %v", err)
 		}
 		if fetcher == nil {
-			t.Error("Expected non-nil fetcher")
+			t.Fatal("Expected non-nil fetcher")
 		}
 		if fetcher.client == nil {
 			t.Error("Expected client to be initialized")
