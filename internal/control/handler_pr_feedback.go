@@ -42,7 +42,7 @@ func HandlePRFeedbackTask(ctx context.Context, proj *project.Project, task *db.S
 	// Schedule next check using configured interval
 	nextInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
 	nextCheck := time.Now().Add(nextInterval)
-	_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypePRFeedback, nextCheck, nil)
+	_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypePRFeedback, nextCheck)
 	if err != nil {
 		logging.Warn("failed to schedule next PR feedback check", "error", err, "work_id", workID)
 	} else {

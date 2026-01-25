@@ -30,7 +30,7 @@ func HandleCommentResolutionTask(ctx context.Context, proj *project.Project, tas
 	// Schedule next check using configured interval
 	nextInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
 	nextCheck := time.Now().Add(nextInterval)
-	_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypeCommentResolution, nextCheck, nil)
+	_, err = proj.DB.ScheduleOrUpdateTask(ctx, workID, db.TaskTypeCommentResolution, nextCheck)
 	if err != nil {
 		logging.Warn("failed to schedule next comment resolution check", "error", err)
 	}

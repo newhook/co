@@ -135,22 +135,18 @@ The `.co/config.toml` file stores project settings:
 
 [scheduler]
   # Interval between PR feedback checks in minutes.
-  # Can also be set via CO_PR_FEEDBACK_INTERVAL_MINUTES environment variable.
   # Defaults to 5 minutes when not specified.
   pr_feedback_interval_minutes = 5
 
   # Interval between comment resolution checks in minutes.
-  # Can also be set via CO_COMMENT_RESOLUTION_INTERVAL_MINUTES environment variable.
   # Defaults to 5 minutes when not specified.
   comment_resolution_interval_minutes = 5
 
   # Scheduler polling interval in seconds.
-  # Can also be set via CO_SCHEDULER_POLL_SECONDS environment variable.
   # Defaults to 1 second when not specified.
   scheduler_poll_seconds = 1
 
   # Interval for updating task activity timestamps in seconds.
-  # Can also be set via CO_ACTIVITY_UPDATE_SECONDS environment variable.
   # Defaults to 30 seconds when not specified.
   activity_update_seconds = 30
 ```
@@ -188,8 +184,6 @@ The scheduler section controls timing for background operations during orchestra
 - `comment_resolution_interval_minutes`: How often to check for resolved feedback that needs GitHub comment updates. Defaults to 5 minutes.
 - `scheduler_poll_seconds`: Internal scheduler polling frequency. Defaults to 1 second.
 - `activity_update_seconds`: How often to update task activity timestamps. Defaults to 30 seconds.
-
-All scheduler settings can be overridden via environment variables (e.g., `CO_PR_FEEDBACK_INTERVAL_MINUTES`).
 
 ## Usage
 

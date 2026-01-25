@@ -28,7 +28,7 @@ func TriggerPRFeedbackCheck(ctx context.Context, proj *project.Project, workID s
 	logging.Debug("triggering immediate PR feedback check", "work_id", workID)
 
 	// Schedule the task to run now
-	_, err := proj.DB.TriggerTaskNow(ctx, workID, db.TaskTypePRFeedback, nil)
+	_, err := proj.DB.TriggerTaskNow(ctx, workID, db.TaskTypePRFeedback)
 	if err != nil {
 		return fmt.Errorf("failed to trigger PR feedback check: %w", err)
 	}
