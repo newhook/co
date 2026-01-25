@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,12 +11,11 @@ import (
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
-	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
 	cosignal "github.com/newhook/co/internal/signal"
-	workpkg "github.com/newhook/co/internal/work"
+	"github.com/newhook/co/internal/work"
 	"github.com/newhook/co/internal/worktree"
 	"github.com/spf13/cobra"
 )
@@ -215,7 +213,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	beadID := args[0]
 
 	// Expand the bead (handles epics and transitive deps)
-	expandedIssueIDs, err := workpkg.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
+	expandedIssueIDs, err := work.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
 	if err != nil {
 		return fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 	}
@@ -246,8 +244,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		branchName = flagBranchName
 	} else {
 		// Generate branch name from issue titles
-		branchName = workpkg.GenerateBranchNameFromIssues(groupIssues)
-		branchName, err = workpkg.EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
+		branchName = work.GenerateBranchNameFromIssues(groupIssues)
+		branchName, err = work.EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
 		if err != nil {
 			return fmt.Errorf("failed to find unique branch name: %w", err)
 		}
@@ -313,7 +311,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add beads to work_beads
-	if err := workpkg.AddBeadsToWorkInternal(ctx, proj, workID, expandedIssueIDs); err != nil {
+	if err := work.AddBeadsToWorkInternal(ctx, proj, workID, expandedIssueIDs); err != nil {
 		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to add beads to work: %w", err)
@@ -337,7 +335,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// If --auto, run the full automated workflow
 	if flagAutoRun {
 		fmt.Println("\nRunning automated workflow...")
-		result, err := workpkg.RunWorkAuto(ctx, proj, workID, os.Stdout)
+		result, err := work.RunWorkAuto(ctx, proj, workID, os.Stdout)
 		if err != nil {
 			return fmt.Errorf("failed to run automated workflow: %w", err)
 		}
@@ -374,14 +372,14 @@ func parseBeadArgs(ctx context.Context, args []string, beadsClient *beads.Client
 
 	for _, arg := range args {
 		// Split comma-separated bead IDs (commas and spaces both work as separators)
-		beadIDs := workpkg.ParseBeadIDs(arg)
+		beadIDs := work.ParseBeadIDs(arg)
 		if len(beadIDs) == 0 {
 			continue
 		}
 
 		for _, beadID := range beadIDs {
 			// Expand this bead (handles epics and transitive deps)
-			expandedIDs, err := workpkg.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
+			expandedIDs, err := work.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
 			if err != nil {
 				return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 			}
@@ -424,134 +422,6 @@ func promptForBranchName(proposed string) (string, error) {
 
 	// User entered a custom branch name directly
 	return response, nil
-}
-
-// WorkCreateResult contains the result of creating a work unit.
-type WorkCreateResult struct {
-	WorkID       string
-	WorkerName   string
-	WorkDir      string
-	WorktreePath string
-	BranchName   string
-	BaseBranch   string
-	RootIssueID  string
-}
-
-// WorkCreateOptions contains options for work creation.
-type WorkCreateOptions struct {
-	// Silent suppresses progress output (useful for TUI contexts).
-	Silent bool
-	// Auto indicates if this work should run in automated workflow mode.
-	Auto bool
-}
-
-// CreateWorkWithBranch creates a new work unit with the given branch name and root issue.
-// This is the core work creation logic that can be called from both the CLI and TUI.
-// The rootIssueID is required and represents the single root issue this work is associated with.
-func CreateWorkWithBranch(ctx context.Context, proj *project.Project, branchName, baseBranch, rootIssueID string, opts ...WorkCreateOptions) (*WorkCreateResult, error) {
-	logging.Debug("CreateWorkWithBranch called", "branchName", branchName, "baseBranch", baseBranch, "rootIssueID", rootIssueID)
-
-	// Apply options
-	var opt WorkCreateOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
-	logging.Debug("CreateWorkWithBranch options", "silent", opt.Silent, "auto", opt.Auto)
-
-	// Determine output writer based on silent option
-	var output io.Writer = os.Stdout
-	if opt.Silent {
-		output = io.Discard
-	}
-
-	if baseBranch == "" {
-		baseBranch = "main"
-	}
-
-	mainRepoPath := proj.MainRepoPath()
-
-	// Ensure unique branch name
-	var err error
-	branchName, err = workpkg.EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
-	}
-
-	// Generate work ID
-	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate work ID: %w", err)
-	}
-
-	// Block signals during critical worktree creation
-	cosignal.BlockSignals()
-	defer cosignal.UnblockSignals()
-
-	// Create work subdirectory
-	workDir := filepath.Join(proj.Root, workID)
-	if err := os.Mkdir(workDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create work directory: %w", err)
-	}
-
-	// Create git worktree inside work directory
-	worktreePath := filepath.Join(workDir, "tree")
-
-	// Create worktree with new branch
-	logging.Debug("CreateWorkWithBranch creating worktree", "workID", workID, "worktreePath", worktreePath)
-	if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
-		os.RemoveAll(workDir)
-		return nil, err
-	}
-	logging.Debug("CreateWorkWithBranch worktree created successfully", "workID", workID)
-
-	// Initialize mise in worktree if needed
-	if err := mise.InitializeWithOutput(worktreePath, output); err != nil {
-		// Non-fatal warning
-		fmt.Fprintf(output, "Warning: mise initialization failed: %v\n", err)
-	}
-
-	// Get a human-readable name for this worker
-	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
-	if err != nil {
-		// Non-fatal warning
-		fmt.Fprintf(output, "Warning: failed to get worker name: %v\n", err)
-	}
-
-	// Create work record and schedule git push atomically (transactional outbox pattern)
-	// This ensures both the work record and scheduled task exist together
-	logging.Debug("CreateWorkWithBranch inserting DB record", "workID", workID, "rootIssueID", rootIssueID, "auto", opt.Auto)
-	idempotencyKey, err := proj.DB.CreateWorkAndSchedulePush(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID, opt.Auto)
-	if err != nil {
-		logging.Error("CreateWorkWithBranch DB insert failed", "workID", workID, "error", err)
-		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
-		os.RemoveAll(workDir)
-		return nil, fmt.Errorf("failed to create work record: %w", err)
-	}
-	logging.Debug("CreateWorkWithBranch DB record created successfully", "workID", workID, "idempotencyKey", idempotencyKey)
-
-	// Attempt immediate push (optimistic execution)
-	// If this succeeds, we mark the scheduled task as completed
-	// If this fails, the scheduler will retry the push with exponential backoff
-	if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
-		logging.Warn("Initial git push failed, scheduler will retry", "error", err, "work_id", workID, "branch", branchName)
-		// Don't return error - work is created, scheduler will handle the push
-		fmt.Fprintf(output, "Warning: initial push failed, will retry in background: %v\n", err)
-	} else {
-		// Push succeeded - mark the scheduled task as completed via idempotency key
-		if err := proj.DB.MarkTaskCompletedByIdempotencyKey(ctx, idempotencyKey); err != nil {
-			logging.Warn("failed to mark git push task as completed", "error", err, "work_id", workID)
-		}
-	}
-
-	return &WorkCreateResult{
-		WorkID:       workID,
-		WorkerName:   workerName,
-		WorkDir:      workDir,
-		WorktreePath: worktreePath,
-		BranchName:   branchName,
-		BaseBranch:   baseBranch,
-		RootIssueID:  rootIssueID,
-	}, nil
 }
 
 // runWorkAdd adds beads to an existing work.
@@ -604,7 +474,7 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add beads to work
-	if err := workpkg.AddBeadsToWorkInternal(ctx, proj, workID, beadIDs); err != nil {
+	if err := work.AddBeadsToWorkInternal(ctx, proj, workID, beadIDs); err != nil {
 		return fmt.Errorf("failed to add beads: %w", err)
 	}
 
@@ -622,22 +492,22 @@ func runWorkRemove(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Get work ID
+	// Get theWork ID
 	workID := flagRemoveWork
 	if workID == "" {
 		workID, err = getCurrentWork(proj)
 		if err != nil {
-			return fmt.Errorf("not in a work directory and no --work specified")
+			return fmt.Errorf("not in a theWork directory and no --theWork specified")
 		}
 	}
 
-	// Verify work exists
-	work, err := proj.DB.GetWork(ctx, workID)
+	// Verify theWork exists
+	theWork, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
+		return fmt.Errorf("failed to get theWork: %w", err)
 	}
-	if work == nil {
-		return fmt.Errorf("work %s not found", workID)
+	if theWork == nil {
+		return fmt.Errorf("theWork %s not found", workID)
 	}
 
 	// Remove each bead
@@ -665,7 +535,7 @@ func runWorkRemove(cmd *cobra.Command, args []string) error {
 		removed++
 	}
 
-	fmt.Printf("Removed %d bead(s) from work %s\n", removed, workID)
+	fmt.Printf("Removed %d bead(s) from theWork %s\n", removed, workID)
 	return nil
 }
 
@@ -856,7 +726,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 
 	// Destroy the work
-	if err := workpkg.DestroyWork(ctx, proj, workID, os.Stdout); err != nil {
+	if err := work.DestroyWork(ctx, proj, workID, os.Stdout); err != nil {
 		return err
 	}
 
