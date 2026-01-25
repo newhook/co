@@ -10,33 +10,6 @@ import (
 	"github.com/newhook/co/internal/db/sqlc"
 )
 
-// taskToLocal converts an sqlc.Task to local Task
-func taskToLocal(t *sqlc.Task) *Task {
-	task := &Task{
-		ID:               t.ID,
-		Status:           t.Status,
-		TaskType:         t.TaskType,
-		ComplexityBudget: int(t.ComplexityBudget),
-		ActualComplexity: int(t.ActualComplexity),
-		WorkID:           t.WorkID,
-		WorktreePath:     t.WorktreePath,
-		PRURL:            t.PrUrl,
-		ErrorMessage:     t.ErrorMessage,
-		CreatedAt:        t.CreatedAt,
-		SpawnStatus:      t.SpawnStatus,
-	}
-	if t.StartedAt.Valid {
-		task.StartedAt = &t.StartedAt.Time
-	}
-	if t.CompletedAt.Valid {
-		task.CompletedAt = &t.CompletedAt.Time
-	}
-	if t.SpawnedAt.Valid {
-		task.SpawnedAt = &t.SpawnedAt.Time
-	}
-	return task
-}
-
 // taskRowToLocal converts a GetTaskRow to local Task
 func taskRowToLocal(t *sqlc.GetTaskRow) *Task {
 	task := &Task{

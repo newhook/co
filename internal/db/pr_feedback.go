@@ -264,8 +264,8 @@ func (db *DB) GetFeedbackBySourceID(ctx context.Context, workID, sourceID string
 	return &result, nil
 }
 
-// GetUnresolvedFeedbackForClosedBeads returns feedback items where the associated bead is closed but not resolved on GitHub.
-func (db *DB) GetUnresolvedFeedbackForClosedBeads(ctx context.Context, workID string) ([]PRFeedback, error) {
+// GetUnresolvedFeedbackForWork returns feedback items for the work where the associated issue is closed but not resolved on GitHub.
+func (db *DB) GetUnresolvedFeedbackForWork(ctx context.Context, workID string) ([]PRFeedback, error) {
 	feedbacks, err := db.queries.GetUnresolvedFeedbackForWork(ctx, workID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query unresolved feedback: %w", err)

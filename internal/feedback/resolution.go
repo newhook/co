@@ -14,23 +14,11 @@ import (
 	"github.com/newhook/co/internal/project"
 )
 
-// CheckAndResolveComments checks for feedback items where the bead is closed and posts resolution comments to GitHub
-func CheckAndResolveComments(ctx context.Context, proj *project.Project, workID, prURL string) {
-	checkAndResolveCommentsInternal(ctx, proj, workID, prURL, false)
-}
-
-// CheckAndResolveCommentsQuiet checks for feedback items quietly
-func CheckAndResolveCommentsQuiet(ctx context.Context, proj *project.Project, workID, prURL string) {
-	checkAndResolveCommentsInternal(ctx, proj, workID, prURL, true)
-}
-
-func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project, workID, _ string, quiet bool) {
+// CheckAndResolveComments checks for feedback items quietly
+func CheckAndResolveComments(ctx context.Context, proj *project.Project, workID string) {
 	// Get unresolved feedback items for this work
-	feedbacks, err := proj.DB.GetUnresolvedFeedbackForClosedBeads(ctx, workID)
+	feedbacks, err := proj.DB.GetUnresolvedFeedbackForWork(ctx, workID)
 	if err != nil {
-		if !quiet {
-			fmt.Printf("Error getting unresolved feedback: %v\n", err)
-		}
 		logging.Error("failed to get unresolved feedback", "error", err)
 		return
 	}
@@ -39,9 +27,6 @@ func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project,
 		return
 	}
 
-	if !quiet {
-		fmt.Printf("\nChecking %d feedback items for resolution...\n", len(feedbacks))
-	}
 	logging.Debug("checking feedback items for resolution", "count", len(feedbacks))
 
 	// Collect closed bead IDs
@@ -54,9 +39,6 @@ func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project,
 		// Check if the bead is actually closed
 		bead, err := proj.Beads.GetBead(ctx, *fb.BeadID)
 		if err != nil {
-			if !quiet {
-				fmt.Printf("Error getting bead %s: %v\n", *fb.BeadID, err)
-			}
 			logging.Error("failed to get bead", "bead_id", *fb.BeadID, "error", err)
 			continue
 		}
@@ -69,9 +51,6 @@ func checkAndResolveCommentsInternal(ctx context.Context, proj *project.Project,
 	// Resolve feedback for all closed beads
 	if len(closedBeadIDs) > 0 {
 		if err := ResolveFeedbackForBeads(ctx, proj.DB, proj.Beads, workID, closedBeadIDs); err != nil {
-			if !quiet {
-				fmt.Printf("Error resolving feedback comments: %v\n", err)
-			}
 			logging.Error("failed to resolve feedback comments", "error", err)
 		}
 	}

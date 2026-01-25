@@ -274,7 +274,7 @@ func HandleCommentResolutionTask(ctx context.Context, proj *project.Project, wor
 	}
 
 	// Check and resolve comments
-	feedback.CheckAndResolveCommentsQuiet(ctx, proj, workID, work.PRURL)
+	feedback.CheckAndResolveComments(ctx, proj, workID)
 
 	// Mark as completed
 	if err := proj.DB.MarkTaskCompleted(ctx, task.ID); err != nil {
