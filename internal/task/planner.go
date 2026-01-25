@@ -3,7 +3,6 @@ package task
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/newhook/co/internal/beads"
 )
@@ -55,26 +54,22 @@ func (p *DefaultPlanner) Plan(
 		estimates[bead.ID] = beadEstimate{score: score, tokens: tokens}
 	}
 
-	// Sort beads by token estimate (descending) for first-fit decreasing
-	sortedByTokens := make([]beads.Bead, len(sorted))
-	copy(sortedByTokens, sorted)
-	sort.Slice(sortedByTokens, func(i, j int) bool {
-		return estimates[sortedByTokens[i].ID].tokens > estimates[sortedByTokens[j].ID].tokens
-	})
-
-	// First-fit decreasing bin-packing using token estimates
-	tasks := binPackBeads(sortedByTokens, estimates, graph, budget)
+	// Process beads in topological order to ensure dependencies are assigned first.
+	// Use token estimates only for selecting which existing task to place a bead in.
+	tasks := binPackBeads(sorted, estimates, graph, budget)
 
 	return tasks, nil
 }
 
-// binPackBeads assigns beads to tasks using first-fit decreasing algorithm.
-// Uses token estimates for bin-packing budget, but also tracks complexity scores.
-func binPackBeads(beadsByTokens []beads.Bead, estimates map[string]beadEstimate, graph *DependencyGraph, budget int) []Task {
+// binPackBeads assigns beads to tasks using bin-packing algorithm.
+// Beads are processed in topological order (dependencies first) to ensure
+// task indices respect the dependency graph. Token estimates are used only
+// for selecting which existing task to place a bead in.
+func binPackBeads(sortedBeads []beads.Bead, estimates map[string]beadEstimate, graph *DependencyGraph, budget int) []Task {
 	var tasks []Task
 	assigned := make(map[string]int) // bead ID -> task index
 
-	for _, bead := range beadsByTokens {
+	for _, bead := range sortedBeads {
 		est := estimates[bead.ID]
 		taskIdx := findBestTask(bead.ID, est.tokens, tasks, assigned, graph, budget)
 
