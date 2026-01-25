@@ -188,7 +188,6 @@ Located in `internal/github/`, the integration provides:
 
 - `FetchAndStoreFeedback()`: Fetches PR status checks, workflow runs, comments
 - `CreateBeadFromFeedback()`: Creates beads using the bd CLI
-- `FeedbackRules`: Configurable rules for what feedback to process
 
 Feedback types processed:
 - **CI/Build failures**: Failed status checks and workflow runs

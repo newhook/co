@@ -1,0 +1,444 @@
+package feedback
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/newhook/co/internal/github"
+)
+
+// FeedbackProcessor processes PR feedback and generates actionable items.
+type FeedbackProcessor struct {
+	client      *github.Client
+	minPriority int
+}
+
+// NewFeedbackProcessor creates a new feedback processor.
+func NewFeedbackProcessor(client *github.Client, minPriority int) *FeedbackProcessor {
+	return &FeedbackProcessor{
+		client:      client,
+		minPriority: minPriority,
+	}
+}
+
+// ProcessPRFeedback fetches and processes feedback for a PR.
+func (p *FeedbackProcessor) ProcessPRFeedback(ctx context.Context, prURL string) ([]github.FeedbackItem, error) {
+	// Fetch PR status
+	status, err := p.client.GetPRStatus(ctx, prURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch PR status: %w", err)
+	}
+
+	// Skip draft PRs
+	if strings.EqualFold(status.State, "draft") {
+		return nil, nil
+	}
+
+	var items []github.FeedbackItem
+
+	// Process status checks
+	checkItems := p.processStatusChecks(status)
+	items = append(items, checkItems...)
+
+	// Process workflow runs
+	workflowItems := p.processWorkflowRuns(status)
+	items = append(items, workflowItems...)
+
+	// Process reviews
+	reviewItems := p.processReviews(status)
+	items = append(items, reviewItems...)
+
+	// Process general comments
+	commentItems := p.processComments(status)
+	items = append(items, commentItems...)
+
+	// Filter by minimum priority
+	filtered := make([]github.FeedbackItem, 0, len(items))
+	for _, item := range items {
+		if item.Priority <= p.minPriority && item.Actionable {
+			filtered = append(filtered, item)
+		}
+	}
+
+	return filtered, nil
+}
+
+// processStatusChecks processes status check failures.
+func (p *FeedbackProcessor) processStatusChecks(status *github.PRStatus) []github.FeedbackItem {
+	var items []github.FeedbackItem
+
+	for _, check := range status.StatusChecks {
+		if check.State == "FAILURE" || check.State == "ERROR" {
+			feedbackType := p.categorizeCheckFailure(check.Context)
+
+			item := github.FeedbackItem{
+				Type:        feedbackType,
+				Title:       fmt.Sprintf("Fix %s failure", check.Context),
+				Description: check.Description,
+				Source: github.SourceInfo{
+					Type: github.SourceTypeCI,
+					ID:   check.Context, // Use check name as ID for status checks
+					Name: check.Context,
+					URL:  check.TargetURL,
+				},
+				Priority:   p.getPriorityForType(feedbackType),
+				Actionable: true,
+				CICheck: &github.CICheckContext{
+					CheckName: check.Context,
+					State:     check.State,
+				},
+			}
+
+			items = append(items, item)
+		}
+	}
+
+	return items
+}
+
+// processWorkflowRuns processes workflow run failures.
+func (p *FeedbackProcessor) processWorkflowRuns(status *github.PRStatus) []github.FeedbackItem {
+	var items []github.FeedbackItem
+
+	for _, workflow := range status.Workflows {
+		if workflow.Conclusion == "failure" {
+			// Find the specific failed jobs/steps
+			failureDetails := p.extractWorkflowFailures(workflow)
+
+			for _, detail := range failureDetails {
+				feedbackType := p.categorizeWorkflowFailure(workflow.Name, detail)
+
+				// Parse job and step from detail (format: "jobName: stepName" or just "jobName")
+				jobName, stepName := parseWorkflowDetail(detail)
+
+				item := github.FeedbackItem{
+					Type:        feedbackType,
+					Title:       fmt.Sprintf("Fix %s in %s", detail, workflow.Name),
+					Description: fmt.Sprintf("Workflow '%s' failed at: %s", workflow.Name, detail),
+					Source: github.SourceInfo{
+						Type: github.SourceTypeWorkflow,
+						ID:   fmt.Sprintf("%d", workflow.ID),
+						Name: workflow.Name,
+						URL:  workflow.URL,
+					},
+					Priority:   p.getPriorityForType(feedbackType),
+					Actionable: true,
+					Workflow: &github.WorkflowContext{
+						WorkflowName:  workflow.Name,
+						FailureDetail: detail,
+						RunID:         workflow.ID,
+						JobName:       jobName,
+						StepName:      stepName,
+					},
+				}
+
+				items = append(items, item)
+			}
+		}
+	}
+
+	return items
+}
+
+// parseWorkflowDetail extracts job and step names from failure detail.
+// Format is either "jobName: stepName" or just "jobName".
+func parseWorkflowDetail(detail string) (jobName, stepName string) {
+	if idx := strings.Index(detail, ": "); idx != -1 {
+		return detail[:idx], detail[idx+2:]
+	}
+	return detail, ""
+}
+
+// processReviews processes review comments.
+func (p *FeedbackProcessor) processReviews(status *github.PRStatus) []github.FeedbackItem {
+	var items []github.FeedbackItem
+
+	for _, review := range status.Reviews {
+		// Process reviews requesting changes
+		if review.State == "CHANGES_REQUESTED" {
+			item := github.FeedbackItem{
+				Type:        github.FeedbackTypeReview,
+				Title:       fmt.Sprintf("Address review feedback from %s", review.Author),
+				Description: p.truncateText(review.Body, 500),
+				Source: github.SourceInfo{
+					Type: github.SourceTypeReviewComment,
+					ID:   fmt.Sprintf("%d", review.ID),
+					Name: review.Author,
+					URL:  status.URL, // Link to PR
+				},
+				Priority:   1, // High priority for requested changes
+				Actionable: true,
+				Review: &github.ReviewContext{
+					Reviewer:  review.Author,
+					CommentID: int64(review.ID),
+				},
+			}
+
+			items = append(items, item)
+		}
+
+		// Process specific review comments - ALL review comments are considered actionable
+		for _, comment := range review.Comments {
+			// Skip only trivial comments like "LGTM", "looks good", etc.
+			if p.isTrivialComment(comment.Body) {
+				continue
+			}
+
+			// Create a unique URL for this review comment
+			// GitHub review comments have a different URL structure than issue comments
+			commentURL := fmt.Sprintf("%s#discussion_r%d", status.URL, comment.ID)
+
+			// Use Line if available, otherwise fall back to OriginalLine
+			lineNum := comment.Line
+			if lineNum == 0 {
+				lineNum = comment.OriginalLine
+			}
+
+			item := github.FeedbackItem{
+				Type:        github.FeedbackTypeReview,
+				Title:       fmt.Sprintf("Fix issue in %s (line %d)", comment.Path, lineNum),
+				Description: p.truncateText(comment.Body, 300),
+				Source: github.SourceInfo{
+					Type: github.SourceTypeReviewComment,
+					ID:   fmt.Sprintf("%d", comment.ID),
+					Name: comment.Author,
+					URL:  commentURL,
+				},
+				Priority:   2, // Medium priority for line comments
+				Actionable: true,
+				Review: &github.ReviewContext{
+					File:        comment.Path,
+					Line:        lineNum,
+					Reviewer:    comment.Author,
+					CommentID:   int64(comment.ID),
+					InReplyToID: int64(comment.InReplyToID),
+				},
+			}
+
+			items = append(items, item)
+		}
+	}
+
+	return items
+}
+
+// processComments processes general PR comments.
+func (p *FeedbackProcessor) processComments(status *github.PRStatus) []github.FeedbackItem {
+	var items []github.FeedbackItem
+
+	for _, comment := range status.Comments {
+		if p.isActionableComment(comment.Body) {
+			// Check if this is a bot comment with specific patterns
+			feedbackType := p.categorizeComment(comment)
+
+			if feedbackType != github.FeedbackTypeGeneral {
+				// Create a unique URL for this issue comment
+				commentURL := fmt.Sprintf("%s#issuecomment-%d", status.URL, comment.ID)
+
+				item := github.FeedbackItem{
+					Type:        feedbackType,
+					Title:       p.extractTitleFromComment(comment.Body),
+					Description: p.truncateText(comment.Body, 500),
+					Source: github.SourceInfo{
+						Type: github.SourceTypeIssueComment,
+						ID:   fmt.Sprintf("%d", comment.ID),
+						Name: comment.Author,
+						URL:  commentURL,
+					},
+					Priority:   p.getPriorityForType(feedbackType),
+					Actionable: true,
+					IssueComment: &github.IssueCommentContext{
+						Author:    comment.Author,
+						CommentID: int64(comment.ID),
+					},
+				}
+
+				items = append(items, item)
+			}
+		}
+	}
+
+	return items
+}
+
+// Helper functions
+
+func (p *FeedbackProcessor) categorizeCheckFailure(checkName string) github.FeedbackType {
+	lower := strings.ToLower(checkName)
+
+	if strings.Contains(lower, "test") {
+		return github.FeedbackTypeTest
+	} else if strings.Contains(lower, "lint") || strings.Contains(lower, "style") {
+		return github.FeedbackTypeLint
+	} else if strings.Contains(lower, "build") || strings.Contains(lower, "compile") {
+		return github.FeedbackTypeBuild
+	} else if strings.Contains(lower, "security") || strings.Contains(lower, "vulnerability") {
+		return github.FeedbackTypeSecurity
+	}
+
+	return github.FeedbackTypeCI
+}
+
+func (p *FeedbackProcessor) categorizeWorkflowFailure(workflowName, failureDetail string) github.FeedbackType {
+	lower := strings.ToLower(workflowName + " " + failureDetail)
+
+	if strings.Contains(lower, "test") {
+		return github.FeedbackTypeTest
+	} else if strings.Contains(lower, "lint") || strings.Contains(lower, "format") {
+		return github.FeedbackTypeLint
+	} else if strings.Contains(lower, "build") || strings.Contains(lower, "compile") {
+		return github.FeedbackTypeBuild
+	} else if strings.Contains(lower, "security") || strings.Contains(lower, "scan") {
+		return github.FeedbackTypeSecurity
+	}
+
+	return github.FeedbackTypeCI
+}
+
+func (p *FeedbackProcessor) extractWorkflowFailures(workflow github.WorkflowRun) []string {
+	var failures []string
+
+	for _, job := range workflow.Jobs {
+		if job.Conclusion == "failure" {
+			// Try to find the specific failed step
+			failedStep := ""
+			for _, step := range job.Steps {
+				if step.Conclusion == "failure" {
+					failedStep = step.Name
+					break
+				}
+			}
+
+			if failedStep != "" {
+				failures = append(failures, fmt.Sprintf("%s: %s", job.Name, failedStep))
+			} else {
+				failures = append(failures, job.Name)
+			}
+		}
+	}
+
+	return failures
+}
+
+func (p *FeedbackProcessor) isActionableComment(body string) bool {
+	// Check for patterns that indicate actionable feedback
+	actionablePatterns := []string{
+		"please",
+		"should",
+		"must",
+		"need to",
+		"needs to",
+		"fix",
+		"change",
+		"update",
+		"add",
+		"remove",
+		"todo",
+		"fixme",
+		"bug",
+		"error",
+		"warning",
+		"failed",
+		"failure",
+		"detected",
+		"vulnerability",
+		"risk",
+	}
+
+	lower := strings.ToLower(body)
+	for _, pattern := range actionablePatterns {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *FeedbackProcessor) isTrivialComment(body string) bool {
+	// Filter out only truly trivial comments
+	trivialPatterns := []string{
+		"lgtm",
+		"looks good to me",
+		"looks good",
+		"nice",
+		"great",
+		"thanks",
+		"thank you",
+		"+1",
+		"👍",
+		"approved",
+		"ship it",
+	}
+
+	trimmed := strings.TrimSpace(strings.ToLower(body))
+
+	// Check if the entire comment is just a trivial phrase
+	for _, pattern := range trivialPatterns {
+		if trimmed == pattern || trimmed == pattern+"!" || trimmed == pattern+"." {
+			return true
+		}
+	}
+
+	// Very short comments (less than 10 chars) that don't contain actionable content
+	if len(trimmed) < 10 && !strings.Contains(trimmed, "fix") && !strings.Contains(trimmed, "bug") {
+		return true
+	}
+
+	return false
+}
+
+func (p *FeedbackProcessor) categorizeComment(comment github.Comment) github.FeedbackType {
+	lower := strings.ToLower(comment.Body)
+
+	// Check for bot comments with specific patterns
+	if strings.Contains(comment.Author, "bot") || strings.Contains(comment.Author, "[bot]") {
+		if strings.Contains(lower, "security") || strings.Contains(lower, "vulnerability") {
+			return github.FeedbackTypeSecurity
+		} else if strings.Contains(lower, "test") && strings.Contains(lower, "fail") {
+			return github.FeedbackTypeTest
+		} else if strings.Contains(lower, "lint") || strings.Contains(lower, "style") {
+			return github.FeedbackTypeLint
+		}
+	}
+
+	return github.FeedbackTypeGeneral
+}
+
+func (p *FeedbackProcessor) extractTitleFromComment(body string) string {
+	// Try to extract a meaningful title from the comment
+	lines := strings.Split(body, "\n")
+	if len(lines) > 0 {
+		firstLine := strings.TrimSpace(lines[0])
+		if firstLine != "" {
+			if len(firstLine) > 100 {
+				return firstLine[:100] + "..."
+			}
+			return firstLine
+		}
+	}
+	return "Address comment feedback"
+}
+
+func (p *FeedbackProcessor) getPriorityForType(feedbackType github.FeedbackType) int {
+	switch feedbackType {
+	case github.FeedbackTypeSecurity:
+		return 0 // Critical
+	case github.FeedbackTypeBuild, github.FeedbackTypeCI:
+		return 1 // High
+	case github.FeedbackTypeTest:
+		return 2 // Medium
+	case github.FeedbackTypeLint, github.FeedbackTypeReview:
+		return 2 // Medium
+	default:
+		return 3 // Low
+	}
+}
+
+func (p *FeedbackProcessor) truncateText(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen] + "..."
+}

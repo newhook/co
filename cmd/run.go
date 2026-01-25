@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/work"
 	"github.com/newhook/co/internal/worktree"
@@ -130,6 +131,10 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		if result.OrchestratorSpawned {
 			fmt.Println("Orchestrator spawned in zellij tab.")
 		}
+		// Ensure control plane is running (handles scheduled tasks like PR feedback polling)
+		if err := control.EnsureControlPlane(ctx, proj); err != nil {
+			fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
+		}
 		fmt.Println("Switch to the zellij session to monitor progress.")
 		return nil
 	}
@@ -148,6 +153,11 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		fmt.Println("\nOrchestrator spawned in zellij tab.")
 	} else {
 		fmt.Println("\nOrchestrator is already running.")
+	}
+
+	// Ensure control plane is running (handles scheduled tasks like PR feedback polling)
+	if err := control.EnsureControlPlane(ctx, proj); err != nil {
+		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
 	}
 
 	fmt.Println("Switch to the zellij session to monitor progress.")

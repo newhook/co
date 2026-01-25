@@ -1,25 +1,27 @@
-package github
+package feedback
 
 import (
 	"testing"
 	"time"
+
+	"github.com/newhook/co/internal/github"
 )
 
 func TestExtractCIStatus(t *testing.T) {
 	tests := []struct {
 		name     string
-		status   *PRStatus
+		status   *github.PRStatus
 		expected string
 	}{
 		{
 			name:     "no checks or workflows",
-			status:   &PRStatus{},
+			status:   &github.PRStatus{},
 			expected: "pending",
 		},
 		{
 			name: "all status checks success",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "test1", State: "SUCCESS"},
 					{Context: "test2", State: "SUCCESS"},
 					{Context: "test3", State: "SKIPPED"},
@@ -29,8 +31,8 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "one status check failure",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "test1", State: "SUCCESS"},
 					{Context: "test2", State: "FAILURE"},
 				},
@@ -39,8 +41,8 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "one status check pending",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "test1", State: "SUCCESS"},
 					{Context: "test2", State: "PENDING"},
 				},
@@ -49,8 +51,8 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "status check with empty state is pending",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "test1", State: "SUCCESS"},
 					{Context: "test2", State: ""},
 				},
@@ -59,8 +61,8 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "status check error",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "test1", State: "ERROR"},
 				},
 			},
@@ -68,8 +70,8 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "all workflows success",
-			status: &PRStatus{
-				Workflows: []WorkflowRun{
+			status: &github.PRStatus{
+				Workflows: []github.WorkflowRun{
 					{Name: "CI", Status: "completed", Conclusion: "success"},
 					{Name: "Lint", Status: "completed", Conclusion: "success"},
 				},
@@ -78,8 +80,8 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "workflow failure",
-			status: &PRStatus{
-				Workflows: []WorkflowRun{
+			status: &github.PRStatus{
+				Workflows: []github.WorkflowRun{
 					{Name: "CI", Status: "completed", Conclusion: "failure"},
 				},
 			},
@@ -87,8 +89,8 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "workflow in progress",
-			status: &PRStatus{
-				Workflows: []WorkflowRun{
+			status: &github.PRStatus{
+				Workflows: []github.WorkflowRun{
 					{Name: "CI", Status: "in_progress", Conclusion: ""},
 				},
 			},
@@ -96,8 +98,8 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "workflow queued",
-			status: &PRStatus{
-				Workflows: []WorkflowRun{
+			status: &github.PRStatus{
+				Workflows: []github.WorkflowRun{
 					{Name: "CI", Status: "queued", Conclusion: ""},
 				},
 			},
@@ -105,8 +107,8 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "workflow skipped counts as success",
-			status: &PRStatus{
-				Workflows: []WorkflowRun{
+			status: &github.PRStatus{
+				Workflows: []github.WorkflowRun{
 					{Name: "CI", Status: "completed", Conclusion: "skipped"},
 				},
 			},
@@ -114,11 +116,11 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "mixed checks and workflows all success",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "test", State: "SUCCESS"},
 				},
-				Workflows: []WorkflowRun{
+				Workflows: []github.WorkflowRun{
 					{Name: "CI", Status: "completed", Conclusion: "success"},
 				},
 			},
@@ -126,11 +128,11 @@ func TestExtractCIStatus(t *testing.T) {
 		},
 		{
 			name: "check failure takes precedence over workflow success",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "test", State: "FAILURE"},
 				},
-				Workflows: []WorkflowRun{
+				Workflows: []github.WorkflowRun{
 					{Name: "CI", Status: "completed", Conclusion: "success"},
 				},
 			},
@@ -154,20 +156,20 @@ func TestExtractApprovalStatus(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		status            *PRStatus
+		status            *github.PRStatus
 		expectedStatus    string
 		expectedApprovers []string
 	}{
 		{
 			name:              "no reviews",
-			status:            &PRStatus{},
+			status:            &github.PRStatus{},
 			expectedStatus:    "pending",
 			expectedApprovers: []string{},
 		},
 		{
 			name: "one approval",
-			status: &PRStatus{
-				Reviews: []Review{
+			status: &github.PRStatus{
+				Reviews: []github.Review{
 					{ID: 1, State: "APPROVED", Author: "user1", CreatedAt: now},
 				},
 			},
@@ -176,8 +178,8 @@ func TestExtractApprovalStatus(t *testing.T) {
 		},
 		{
 			name: "multiple approvals",
-			status: &PRStatus{
-				Reviews: []Review{
+			status: &github.PRStatus{
+				Reviews: []github.Review{
 					{ID: 1, State: "APPROVED", Author: "user1", CreatedAt: now},
 					{ID: 2, State: "APPROVED", Author: "user2", CreatedAt: now},
 				},
@@ -187,8 +189,8 @@ func TestExtractApprovalStatus(t *testing.T) {
 		},
 		{
 			name: "changes requested",
-			status: &PRStatus{
-				Reviews: []Review{
+			status: &github.PRStatus{
+				Reviews: []github.Review{
 					{ID: 1, State: "CHANGES_REQUESTED", Author: "user1", CreatedAt: now},
 				},
 			},
@@ -197,8 +199,8 @@ func TestExtractApprovalStatus(t *testing.T) {
 		},
 		{
 			name: "changes requested takes precedence over approval",
-			status: &PRStatus{
-				Reviews: []Review{
+			status: &github.PRStatus{
+				Reviews: []github.Review{
 					{ID: 1, State: "APPROVED", Author: "user1", CreatedAt: now},
 					{ID: 2, State: "CHANGES_REQUESTED", Author: "user2", CreatedAt: now},
 				},
@@ -208,8 +210,8 @@ func TestExtractApprovalStatus(t *testing.T) {
 		},
 		{
 			name: "commented reviews are ignored",
-			status: &PRStatus{
-				Reviews: []Review{
+			status: &github.PRStatus{
+				Reviews: []github.Review{
 					{ID: 1, State: "COMMENTED", Author: "user1", CreatedAt: now},
 				},
 			},
@@ -218,8 +220,8 @@ func TestExtractApprovalStatus(t *testing.T) {
 		},
 		{
 			name: "later approval overrides earlier changes requested",
-			status: &PRStatus{
-				Reviews: []Review{
+			status: &github.PRStatus{
+				Reviews: []github.Review{
 					{ID: 1, State: "CHANGES_REQUESTED", Author: "user1", CreatedAt: earlier},
 					{ID: 2, State: "APPROVED", Author: "user1", CreatedAt: now},
 				},
@@ -229,8 +231,8 @@ func TestExtractApprovalStatus(t *testing.T) {
 		},
 		{
 			name: "later changes requested overrides earlier approval",
-			status: &PRStatus{
-				Reviews: []Review{
+			status: &github.PRStatus{
+				Reviews: []github.Review{
 					{ID: 1, State: "APPROVED", Author: "user1", CreatedAt: earlier},
 					{ID: 2, State: "CHANGES_REQUESTED", Author: "user1", CreatedAt: now},
 				},
@@ -240,8 +242,8 @@ func TestExtractApprovalStatus(t *testing.T) {
 		},
 		{
 			name: "bot approval counts",
-			status: &PRStatus{
-				Reviews: []Review{
+			status: &github.PRStatus{
+				Reviews: []github.Review{
 					{ID: 1, State: "APPROVED", Author: "github-actions[bot]", CreatedAt: now},
 				},
 			},
@@ -250,8 +252,8 @@ func TestExtractApprovalStatus(t *testing.T) {
 		},
 		{
 			name: "mixed commented and approved",
-			status: &PRStatus{
-				Reviews: []Review{
+			status: &github.PRStatus{
+				Reviews: []github.Review{
 					{ID: 1, State: "APPROVED", Author: "user1", CreatedAt: now},
 					{ID: 2, State: "COMMENTED", Author: "user2", CreatedAt: now},
 					{ID: 3, State: "COMMENTED", Author: "user3", CreatedAt: now},
@@ -291,26 +293,26 @@ func TestExtractStatusFromPRStatus(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name               string
-		status             *PRStatus
-		expectedCI         string
-		expectedApproval   string
-		expectedApprovers  []string
+		name              string
+		status            *github.PRStatus
+		expectedCI        string
+		expectedApproval  string
+		expectedApprovers []string
 	}{
 		{
-			name:             "empty status",
-			status:           &PRStatus{},
-			expectedCI:       "pending",
-			expectedApproval: "pending",
+			name:              "empty status",
+			status:            &github.PRStatus{},
+			expectedCI:        "pending",
+			expectedApproval:  "pending",
 			expectedApprovers: []string{},
 		},
 		{
 			name: "all passing and approved",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "CI", State: "SUCCESS"},
 				},
-				Reviews: []Review{
+				Reviews: []github.Review{
 					{ID: 1, State: "APPROVED", Author: "reviewer", CreatedAt: now},
 				},
 			},
@@ -320,11 +322,11 @@ func TestExtractStatusFromPRStatus(t *testing.T) {
 		},
 		{
 			name: "ci failing but approved",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "CI", State: "FAILURE"},
 				},
-				Reviews: []Review{
+				Reviews: []github.Review{
 					{ID: 1, State: "APPROVED", Author: "reviewer", CreatedAt: now},
 				},
 			},
@@ -334,11 +336,11 @@ func TestExtractStatusFromPRStatus(t *testing.T) {
 		},
 		{
 			name: "ci passing but changes requested",
-			status: &PRStatus{
-				StatusChecks: []StatusCheck{
+			status: &github.PRStatus{
+				StatusChecks: []github.StatusCheck{
 					{Context: "CI", State: "SUCCESS"},
 				},
-				Reviews: []Review{
+				Reviews: []github.Review{
 					{ID: 1, State: "CHANGES_REQUESTED", Author: "reviewer", CreatedAt: now},
 				},
 			},
