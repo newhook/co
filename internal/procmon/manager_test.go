@@ -216,12 +216,9 @@ func TestCleanupStaleProcessRecords(t *testing.T) {
 	err := database.RegisterProcess(ctx, "stale-id", db.ProcessTypeOrchestrator, &workID, 12345)
 	require.NoError(t, err)
 
-	// Manually set old heartbeat by updating directly
-	_, err = database.Exec(`
-		UPDATE processes
-		SET heartbeat = datetime('now', '-60 seconds')
-		WHERE id = 'stale-id'
-	`)
+	// Set heartbeat to 60 seconds ago to simulate a stale process
+	oldTime := time.Now().Add(-60 * time.Second)
+	err = database.UpdateHeartbeatWithTime(ctx, "stale-id", oldTime)
 	require.NoError(t, err)
 
 	// Verify the stale process exists
