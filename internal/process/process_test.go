@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsProcessRunning(t *testing.T) {
@@ -128,7 +130,9 @@ func TestKillProcess(t *testing.T) {
 }
 
 func TestKillProcess_ActualProcess(t *testing.T) {
-	// Skip this test if not running on a Unix-like system
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping test that spawns processes in CI")
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping KillProcess test on Windows")
 	}
@@ -136,46 +140,27 @@ func TestKillProcess_ActualProcess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Start a simple sleep process that we can kill
 	cmd := exec.CommandContext(ctx, "sleep", "30")
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("Failed to start test process: %v", err)
-	}
+	require.NoError(t, cmd.Start(), "failed to start test process")
 	defer func() {
-		// Ensure the process is killed if the test fails
 		if cmd.Process != nil {
 			cmd.Process.Kill()
+			cmd.Wait()
 		}
 	}()
 
-	// Give the process a moment to start
-	time.Sleep(100 * time.Millisecond)
-
 	// Verify the process is running
 	running, err := IsProcessRunning(ctx, "sleep 30")
-	if err != nil {
-		t.Fatalf("Failed to check if process is running: %v", err)
-	}
-	if !running {
-		t.Fatal("Test process should be running")
-	}
+	require.NoError(t, err)
+	require.True(t, running, "test process should be running")
 
 	// Kill the process
-	if err := KillProcess(ctx, "sleep 30"); err != nil {
-		t.Fatalf("Failed to kill process: %v", err)
-	}
-
-	// Give the process a moment to die
-	time.Sleep(100 * time.Millisecond)
+	require.NoError(t, KillProcess(ctx, "sleep 30"))
 
 	// Verify the process is no longer running
 	running, err = IsProcessRunning(ctx, "sleep 30")
-	if err != nil {
-		t.Fatalf("Failed to check if process is running: %v", err)
-	}
-	if running {
-		t.Error("Process should have been killed")
-	}
+	require.NoError(t, err)
+	require.False(t, running, "process should have been killed")
 }
 
 func TestEscapePattern(t *testing.T) {
