@@ -47,8 +47,8 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		fmt.Printf("Root issue: %s\n", work.RootIssueID)
 	}
 
-	// Create GitHub integration with custom rules
-	rules := &github.FeedbackRules{
+	// Create feedback integration with custom rules
+	rules := &FeedbackRules{
 		CreateBeadForFailedChecks:   true,
 		CreateBeadForTestFailures:   true,
 		CreateBeadForLintErrors:     true,
@@ -57,7 +57,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		MinimumPriority:             minPriority,
 	}
 
-	integration := github.NewIntegration(rules)
+	integration := NewIntegration(rules)
 
 	// Extract and store PR status (CI status, approval status)
 	if !quiet {
@@ -212,19 +212,14 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 			continue
 		}
 
-		// Create bead info with metadata for external-ref
-		// Use the structured source info directly - source_id is now a first-class field
-		metadata := item.ToContextMap()
-		metadata["source_url"] = item.Source.URL
-
-		beadInfo := github.BeadInfo{
+		beadInfo := BeadInfo{
 			Title:       item.Title,
 			Description: item.Description,
 			Type:        GetBeadType(item.Type),
 			Priority:    item.Priority,
 			ParentID:    work.RootIssueID,
 			Labels:      []string{"from-pr-feedback"},
-			Metadata:    metadata,
+			SourceURL:   item.Source.URL,
 		}
 
 		// Create bead using beads package
@@ -302,18 +297,4 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 	}
 
 	return len(createdBeads), nil
-}
-
-// GetBeadType converts a feedback type to a bead type string
-func GetBeadType(feedbackType github.FeedbackType) string {
-	switch feedbackType {
-	case github.FeedbackTypeTest, github.FeedbackTypeBuild, github.FeedbackTypeCI:
-		return "bug"
-	case github.FeedbackTypeLint, github.FeedbackTypeSecurity:
-		return "task"
-	case github.FeedbackTypeReview:
-		return "task"
-	default:
-		return "task"
-	}
 }

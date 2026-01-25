@@ -1,8 +1,10 @@
-package github
+package feedback
 
 import (
 	"reflect"
 	"testing"
+
+	"github.com/newhook/co/internal/github"
 )
 
 func TestDefaultFeedbackRules(t *testing.T) {
@@ -38,7 +40,7 @@ func TestDefaultFeedbackRules(t *testing.T) {
 }
 
 func TestNewFeedbackProcessor(t *testing.T) {
-	client := &Client{}
+	client := &github.Client{}
 
 	// Test with nil rules (should use defaults)
 	processor := NewFeedbackProcessor(client, nil)
@@ -52,7 +54,7 @@ func TestNewFeedbackProcessor(t *testing.T) {
 	// Test with custom rules
 	customRules := &FeedbackRules{
 		CreateBeadForFailedChecks: false,
-		MinimumPriority:          1,
+		MinimumPriority:           1,
 	}
 	processor = NewFeedbackProcessor(client, customRules)
 	if processor.rules.CreateBeadForFailedChecks {
@@ -69,18 +71,18 @@ func TestCategorizeCheckFailure(t *testing.T) {
 	tests := []struct {
 		name     string
 		check    string
-		expected FeedbackType
+		expected github.FeedbackType
 	}{
-		{"Test check", "unit-tests", FeedbackTypeTest},
-		{"Test check uppercase", "Unit-Tests", FeedbackTypeTest},
-		{"Lint check", "eslint", FeedbackTypeLint},
-		{"Style check", "code-style", FeedbackTypeLint},
-		{"Build check", "build-project", FeedbackTypeBuild},
-		{"Compile check", "compile", FeedbackTypeBuild},
-		{"Security check", "security-scan", FeedbackTypeSecurity},
-		{"Vulnerability check", "vulnerability-scan", FeedbackTypeSecurity},
-		{"Generic CI", "ci-check", FeedbackTypeCI},
-		{"Unknown check", "something-else", FeedbackTypeCI},
+		{"Test check", "unit-tests", github.FeedbackTypeTest},
+		{"Test check uppercase", "Unit-Tests", github.FeedbackTypeTest},
+		{"Lint check", "eslint", github.FeedbackTypeLint},
+		{"Style check", "code-style", github.FeedbackTypeLint},
+		{"Build check", "build-project", github.FeedbackTypeBuild},
+		{"Compile check", "compile", github.FeedbackTypeBuild},
+		{"Security check", "security-scan", github.FeedbackTypeSecurity},
+		{"Vulnerability check", "vulnerability-scan", github.FeedbackTypeSecurity},
+		{"Generic CI", "ci-check", github.FeedbackTypeCI},
+		{"Unknown check", "something-else", github.FeedbackTypeCI},
 	}
 
 	for _, tt := range tests {
@@ -97,17 +99,17 @@ func TestCategorizeWorkflowFailure(t *testing.T) {
 	processor := &FeedbackProcessor{}
 
 	tests := []struct {
-		name           string
-		workflowName   string
-		failureDetail  string
-		expected       FeedbackType
+		name          string
+		workflowName  string
+		failureDetail string
+		expected      github.FeedbackType
 	}{
-		{"Test workflow", "Test Suite", "unit tests failed", FeedbackTypeTest},
-		{"Lint workflow", "Linting", "eslint errors", FeedbackTypeLint},
-		{"Format workflow", "Code Format", "formatting issues", FeedbackTypeLint},
-		{"Build workflow", "Build", "compilation error", FeedbackTypeBuild},
-		{"Security workflow", "Security Scan", "vulnerabilities found", FeedbackTypeSecurity},
-		{"Generic CI", "CI Pipeline", "step failed", FeedbackTypeCI},
+		{"Test workflow", "Test Suite", "unit tests failed", github.FeedbackTypeTest},
+		{"Lint workflow", "Linting", "eslint errors", github.FeedbackTypeLint},
+		{"Format workflow", "Code Format", "formatting issues", github.FeedbackTypeLint},
+		{"Build workflow", "Build", "compilation error", github.FeedbackTypeBuild},
+		{"Security workflow", "Security Scan", "vulnerabilities found", github.FeedbackTypeSecurity},
+		{"Generic CI", "CI Pipeline", "step failed", github.FeedbackTypeCI},
 	}
 
 	for _, tt := range tests {
@@ -125,16 +127,16 @@ func TestGetPriorityForType(t *testing.T) {
 	processor := &FeedbackProcessor{}
 
 	tests := []struct {
-		feedbackType FeedbackType
+		feedbackType github.FeedbackType
 		expected     int
 	}{
-		{FeedbackTypeSecurity, 0},  // Critical
-		{FeedbackTypeBuild, 1},      // High
-		{FeedbackTypeCI, 1},         // High
-		{FeedbackTypeTest, 2},       // Medium
-		{FeedbackTypeLint, 2},       // Medium
-		{FeedbackTypeReview, 2},     // Medium
-		{FeedbackTypeGeneral, 3},    // Low
+		{github.FeedbackTypeSecurity, 0}, // Critical
+		{github.FeedbackTypeBuild, 1},    // High
+		{github.FeedbackTypeCI, 1},       // High
+		{github.FeedbackTypeTest, 2},     // Medium
+		{github.FeedbackTypeLint, 2},     // Medium
+		{github.FeedbackTypeReview, 2},   // Medium
+		{github.FeedbackTypeGeneral, 3},  // Low
 	}
 
 	for _, tt := range tests {
@@ -209,8 +211,8 @@ func TestProcessStatusChecks(t *testing.T) {
 		rules: DefaultFeedbackRules(),
 	}
 
-	status := &PRStatus{
-		StatusChecks: []StatusCheck{
+	status := &github.PRStatus{
+		StatusChecks: []github.StatusCheck{
 			{
 				Context:     "unit-tests",
 				State:       "FAILURE",
@@ -240,8 +242,8 @@ func TestProcessStatusChecks(t *testing.T) {
 	}
 
 	// Check first item (unit-tests failure)
-	if items[0].Type != FeedbackTypeTest {
-		t.Errorf("First item type = %v, want %v", items[0].Type, FeedbackTypeTest)
+	if items[0].Type != github.FeedbackTypeTest {
+		t.Errorf("First item type = %v, want %v", items[0].Type, github.FeedbackTypeTest)
 	}
 	if items[0].Title != "Fix unit-tests failure" {
 		t.Errorf("First item title = %s, want 'Fix unit-tests failure'", items[0].Title)
@@ -251,8 +253,8 @@ func TestProcessStatusChecks(t *testing.T) {
 	}
 
 	// Check second item (lint error)
-	if items[1].Type != FeedbackTypeLint {
-		t.Errorf("Second item type = %v, want %v", items[1].Type, FeedbackTypeLint)
+	if items[1].Type != github.FeedbackTypeLint {
+		t.Errorf("Second item type = %v, want %v", items[1].Type, github.FeedbackTypeLint)
 	}
 	if items[1].Title != "Fix lint failure" {
 		t.Errorf("Second item title = %s, want 'Fix lint failure'", items[1].Title)
@@ -264,19 +266,19 @@ func TestProcessWorkflowRuns(t *testing.T) {
 		rules: DefaultFeedbackRules(),
 	}
 
-	status := &PRStatus{
-		Workflows: []WorkflowRun{
+	status := &github.PRStatus{
+		Workflows: []github.WorkflowRun{
 			{
 				ID:         123,
 				Name:       "Test Suite",
 				Status:     "completed",
 				Conclusion: "failure",
 				URL:        "https://example.com/runs/123",
-				Jobs: []Job{
+				Jobs: []github.Job{
 					{
 						Name:       "Unit Tests",
 						Conclusion: "failure",
-						Steps: []Step{
+						Steps: []github.Step{
 							{Name: "Run tests", Conclusion: "failure"},
 						},
 					},
@@ -299,8 +301,8 @@ func TestProcessWorkflowRuns(t *testing.T) {
 		t.Fatalf("Expected 1 feedback item, got %d", len(items))
 	}
 
-	if items[0].Type != FeedbackTypeTest {
-		t.Errorf("Item type = %v, want %v", items[0].Type, FeedbackTypeTest)
+	if items[0].Type != github.FeedbackTypeTest {
+		t.Errorf("Item type = %v, want %v", items[0].Type, github.FeedbackTypeTest)
 	}
 	if items[0].Title != "Fix Unit Tests: Run tests in Test Suite" {
 		t.Errorf("Item title = %s, want specific title", items[0].Title)
@@ -315,9 +317,9 @@ func TestProcessReviews(t *testing.T) {
 		rules: DefaultFeedbackRules(),
 	}
 
-	status := &PRStatus{
+	status := &github.PRStatus{
 		URL: "https://github.com/user/repo/pull/123",
-		Reviews: []Review{
+		Reviews: []github.Review{
 			{
 				ID:     1,
 				State:  "CHANGES_REQUESTED",
@@ -335,7 +337,7 @@ func TestProcessReviews(t *testing.T) {
 				State:  "COMMENTED",
 				Body:   "Some comments",
 				Author: "reviewer3",
-				Comments: []ReviewComment{
+				Comments: []github.ReviewComment{
 					{
 						Path:   "file.go",
 						Line:   42,
@@ -355,8 +357,8 @@ func TestProcessReviews(t *testing.T) {
 	}
 
 	// Check first item (CHANGES_REQUESTED)
-	if items[0].Type != FeedbackTypeReview {
-		t.Errorf("First item type = %v, want %v", items[0].Type, FeedbackTypeReview)
+	if items[0].Type != github.FeedbackTypeReview {
+		t.Errorf("First item type = %v, want %v", items[0].Type, github.FeedbackTypeReview)
 	}
 	if items[0].Title != "Address review feedback from reviewer1" {
 		t.Errorf("First item title = %s", items[0].Title)
@@ -366,8 +368,8 @@ func TestProcessReviews(t *testing.T) {
 	}
 
 	// Check second item (actionable comment)
-	if items[1].Type != FeedbackTypeReview {
-		t.Errorf("Second item type = %v, want %v", items[1].Type, FeedbackTypeReview)
+	if items[1].Type != github.FeedbackTypeReview {
+		t.Errorf("Second item type = %v, want %v", items[1].Type, github.FeedbackTypeReview)
 	}
 	if items[1].Priority != 2 {
 		t.Errorf("Second item priority = %d, want 2", items[1].Priority)
@@ -376,19 +378,19 @@ func TestProcessReviews(t *testing.T) {
 
 func TestFilterByMinimumPriority(t *testing.T) {
 	processor := &FeedbackProcessor{
-		client: &Client{},
+		client: &github.Client{},
 		rules: &FeedbackRules{
-			CreateBeadForFailedChecks:    true,
-			CreateBeadForTestFailures:    true,
-			CreateBeadForLintErrors:      true,
-			CreateBeadForReviewComments:  true,
-			IgnoreDraftPRs:               false,
-			MinimumPriority:              2, // Only priority 0, 1, 2
+			CreateBeadForFailedChecks:   true,
+			CreateBeadForTestFailures:   true,
+			CreateBeadForLintErrors:     true,
+			CreateBeadForReviewComments: true,
+			IgnoreDraftPRs:              false,
+			MinimumPriority:             2, // Only priority 0, 1, 2
 		},
 	}
 
 	// Create mock feedback items with different priorities
-	items := []FeedbackItem{
+	items := []github.FeedbackItem{
 		{Title: "Critical", Priority: 0, Actionable: true},
 		{Title: "High", Priority: 1, Actionable: true},
 		{Title: "Medium", Priority: 2, Actionable: true},
@@ -398,7 +400,7 @@ func TestFilterByMinimumPriority(t *testing.T) {
 	}
 
 	// Simulate the filtering logic from ProcessPRFeedback
-	filtered := make([]FeedbackItem, 0, len(items))
+	filtered := make([]github.FeedbackItem, 0, len(items))
 	for _, item := range items {
 		if item.Priority <= processor.rules.MinimumPriority && item.Actionable {
 			filtered = append(filtered, item)
@@ -422,51 +424,51 @@ func TestShouldCreateBeadForWorkflow(t *testing.T) {
 	tests := []struct {
 		name         string
 		rules        *FeedbackRules
-		feedbackType FeedbackType
+		feedbackType github.FeedbackType
 		expected     bool
 	}{
 		{
 			name: "Test failure with test beads enabled",
 			rules: &FeedbackRules{
-				CreateBeadForTestFailures:  true,
-				CreateBeadForFailedChecks:  false,
-				CreateBeadForLintErrors:    false,
+				CreateBeadForTestFailures: true,
+				CreateBeadForFailedChecks: false,
+				CreateBeadForLintErrors:   false,
 			},
-			feedbackType: FeedbackTypeTest,
+			feedbackType: github.FeedbackTypeTest,
 			expected:     true,
 		},
 		{
 			name: "Test failure with test beads disabled",
 			rules: &FeedbackRules{
-				CreateBeadForTestFailures:  false,
+				CreateBeadForTestFailures: false,
 			},
-			feedbackType: FeedbackTypeTest,
+			feedbackType: github.FeedbackTypeTest,
 			expected:     false,
 		},
 		{
 			name: "Lint error with lint beads enabled",
 			rules: &FeedbackRules{
-				CreateBeadForLintErrors:    true,
+				CreateBeadForLintErrors: true,
 			},
-			feedbackType: FeedbackTypeLint,
+			feedbackType: github.FeedbackTypeLint,
 			expected:     true,
 		},
 		{
 			name: "Build failure with failed checks enabled",
 			rules: &FeedbackRules{
-				CreateBeadForFailedChecks:  true,
+				CreateBeadForFailedChecks: true,
 			},
-			feedbackType: FeedbackTypeBuild,
+			feedbackType: github.FeedbackTypeBuild,
 			expected:     true,
 		},
 		{
 			name: "Security issue (always created)",
 			rules: &FeedbackRules{
-				CreateBeadForFailedChecks:  false,
-				CreateBeadForTestFailures:  false,
-				CreateBeadForLintErrors:    false,
+				CreateBeadForFailedChecks: false,
+				CreateBeadForTestFailures: false,
+				CreateBeadForLintErrors:   false,
 			},
-			feedbackType: FeedbackTypeSecurity,
+			feedbackType: github.FeedbackTypeSecurity,
 			expected:     true,
 		},
 	}
@@ -486,9 +488,9 @@ func TestShouldCreateBeadForWorkflow(t *testing.T) {
 func TestExtractWorkflowFailures(t *testing.T) {
 	processor := &FeedbackProcessor{}
 
-	workflow := WorkflowRun{
+	workflow := github.WorkflowRun{
 		Name: "CI Pipeline",
-		Jobs: []Job{
+		Jobs: []github.Job{
 			{
 				Name:       "Build",
 				Conclusion: "success",
@@ -496,7 +498,7 @@ func TestExtractWorkflowFailures(t *testing.T) {
 			{
 				Name:       "Test",
 				Conclusion: "failure",
-				Steps: []Step{
+				Steps: []github.Step{
 					{Name: "Setup", Conclusion: "success"},
 					{Name: "Run tests", Conclusion: "failure"},
 				},
@@ -504,7 +506,7 @@ func TestExtractWorkflowFailures(t *testing.T) {
 			{
 				Name:       "Lint",
 				Conclusion: "failure",
-				Steps: []Step{}, // No specific step failed
+				Steps:      []github.Step{}, // No specific step failed
 			},
 		},
 	}
@@ -527,48 +529,48 @@ func TestCategorizeComment(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		comment  Comment
-		expected FeedbackType
+		comment  github.Comment
+		expected github.FeedbackType
 	}{
 		{
 			name: "Security bot comment",
-			comment: Comment{
+			comment: github.Comment{
 				Author: "security-bot",
 				Body:   "Found security vulnerability in dependencies",
 			},
-			expected: FeedbackTypeSecurity,
+			expected: github.FeedbackTypeSecurity,
 		},
 		{
 			name: "Test bot comment",
-			comment: Comment{
+			comment: github.Comment{
 				Author: "ci[bot]",
 				Body:   "Test failures detected in unit tests",
 			},
-			expected: FeedbackTypeTest,
+			expected: github.FeedbackTypeTest,
 		},
 		{
 			name: "Lint bot comment",
-			comment: Comment{
+			comment: github.Comment{
 				Author: "linter-bot",
 				Body:   "Lint errors found in files",
 			},
-			expected: FeedbackTypeLint,
+			expected: github.FeedbackTypeLint,
 		},
 		{
 			name: "Human comment",
-			comment: Comment{
+			comment: github.Comment{
 				Author: "user123",
 				Body:   "Please fix this issue",
 			},
-			expected: FeedbackTypeGeneral,
+			expected: github.FeedbackTypeGeneral,
 		},
 		{
 			name: "Generic bot comment",
-			comment: Comment{
+			comment: github.Comment{
 				Author: "github-bot",
 				Body:   "Automated message",
 			},
-			expected: FeedbackTypeGeneral,
+			expected: github.FeedbackTypeGeneral,
 		},
 	}
 
@@ -634,9 +636,9 @@ func TestProcessComments(t *testing.T) {
 		rules: DefaultFeedbackRules(),
 	}
 
-	status := &PRStatus{
+	status := &github.PRStatus{
 		URL: "https://github.com/user/repo/pull/123",
-		Comments: []Comment{
+		Comments: []github.Comment{
 			{
 				ID:     1,
 				Author: "security-bot",
@@ -663,12 +665,12 @@ func TestProcessComments(t *testing.T) {
 	}
 
 	// First should be security (higher priority)
-	if items[0].Type != FeedbackTypeSecurity {
-		t.Errorf("First item type = %v, want %v", items[0].Type, FeedbackTypeSecurity)
+	if items[0].Type != github.FeedbackTypeSecurity {
+		t.Errorf("First item type = %v, want %v", items[0].Type, github.FeedbackTypeSecurity)
 	}
 
 	// Second should be test failure
-	if items[1].Type != FeedbackTypeTest {
-		t.Errorf("Second item type = %v, want %v", items[1].Type, FeedbackTypeTest)
+	if items[1].Type != github.FeedbackTypeTest {
+		t.Errorf("Second item type = %v, want %v", items[1].Type, github.FeedbackTypeTest)
 	}
 }
