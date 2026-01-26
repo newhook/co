@@ -328,10 +328,8 @@ func (db *DB) IdleWork(ctx context.Context, id string) error {
 
 // IdleWorkAndScheduleFeedback atomically marks a work as idle and optionally sets PR URL.
 // Note: PR feedback polling is now scheduled when the PR is first created (via
-// SetWorkPRURLAndScheduleFeedback), not when work goes idle. This function is kept
-// for backward compatibility with the orchestrator flow.
-// The interval parameters are kept for API compatibility but are no longer used.
-func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string, prFeedbackInterval, commentResolutionInterval time.Duration) error {
+// SetWorkPRURLAndScheduleFeedback), not when work goes idle.
+func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string) error {
 	// Idle the work (with PR URL if provided)
 	var rows int64
 	var err error
@@ -348,13 +346,6 @@ func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string,
 	}
 	// rows == 0 is valid - work may be in terminal status (merged/completed)
 	_ = rows
-
-	// Note: PR feedback polling is scheduled when PR is created (via SetWorkPRURLAndScheduleFeedback
-	// in cmd/complete.go), not when work goes idle. This ensures feedback polling starts
-	// immediately when a PR exists, even if there are still tasks running.
-	// Ignoring prFeedbackInterval and commentResolutionInterval parameters.
-	_ = prFeedbackInterval
-	_ = commentResolutionInterval
 
 	return nil
 }
