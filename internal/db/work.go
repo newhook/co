@@ -368,7 +368,7 @@ func (db *DB) SetWorkPRURLAndScheduleFeedback(ctx context.Context, id, prURL str
 	qtx := db.queries.WithTx(tx)
 
 	// Set the PR URL (only if not already set)
-	rows, err := qtx.SetWorkPRURL(ctx, sqlc.SetWorkPRURLParams{
+	_, err = qtx.SetWorkPRURL(ctx, sqlc.SetWorkPRURLParams{
 		PrUrl: prURL,
 		ID:    id,
 	})
@@ -376,16 +376,19 @@ func (db *DB) SetWorkPRURLAndScheduleFeedback(ctx context.Context, id, prURL str
 		return fmt.Errorf("failed to set PR URL for work %s: %w", id, err)
 	}
 
-	// If PR URL was already set (rows == 0), the tasks should already be scheduled
+	// If PR URL was already set, the tasks should already be scheduled
 	// We still check and schedule if missing for robustness
 	now := time.Now()
 
 	// Check if PR feedback task already exists
-	existingPRFeedback, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+	existingPRFeedback, err := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
 		WorkID:   id,
 		TaskType: TaskTypePRFeedback,
 	})
-	if existingPRFeedback.ID == "" {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to check existing PR feedback task: %w", err)
+	}
+	if errors.Is(err, sql.ErrNoRows) || existingPRFeedback.ID == "" {
 		// Schedule PR feedback check
 		prFeedbackCheckTime := now.Add(prFeedbackInterval)
 		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
@@ -402,11 +405,14 @@ func (db *DB) SetWorkPRURLAndScheduleFeedback(ctx context.Context, id, prURL str
 	}
 
 	// Check if comment resolution task already exists
-	existingCommentRes, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+	existingCommentRes, err := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
 		WorkID:   id,
 		TaskType: TaskTypeCommentResolution,
 	})
-	if existingCommentRes.ID == "" {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to check existing comment resolution task: %w", err)
+	}
+	if errors.Is(err, sql.ErrNoRows) || existingCommentRes.ID == "" {
 		// Schedule comment resolution check
 		commentResolutionCheckTime := now.Add(commentResolutionInterval)
 		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
@@ -426,8 +432,6 @@ func (db *DB) SetWorkPRURLAndScheduleFeedback(ctx context.Context, id, prURL str
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Log if we actually set a new PR URL
-	_ = rows // rows indicates if URL was newly set
 	return nil
 }
 
