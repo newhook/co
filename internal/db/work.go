@@ -326,10 +326,10 @@ func (db *DB) IdleWork(ctx context.Context, id string) error {
 	return nil
 }
 
-// IdleWorkAndScheduleFeedback atomically marks a work as idle and optionally sets PR URL.
-// Note: PR feedback polling is now scheduled when the PR is first created (via
-// SetWorkPRURLAndScheduleFeedback), not when work goes idle.
-func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string) error {
+// IdleWorkWithPR marks a work as idle and optionally sets the PR URL.
+// PR feedback polling is scheduled separately when the PR is first created
+// (via SetWorkPRURLAndScheduleFeedback), not when work goes idle.
+func (db *DB) IdleWorkWithPR(ctx context.Context, id, prURL string) error {
 	// Idle the work (with PR URL if provided)
 	var rows int64
 	var err error
