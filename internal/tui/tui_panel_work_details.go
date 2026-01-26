@@ -13,8 +13,7 @@ const (
 	WorkDetailActionNone                WorkDetailAction = iota
 	WorkDetailActionOpenTerminal                         // Open terminal/console (t)
 	WorkDetailActionOpenClaude                           // Open Claude session (c)
-	WorkDetailActionRunAutoGroup                         // Run work with auto-group (multiple beads)
-	WorkDetailActionRunSingleBead                        // Run work with single-bead (one bead)
+	WorkDetailActionRun                                  // Run work (r)
 	WorkDetailActionReview                               // Create review task (v)
 	WorkDetailActionPR                                   // Create PR task (p)
 	WorkDetailActionNavigateUp                           // Navigate up (k/up)
@@ -363,7 +362,7 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 		case "c":
 			return cmd, WorkDetailActionOpenClaude
 		case "r":
-			return cmd, p.determineRunAction()
+			return cmd, WorkDetailActionRun
 		case "v":
 			return cmd, WorkDetailActionReview
 		case "p":
@@ -400,7 +399,7 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 	case "c":
 		return nil, WorkDetailActionOpenClaude
 	case "r":
-		return nil, p.determineRunAction()
+		return nil, WorkDetailActionRun
 	case "v":
 		return nil, WorkDetailActionReview
 	case "p":
@@ -419,25 +418,6 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 	}
 
 	return nil, WorkDetailActionNone
-}
-
-// determineRunAction decides whether to run with auto-group or single-bead based on unassigned bead count.
-// If there's 1 unassigned bead, use single-bead mode. If multiple, use auto-group (estimate) mode.
-func (p *WorkDetailsPanel) determineRunAction() WorkDetailAction {
-	if p.focusedWork == nil {
-		return WorkDetailActionNone
-	}
-
-	unassignedCount := len(p.focusedWork.UnassignedBeads)
-	if unassignedCount == 0 {
-		return WorkDetailActionNone
-	}
-
-	if unassignedCount == 1 {
-		return WorkDetailActionRunSingleBead
-	}
-
-	return WorkDetailActionRunAutoGroup
 }
 
 // DetectClickedItem determines which item was clicked and returns its index

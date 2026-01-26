@@ -1142,12 +1142,11 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.openConsole()
 		case WorkDetailActionOpenClaude:
 			return m, m.openClaude()
-		case WorkDetailActionRunAutoGroup:
-			// Run work with auto-group
-			return m, m.runFocusedWork(true)
-		case WorkDetailActionRunSingleBead:
-			// Run work with single-bead tasks
-			return m, m.runFocusedWork(false)
+		case WorkDetailActionRun:
+			// Run work - use auto-group if multiple unassigned beads
+			focusedWork := m.workDetails.GetFocusedWork()
+			useAutoGroup := focusedWork != nil && len(focusedWork.UnassignedBeads) > 1
+			return m, m.runFocusedWork(useAutoGroup)
 		case WorkDetailActionReview:
 			return m, m.createReviewTask()
 		case WorkDetailActionPR:
