@@ -197,3 +197,123 @@ func (c *Config) SaveConfig(path string) error {
 	}
 	return nil
 }
+
+// SaveDocumentedConfig writes a fully documented config to the specified path.
+// This creates a config file with inline comments explaining all available options.
+func (c *Config) SaveDocumentedConfig(path string) error {
+	content := c.GenerateDocumentedConfig()
+	return os.WriteFile(path, []byte(content), 0600)
+}
+
+// GenerateDocumentedConfig generates a documented config.toml string with comments.
+// This includes the actual project values plus commented-out examples for optional sections.
+func (c *Config) GenerateDocumentedConfig() string {
+	// Format the timestamp in RFC3339 format
+	createdAt := c.Project.CreatedAt.Format(time.RFC3339)
+
+	return fmt.Sprintf(`# Claude Orchestrator Project Configuration
+# This file configures how 'co' manages your project.
+# See README.md for full documentation.
+
+# =============================================================================
+# Project Metadata
+# =============================================================================
+[project]
+# Project name (derived from directory name)
+name = %q
+
+# When this project was created
+created_at = %s
+
+# =============================================================================
+# Repository Configuration
+# =============================================================================
+[repo]
+# Repository type: "local" (symlinked) or "github" (cloned)
+type = %q
+
+# Original repository path or GitHub URL
+source = %q
+
+# Directory containing the repository (always "main")
+path = %q
+
+# =============================================================================
+# Hooks Configuration (Optional)
+# =============================================================================
+# Environment variables set when spawning Claude in zellij tabs.
+# Useful for configuring Claude Code to use Vertex AI, setting PATH, etc.
+#
+# [hooks]
+# env = [
+#   "CLAUDE_CODE_USE_VERTEX=1",
+#   "CLOUD_ML_REGION=us-east5",
+#   "MY_CUSTOM_VAR=value"
+# ]
+
+# =============================================================================
+# Claude Configuration (Optional)
+# =============================================================================
+# Controls how Claude Code sessions are executed.
+#
+# [claude]
+# # Whether to run Claude with --dangerously-skip-permissions flag.
+# # When true, Claude can execute commands without prompting for confirmation.
+# # Defaults to true when not specified.
+# skip_permissions = true
+#
+# # Maximum duration in minutes for a Claude session.
+# # Tasks exceeding this limit are terminated and marked as failed.
+# # Set to 0 or omit to disable the time limit.
+# time_limit = 30
+#
+# # Maximum execution time for a task in minutes.
+# # Defaults to 60 minutes when not specified.
+# # If time_limit is set and is less, time_limit takes precedence.
+# task_timeout_minutes = 60
+
+# =============================================================================
+# Workflow Configuration (Optional)
+# =============================================================================
+# Controls automated workflow behavior.
+#
+# [workflow]
+# # Maximum number of review/fix cycles before proceeding to PR.
+# # Increase for more thorough reviews, decrease to limit iteration time.
+# # Defaults to 2 when not specified.
+# max_review_iterations = 2
+
+# =============================================================================
+# Scheduler Configuration (Optional)
+# =============================================================================
+# Controls timing for background operations during orchestration.
+#
+# [scheduler]
+# # Interval between PR feedback checks in minutes.
+# # How often to check for CI failures and review comments.
+# # Defaults to 5 minutes when not specified.
+# pr_feedback_interval_minutes = 5
+#
+# # Interval between comment resolution checks in minutes.
+# # How often to check for resolved feedback that needs GitHub updates.
+# # Defaults to 5 minutes when not specified.
+# comment_resolution_interval_minutes = 5
+#
+# # Internal scheduler polling frequency in seconds.
+# # Defaults to 1 second when not specified.
+# scheduler_poll_seconds = 1
+#
+# # Interval for updating task activity timestamps in seconds.
+# # Defaults to 30 seconds when not specified.
+# activity_update_seconds = 30
+
+# =============================================================================
+# Linear Integration (Optional)
+# =============================================================================
+# Authentication for importing issues from Linear.
+# Can also be set via LINEAR_API_KEY environment variable.
+#
+# [linear]
+# api_key = "lin_api_..."
+`, c.Project.Name, createdAt, c.Repo.Type, c.Repo.Source, c.Repo.Path)
+}
