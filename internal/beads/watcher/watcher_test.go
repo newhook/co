@@ -304,10 +304,12 @@ func TestWatcher_DebounceWithPubsub(t *testing.T) {
 	err := os.WriteFile(dbPath, []byte("test"), 0644)
 	require.NoError(t, err, "failed to create test file")
 
-	// Use a longer debounce to make the test more reliable
+	// Debounce must be significantly longer than total write duration to ensure coalescing.
+	// Write loop: 5 writes * 10ms = 50ms, so 200ms debounce ensures all writes coalesce
+	// even when CI scheduling delays stretch sleep times.
 	w, err := watcher.New(watcher.Config{
 		DBPath:      dbPath,
-		DebounceDur: 100 * time.Millisecond,
+		DebounceDur: 200 * time.Millisecond,
 	})
 	require.NoError(t, err, "failed to create watcher")
 	defer func() { _ = w.Stop() }()
@@ -323,14 +325,14 @@ func TestWatcher_DebounceWithPubsub(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		err := os.WriteFile(dbPath, []byte(fmt.Sprintf("content%d", i)), 0644)
 		require.NoError(t, err, "failed to write file")
-		time.Sleep(20 * time.Millisecond) // Faster than debounce interval
+		time.Sleep(10 * time.Millisecond) // Much faster than debounce interval
 	}
 
-	// Wait for debounce to complete
+	// Wait for debounce to complete (200ms debounce + buffer)
 	select {
 	case evt := <-sub:
 		require.Equal(t, watcher.DBChanged, evt.Payload.Type, "expected DBChanged event")
-	case <-time.After(300 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		require.Fail(t, "expected coalesced event but got timeout")
 	}
 
@@ -338,7 +340,7 @@ func TestWatcher_DebounceWithPubsub(t *testing.T) {
 	select {
 	case <-sub:
 		require.Fail(t, "received unexpected second event - debounce may not be working")
-	case <-time.After(150 * time.Millisecond):
+	case <-time.After(250 * time.Millisecond):
 		// Expected - events were properly coalesced
 	}
 }

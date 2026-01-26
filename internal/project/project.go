@@ -157,9 +157,9 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 		},
 	}
 
-	// Save config
+	// Save config with comprehensive documentation
 	configPath := filepath.Join(configDir, ConfigFile)
-	if err := cfg.SaveConfig(configPath); err != nil {
+	if err := cfg.SaveDocumentedConfig(configPath); err != nil {
 		os.RemoveAll(absDir)
 		return nil, err
 	}

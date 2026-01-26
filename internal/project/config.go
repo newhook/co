@@ -1,12 +1,19 @@
 package project
 
 import (
+	"bytes"
+	_ "embed"
 	"fmt"
 	"os"
+	"strings"
+	"text/template"
 	"time"
 
 	"github.com/BurntSushi/toml"
 )
+
+//go:embed templates/config.tmpl
+var configTemplateText string
 
 // Config represents the project configuration stored in .co/config.toml.
 type Config struct {
@@ -196,4 +203,57 @@ func (c *Config) SaveConfig(path string) error {
 		return fmt.Errorf("failed to encode config: %w", err)
 	}
 	return nil
+}
+
+// SaveDocumentedConfig writes a fully documented config to the specified path.
+// This creates a config file with inline comments explaining all available options.
+func (c *Config) SaveDocumentedConfig(path string) error {
+	content := c.GenerateDocumentedConfig()
+	return os.WriteFile(path, []byte(content), 0600)
+}
+
+// configTemplateData holds the data used to render the config template.
+type configTemplateData struct {
+	ProjectName string
+	CreatedAt   string
+	RepoType    string
+	RepoSource  string
+	RepoPath    string
+}
+
+// tomlString formats a string for TOML output with proper escaping.
+// It wraps the string in double quotes and escapes special characters.
+func tomlString(s string) string {
+	// Escape backslashes first, then quotes
+	escaped := strings.ReplaceAll(s, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	escaped = strings.ReplaceAll(escaped, "\n", `\n`)
+	escaped = strings.ReplaceAll(escaped, "\r", `\r`)
+	escaped = strings.ReplaceAll(escaped, "\t", `\t`)
+	return `"` + escaped + `"`
+}
+
+// configTemplate is the parsed template for generating documented config files.
+var configTemplate = template.Must(template.New("config").Funcs(template.FuncMap{
+	"tomlString": tomlString,
+}).Parse(configTemplateText))
+
+// GenerateDocumentedConfig generates a documented config.toml string with comments.
+// This includes the actual project values plus commented-out examples for optional sections.
+func (c *Config) GenerateDocumentedConfig() string {
+	data := configTemplateData{
+		ProjectName: c.Project.Name,
+		CreatedAt:   c.Project.CreatedAt.Format(time.RFC3339),
+		RepoType:    c.Repo.Type,
+		RepoSource:  c.Repo.Source,
+		RepoPath:    c.Repo.Path,
+	}
+
+	var buf bytes.Buffer
+	if err := configTemplate.Execute(&buf, data); err != nil {
+		// Fall back to a minimal valid TOML if template execution fails
+		return fmt.Sprintf("[project]\nname = %q\ncreated_at = %s\n[repo]\ntype = %q\nsource = %q\npath = %q\n",
+			c.Project.Name, data.CreatedAt, c.Repo.Type, c.Repo.Source, c.Repo.Path)
+	}
+	return buf.String()
 }
