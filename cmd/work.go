@@ -935,6 +935,13 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 		}
 		reviewTaskID := result.TaskID
 
+		// Mark manual reviews (non-auto) so orchestrator skips automated workflow
+		if !flagReviewAuto {
+			if err := proj.DB.SetTaskMetadata(ctx, reviewTaskID, "auto_workflow", "false"); err != nil {
+				return fmt.Errorf("failed to set manual review metadata: %w", err)
+			}
+		}
+
 		fmt.Printf("Created review task: %s\n", reviewTaskID)
 
 		// Run the review task
