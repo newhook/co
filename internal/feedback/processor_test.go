@@ -1,7 +1,7 @@
 package feedback
 
 import (
-	"reflect"
+	"context"
 	"testing"
 
 	"github.com/newhook/co/internal/github"
@@ -222,6 +222,7 @@ func TestProcessStatusChecks(t *testing.T) {
 
 func TestProcessWorkflowRuns(t *testing.T) {
 	processor := &FeedbackProcessor{
+		client:      &github.Client{},
 		minPriority: 2,
 	}
 
@@ -235,8 +236,10 @@ func TestProcessWorkflowRuns(t *testing.T) {
 				URL:        "https://example.com/runs/123",
 				Jobs: []github.Job{
 					{
+						ID:         456,
 						Name:       "Unit Tests",
 						Conclusion: "failure",
+						URL:        "https://example.com/jobs/456",
 						Steps: []github.Step{
 							{Name: "Run tests", Conclusion: "failure"},
 						},
@@ -253,9 +256,12 @@ func TestProcessWorkflowRuns(t *testing.T) {
 		},
 	}
 
-	items := processor.processWorkflowRuns(status)
+	// Note: This test will use generic fallback since GetJobLogs will fail
+	// (we're not mocking the GitHub API). The test verifies the fallback works.
+	ctx := context.Background()
+	items := processor.processWorkflowRuns(ctx, "owner/repo", status)
 
-	// Should have 1 item (the failed workflow)
+	// Should have 1 item (the failed workflow with generic fallback)
 	if len(items) != 1 {
 		t.Fatalf("Expected 1 feedback item, got %d", len(items))
 	}
@@ -263,8 +269,9 @@ func TestProcessWorkflowRuns(t *testing.T) {
 	if items[0].Type != github.FeedbackTypeTest {
 		t.Errorf("Item type = %v, want %v", items[0].Type, github.FeedbackTypeTest)
 	}
+	// Generic fallback format: "Fix {jobName}: {stepName} in {workflowName}"
 	if items[0].Title != "Fix Unit Tests: Run tests in Test Suite" {
-		t.Errorf("Item title = %s, want specific title", items[0].Title)
+		t.Errorf("Item title = %s, want 'Fix Unit Tests: Run tests in Test Suite'", items[0].Title)
 	}
 	if !items[0].Actionable {
 		t.Error("Item should be actionable")
@@ -372,42 +379,60 @@ func TestFilterByMinimumPriority(t *testing.T) {
 	}
 }
 
-func TestExtractWorkflowFailures(t *testing.T) {
-	processor := &FeedbackProcessor{}
+func TestCreateGenericFailureItem(t *testing.T) {
+	processor := &FeedbackProcessor{
+		client:      &github.Client{},
+		minPriority: 2,
+	}
 
 	workflow := github.WorkflowRun{
+		ID:   123,
 		Name: "CI Pipeline",
-		Jobs: []github.Job{
-			{
-				Name:       "Build",
-				Conclusion: "success",
-			},
-			{
+		URL:  "https://example.com/runs/123",
+	}
+
+	tests := []struct {
+		name          string
+		job           github.Job
+		expectedTitle string
+	}{
+		{
+			name: "Job with failed step",
+			job: github.Job{
+				ID:         456,
 				Name:       "Test",
 				Conclusion: "failure",
+				URL:        "https://example.com/jobs/456",
 				Steps: []github.Step{
 					{Name: "Setup", Conclusion: "success"},
 					{Name: "Run tests", Conclusion: "failure"},
 				},
 			},
-			{
+			expectedTitle: "Fix Test: Run tests in CI Pipeline",
+		},
+		{
+			name: "Job without specific failed step",
+			job: github.Job{
+				ID:         789,
 				Name:       "Lint",
 				Conclusion: "failure",
-				Steps:      []github.Step{}, // No specific step failed
+				URL:        "https://example.com/jobs/789",
+				Steps:      []github.Step{},
 			},
+			expectedTitle: "Fix Lint in CI Pipeline",
 		},
 	}
 
-	failures := processor.extractWorkflowFailures(workflow)
-
-	// Should have 2 failures
-	if len(failures) != 2 {
-		t.Fatalf("Expected 2 failures, got %d", len(failures))
-	}
-
-	expected := []string{"Test: Run tests", "Lint"}
-	if !reflect.DeepEqual(failures, expected) {
-		t.Errorf("extractWorkflowFailures() = %v, want %v", failures, expected)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item := processor.createGenericFailureItem(workflow, tt.job)
+			if item.Title != tt.expectedTitle {
+				t.Errorf("createGenericFailureItem().Title = %s, want %s", item.Title, tt.expectedTitle)
+			}
+			if !item.Actionable {
+				t.Error("Item should be actionable")
+			}
+		})
 	}
 }
 
