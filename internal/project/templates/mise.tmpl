@@ -1,0 +1,32 @@
+# Claude Orchestrator (co) mise configuration
+# This file configures the CLI tools required for co to function.
+# See https://mise.jdx.dev/ for mise documentation.
+
+# =============================================================================
+# Required Tools
+# =============================================================================
+[tools]
+# Beads - Git-backed issue tracker for multi-session work
+# Used for tracking issues, dependencies, and persistent memory
+bd = "latest"
+
+# Claude Code - Anthropic's CLI for Claude
+# Used to run AI-powered coding sessions
+claude = "latest"
+
+# GitHub CLI - Official GitHub command-line tool
+# Used for PR creation, merging, and GitHub API access
+gh = "latest"
+
+# Zellij - Terminal multiplexer
+# Used for session management and parallel task execution
+zellij = "latest"
+
+# =============================================================================
+# Tasks (Optional)
+# =============================================================================
+# Customize these tasks for your project's needs.
+#
+# [tasks]
+# # Project-specific setup (e.g., npm install, pip install, etc.)
+# setup = "echo 'Add your setup commands here'"
