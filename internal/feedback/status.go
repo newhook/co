@@ -53,76 +53,35 @@ func normalizePRState(state string) string {
 	}
 }
 
-// extractCIStatus determines the overall CI status from status checks and workflows.
+// extractCIStatus determines the overall CI status from status checks.
 // Returns: db.CIStatusPending, db.CIStatusSuccess, or db.CIStatusFailure
+//
+// We only use StatusChecks (from `gh pr checks`) for CI status determination.
+// StatusChecks already represent the current aggregated state of all checks
+// for the PR's head commit. Workflow runs are only used separately for
+// extracting detailed failure information (job logs, test names, etc.).
 func extractCIStatus(status *github.PRStatus) string {
-	// Check workflow runs first (GitHub Actions)
-	hasWorkflows := len(status.Workflows) > 0
-	hasStatusChecks := len(status.StatusChecks) > 0
-
-	if !hasWorkflows && !hasStatusChecks {
+	if len(status.StatusChecks) == 0 {
 		// No CI configured
 		return db.CIStatusPending
 	}
 
-	// Get only the latest workflow run for each workflow name.
-	// GitHub returns historical runs, but we only care about the most recent one.
-	latestWorkflows := getLatestWorkflowsByName(status.Workflows)
-
-	// Check for any failures in the latest workflow runs
-	for _, workflow := range latestWorkflows {
-		if workflow.Conclusion == "failure" {
-			return db.CIStatusFailure
-		}
-	}
+	// Check for any failures
 	for _, check := range status.StatusChecks {
 		if check.State == "FAILURE" || check.State == "ERROR" {
 			return db.CIStatusFailure
 		}
 	}
 
-	// Check for any pending in the latest workflow runs
-	for _, workflow := range latestWorkflows {
-		if workflow.Status == "in_progress" || workflow.Status == "queued" ||
-			(workflow.Status == "completed" && workflow.Conclusion == "") {
-			return db.CIStatusPending
-		}
-	}
+	// Check for any pending
 	for _, check := range status.StatusChecks {
 		if check.State == "PENDING" || check.State == "" {
 			return db.CIStatusPending
 		}
 	}
 
-	// If we have at least some completed checks/workflows and no failures or pending
+	// All checks passed
 	return db.CIStatusSuccess
-}
-
-// getLatestWorkflowsByName returns only the most recent workflow run for each workflow name.
-// This is necessary because GitHub returns historical workflow runs, but we only want
-// to evaluate the status of the most recent run for each workflow.
-func getLatestWorkflowsByName(workflows []github.WorkflowRun) []github.WorkflowRun {
-	if len(workflows) == 0 {
-		return workflows
-	}
-
-	// Map to track the latest workflow for each name
-	latestByName := make(map[string]github.WorkflowRun)
-
-	for _, workflow := range workflows {
-		existing, exists := latestByName[workflow.Name]
-		if !exists || workflow.CreatedAt.After(existing.CreatedAt) {
-			latestByName[workflow.Name] = workflow
-		}
-	}
-
-	// Convert map back to slice
-	result := make([]github.WorkflowRun, 0, len(latestByName))
-	for _, workflow := range latestByName {
-		result = append(result, workflow)
-	}
-
-	return result
 }
 
 // extractApprovalStatus determines the approval status from reviews.

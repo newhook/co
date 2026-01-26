@@ -434,29 +434,32 @@ func isSystemGeneratedComment(body string) bool {
 
 
 // fetchWorkflowRuns fetches workflow runs associated with a PR.
+// Uses the PR's head commit SHA to fetch only runs for that specific commit,
+// avoiding historical runs from previous commits on the same branch.
 func (c *Client) fetchWorkflowRuns(ctx context.Context, repo, prNumber string, status *PRStatus) error {
-	// Get the branch name for the PR
+	// Get the head commit SHA for the PR
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber,
 		"--repo", repo,
-		"--json", "headRefName")
+		"--json", "headRefOid")
 
 	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("failed to get PR branch: %w", err)
+		return fmt.Errorf("failed to get PR head commit: %w", err)
 	}
 
 	var prInfo struct {
-		HeadRefName string `json:"headRefName"`
+		HeadRefOid string `json:"headRefOid"`
 	}
 
 	if err := json.Unmarshal(output, &prInfo); err != nil {
-		return fmt.Errorf("failed to parse PR branch: %w", err)
+		return fmt.Errorf("failed to parse PR head commit: %w", err)
 	}
 
-	// Fetch workflow runs for the branch
+	// Fetch workflow runs for the specific commit SHA
+	// This ensures we only get runs for the current PR head, not historical runs
 	cmd = exec.CommandContext(ctx, "gh", "run", "list",
 		"--repo", repo,
-		"--branch", prInfo.HeadRefName,
+		"--commit", prInfo.HeadRefOid,
 		"--json", "databaseId,name,status,conclusion,url,createdAt,updatedAt",
 		"--limit", "10")
 
