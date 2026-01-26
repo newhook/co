@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/newhook/co/internal/feedback/logparser"
 	"github.com/newhook/co/internal/github"
 )
 
@@ -24,6 +25,12 @@ func NewFeedbackProcessor(client *github.Client, minPriority int) *FeedbackProce
 
 // ProcessPRFeedback fetches and processes feedback for a PR.
 func (p *FeedbackProcessor) ProcessPRFeedback(ctx context.Context, prURL string) ([]github.FeedbackItem, error) {
+	// Extract repo from PR URL for log fetching
+	repo, err := extractRepoFromPRURL(prURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse PR URL: %w", err)
+	}
+
 	// Fetch PR status
 	status, err := p.client.GetPRStatus(ctx, prURL)
 	if err != nil {
@@ -42,7 +49,7 @@ func (p *FeedbackProcessor) ProcessPRFeedback(ctx context.Context, prURL string)
 	items = append(items, checkItems...)
 
 	// Process workflow runs
-	workflowItems := p.processWorkflowRuns(status)
+	workflowItems := p.processWorkflowRuns(ctx, repo, status)
 	items = append(items, workflowItems...)
 
 	// Process reviews
@@ -98,47 +105,159 @@ func (p *FeedbackProcessor) processStatusChecks(status *github.PRStatus) []githu
 }
 
 // processWorkflowRuns processes workflow run failures.
-func (p *FeedbackProcessor) processWorkflowRuns(status *github.PRStatus) []github.FeedbackItem {
+func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string, status *github.PRStatus) []github.FeedbackItem {
 	var items []github.FeedbackItem
 
 	for _, workflow := range status.Workflows {
 		if workflow.Conclusion == "failure" {
-			// Find the specific failed jobs/steps
-			failureDetails := p.extractWorkflowFailures(workflow)
-
-			for _, detail := range failureDetails {
-				feedbackType := p.categorizeWorkflowFailure(workflow.Name, detail)
-
-				// Parse job and step from detail (format: "jobName: stepName" or just "jobName")
-				jobName, stepName := parseWorkflowDetail(detail)
-
-				item := github.FeedbackItem{
-					Type:        feedbackType,
-					Title:       fmt.Sprintf("Fix %s in %s", detail, workflow.Name),
-					Description: fmt.Sprintf("Workflow '%s' failed at: %s", workflow.Name, detail),
-					Source: github.SourceInfo{
-						Type: github.SourceTypeWorkflow,
-						ID:   fmt.Sprintf("%d", workflow.ID),
-						Name: workflow.Name,
-						URL:  workflow.URL,
-					},
-					Priority:   p.getPriorityForType(feedbackType),
-					Actionable: true,
-					Workflow: &github.WorkflowContext{
-						WorkflowName:  workflow.Name,
-						FailureDetail: detail,
-						RunID:         workflow.ID,
-						JobName:       jobName,
-						StepName:      stepName,
-					},
+			for _, job := range workflow.Jobs {
+				if job.Conclusion == "failure" {
+					// Try to get detailed test failures for test jobs
+					if isTestJob(job.Name) {
+						logs, err := p.client.GetJobLogs(ctx, repo, job.ID)
+						if err == nil {
+							failures, _ := logparser.ParseFailures(logs)
+							if len(failures) > 0 {
+								for _, f := range failures {
+									items = append(items, p.createFailureItem(workflow, job, f))
+								}
+								continue // Skip generic handling
+							}
+						}
+					}
+					// Fall back to generic handling
+					items = append(items, p.createGenericFailureItem(workflow, job))
 				}
-
-				items = append(items, item)
 			}
 		}
 	}
 
 	return items
+}
+
+// createFailureItem creates a FeedbackItem for a specific failure.
+func (p *FeedbackProcessor) createFailureItem(workflow github.WorkflowRun, job github.Job, f logparser.Failure) github.FeedbackItem {
+	shortCtx := lastPathComponent(f.Context)
+
+	title := fmt.Sprintf("Fix %s", f.Name)
+	if shortCtx != "" {
+		title = fmt.Sprintf("Fix %s in %s", f.Name, shortCtx)
+	}
+
+	return github.FeedbackItem{
+		Type:        github.FeedbackTypeTest,
+		Title:       title,
+		Description: formatFailure(f),
+		Source: github.SourceInfo{
+			Type: github.SourceTypeWorkflow,
+			ID:   fmt.Sprintf("%d-%s", job.ID, f.Name),
+			Name: workflow.Name,
+			URL:  job.URL,
+		},
+		Priority:   2,
+		Actionable: true,
+		Workflow: &github.WorkflowContext{
+			WorkflowName:  workflow.Name,
+			FailureDetail: f.Name,
+			RunID:         workflow.ID,
+			JobName:       job.Name,
+		},
+	}
+}
+
+// createGenericFailureItem creates a FeedbackItem for a generic job failure.
+func (p *FeedbackProcessor) createGenericFailureItem(workflow github.WorkflowRun, job github.Job) github.FeedbackItem {
+	// Try to find the specific failed step
+	failedStep := ""
+	for _, step := range job.Steps {
+		if step.Conclusion == "failure" {
+			failedStep = step.Name
+			break
+		}
+	}
+
+	detail := job.Name
+	if failedStep != "" {
+		detail = fmt.Sprintf("%s: %s", job.Name, failedStep)
+	}
+
+	feedbackType := p.categorizeWorkflowFailure(workflow.Name, detail)
+	jobName, stepName := parseWorkflowDetail(detail)
+
+	return github.FeedbackItem{
+		Type:        feedbackType,
+		Title:       fmt.Sprintf("Fix %s in %s", detail, workflow.Name),
+		Description: fmt.Sprintf("Workflow '%s' failed at: %s", workflow.Name, detail),
+		Source: github.SourceInfo{
+			Type: github.SourceTypeWorkflow,
+			ID:   fmt.Sprintf("%d", job.ID),
+			Name: workflow.Name,
+			URL:  job.URL,
+		},
+		Priority:   p.getPriorityForType(feedbackType),
+		Actionable: true,
+		Workflow: &github.WorkflowContext{
+			WorkflowName:  workflow.Name,
+			FailureDetail: detail,
+			RunID:         workflow.ID,
+			JobName:       jobName,
+			StepName:      stepName,
+		},
+	}
+}
+
+// formatFailure formats a failure for display.
+func formatFailure(f logparser.Failure) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("`%s` failed", f.Name))
+	if f.File != "" {
+		if f.Column > 0 {
+			sb.WriteString(fmt.Sprintf(" at %s:%d:%d", f.File, f.Line, f.Column))
+		} else {
+			sb.WriteString(fmt.Sprintf(" at %s:%d", f.File, f.Line))
+		}
+	}
+	sb.WriteString("\n\n")
+	if f.Message != "" {
+		sb.WriteString(fmt.Sprintf("**Error:** %s\n\n", f.Message))
+	}
+	if f.RawOutput != "" {
+		sb.WriteString("```\n")
+		sb.WriteString(f.RawOutput)
+		sb.WriteString("\n```")
+	}
+	return sb.String()
+}
+
+// isTestJob returns true if the job name suggests it runs tests.
+func isTestJob(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "test")
+}
+
+// lastPathComponent returns the last component of a path.
+func lastPathComponent(path string) string {
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	return parts[len(parts)-1]
+}
+
+// extractRepoFromPRURL extracts the owner/repo from a PR URL.
+func extractRepoFromPRURL(prURL string) (string, error) {
+	// Expected format: https://github.com/owner/repo/pull/123
+	parts := strings.Split(prURL, "/")
+	if len(parts) < 5 {
+		return "", fmt.Errorf("invalid PR URL format: %s", prURL)
+	}
+	// Find github.com in the URL and extract owner/repo
+	for i, part := range parts {
+		if part == "github.com" && i+2 < len(parts) {
+			return fmt.Sprintf("%s/%s", parts[i+1], parts[i+2]), nil
+		}
+	}
+	return "", fmt.Errorf("could not extract repo from PR URL: %s", prURL)
 }
 
 // parseWorkflowDetail extracts job and step names from failure detail.
@@ -294,31 +413,6 @@ func (p *FeedbackProcessor) categorizeWorkflowFailure(workflowName, failureDetai
 	}
 
 	return github.FeedbackTypeCI
-}
-
-func (p *FeedbackProcessor) extractWorkflowFailures(workflow github.WorkflowRun) []string {
-	var failures []string
-
-	for _, job := range workflow.Jobs {
-		if job.Conclusion == "failure" {
-			// Try to find the specific failed step
-			failedStep := ""
-			for _, step := range job.Steps {
-				if step.Conclusion == "failure" {
-					failedStep = step.Name
-					break
-				}
-			}
-
-			if failedStep != "" {
-				failures = append(failures, fmt.Sprintf("%s: %s", job.Name, failedStep))
-			} else {
-				failures = append(failures, job.Name)
-			}
-		}
-	}
-
-	return failures
 }
 
 func (p *FeedbackProcessor) isActionableComment(body string) bool {
