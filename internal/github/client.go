@@ -781,6 +781,23 @@ func (c *Client) findReviewThreadID(ctx context.Context, owner, repo string, prN
 	return "", nil // Thread not found
 }
 
+// GetJobLogs fetches the logs for a specific job.
+func (c *Client) GetJobLogs(ctx context.Context, repo string, jobID int64) (string, error) {
+	logging.Debug("fetching job logs", "repo", repo, "jobID", jobID)
+
+	cmd := exec.CommandContext(ctx, "gh", "api",
+		fmt.Sprintf("repos/%s/actions/jobs/%d/logs", repo, jobID))
+
+	output, err := cmd.Output()
+	if err != nil {
+		logging.Error("failed to fetch job logs", "error", err, "repo", repo, "jobID", jobID)
+		return "", fmt.Errorf("failed to fetch job logs: %w", err)
+	}
+
+	logging.Debug("successfully fetched job logs", "repo", repo, "jobID", jobID, "logSize", len(output))
+	return string(output), nil
+}
+
 // parsePRURL extracts the repo and PR number from a GitHub PR URL.
 func parsePRURL(prURL string) (prNumber, repo string, err error) {
 	// Expected format: https://github.com/owner/repo/pull/123
