@@ -59,8 +59,14 @@ func HandleCreateWorktreeTask(ctx context.Context, proj *project.Project, task *
 			return fmt.Errorf("failed to create work directory: %w", err)
 		}
 
-		// Create git worktree with new branch
-		if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
+		// Fetch latest from origin for the base branch
+		if err := git.FetchBranch(ctx, mainRepoPath, baseBranch); err != nil {
+			_ = os.RemoveAll(workDir)
+			return fmt.Errorf("failed to fetch base branch: %w", err)
+		}
+
+		// Create git worktree with new branch based on origin/<baseBranch>
+		if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, "origin/"+baseBranch); err != nil {
 			_ = os.RemoveAll(workDir)
 			return fmt.Errorf("failed to create worktree: %w", err)
 		}
