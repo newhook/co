@@ -1,12 +1,13 @@
 package logparser
 
-// TestFailure represents a parsed test failure.
-type TestFailure struct {
-	TestName  string // e.g., "TestTriggeredBroadcast"
-	Package   string // e.g., "campaigns/campaign_runtime"
+// Failure represents a parsed CI failure (test, lint, build, etc.).
+type Failure struct {
+	Name      string // What failed (test name, lint rule, build target)
+	Context   string // Where in codebase (package, module, directory)
 	File      string // e.g., "triggered_broadcast_test.go"
 	Line      int    // e.g., 203
-	Error     string // The error message
+	Column    int    // e.g., 15 (0 if not applicable)
+	Message   string // The error/failure message
 	RawOutput string // Relevant log snippet for context
 }
 
@@ -14,8 +15,8 @@ type TestFailure struct {
 type Parser interface {
 	// CanParse returns true if this parser can handle the given log content.
 	CanParse(logContent string) bool
-	// Parse extracts test failures from the log content.
-	Parse(logContent string) ([]TestFailure, error)
+	// Parse extracts failures from the log content.
+	Parse(logContent string) ([]Failure, error)
 }
 
 // parsers is the registry of available parsers.
@@ -26,9 +27,9 @@ func RegisterParser(p Parser) {
 	parsers = append(parsers, p)
 }
 
-// ParseTestFailures attempts to parse test failures using all registered parsers.
-func ParseTestFailures(logContent string) ([]TestFailure, error) {
-	var allFailures []TestFailure
+// ParseFailures attempts to parse failures using all registered parsers.
+func ParseFailures(logContent string) ([]Failure, error) {
+	var allFailures []Failure
 
 	for _, p := range parsers {
 		if p.CanParse(logContent) {

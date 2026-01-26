@@ -42,12 +42,12 @@ func (p *GoTestParser) CanParse(logContent string) bool {
 }
 
 // Parse extracts test failures from Go test output.
-func (p *GoTestParser) Parse(logContent string) ([]TestFailure, error) {
+func (p *GoTestParser) Parse(logContent string) ([]Failure, error) {
 	cleaned := CleanLog(logContent)
 	lines := strings.Split(cleaned, "\n")
 
-	var failures []TestFailure
-	failureMap := make(map[string]*TestFailure)
+	var failures []Failure
+	failureMap := make(map[string]*Failure)
 
 	for i, line := range lines {
 
@@ -58,9 +58,9 @@ func (p *GoTestParser) Parse(logContent string) ([]TestFailure, error) {
 			key := pkg + "/" + testName
 
 			if _, exists := failureMap[key]; !exists {
-				failure := &TestFailure{
-					TestName: testName,
-					Package:  pkg,
+				failure := &Failure{
+					Name:    testName,
+					Context: pkg,
 				}
 				failureMap[key] = failure
 
@@ -77,8 +77,8 @@ func (p *GoTestParser) Parse(logContent string) ([]TestFailure, error) {
 			key := testName
 
 			if _, exists := failureMap[key]; !exists {
-				failure := &TestFailure{
-					TestName: testName,
+				failure := &Failure{
+					Name: testName,
 				}
 				failureMap[key] = failure
 
@@ -94,8 +94,8 @@ func (p *GoTestParser) Parse(logContent string) ([]TestFailure, error) {
 			pkg := matches[1]
 			// Try to associate with existing failures without package
 			for _, failure := range failureMap {
-				if failure.Package == "" {
-					failure.Package = pkg
+				if failure.Context == "" {
+					failure.Context = pkg
 				}
 			}
 		}
@@ -117,7 +117,7 @@ func (p *GoTestParser) extractContext(lines []string, index, contextLines int) s
 }
 
 // enrichFailure extracts additional details from the raw output.
-func (p *GoTestParser) enrichFailure(failure *TestFailure, rawOutput string) {
+func (p *GoTestParser) enrichFailure(failure *Failure, rawOutput string) {
 	lines := strings.Split(rawOutput, "\n")
 
 	for i, line := range lines {
@@ -145,7 +145,7 @@ func (p *GoTestParser) enrichFailure(failure *TestFailure, rawOutput string) {
 				}
 				errParts = append(errParts, nextLine)
 			}
-			failure.Error = strings.Join(errParts, " ")
+			failure.Message = strings.Join(errParts, " ")
 		}
 
 		// Fallback: try to find file:line in the output

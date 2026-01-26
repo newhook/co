@@ -10,15 +10,6 @@ func init() {
 	RegisterParser(&LintParser{})
 }
 
-// LintError represents a parsed linter error.
-type LintError struct {
-	File       string // e.g., "core/segments/serial/condition_test.go"
-	Line       int    // e.g., 124
-	Column     int    // e.g., 15
-	Message    string // e.g., "Error return value of `jobs.Backfill` is not checked"
-	LinterName string // e.g., "errcheck", "gofmt", "unused"
-}
-
 // LintParser parses golangci-lint output from GitHub Actions logs.
 type LintParser struct{}
 
@@ -45,31 +36,11 @@ func (p *LintParser) CanParse(logContent string) bool {
 }
 
 // Parse extracts lint errors from the log content.
-func (p *LintParser) Parse(logContent string) ([]TestFailure, error) {
-	errors := p.ParseLintErrors(logContent)
-
-	// Convert LintErrors to TestFailures for the common interface
-	failures := make([]TestFailure, 0, len(errors))
-	for _, e := range errors {
-		failures = append(failures, TestFailure{
-			TestName:  e.LinterName,
-			Package:   "", // Lint errors don't have a package in this context
-			File:      e.File,
-			Line:      e.Line,
-			Error:     e.Message,
-			RawOutput: e.String(),
-		})
-	}
-
-	return failures, nil
-}
-
-// ParseLintErrors extracts LintError structs from the log content.
-func (p *LintParser) ParseLintErrors(logContent string) []LintError {
+func (p *LintParser) Parse(logContent string) ([]Failure, error) {
 	cleaned := CleanLog(logContent)
 	lines := strings.Split(cleaned, "\n")
 
-	var errors []LintError
+	var failures []Failure
 	seen := make(map[string]bool)
 
 	for _, line := range lines {
@@ -84,12 +55,12 @@ func (p *LintParser) ParseLintErrors(logContent string) []LintError {
 			key := file + ":" + matches[2] + ":" + matches[3]
 			if !seen[key] {
 				seen[key] = true
-				errors = append(errors, LintError{
-					File:       file,
-					Line:       lineNum,
-					Column:     col,
-					Message:    message,
-					LinterName: linter,
+				failures = append(failures, Failure{
+					Name:    linter,
+					File:    file,
+					Line:    lineNum,
+					Column:  col,
+					Message: message,
 				})
 			}
 			continue
@@ -105,33 +76,33 @@ func (p *LintParser) ParseLintErrors(logContent string) []LintError {
 			key := file + ":" + matches[2]
 			if !seen[key] {
 				seen[key] = true
-				errors = append(errors, LintError{
-					File:       file,
-					Line:       lineNum,
-					Column:     0,
-					Message:    message,
-					LinterName: linter,
+				failures = append(failures, Failure{
+					Name:    linter,
+					File:    file,
+					Line:    lineNum,
+					Column:  0,
+					Message: message,
 				})
 			}
 		}
 	}
 
-	return errors
+	return failures, nil
 }
 
-// String returns a human-readable representation of the lint error.
-func (e LintError) String() string {
-	if e.Column > 0 {
-		return e.File + ":" + strconv.Itoa(e.Line) + ":" + strconv.Itoa(e.Column) + ": " + e.Message + " (" + e.LinterName + ")"
+// FormatFailure returns a human-readable representation of the failure.
+func FormatFailure(f Failure) string {
+	if f.Column > 0 {
+		return f.File + ":" + strconv.Itoa(f.Line) + ":" + strconv.Itoa(f.Column) + ": " + f.Message + " (" + f.Name + ")"
 	}
-	return e.File + ":" + strconv.Itoa(e.Line) + ": " + e.Message + " (" + e.LinterName + ")"
+	return f.File + ":" + strconv.Itoa(f.Line) + ": " + f.Message + " (" + f.Name + ")"
 }
 
-// GroupByLinter groups lint errors by linter name.
-func GroupByLinter(errors []LintError) map[string][]LintError {
-	groups := make(map[string][]LintError)
-	for _, e := range errors {
-		groups[e.LinterName] = append(groups[e.LinterName], e)
+// GroupByName groups failures by name (e.g., linter name, test name).
+func GroupByName(failures []Failure) map[string][]Failure {
+	groups := make(map[string][]Failure)
+	for _, f := range failures {
+		groups[f.Name] = append(groups[f.Name], f)
 	}
 	return groups
 }

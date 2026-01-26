@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseTestFailures_GoTestOutput(t *testing.T) {
+func TestParseFailures_GoTestOutput(t *testing.T) {
 	input := `--- FAIL: TestExample (0.01s)
     example_test.go:42:
         Error Trace:	/path/example_test.go:42
@@ -15,14 +15,14 @@ func TestParseTestFailures_GoTestOutput(t *testing.T) {
 FAIL
 FAIL	github.com/pkg/example	0.015s`
 
-	failures, err := ParseTestFailures(input)
+	failures, err := ParseFailures(input)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(failures), 1)
 
 	// Should have identified this as a Go test failure
 	found := false
 	for _, f := range failures {
-		if f.TestName == "TestExample" {
+		if f.Name == "TestExample" {
 			found = true
 			break
 		}
@@ -30,28 +30,28 @@ FAIL	github.com/pkg/example	0.015s`
 	assert.True(t, found, "Should find the test failure")
 }
 
-func TestParseTestFailures_LintOutput(t *testing.T) {
+func TestParseFailures_LintOutput(t *testing.T) {
 	input := `##[error]file.go:10:5: unchecked error (errcheck)`
 
-	failures, err := ParseTestFailures(input)
+	failures, err := ParseFailures(input)
 	require.NoError(t, err)
 	require.Len(t, failures, 1)
 
 	// Should have identified this as a lint error
-	assert.Equal(t, "errcheck", failures[0].TestName) // LinterName maps to TestName
+	assert.Equal(t, "errcheck", failures[0].Name)
 	assert.Equal(t, "file.go", failures[0].File)
 }
 
-func TestParseTestFailures_NoMatch(t *testing.T) {
+func TestParseFailures_NoMatch(t *testing.T) {
 	input := `PASS
 ok      github.com/pkg/example  0.015s`
 
-	failures, err := ParseTestFailures(input)
+	failures, err := ParseFailures(input)
 	require.NoError(t, err)
 	assert.Empty(t, failures)
 }
 
-func TestParseTestFailures_MixedOutput(t *testing.T) {
+func TestParseFailures_MixedOutput(t *testing.T) {
 	// Both test failures and lint errors in the same log
 	input := `--- FAIL: TestMixed (0.01s)
     mixed_test.go:42:
@@ -60,7 +60,7 @@ FAIL
 FAIL	github.com/pkg/example	0.015s
 ##[error]other.go:10:5: unchecked error (errcheck)`
 
-	failures, err := ParseTestFailures(input)
+	failures, err := ParseFailures(input)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(failures), 2)
 
@@ -68,10 +68,10 @@ FAIL	github.com/pkg/example	0.015s
 	testFound := false
 	lintFound := false
 	for _, f := range failures {
-		if f.TestName == "TestMixed" {
+		if f.Name == "TestMixed" {
 			testFound = true
 		}
-		if f.TestName == "errcheck" {
+		if f.Name == "errcheck" {
 			lintFound = true
 		}
 	}
@@ -79,14 +79,14 @@ FAIL	github.com/pkg/example	0.015s
 	assert.True(t, lintFound, "Should find the lint error")
 }
 
-func TestParseTestFailures_EmptyInput(t *testing.T) {
-	failures, err := ParseTestFailures("")
+func TestParseFailures_EmptyInput(t *testing.T) {
+	failures, err := ParseFailures("")
 	require.NoError(t, err)
 	assert.Empty(t, failures)
 }
 
-func TestParseTestFailures_OnlyWhitespace(t *testing.T) {
-	failures, err := ParseTestFailures("   \n\t\n   ")
+func TestParseFailures_OnlyWhitespace(t *testing.T) {
+	failures, err := ParseFailures("   \n\t\n   ")
 	require.NoError(t, err)
 	assert.Empty(t, failures)
 }
@@ -144,21 +144,23 @@ FAIL	github.com/pkg/example	0.015s`
 	assert.False(t, lintParser.CanParse(goTestInput))
 }
 
-func TestTestFailure_String(t *testing.T) {
-	tf := TestFailure{
-		TestName:  "TestExample",
-		Package:   "github.com/pkg/example",
+func TestFailure_Fields(t *testing.T) {
+	f := Failure{
+		Name:      "TestExample",
+		Context:   "github.com/pkg/example",
 		File:      "example_test.go",
 		Line:      42,
-		Error:     "assertion failed",
+		Column:    0,
+		Message:   "assertion failed",
 		RawOutput: "raw log output",
 	}
 
-	// TestFailure is a struct, verify fields are accessible
-	assert.Equal(t, "TestExample", tf.TestName)
-	assert.Equal(t, "github.com/pkg/example", tf.Package)
-	assert.Equal(t, "example_test.go", tf.File)
-	assert.Equal(t, 42, tf.Line)
-	assert.Equal(t, "assertion failed", tf.Error)
-	assert.Equal(t, "raw log output", tf.RawOutput)
+	// Failure is a struct, verify fields are accessible
+	assert.Equal(t, "TestExample", f.Name)
+	assert.Equal(t, "github.com/pkg/example", f.Context)
+	assert.Equal(t, "example_test.go", f.File)
+	assert.Equal(t, 42, f.Line)
+	assert.Equal(t, 0, f.Column)
+	assert.Equal(t, "assertion failed", f.Message)
+	assert.Equal(t, "raw log output", f.RawOutput)
 }

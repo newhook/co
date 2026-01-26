@@ -72,11 +72,11 @@ FAIL	github.com/pkg/example	0.015s`
 	require.NoError(t, err)
 	require.Len(t, failures, 1)
 
-	assert.Equal(t, "TestExample", failures[0].TestName)
-	assert.Equal(t, "github.com/pkg/example", failures[0].Package)
+	assert.Equal(t, "TestExample", failures[0].Name)
+	assert.Equal(t, "github.com/pkg/example", failures[0].Context)
 	assert.Equal(t, "example_test.go", failures[0].File)
 	assert.Equal(t, 42, failures[0].Line)
-	assert.Contains(t, failures[0].Error, "expected 1, got 2")
+	assert.Contains(t, failures[0].Message, "expected 1, got 2")
 }
 
 func TestGoTestParser_MultipleTestFailures(t *testing.T) {
@@ -98,9 +98,9 @@ FAIL	github.com/pkg/example	0.030s`
 	require.Len(t, failures, 2)
 
 	// Verify both failures are captured
-	testNames := []string{failures[0].TestName, failures[1].TestName}
-	assert.Contains(t, testNames, "TestFirst")
-	assert.Contains(t, testNames, "TestSecond")
+	names := []string{failures[0].Name, failures[1].Name}
+	assert.Contains(t, names, "TestFirst")
+	assert.Contains(t, names, "TestSecond")
 }
 
 func TestGoTestParser_SubtestFailure(t *testing.T) {
@@ -121,7 +121,7 @@ FAIL	github.com/pkg/example	0.010s`
 	// Should capture the subtest failure
 	found := false
 	for _, f := range failures {
-		if f.TestName == "TestParent/SubTest" {
+		if f.Name == "TestParent/SubTest" {
 			found = true
 			break
 		}
@@ -147,7 +147,7 @@ FAIL	github.com/pkg/example	0.010s`
 	// Should capture the table test case failure
 	found := false
 	for _, f := range failures {
-		if f.TestName == "TestTable/case_name" {
+		if f.Name == "TestTable/case_name" {
 			found = true
 			break
 		}
@@ -168,7 +168,7 @@ FAIL	github.com/pkg/example	0.010s`
 	require.NoError(t, err)
 	require.Len(t, failures, 1)
 
-	assert.Equal(t, "TestSimple", failures[0].TestName)
+	assert.Equal(t, "TestSimple", failures[0].Name)
 	assert.Equal(t, "simple_test.go", failures[0].File)
 	assert.Equal(t, 15, failures[0].Line)
 }
@@ -189,10 +189,10 @@ Test	Run tests	2026-01-26T14:49:40.7762789Z FAIL	github.com/example/watcher	0.35
 	require.NoError(t, err)
 	require.Len(t, failures, 1)
 
-	assert.Equal(t, "TestWatcher_DebounceWithPubsub", failures[0].TestName)
+	assert.Equal(t, "TestWatcher_DebounceWithPubsub", failures[0].Name)
 	assert.Equal(t, "watcher_test.go", failures[0].File)
 	assert.Equal(t, 340, failures[0].Line)
-	assert.Contains(t, failures[0].Error, "received unexpected second event")
+	assert.Contains(t, failures[0].Message, "received unexpected second event")
 }
 
 func TestGoTestParser_TruncatedLogs(t *testing.T) {
@@ -207,7 +207,7 @@ func TestGoTestParser_TruncatedLogs(t *testing.T) {
 	require.Len(t, failures, 1)
 
 	// Should still capture the test name even without full error details
-	assert.Equal(t, "TestTruncated", failures[0].TestName)
+	assert.Equal(t, "TestTruncated", failures[0].Name)
 }
 
 func TestGoTestParser_NoTestFailures(t *testing.T) {
@@ -237,9 +237,9 @@ FAIL	github.com/pkg/example [build failed]`
 	failures, err := parser.Parse(input)
 	require.NoError(t, err)
 	// Build errors should be empty or have minimal info
-	// The key is they don't have TestName from --- FAIL: pattern
+	// The key is they don't have Name from --- FAIL: pattern
 	for _, f := range failures {
-		assert.NotContains(t, f.TestName, "undefined")
+		assert.NotContains(t, f.Name, "undefined")
 	}
 }
 
@@ -257,9 +257,9 @@ FAIL	github.com/pkg/example	0.015s`
 	require.NoError(t, err)
 	require.Len(t, failures, 1)
 
-	assert.Equal(t, "TestUnicode", failures[0].TestName)
-	assert.Contains(t, failures[0].Error, "日本語")
-	assert.Contains(t, failures[0].Error, "中文")
+	assert.Equal(t, "TestUnicode", failures[0].Name)
+	assert.Contains(t, failures[0].Message, "日本語")
+	assert.Contains(t, failures[0].Message, "中文")
 }
 
 func TestGoTestParser_VeryLongErrorMessage(t *testing.T) {
@@ -281,9 +281,9 @@ FAIL	github.com/pkg/example	0.015s`
 	require.NoError(t, err)
 	require.Len(t, failures, 1)
 
-	assert.Equal(t, "TestLongError", failures[0].TestName)
+	assert.Equal(t, "TestLongError", failures[0].Name)
 	// Should capture at least part of the error
-	assert.NotEmpty(t, failures[0].Error)
+	assert.NotEmpty(t, failures[0].Message)
 }
 
 func TestGoTestParser_GotestsumFormat(t *testing.T) {
@@ -302,9 +302,9 @@ FAIL	github.com/pkg/example	0.015s`
 	// Should capture the test from gotestsum format
 	found := false
 	for _, f := range failures {
-		if f.TestName == "TestGotestsum" {
+		if f.Name == "TestGotestsum" {
 			found = true
-			assert.Equal(t, "github.com/pkg/example", f.Package)
+			assert.Equal(t, "github.com/pkg/example", f.Context)
 			break
 		}
 	}
@@ -334,8 +334,8 @@ FAIL	github.com/pkg/example	0.015s`
 	require.NoError(t, err)
 	require.Len(t, failures, 1)
 
-	assert.Equal(t, "TestMultiLine", failures[0].TestName)
-	assert.Contains(t, failures[0].Error, "Not equal")
+	assert.Equal(t, "TestMultiLine", failures[0].Name)
+	assert.Contains(t, failures[0].Message, "Not equal")
 }
 
 func TestGoTestParser_ExtractContext(t *testing.T) {
@@ -370,8 +370,8 @@ func TestGoTestParser_ExtractContext(t *testing.T) {
 func TestGoTestParser_EnrichFailure(t *testing.T) {
 	parser := &GoTestParser{}
 
-	failure := &TestFailure{
-		TestName: "TestEnrich",
+	failure := &Failure{
+		Name: "TestEnrich",
 	}
 
 	rawOutput := `        Error Trace:	/some/path/enrich_test.go:42
@@ -382,14 +382,14 @@ func TestGoTestParser_EnrichFailure(t *testing.T) {
 
 	assert.Equal(t, "enrich_test.go", failure.File)
 	assert.Equal(t, 42, failure.Line)
-	assert.Contains(t, failure.Error, "expected something")
+	assert.Contains(t, failure.Message, "expected something")
 }
 
 func TestGoTestParser_EnrichFailureWithFallback(t *testing.T) {
 	parser := &GoTestParser{}
 
-	failure := &TestFailure{
-		TestName: "TestFallback",
+	failure := &Failure{
+		Name: "TestFallback",
 	}
 
 	// Raw output without Error Trace but with file:line pattern

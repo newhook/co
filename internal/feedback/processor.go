@@ -116,10 +116,10 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 					if isTestJob(job.Name) {
 						logs, err := p.client.GetJobLogs(ctx, repo, job.ID)
 						if err == nil {
-							testFailures, _ := logparser.ParseTestFailures(logs)
-							if len(testFailures) > 0 {
-								for _, tf := range testFailures {
-									items = append(items, p.createTestFailureItem(workflow, job, tf))
+							failures, _ := logparser.ParseFailures(logs)
+							if len(failures) > 0 {
+								for _, f := range failures {
+									items = append(items, p.createFailureItem(workflow, job, f))
 								}
 								continue // Skip generic handling
 							}
@@ -135,17 +135,22 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 	return items
 }
 
-// createTestFailureItem creates a FeedbackItem for a specific test failure.
-func (p *FeedbackProcessor) createTestFailureItem(workflow github.WorkflowRun, job github.Job, tf logparser.TestFailure) github.FeedbackItem {
-	shortPkg := lastPathComponent(tf.Package)
+// createFailureItem creates a FeedbackItem for a specific failure.
+func (p *FeedbackProcessor) createFailureItem(workflow github.WorkflowRun, job github.Job, f logparser.Failure) github.FeedbackItem {
+	shortCtx := lastPathComponent(f.Context)
+
+	title := fmt.Sprintf("Fix %s", f.Name)
+	if shortCtx != "" {
+		title = fmt.Sprintf("Fix %s in %s", f.Name, shortCtx)
+	}
 
 	return github.FeedbackItem{
 		Type:        github.FeedbackTypeTest,
-		Title:       fmt.Sprintf("Fix %s in %s", tf.TestName, shortPkg),
-		Description: formatTestFailure(tf),
+		Title:       title,
+		Description: formatFailure(f),
 		Source: github.SourceInfo{
 			Type: github.SourceTypeWorkflow,
-			ID:   fmt.Sprintf("%d-%s", job.ID, tf.TestName),
+			ID:   fmt.Sprintf("%d-%s", job.ID, f.Name),
 			Name: workflow.Name,
 			URL:  job.URL,
 		},
@@ -153,7 +158,7 @@ func (p *FeedbackProcessor) createTestFailureItem(workflow github.WorkflowRun, j
 		Actionable: true,
 		Workflow: &github.WorkflowContext{
 			WorkflowName:  workflow.Name,
-			FailureDetail: tf.TestName,
+			FailureDetail: f.Name,
 			RunID:         workflow.ID,
 			JobName:       job.Name,
 		},
@@ -201,20 +206,24 @@ func (p *FeedbackProcessor) createGenericFailureItem(workflow github.WorkflowRun
 	}
 }
 
-// formatTestFailure formats a test failure for display.
-func formatTestFailure(tf logparser.TestFailure) string {
+// formatFailure formats a failure for display.
+func formatFailure(f logparser.Failure) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Test `%s` failed", tf.TestName))
-	if tf.File != "" {
-		sb.WriteString(fmt.Sprintf(" at %s:%d", tf.File, tf.Line))
+	sb.WriteString(fmt.Sprintf("`%s` failed", f.Name))
+	if f.File != "" {
+		if f.Column > 0 {
+			sb.WriteString(fmt.Sprintf(" at %s:%d:%d", f.File, f.Line, f.Column))
+		} else {
+			sb.WriteString(fmt.Sprintf(" at %s:%d", f.File, f.Line))
+		}
 	}
 	sb.WriteString("\n\n")
-	if tf.Error != "" {
-		sb.WriteString(fmt.Sprintf("**Error:** %s\n\n", tf.Error))
+	if f.Message != "" {
+		sb.WriteString(fmt.Sprintf("**Error:** %s\n\n", f.Message))
 	}
-	if tf.RawOutput != "" {
+	if f.RawOutput != "" {
 		sb.WriteString("```\n")
-		sb.WriteString(tf.RawOutput)
+		sb.WriteString(f.RawOutput)
 		sb.WriteString("\n```")
 	}
 	return sb.String()
