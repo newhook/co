@@ -9,13 +9,16 @@ import (
 )
 
 func TestExtractCIStatus(t *testing.T) {
+	// Note: extractCIStatus only uses StatusChecks (from `gh pr checks`),
+	// not Workflows. Workflow runs are only used for extracting detailed
+	// failure information, not for determining overall CI status.
 	tests := []struct {
 		name     string
 		status   *github.PRStatus
 		expected string
 	}{
 		{
-			name:     "no checks or workflows",
+			name:     "no checks returns pending",
 			status:   &github.PRStatus{},
 			expected: db.CIStatusPending,
 		},
@@ -70,71 +73,35 @@ func TestExtractCIStatus(t *testing.T) {
 			expected: db.CIStatusFailure,
 		},
 		{
-			name: "all workflows success",
+			name: "workflows are ignored for CI status - only checks matter",
 			status: &github.PRStatus{
-				Workflows: []github.WorkflowRun{
-					{Name: "CI", Status: "completed", Conclusion: "success"},
-					{Name: "Lint", Status: "completed", Conclusion: "success"},
+				StatusChecks: []github.StatusCheck{
+					{Context: "Build", State: "SUCCESS"},
 				},
-			},
-			expected: db.CIStatusSuccess,
-		},
-		{
-			name: "workflow failure",
-			status: &github.PRStatus{
+				// Workflows are present but should be ignored
 				Workflows: []github.WorkflowRun{
 					{Name: "CI", Status: "completed", Conclusion: "failure"},
 				},
 			},
-			expected: db.CIStatusFailure,
+			expected: db.CIStatusSuccess,
 		},
 		{
-			name: "workflow in progress",
+			name: "multiple checks all success",
 			status: &github.PRStatus{
-				Workflows: []github.WorkflowRun{
-					{Name: "CI", Status: "in_progress", Conclusion: ""},
-				},
-			},
-			expected: db.CIStatusPending,
-		},
-		{
-			name: "workflow queued",
-			status: &github.PRStatus{
-				Workflows: []github.WorkflowRun{
-					{Name: "CI", Status: "queued", Conclusion: ""},
-				},
-			},
-			expected: db.CIStatusPending,
-		},
-		{
-			name: "workflow skipped counts as success",
-			status: &github.PRStatus{
-				Workflows: []github.WorkflowRun{
-					{Name: "CI", Status: "completed", Conclusion: "skipped"},
+				StatusChecks: []github.StatusCheck{
+					{Context: "Build", State: "SUCCESS"},
+					{Context: "Test", State: "SUCCESS"},
+					{Context: "Lint", State: "SUCCESS"},
 				},
 			},
 			expected: db.CIStatusSuccess,
 		},
 		{
-			name: "mixed checks and workflows all success",
+			name: "failure takes precedence over pending",
 			status: &github.PRStatus{
 				StatusChecks: []github.StatusCheck{
-					{Context: "test", State: "SUCCESS"},
-				},
-				Workflows: []github.WorkflowRun{
-					{Name: "CI", Status: "completed", Conclusion: "success"},
-				},
-			},
-			expected: db.CIStatusSuccess,
-		},
-		{
-			name: "check failure takes precedence over workflow success",
-			status: &github.PRStatus{
-				StatusChecks: []github.StatusCheck{
-					{Context: "test", State: "FAILURE"},
-				},
-				Workflows: []github.WorkflowRun{
-					{Name: "CI", Status: "completed", Conclusion: "success"},
+					{Context: "Build", State: "FAILURE"},
+					{Context: "Test", State: "PENDING"},
 				},
 			},
 			expected: db.CIStatusFailure,

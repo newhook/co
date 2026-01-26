@@ -53,24 +53,20 @@ func normalizePRState(state string) string {
 	}
 }
 
-// extractCIStatus determines the overall CI status from status checks and workflows.
+// extractCIStatus determines the overall CI status from status checks.
 // Returns: db.CIStatusPending, db.CIStatusSuccess, or db.CIStatusFailure
+//
+// We only use StatusChecks (from `gh pr checks`) for CI status determination.
+// StatusChecks already represent the current aggregated state of all checks
+// for the PR's head commit. Workflow runs are only used separately for
+// extracting detailed failure information (job logs, test names, etc.).
 func extractCIStatus(status *github.PRStatus) string {
-	// Check workflow runs first (GitHub Actions)
-	hasWorkflows := len(status.Workflows) > 0
-	hasStatusChecks := len(status.StatusChecks) > 0
-
-	if !hasWorkflows && !hasStatusChecks {
+	if len(status.StatusChecks) == 0 {
 		// No CI configured
 		return db.CIStatusPending
 	}
 
 	// Check for any failures
-	for _, workflow := range status.Workflows {
-		if workflow.Conclusion == "failure" {
-			return db.CIStatusFailure
-		}
-	}
 	for _, check := range status.StatusChecks {
 		if check.State == "FAILURE" || check.State == "ERROR" {
 			return db.CIStatusFailure
@@ -78,19 +74,13 @@ func extractCIStatus(status *github.PRStatus) string {
 	}
 
 	// Check for any pending
-	for _, workflow := range status.Workflows {
-		if workflow.Status == "in_progress" || workflow.Status == "queued" ||
-			(workflow.Status == "completed" && workflow.Conclusion == "") {
-			return db.CIStatusPending
-		}
-	}
 	for _, check := range status.StatusChecks {
 		if check.State == "PENDING" || check.State == "" {
 			return db.CIStatusPending
 		}
 	}
 
-	// If we have at least some completed checks/workflows and no failures or pending
+	// All checks passed
 	return db.CIStatusSuccess
 }
 
