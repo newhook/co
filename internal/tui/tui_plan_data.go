@@ -199,7 +199,7 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 		ctx := m.ctx
 		mainRepoPath := m.proj.MainRepoPath()
 
-		_, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
+		beadID, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
 			Title:       title,
 			Type:        beadType,
 			Priority:    priority,
@@ -216,7 +216,7 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 		session := m.sessionName()
 		activeSessions, _ := m.proj.DB.GetBeadsWithActiveSessions(m.ctx, session)
 
-		return planDataMsg{beads: items, activeSessions: activeSessions, err: err}
+		return planDataMsg{beads: items, activeSessions: activeSessions, err: err, createdBeadID: beadID}
 	}
 }
 
