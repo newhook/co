@@ -544,6 +544,17 @@ func createPRTask(proj *project.Project, work *db.Work, reviewTaskID string) err
 	ctx := GetContext()
 
 	prTaskID := fmt.Sprintf("%s.pr", work.ID)
+
+	// Check if PR task already exists
+	existingTask, err := proj.DB.GetTask(ctx, prTaskID)
+	if err != nil {
+		return fmt.Errorf("failed to check for existing PR task: %w", err)
+	}
+	if existingTask != nil {
+		fmt.Printf("PR task %s already exists (status: %s)\n", prTaskID, existingTask.Status)
+		return nil
+	}
+
 	if err := proj.DB.CreateTask(ctx, prTaskID, "pr", nil, 0, work.ID); err != nil {
 		return fmt.Errorf("failed to create PR task: %w", err)
 	}
