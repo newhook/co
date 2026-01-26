@@ -88,6 +88,7 @@ type planModel struct {
 	pendingWorkSelectIndex int             // Index of work to select after tiles load (-1 = none)
 	workTiles              []*progress.WorkProgress // Cached work tiles for the tabs bar
 	workDetailsFocusLeft   bool            // Whether left panel has focus in work details (true=left, false=right)
+	addChildToWorkID       string          // Work ID to add newly created child bead to (for add-child-and-run flow)
 
 	// Multi-select state
 	selectedBeads map[string]bool // beadID -> is selected
@@ -632,6 +633,15 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Check if we need to add a newly created bead to a work (add-child-and-run flow)
+		if m.addChildToWorkID != "" && msg.createdBeadID != "" {
+			workID := m.addChildToWorkID
+			beadID := msg.createdBeadID
+			// Don't clear addChildToWorkID yet - wait for beadAddedToWorkMsg
+			cmds := append(expireCmds, m.addBeadsToWork([]string{beadID}, workID))
+			return m, tea.Batch(cmds...)
+		}
+
 		// Don't clear status message on success - let it persist until next action
 		if len(expireCmds) > 0 {
 			return m, tea.Batch(expireCmds...)
@@ -673,9 +683,17 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMessage = fmt.Sprintf("Failed to add issue: %v", msg.err)
 			m.statusIsError = true
+			m.addChildToWorkID = "" // Clear on error
 		} else {
 			m.statusMessage = fmt.Sprintf("Added %s to work %s", msg.beadID, msg.workID)
 			m.statusIsError = false
+
+			// Check if we should run the work (add-child-and-run flow)
+			if m.addChildToWorkID != "" && m.addChildToWorkID == msg.workID {
+				m.addChildToWorkID = "" // Clear before running
+				// Run the work in single-bead mode
+				return m, tea.Batch(m.refreshData(), m.loadWorkTiles(), m.runFocusedWork(false))
+			}
 		}
 		// Refresh work tiles to update the tabs bar
 		return m, tea.Batch(m.refreshData(), m.loadWorkTiles())
@@ -859,6 +877,7 @@ type planDataMsg struct {
 	activeSessions map[string]bool
 	err            error
 	searchSeq      uint64 // Sequence number to detect stale results
+	createdBeadID  string // ID of newly created bead (for add-child-and-run flow)
 }
 
 // planStatusMsg is sent to update status text
@@ -1148,6 +1167,16 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.viewMode = ViewDestroyConfirm
 			return m, cmd
+		case WorkDetailActionAddChildIssue:
+			// Add child issue to root issue, then add to work and run
+			focusedWork := m.workDetails.GetFocusedWork()
+			if focusedWork != nil && focusedWork.Work.RootIssueID != "" {
+				m.addChildToWorkID = focusedWork.Work.ID
+				m.beadFormPanel.SetAddChildMode(focusedWork.Work.RootIssueID)
+				m.viewMode = ViewAddChildBead
+				return m, m.beadFormPanel.Init()
+			}
+			return m, nil
 		}
 		// WorkDetailActionNone - fall through to normal handling
 	}
