@@ -1,8 +1,11 @@
 package project
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"strings"
+	"text/template"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -205,13 +208,8 @@ func (c *Config) SaveDocumentedConfig(path string) error {
 	return os.WriteFile(path, []byte(content), 0600)
 }
 
-// GenerateDocumentedConfig generates a documented config.toml string with comments.
-// This includes the actual project values plus commented-out examples for optional sections.
-func (c *Config) GenerateDocumentedConfig() string {
-	// Format the timestamp in RFC3339 format
-	createdAt := c.Project.CreatedAt.Format(time.RFC3339)
-
-	return fmt.Sprintf(`# Claude Orchestrator Project Configuration
+// configTemplateText is the Go template for generating documented config.toml files.
+const configTemplateText = `# Claude Orchestrator Project Configuration
 # This file configures how 'co' manages your project.
 # See README.md for full documentation.
 
@@ -220,23 +218,23 @@ func (c *Config) GenerateDocumentedConfig() string {
 # =============================================================================
 [project]
 # Project name (derived from directory name)
-name = %q
+name = {{.ProjectName | tomlString}}
 
 # When this project was created
-created_at = %s
+created_at = {{.CreatedAt}}
 
 # =============================================================================
 # Repository Configuration
 # =============================================================================
 [repo]
 # Repository type: "local" (symlinked) or "github" (cloned)
-type = %q
+type = {{.RepoType | tomlString}}
 
 # Original repository path or GitHub URL
-source = %q
+source = {{.RepoSource | tomlString}}
 
 # Directory containing the repository (always "main")
-path = %q
+path = {{.RepoPath | tomlString}}
 
 # =============================================================================
 # Hooks Configuration (Optional)
@@ -315,5 +313,50 @@ path = %q
 #
 # [linear]
 # api_key = "lin_api_..."
-`, c.Project.Name, createdAt, c.Repo.Type, c.Repo.Source, c.Repo.Path)
+`
+
+// configTemplateData holds the data used to render the config template.
+type configTemplateData struct {
+	ProjectName string
+	CreatedAt   string
+	RepoType    string
+	RepoSource  string
+	RepoPath    string
+}
+
+// tomlString formats a string for TOML output with proper escaping.
+// It wraps the string in double quotes and escapes special characters.
+func tomlString(s string) string {
+	// Escape backslashes first, then quotes
+	escaped := strings.ReplaceAll(s, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	escaped = strings.ReplaceAll(escaped, "\n", `\n`)
+	escaped = strings.ReplaceAll(escaped, "\r", `\r`)
+	escaped = strings.ReplaceAll(escaped, "\t", `\t`)
+	return `"` + escaped + `"`
+}
+
+// configTemplate is the parsed template for generating documented config files.
+var configTemplate = template.Must(template.New("config").Funcs(template.FuncMap{
+	"tomlString": tomlString,
+}).Parse(configTemplateText))
+
+// GenerateDocumentedConfig generates a documented config.toml string with comments.
+// This includes the actual project values plus commented-out examples for optional sections.
+func (c *Config) GenerateDocumentedConfig() string {
+	data := configTemplateData{
+		ProjectName: c.Project.Name,
+		CreatedAt:   c.Project.CreatedAt.Format(time.RFC3339),
+		RepoType:    c.Repo.Type,
+		RepoSource:  c.Repo.Source,
+		RepoPath:    c.Repo.Path,
+	}
+
+	var buf bytes.Buffer
+	if err := configTemplate.Execute(&buf, data); err != nil {
+		// Fall back to a minimal valid TOML if template execution fails
+		return fmt.Sprintf("[project]\nname = %q\ncreated_at = %s\n[repo]\ntype = %q\nsource = %q\npath = %q\n",
+			c.Project.Name, data.CreatedAt, c.Repo.Type, c.Repo.Source, c.Repo.Path)
+	}
+	return buf.String()
 }
