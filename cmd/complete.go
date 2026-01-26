@@ -98,6 +98,22 @@ func runComplete(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println()
 
+		// If PR URL is provided, set it on the work and schedule feedback polling immediately
+		// This ensures feedback polling starts when the PR is created, not when work goes idle
+		if flagCompletePRURL != "" {
+			parts := strings.Split(id, ".")
+			if len(parts) >= 1 {
+				workID := parts[0]
+				prFeedbackInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
+				commentResolutionInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
+				if err := proj.DB.SetWorkPRURLAndScheduleFeedback(ctx, workID, flagCompletePRURL, prFeedbackInterval, commentResolutionInterval); err != nil {
+					fmt.Printf("Warning: failed to schedule PR feedback polling: %v\n", err)
+				} else {
+					fmt.Println("PR feedback polling scheduled")
+				}
+			}
+		}
+
 		// Resolve GitHub comments for closed beads
 		if len(closedBeadIDs) > 0 {
 			// Extract work ID from task ID (e.g., "w-xxx.1" -> "w-xxx")

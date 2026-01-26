@@ -202,16 +202,13 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 					}
 				}
 
-				// Transition to idle state (with PR feedback scheduling if needed)
-				prFeedbackInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
-				commentResolutionInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
-				if err := proj.DB.IdleWorkAndScheduleFeedback(ctx, workID, prURL, prFeedbackInterval, commentResolutionInterval); err != nil {
+				// Transition to idle state and update PR URL if available
+				if err := proj.DB.IdleWorkWithPR(ctx, workID, prURL); err != nil {
 					fmt.Printf("Warning: failed to mark theWork as idle: %v\n", err)
 				} else {
 					fmt.Printf("\n=== Work %s idle ===\n", workID)
 					if prURL != "" {
 						fmt.Printf("PR: %s\n", prURL)
-						fmt.Println("PR feedback polling scheduled")
 					}
 					fmt.Println("All tasks completed. Waiting for new tasks or explicit completion.")
 					// Refresh theWork status

@@ -326,9 +326,39 @@ func (db *DB) IdleWork(ctx context.Context, id string) error {
 	return nil
 }
 
-// IdleWorkAndScheduleFeedback atomically marks a work as idle and schedules
-// PR feedback polling if a PR URL is provided.
-func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string, prFeedbackInterval, commentResolutionInterval time.Duration) error {
+// IdleWorkWithPR marks a work as idle and optionally sets the PR URL.
+// PR feedback polling is scheduled separately when the PR is first created
+// (via SetWorkPRURLAndScheduleFeedback), not when work goes idle.
+func (db *DB) IdleWorkWithPR(ctx context.Context, id, prURL string) error {
+	// Idle the work (with PR URL if provided)
+	var rows int64
+	var err error
+	if prURL != "" {
+		rows, err = db.queries.IdleWorkWithPR(ctx, sqlc.IdleWorkWithPRParams{
+			PrUrl: prURL,
+			ID:    id,
+		})
+	} else {
+		rows, err = db.queries.IdleWork(ctx, id)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to idle work %s: %w", id, err)
+	}
+	// rows == 0 is valid - work may be in terminal status (merged/completed)
+	_ = rows
+
+	return nil
+}
+
+// SetWorkPRURLAndScheduleFeedback atomically sets the PR URL on a work and schedules
+// PR feedback polling tasks. This should be called when a PR is first created,
+// ensuring feedback polling starts immediately rather than waiting for work to go idle.
+// The PR URL is only set if it's not already set (idempotent).
+func (db *DB) SetWorkPRURLAndScheduleFeedback(ctx context.Context, id, prURL string, prFeedbackInterval, commentResolutionInterval time.Duration) error {
+	if prURL == "" {
+		return nil // Nothing to do
+	}
+
 	tx, err := db.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -337,72 +367,71 @@ func (db *DB) IdleWorkAndScheduleFeedback(ctx context.Context, id, prURL string,
 
 	qtx := db.queries.WithTx(tx)
 
-	// Idle the work (with PR URL if provided)
-	now := time.Now()
-	var rows int64
-	if prURL != "" {
-		rows, err = qtx.IdleWorkWithPR(ctx, sqlc.IdleWorkWithPRParams{
-			PrUrl: prURL,
-			ID:    id,
-		})
-	} else {
-		rows, err = qtx.IdleWork(ctx, id)
-	}
+	// Set the PR URL (only if not already set)
+	_, err = qtx.SetWorkPRURL(ctx, sqlc.SetWorkPRURLParams{
+		PrUrl: prURL,
+		ID:    id,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to idle work %s: %w", id, err)
+		return fmt.Errorf("failed to set PR URL for work %s: %w", id, err)
 	}
-	// rows == 0 is valid - work may be in terminal status (merged/completed)
-	// In this case, we still schedule feedback tasks if PR URL is provided
-	_ = rows
 
-	// If PR URL provided, schedule feedback polling tasks (if not already scheduled)
-	if prURL != "" {
-		// Check if PR feedback task already exists
-		existingPRFeedback, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
-			WorkID:   id,
-			TaskType: TaskTypePRFeedback,
+	// If PR URL was already set, the tasks should already be scheduled
+	// We still check and schedule if missing for robustness
+	now := time.Now()
+
+	// Check if PR feedback task already exists
+	existingPRFeedback, err := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+		WorkID:   id,
+		TaskType: TaskTypePRFeedback,
+	})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to check existing PR feedback task: %w", err)
+	}
+	if errors.Is(err, sql.ErrNoRows) || existingPRFeedback.ID == "" {
+		// Schedule PR feedback check
+		prFeedbackCheckTime := now.Add(prFeedbackInterval)
+		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+			ID:          uuid.New().String(),
+			WorkID:      id,
+			TaskType:    TaskTypePRFeedback,
+			ScheduledAt: prFeedbackCheckTime,
+			Status:      TaskStatusPending,
+			Metadata:    "{}",
 		})
-		if existingPRFeedback.ID == "" {
-			// Schedule PR feedback check
-			prFeedbackCheckTime := now.Add(prFeedbackInterval)
-			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-				ID:          uuid.New().String(),
-				WorkID:      id,
-				TaskType:    TaskTypePRFeedback,
-				ScheduledAt: prFeedbackCheckTime,
-				Status:      TaskStatusPending,
-				Metadata:    "{}",
-			})
-			if err != nil {
-				return fmt.Errorf("failed to schedule PR feedback check: %w", err)
-			}
+		if err != nil {
+			return fmt.Errorf("failed to schedule PR feedback check: %w", err)
 		}
+	}
 
-		// Check if comment resolution task already exists
-		existingCommentRes, _ := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
-			WorkID:   id,
-			TaskType: TaskTypeCommentResolution,
+	// Check if comment resolution task already exists
+	existingCommentRes, err := qtx.GetPendingTaskByType(ctx, sqlc.GetPendingTaskByTypeParams{
+		WorkID:   id,
+		TaskType: TaskTypeCommentResolution,
+	})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to check existing comment resolution task: %w", err)
+	}
+	if errors.Is(err, sql.ErrNoRows) || existingCommentRes.ID == "" {
+		// Schedule comment resolution check
+		commentResolutionCheckTime := now.Add(commentResolutionInterval)
+		err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
+			ID:          uuid.New().String(),
+			WorkID:      id,
+			TaskType:    TaskTypeCommentResolution,
+			ScheduledAt: commentResolutionCheckTime,
+			Status:      TaskStatusPending,
+			Metadata:    "{}",
 		})
-		if existingCommentRes.ID == "" {
-			// Schedule comment resolution check
-			commentResolutionCheckTime := now.Add(commentResolutionInterval)
-			err = qtx.CreateScheduledTask(ctx, sqlc.CreateScheduledTaskParams{
-				ID:          uuid.New().String(),
-				WorkID:      id,
-				TaskType:    TaskTypeCommentResolution,
-				ScheduledAt: commentResolutionCheckTime,
-				Status:      TaskStatusPending,
-				Metadata:    "{}",
-			})
-			if err != nil {
-				return fmt.Errorf("failed to schedule comment resolution check: %w", err)
-			}
+		if err != nil {
+			return fmt.Errorf("failed to schedule comment resolution check: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
 	return nil
 }
 
