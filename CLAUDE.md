@@ -197,18 +197,22 @@ Feedback types processed:
 - **Review comments**: Actionable feedback from code reviews
 - **Security issues**: Vulnerabilities and dependency issues
 
-#### Orchestrator Integration
+#### Control Plane Architecture
 
-The orchestrator (`cmd/orchestrate.go`) includes three feedback-related goroutines:
+PR feedback polling is handled by the control plane (`cmd/control_plane.go`), not the orchestrator.
+The control plane manages all scheduled background tasks via a database-driven event loop:
 
-1. **Manual Poll Watcher**: Watches for signal files to trigger on-demand polling
-2. **Automatic Feedback Poller**: Polls every 5 minutes for new PR feedback
-3. **Comment Resolution Poller**: Posts resolution comments when beads are closed
+- **PR Feedback Task**: Polls GitHub for new PR comments, CI failures, and reviews
+- **Comment Resolution Task**: Posts resolution comments when beads are closed
+
+Feedback polling is scheduled when a PR is first created (via `co complete --pr <url>`),
+not when work goes idle. This ensures feedback is monitored immediately, even while
+other tasks are still running.
 
 #### Feedback Processing Flow
 
-1. GitHub PR has new feedback (comments, CI failures, etc.)
-2. Orchestrator polls feedback (automatic or manual trigger)
+1. PR task completes → `co complete --pr <url>` sets PR URL and schedules feedback polling
+2. Control plane executes scheduled feedback tasks
 3. `co work feedback` command fetches and processes feedback:
    - Queries GitHub API for PR data
    - Filters actionable items based on rules

@@ -146,6 +146,7 @@ type Querier interface {
 	ResumeWork(ctx context.Context, id string) (int64, error)
 	SetTaskMetadata(ctx context.Context, arg SetTaskMetadataParams) error
 	SetWorkHasUnseenPRChanges(ctx context.Context, arg SetWorkHasUnseenPRChangesParams) (int64, error)
+	SetWorkPRURL(ctx context.Context, arg SetWorkPRURLParams) (int64, error)
 	SpawnTask(ctx context.Context, arg SpawnTaskParams) (int64, error)
 	StartBead(ctx context.Context, arg StartBeadParams) error
 	StartTask(ctx context.Context, arg StartTaskParams) (int64, error)

@@ -271,3 +271,8 @@ SELECT id, status,
 FROM works
 WHERE pr_url != ''
 ORDER BY created_at DESC;
+
+-- name: SetWorkPRURL :execrows
+UPDATE works
+SET pr_url = ?
+WHERE id = ? AND (pr_url = '' OR pr_url IS NULL);

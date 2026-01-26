@@ -747,6 +747,25 @@ func (q *Queries) SetWorkHasUnseenPRChanges(ctx context.Context, arg SetWorkHasU
 	return result.RowsAffected()
 }
 
+const setWorkPRURL = `-- name: SetWorkPRURL :execrows
+UPDATE works
+SET pr_url = ?
+WHERE id = ? AND (pr_url = '' OR pr_url IS NULL)
+`
+
+type SetWorkPRURLParams struct {
+	PrUrl string `json:"pr_url"`
+	ID    string `json:"id"`
+}
+
+func (q *Queries) SetWorkPRURL(ctx context.Context, arg SetWorkPRURLParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setWorkPRURL, arg.PrUrl, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const startWork = `-- name: StartWork :execrows
 UPDATE works
 SET status = 'processing',
