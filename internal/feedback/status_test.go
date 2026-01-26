@@ -128,6 +128,39 @@ func TestExtractCIStatus(t *testing.T) {
 			expected: db.CIStatusSuccess,
 		},
 		{
+			name: "latest workflow success ignores historical failures",
+			status: &github.PRStatus{
+				Workflows: []github.WorkflowRun{
+					{Name: "CI", Status: "completed", Conclusion: "failure", CreatedAt: time.Now().Add(-2 * time.Hour)},
+					{Name: "CI", Status: "completed", Conclusion: "success", CreatedAt: time.Now().Add(-1 * time.Hour)},
+					{Name: "CI", Status: "completed", Conclusion: "success", CreatedAt: time.Now()},
+				},
+			},
+			expected: db.CIStatusSuccess,
+		},
+		{
+			name: "latest workflow failure takes precedence over historical success",
+			status: &github.PRStatus{
+				Workflows: []github.WorkflowRun{
+					{Name: "CI", Status: "completed", Conclusion: "success", CreatedAt: time.Now().Add(-1 * time.Hour)},
+					{Name: "CI", Status: "completed", Conclusion: "failure", CreatedAt: time.Now()},
+				},
+			},
+			expected: db.CIStatusFailure,
+		},
+		{
+			name: "multiple workflows each using latest run",
+			status: &github.PRStatus{
+				Workflows: []github.WorkflowRun{
+					{Name: "CI", Status: "completed", Conclusion: "failure", CreatedAt: time.Now().Add(-2 * time.Hour)},
+					{Name: "CI", Status: "completed", Conclusion: "success", CreatedAt: time.Now()},
+					{Name: "Lint", Status: "completed", Conclusion: "success", CreatedAt: time.Now().Add(-1 * time.Hour)},
+					{Name: "Lint", Status: "completed", Conclusion: "success", CreatedAt: time.Now()},
+				},
+			},
+			expected: db.CIStatusSuccess,
+		},
+		{
 			name: "check failure takes precedence over workflow success",
 			status: &github.PRStatus{
 				StatusChecks: []github.StatusCheck{
