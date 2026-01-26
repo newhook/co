@@ -23,6 +23,7 @@ const (
 	WorkDetailActionCheckFeedback                        // Check PR feedback (f)
 	WorkDetailActionDestroy                              // Destroy work (d)
 	WorkDetailActionCloseActionsPanel                    // Close actions panel (esc)
+	WorkDetailActionAddChildIssue                        // Add child issue to root issue (a)
 )
 
 // WorkDetailsPanel is a coordinator that manages the work detail sub-panels.
@@ -415,6 +416,12 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 			return cmd, WorkDetailActionCheckFeedback
 		case "d":
 			return cmd, WorkDetailActionDestroy
+		case "a":
+			// Add child issue - only when there's a focused work with root issue
+			if p.focusedWork != nil && p.focusedWork.Work.RootIssueID != "" {
+				return cmd, WorkDetailActionAddChildIssue
+			}
+			return cmd, WorkDetailActionNone
 		default:
 			return cmd, WorkDetailActionNone
 		}
@@ -449,6 +456,11 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 		return nil, WorkDetailActionCheckFeedback
 	case "d":
 		return nil, WorkDetailActionDestroy
+	case "a":
+		// Add child issue - only when there's a focused work with root issue
+		if p.focusedWork != nil && p.focusedWork.Work.RootIssueID != "" {
+			return nil, WorkDetailActionAddChildIssue
+		}
 	}
 
 	return nil, WorkDetailActionNone
