@@ -47,7 +47,7 @@ func runControlPlane(cmd *cobra.Command, args []string) error {
 	applyHooksEnv(proj.Config.Hooks.Env)
 
 	// Set BEADS_DIR so bd commands work in any spawned processes
-	os.Setenv("BEADS_DIR", proj.BeadsPath())
+	_ = os.Setenv("BEADS_DIR", proj.BeadsPath())
 
 	// Register this control plane process for heartbeat monitoring
 	procManager := procmon.NewManager(proj.DB, db.DefaultHeartbeatInterval)

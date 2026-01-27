@@ -51,7 +51,7 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	applyHooksEnv(proj.Config.Hooks.Env)
 
 	// Set BEADS_DIR so bd commands work in Claude
-	os.Setenv("BEADS_DIR", proj.BeadsPath())
+	_ = os.Setenv("BEADS_DIR", proj.BeadsPath())
 
 	// Get theWork ID
 	workID := flagOrchestrateWork

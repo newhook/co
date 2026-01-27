@@ -51,7 +51,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	applyHooksEnv(proj.Config.Hooks.Env)
 
 	// Set BEADS_DIR so bd commands work in Claude
-	os.Setenv("BEADS_DIR", proj.BeadsPath())
+	_ = os.Setenv("BEADS_DIR", proj.BeadsPath())
 
 	// Register the plan session in the database
 	if err := proj.DB.RegisterPlanSession(ctx, beadID, zellijSession, tabName, os.Getpid()); err != nil {
