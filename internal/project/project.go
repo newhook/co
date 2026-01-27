@@ -238,8 +238,11 @@ func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoT
 		fmt.Printf("Initializing project-local beads in %s\n", projectBeadsPath)
 		beadsPath = BeadsPathProject
 
+		// Derive prefix from repo name
+		prefix := repoNameFromSource(source)
+
 		// Initialize beads in project directory (skip hooks - not synced to git)
-		if err := beads.Init(ctx, projectBeadsPath); err != nil {
+		if err := beads.Init(ctx, projectBeadsPath, prefix); err != nil {
 			return "", "", fmt.Errorf("failed to initialize beads: %w", err)
 		}
 	}
@@ -264,6 +267,33 @@ func isGitHubURL(source string) bool {
 	return strings.HasPrefix(source, "https://github.com/") ||
 		strings.HasPrefix(source, "git@github.com:") ||
 		strings.HasPrefix(source, "http://github.com/")
+}
+
+// repoNameFromSource extracts the first letter of the repository name from a source URL or path.
+// For GitHub URLs: https://github.com/org/services -> "s"
+// For local paths: /path/to/myrepo -> "m"
+func repoNameFromSource(source string) string {
+	// Remove trailing slashes and .git suffix
+	source = strings.TrimSuffix(source, "/")
+	source = strings.TrimSuffix(source, ".git")
+
+	var name string
+	// For GitHub URLs, extract the repo name (last path component)
+	if isGitHubURL(source) {
+		parts := strings.Split(source, "/")
+		if len(parts) > 0 {
+			name = parts[len(parts)-1]
+		}
+	} else {
+		// For local paths, use the directory name
+		name = filepath.Base(source)
+	}
+
+	// Return just the first letter (lowercase)
+	if len(name) > 0 {
+		return strings.ToLower(string(name[0]))
+	}
+	return "b" // fallback prefix
 }
 
 // MainRepoPath returns the path to the main repository.

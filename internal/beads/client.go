@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -29,8 +30,14 @@ func bdCommand(ctx context.Context, beadsDir string, args ...string) *exec.Cmd {
 }
 
 // Init initializes beads in the specified directory.
-func Init(ctx context.Context, beadsDir string) error {
-	cmd := bdCommand(ctx, beadsDir, "init")
+// beadsDir should be the path where .beads/ should be created (e.g., /path/to/.beads).
+// prefix is the issue ID prefix (e.g., "myproject" for myproject-1, myproject-2).
+// bd init runs in the parent directory and creates .beads/ there.
+func Init(ctx context.Context, beadsDir, prefix string) error {
+	// bd init creates .beads/ in the current working directory, not via BEADS_DIR
+	parentDir := filepath.Dir(beadsDir)
+	cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", prefix)
+	cmd.Dir = parentDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("bd init failed: %w\n%s", err, output)
 	}
