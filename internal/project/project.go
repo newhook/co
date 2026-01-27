@@ -256,7 +256,16 @@ func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoT
 
 	// Initialize mise in project root (optional - warn on error)
 	if err := mise.Initialize(projectRoot); err != nil {
-		fmt.Printf("Warning: mise initialization failed: %v\n", err)
+		fmt.Printf("Warning: mise initialization failed in project root: %v\n", err)
+	}
+
+	// Also initialize mise in the main repo directory if it has mise config
+	// This handles repos with their own .mise.toml or .tool-versions
+	if mise.IsManaged(mainPath) {
+		fmt.Printf("Mise: initializing repo tools in %s\n", mainPath)
+		if err := mise.Initialize(mainPath); err != nil {
+			fmt.Printf("Warning: mise initialization failed in repo: %v\n", err)
+		}
 	}
 
 	return repoType, beadsPath, nil

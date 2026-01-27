@@ -33,6 +33,7 @@ type Querier interface {
 	CreateTaskBead(ctx context.Context, arg CreateTaskBeadParams) error
 	CreateWork(ctx context.Context, arg CreateWorkParams) error
 	DeleteCompletedTasksOlderThan(ctx context.Context, executedAt sql.NullTime) error
+	DeleteControlPlaneProcess(ctx context.Context) error
 	DeleteMigration(ctx context.Context, version string) error
 	DeletePRFeedback(ctx context.Context, id string) error
 	DeletePRFeedbackForWork(ctx context.Context, workID string) error
