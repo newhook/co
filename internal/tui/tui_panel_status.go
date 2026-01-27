@@ -160,31 +160,43 @@ func (s *StatusBar) Render() string {
 	}
 
 	// Calculate available space for status message and truncate if needed
-	// The -4 accounts for padding (status bar has Padding(0,1) = 2) plus minimum gap
+	// Inner content width = s.width - 2 (status bar has Padding(0,1) = 1 on each side)
+	// Content = commands + minPadding + status
 	minPadding := 2
+	innerWidth := s.width - 2
 	commandsWidth := ansi.StringWidth(commandsPlain)
 	statusWidth := ansi.StringWidth(statusPlain)
-	// Available width for status = total width minus commands, padding, and border allowance
-	availableWidth := max(s.width-commandsWidth-minPadding-4, 10)
+
+	// Available width for status = inner width minus commands and minimum padding
+	availableWidth := max(innerWidth-commandsWidth-minPadding, 0)
+
+	// Truncate status if needed
 	if statusWidth > availableWidth {
-		// Truncate with ellipsis using ansi.Truncate for proper UTF-8 handling
-		truncatedPlain := ansi.Truncate(statusPlain, availableWidth, "...")
-		statusPlain = truncatedPlain
-		statusWidth = ansi.StringWidth(statusPlain)
-		if s.statusIsError {
-			status = tuiErrorStyle.Render(truncatedPlain)
-		} else if s.loading {
-			status = s.spinner.View() + " Loading..."
-		} else if s.statusMessage != "" {
-			status = tuiSuccessStyle.Render(truncatedPlain)
+		if availableWidth <= 3 {
+			// Not enough room for status, hide it
+			status = ""
+			statusPlain = ""
+			statusWidth = 0
 		} else {
-			status = tuiDimStyle.Render(truncatedPlain)
+			// Truncate with ellipsis
+			truncatedPlain := ansi.Truncate(statusPlain, availableWidth, "...")
+			statusPlain = truncatedPlain
+			statusWidth = ansi.StringWidth(statusPlain)
+			if s.statusIsError {
+				status = tuiErrorStyle.Render(truncatedPlain)
+			} else if s.loading {
+				status = s.spinner.View() + " Loading..."
+			} else if s.statusMessage != "" {
+				status = tuiSuccessStyle.Render(truncatedPlain)
+			} else {
+				status = tuiDimStyle.Render(truncatedPlain)
+			}
 		}
 	}
 
 	// Build bar with commands left, status right
-	// Ensure padding doesn't go negative (which would cause issues)
-	padding := max(s.width-commandsWidth-statusWidth-4, minPadding)
+	// Padding fills the remaining space
+	padding := max(innerWidth-commandsWidth-statusWidth, minPadding)
 	return tuiStatusBarStyle.Width(s.width).Render(commands + strings.Repeat(" ", padding) + status)
 }
 
