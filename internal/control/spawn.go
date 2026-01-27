@@ -23,7 +23,7 @@ func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 	zc := zellij.New()
 
 	// Ensure session exists
-	if err := zc.EnsureSession(ctx, sessionName); err != nil {
+	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
 		return err
 	}
 
