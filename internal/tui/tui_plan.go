@@ -660,6 +660,9 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.resumed {
 			m.statusMessage = fmt.Sprintf("Resumed session for %s", msg.beadID)
 			m.statusIsError = false
+		} else if msg.sessionCreated {
+			m.statusMessage = fmt.Sprintf("Started session for %s | Zellij: zellij attach %s", msg.beadID, msg.sessionName)
+			m.statusIsError = false
 		} else {
 			m.statusMessage = fmt.Sprintf("Started session for %s", msg.beadID)
 			m.statusIsError = false
@@ -892,9 +895,11 @@ type planStatusMsg struct {
 
 // planSessionSpawnedMsg indicates a planning session was spawned or resumed
 type planSessionSpawnedMsg struct {
-	beadID  string
-	resumed bool
-	err     error
+	beadID         string
+	resumed        bool
+	err            error
+	sessionCreated bool   // true if a new zellij session was created
+	sessionName    string // e.g., 'co-myproject'
 }
 
 // planWorkCreatedMsg indicates work was created from a bead

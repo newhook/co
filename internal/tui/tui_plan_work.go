@@ -39,12 +39,23 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 			return planSessionSpawnedMsg{beadID: beadID, resumed: true}
 		}
 
+		// Initialize zellij session (spawns control plane if new session)
+		sessionResult, err := control.InitializeSession(m.ctx, m.proj)
+		if err != nil {
+			return planSessionSpawnedMsg{beadID: beadID, err: err}
+		}
+
 		// Use the helper to spawn the plan session
 		if err := claude.SpawnPlanSession(m.ctx, beadID, m.proj.Config.Project.Name, mainRepoPath, io.Discard); err != nil {
 			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
 
-		return planSessionSpawnedMsg{beadID: beadID, resumed: false}
+		msg := planSessionSpawnedMsg{beadID: beadID, resumed: false}
+		if sessionResult != nil && sessionResult.SessionCreated {
+			msg.sessionCreated = true
+			msg.sessionName = sessionResult.SessionName
+		}
+		return msg
 	}
 }
 
