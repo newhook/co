@@ -45,8 +45,10 @@ func Init(ctx context.Context, beadsDir, prefix string) error {
 }
 
 // InstallHooks installs beads hooks in the specified directory.
-func InstallHooks(ctx context.Context, beadsDir string) error {
-	cmd := bdCommand(ctx, beadsDir, "hooks", "install")
+// repoDir should be the path to the git repository (e.g., /path/to/repo).
+func InstallHooks(ctx context.Context, repoDir string) error {
+	cmd := exec.CommandContext(ctx, "bd", "hooks", "install")
+	cmd.Dir = repoDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("bd hooks install failed: %w\n%s", err, output)
 	}
