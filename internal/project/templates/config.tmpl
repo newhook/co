@@ -47,17 +47,17 @@ path = {{.RepoPath | tomlString}}
 # # Whether to run Claude with --dangerously-skip-permissions flag.
 # # When true, Claude can execute commands without prompting for confirmation.
 # # Defaults to true when not specified.
-# skip_permissions = true
+# skip_permissions = false
 #
 # # Maximum duration in minutes for a Claude session.
 # # Tasks exceeding this limit are terminated and marked as failed.
-# # Set to 0 or omit to disable the time limit.
+# # Set to 0 or omit to disable the time limit (default).
 # time_limit = 30
 #
 # # Maximum execution time for a task in minutes.
 # # Defaults to 60 minutes when not specified.
 # # If time_limit is set and is less, time_limit takes precedence.
-# task_timeout_minutes = 60
+# task_timeout_minutes = 120
 
 # =============================================================================
 # Workflow Configuration (Optional)
@@ -68,7 +68,7 @@ path = {{.RepoPath | tomlString}}
 # # Maximum number of review/fix cycles before proceeding to PR.
 # # Increase for more thorough reviews, decrease to limit iteration time.
 # # Defaults to 2 when not specified.
-# max_review_iterations = 2
+# max_review_iterations = 3
 
 # =============================================================================
 # Scheduler Configuration (Optional)
@@ -79,20 +79,20 @@ path = {{.RepoPath | tomlString}}
 # # Interval between PR feedback checks in minutes.
 # # How often to check for CI failures and review comments.
 # # Defaults to 5 minutes when not specified.
-# pr_feedback_interval_minutes = 5
+# pr_feedback_interval_minutes = 10
 #
 # # Interval between comment resolution checks in minutes.
 # # How often to check for resolved feedback that needs GitHub updates.
 # # Defaults to 5 minutes when not specified.
-# comment_resolution_interval_minutes = 5
+# comment_resolution_interval_minutes = 10
 #
 # # Internal scheduler polling frequency in seconds.
 # # Defaults to 1 second when not specified.
-# scheduler_poll_seconds = 1
+# scheduler_poll_seconds = 2
 #
 # # Interval for updating task activity timestamps in seconds.
 # # Defaults to 30 seconds when not specified.
-# activity_update_seconds = 30
+# activity_update_seconds = 60
 
 # =============================================================================
 # Linear Integration (Optional)
