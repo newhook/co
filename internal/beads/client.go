@@ -46,13 +46,80 @@ func InstallHooks(ctx context.Context, beadsDir string) error {
 	return nil
 }
 
-// CloseEligibleEpicsInDir closes any epics where all children are complete.
-// Runs: bd epic close-eligible
-func CloseEligibleEpicsInDir(ctx context.Context, beadsDir string) error {
-	cmd := bdCommand(ctx, beadsDir, "epic", "close-eligible")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("bd epic close-eligible failed: %w\n%s", err, output)
+// CloseEligibleParents closes any parent beads where all children are complete.
+// Uses cached bead data to find eligible parents, then closes them via bd CLI.
+// Works for any parent-child relationship, not just epics.
+func (c *Client) CloseEligibleParents(ctx context.Context, beadsDir string) error {
+	// Get all bead IDs
+	allIDs, err := c.queries.GetAllIssueIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("fetching all bead IDs: %w", err)
 	}
+
+	if len(allIDs) == 0 {
+		return nil
+	}
+
+	// Get all beads with dependencies
+	result, err := c.GetBeadsWithDeps(ctx, allIDs)
+	if err != nil {
+		return fmt.Errorf("fetching beads with deps: %w", err)
+	}
+
+	// Find parents that are eligible for closing (all children closed)
+	closed := make(map[string]bool)
+	for {
+		var toClose []string
+
+		for id, bead := range result.Beads {
+			// Skip already closed beads
+			if bead.Status == "closed" || closed[id] {
+				continue
+			}
+
+			// Check if this bead has children (is a parent)
+			dependents := result.Dependents[id]
+			var children []string
+			for _, dep := range dependents {
+				if dep.Type == "parent-child" {
+					children = append(children, dep.IssueID)
+				}
+			}
+
+			if len(children) == 0 {
+				continue // Not a parent
+			}
+
+			// Check if all children are closed
+			allChildrenClosed := true
+			for _, childID := range children {
+				child, ok := result.Beads[childID]
+				if !ok || (child.Status != "closed" && !closed[childID]) {
+					allChildrenClosed = false
+					break
+				}
+			}
+
+			if allChildrenClosed {
+				toClose = append(toClose, id)
+			}
+		}
+
+		if len(toClose) == 0 {
+			break // No more parents to close
+		}
+
+		// Close eligible parents
+		for _, id := range toClose {
+			if err := Close(ctx, id, beadsDir); err != nil {
+				logging.Warn("failed to close parent bead", "id", id, "error", err)
+				continue
+			}
+			closed[id] = true
+			logging.Debug("closed parent bead", "id", id)
+		}
+	}
+
 	return nil
 }
 
