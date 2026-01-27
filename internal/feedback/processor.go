@@ -353,33 +353,30 @@ func (p *FeedbackProcessor) processComments(status *github.PRStatus) []github.Fe
 
 	for _, comment := range status.Comments {
 		if p.isActionableComment(comment.Body) {
-			// Check if this is a bot comment with specific patterns
 			feedbackType := p.categorizeComment(comment)
 
-			if feedbackType != github.FeedbackTypeGeneral {
-				// Create a unique URL for this issue comment
-				commentURL := fmt.Sprintf("%s#issuecomment-%d", status.URL, comment.ID)
+			// Create a unique URL for this issue comment
+			commentURL := fmt.Sprintf("%s#issuecomment-%d", status.URL, comment.ID)
 
-				item := github.FeedbackItem{
-					Type:        feedbackType,
-					Title:       p.extractTitleFromComment(comment.Body),
-					Description: p.truncateText(comment.Body, 500),
-					Source: github.SourceInfo{
-						Type: github.SourceTypeIssueComment,
-						ID:   fmt.Sprintf("%d", comment.ID),
-						Name: comment.Author,
-						URL:  commentURL,
-					},
-					Priority:   p.getPriorityForType(feedbackType),
-					Actionable: true,
-					IssueComment: &github.IssueCommentContext{
-						Author:    comment.Author,
-						CommentID: int64(comment.ID),
-					},
-				}
-
-				items = append(items, item)
+			item := github.FeedbackItem{
+				Type:        feedbackType,
+				Title:       p.extractTitleFromComment(comment.Body),
+				Description: p.truncateText(comment.Body, 500),
+				Source: github.SourceInfo{
+					Type: github.SourceTypeIssueComment,
+					ID:   fmt.Sprintf("%d", comment.ID),
+					Name: comment.Author,
+					URL:  commentURL,
+				},
+				Priority:   p.getPriorityForType(feedbackType),
+				Actionable: true,
+				IssueComment: &github.IssueCommentContext{
+					Author:    comment.Author,
+					CommentID: int64(comment.ID),
+				},
 			}
+
+			items = append(items, item)
 		}
 	}
 
