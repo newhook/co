@@ -17,7 +17,21 @@ var (
 
 	// flagNoMouse disables mouse support in the TUI
 	flagNoMouse bool
+
+	// Version information set at build time via ldflags
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
+
+// SetVersionInfo sets the version information from main.go.
+// This is called before Execute() to set the version injected by ldflags.
+func SetVersionInfo(v, c, d string) {
+	version = v
+	commit = c
+	date = d
+	rootCmd.Version = fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date)
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "co",
