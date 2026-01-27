@@ -19,6 +19,7 @@ var configTemplateText string
 type Config struct {
 	Project   ProjectConfig   `toml:"project"`
 	Repo      RepoConfig      `toml:"repo"`
+	Beads     BeadsConfig     `toml:"beads"`
 	Hooks     HooksConfig     `toml:"hooks"`
 	Linear    LinearConfig    `toml:"linear"`
 	Claude    ClaudeConfig    `toml:"claude"`
@@ -190,6 +191,14 @@ type ZellijConfig struct {
 	KillTabsOnDestroy *bool `toml:"kill_tabs_on_destroy"`
 }
 
+// BeadsConfig contains beads location configuration.
+type BeadsConfig struct {
+	// Location is where beads are stored: "repo" or "project"
+	// "repo" = main/.beads/ (existing beads in repository)
+	// "project" = .co/.beads/ (project-local, not synced)
+	Location string `toml:"location"`
+}
+
 // ShouldKillTabsOnDestroy returns true if zellij tabs should be killed when work is destroyed.
 // Defaults to true when not explicitly configured.
 func (z *ZellijConfig) ShouldKillTabsOnDestroy() bool {
@@ -232,11 +241,12 @@ func (c *Config) SaveDocumentedConfig(path string) error {
 
 // configTemplateData holds the data used to render the config template.
 type configTemplateData struct {
-	ProjectName string
-	CreatedAt   string
-	RepoType    string
-	RepoSource  string
-	RepoPath    string
+	ProjectName    string
+	CreatedAt      string
+	RepoType       string
+	RepoSource     string
+	RepoPath       string
+	BeadsLocation  string
 }
 
 // tomlString formats a string for TOML output with proper escaping.
@@ -260,11 +270,12 @@ var configTemplate = template.Must(template.New("config").Funcs(template.FuncMap
 // This includes the actual project values plus commented-out examples for optional sections.
 func (c *Config) GenerateDocumentedConfig() string {
 	data := configTemplateData{
-		ProjectName: c.Project.Name,
-		CreatedAt:   c.Project.CreatedAt.Format(time.RFC3339),
-		RepoType:    c.Repo.Type,
-		RepoSource:  c.Repo.Source,
-		RepoPath:    c.Repo.Path,
+		ProjectName:   c.Project.Name,
+		CreatedAt:     c.Project.CreatedAt.Format(time.RFC3339),
+		RepoType:      c.Repo.Type,
+		RepoSource:    c.Repo.Source,
+		RepoPath:      c.Repo.Path,
+		BeadsLocation: c.Beads.Location,
 	}
 
 	var buf bytes.Buffer
