@@ -43,10 +43,13 @@ func HandleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task 
 		}
 	}
 
-	// Terminate any running zellij tabs (orchestrator and task tabs) for this work
-	if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, io.Discard); err != nil {
-		logging.Warn("failed to terminate work tabs", "error", err, "work_id", workID)
-		// Continue with destruction even if tab termination fails
+	// Terminate any running zellij tabs (orchestrator, task, console, and claude tabs) for this work
+	// Only if configured to do so (defaults to true)
+	if proj.Config.Zellij.ShouldKillTabsOnDestroy() {
+		if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, io.Discard); err != nil {
+			logging.Warn("failed to terminate work tabs", "error", err, "work_id", workID)
+			// Continue with destruction even if tab termination fails
+		}
 	}
 
 	// Remove git worktree if it exists
