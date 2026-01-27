@@ -331,19 +331,9 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 	}
 
 	// Create a new tab with the orchestrate command using a layout
-	// This approach is more reliable than CreateTab + ExecuteCommand because
-	// it works correctly even when called from outside the zellij session
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
 	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, "co", []string{"orchestrate", "--work", workID}); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
-	}
-
-	// Switch to the new tab only if we're inside the session
-	if zellij.IsInsideTargetSession(sessionName) {
-		time.Sleep(200 * time.Millisecond)
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
-		}
 	}
 
 	logging.Debug("SpawnWorkOrchestrator completed successfully", "workID", workID, "sessionName", sessionName, "tabName", tabName)
@@ -368,44 +358,31 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 	// Check if tab already exists
 	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
 	if tabExists {
-		fmt.Fprintf(w, "Console tab %s already exists, switching to it...\n", tabName)
-		// Switch to the existing tab only if we're inside the session
-		if zellij.IsInsideTargetSession(sessionName) {
-			if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-				return fmt.Errorf("failed to switch to existing tab: %w", err)
-			}
+		fmt.Fprintf(w, "Console tab %s already exists\n", tabName)
+		return nil
+	}
+
+	// Build shell command with exports if needed
+	var command string
+	var args []string
+	if len(hooksEnv) > 0 {
+		var exports []string
+		for _, env := range hooksEnv {
+			exports = append(exports, fmt.Sprintf("export %s", env))
 		}
+		// Use bash -c to export vars and then exec bash for interactive shell
+		shellCmd := fmt.Sprintf("%s && exec bash", strings.Join(exports, " && "))
+		command = "bash"
+		args = []string{"-c", shellCmd}
 	} else {
-		// Build shell command with exports if needed
-		var command string
-		var args []string
-		if len(hooksEnv) > 0 {
-			var exports []string
-			for _, env := range hooksEnv {
-				exports = append(exports, fmt.Sprintf("export %s", env))
-			}
-			// Use bash -c to export vars and then exec bash for interactive shell
-			shellCmd := fmt.Sprintf("%s && exec bash", strings.Join(exports, " && "))
-			command = "bash"
-			args = []string{"-c", shellCmd}
-		} else {
-			command = "bash"
-			args = nil
-		}
+		command = "bash"
+		args = nil
+	}
 
-		// Create tab with shell using layout approach
-		fmt.Fprintf(w, "Creating console tab: %s in session %s\n", tabName, sessionName)
-		if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args); err != nil {
-			return fmt.Errorf("failed to create tab: %w", err)
-		}
-
-		// Switch to the new tab only if we're inside the session
-		if zellij.IsInsideTargetSession(sessionName) {
-			time.Sleep(200 * time.Millisecond)
-			if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-				fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
-			}
-		}
+	// Create tab with shell using layout approach
+	fmt.Fprintf(w, "Creating console tab: %s in session %s\n", tabName, sessionName)
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args); err != nil {
+		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
 	fmt.Fprintf(w, "Console opened in zellij session %s, tab %s\n", sessionName, tabName)
@@ -430,53 +407,40 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 	// Check if tab already exists
 	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
 	if tabExists {
-		fmt.Fprintf(w, "Claude session tab %s already exists, switching to it...\n", tabName)
-		// Switch to the existing tab only if we're inside the session
-		if zellij.IsInsideTargetSession(sessionName) {
-			if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-				return fmt.Errorf("failed to switch to existing tab: %w", err)
-			}
+		fmt.Fprintf(w, "Claude session tab %s already exists\n", tabName)
+		return nil
+	}
+
+	// Build the claude command with exports if needed
+	var claudeArgs []string
+	if cfg != nil && cfg.Claude.ShouldSkipPermissions() {
+		claudeArgs = []string{"--dangerously-skip-permissions"}
+	}
+
+	// If we have environment variables, use bash -c to export them
+	var command string
+	var args []string
+	if len(hooksEnv) > 0 {
+		var exports []string
+		for _, env := range hooksEnv {
+			exports = append(exports, fmt.Sprintf("export %s", env))
 		}
+		claudeCmd := "claude"
+		if len(claudeArgs) > 0 {
+			claudeCmd = "claude " + strings.Join(claudeArgs, " ")
+		}
+		shellCmd := fmt.Sprintf("%s && %s", strings.Join(exports, " && "), claudeCmd)
+		command = "bash"
+		args = []string{"-c", shellCmd}
 	} else {
-		// Build the claude command with exports if needed
-		var claudeArgs []string
-		if cfg != nil && cfg.Claude.ShouldSkipPermissions() {
-			claudeArgs = []string{"--dangerously-skip-permissions"}
-		}
+		command = "claude"
+		args = claudeArgs
+	}
 
-		// If we have environment variables, use bash -c to export them
-		var command string
-		var args []string
-		if len(hooksEnv) > 0 {
-			var exports []string
-			for _, env := range hooksEnv {
-				exports = append(exports, fmt.Sprintf("export %s", env))
-			}
-			claudeCmd := "claude"
-			if len(claudeArgs) > 0 {
-				claudeCmd = "claude " + strings.Join(claudeArgs, " ")
-			}
-			shellCmd := fmt.Sprintf("%s && %s", strings.Join(exports, " && "), claudeCmd)
-			command = "bash"
-			args = []string{"-c", shellCmd}
-		} else {
-			command = "claude"
-			args = claudeArgs
-		}
-
-		// Create tab with command using layout approach
-		fmt.Fprintf(w, "Creating Claude session tab: %s in session %s\n", tabName, sessionName)
-		if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args); err != nil {
-			return fmt.Errorf("failed to create tab: %w", err)
-		}
-
-		// Switch to the new tab only if we're inside the session
-		if zellij.IsInsideTargetSession(sessionName) {
-			time.Sleep(200 * time.Millisecond)
-			if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-				fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
-			}
-		}
+	// Create tab with command using layout approach
+	fmt.Fprintf(w, "Creating Claude session tab: %s in session %s\n", tabName, sessionName)
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args); err != nil {
+		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
 	fmt.Fprintf(w, "Claude session opened in zellij session %s, tab %s\n", sessionName, tabName)
@@ -516,20 +480,9 @@ func SpawnPlanSession(ctx context.Context, beadID string, projectName string, ma
 	}
 
 	// Create a new tab with the plan command using a layout
-	// This approach is more reliable than CreateTab + ExecuteCommand because
-	// it works correctly even when called from outside the zellij session
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
 	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, mainRepoPath, "co", []string{"plan", beadID}); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
-	}
-
-	// Switch to the new tab only if we're inside the session
-	// Skip if not attached - go-to-tab-name blocks on detached sessions
-	if zellij.IsInsideTargetSession(sessionName) {
-		time.Sleep(200 * time.Millisecond)
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
-		}
 	}
 
 	fmt.Fprintf(w, "Plan session spawned in zellij session %s, tab %s\n", sessionName, tabName)
@@ -545,32 +498,17 @@ func EnsureWorkOrchestrator(ctx context.Context, database *db.DB, workID string,
 	sessionName := SessionNameForProject(projectName)
 	tabName := FormatTabName("work", workID, friendlyName)
 
-	// Check if the tab already exists
+	// Check if the orchestrator is alive via database heartbeat
 	if TabExists(ctx, sessionName, tabName) {
-		// Tab exists, but we need to check if the orchestrator is actually running
-		// Check for orchestrator heartbeat in database
 		if alive, err := database.IsOrchestratorAlive(ctx, workID, db.DefaultStalenessThreshold); err == nil && alive {
-			// Orchestrator is alive
 			fmt.Fprintf(w, "Work orchestrator tab %s already exists and orchestrator is alive\n", tabName)
 			return false, nil
 		}
-
-		// Tab exists but orchestrator is dead - restart
+		// Tab exists but orchestrator is dead - SpawnWorkOrchestrator will terminate and recreate
 		fmt.Fprintf(w, "Work orchestrator tab %s exists but orchestrator is dead - restarting...\n", tabName)
-
-		// Try to close the dead tab first
-		zc := zellij.New()
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err == nil {
-			// Send Ctrl+C to ensure any hung process is terminated
-			zc.SendCtrlC(ctx, sessionName)
-			time.Sleep(zc.CtrlCDelay)
-			// Close the tab
-			zc.CloseTab(ctx, sessionName)
-			time.Sleep(500 * time.Millisecond)
-		}
 	}
 
-	// Spawn the orchestrator
+	// Spawn the orchestrator (handles existing tab termination)
 	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w); err != nil {
 		return false, err
 	}
