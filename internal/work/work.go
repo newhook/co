@@ -160,7 +160,7 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 	// Close the root issue if it exists
 	if work.RootIssueID != "" {
 		fmt.Fprintf(w, "Closing root issue %s...\n", work.RootIssueID)
-		if err := beads.Close(ctx, work.RootIssueID, proj.MainRepoPath()); err != nil {
+		if err := beads.Close(ctx, work.RootIssueID, proj.BeadsPath()); err != nil {
 			// Warn but continue - issue might already be closed or deleted
 			fmt.Fprintf(w, "Warning: failed to close root issue %s: %v\n", work.RootIssueID, err)
 		}

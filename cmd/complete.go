@@ -129,7 +129,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 		}
 
 		// Close any epics whose children are all complete
-		if err := beads.CloseEligibleEpicsInDir(ctx, proj.MainRepoPath()); err != nil {
+		if err := beads.CloseEligibleEpicsInDir(ctx, proj.BeadsPath()); err != nil {
 			fmt.Printf("Warning: failed to close eligible epics: %v\n", err)
 		}
 		return nil
@@ -177,7 +177,7 @@ func runComplete(cmd *cobra.Command, args []string) error {
 			}
 
 			// Close any epics whose children are all complete
-			if err := beads.CloseEligibleEpicsInDir(ctx, proj.MainRepoPath()); err != nil {
+			if err := beads.CloseEligibleEpicsInDir(ctx, proj.BeadsPath()); err != nil {
 				fmt.Printf("Warning: failed to close eligible epics: %v\n", err)
 			}
 		}

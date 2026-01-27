@@ -88,7 +88,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 	// Store feedback in database and create beads
 	createdBeads := []string{}
-	mainRepoPath := proj.MainRepoPath()
+	beadsPath := proj.BeadsPath()
 
 	for i, item := range feedbackItems {
 		// Check if this is a reply to an existing comment
@@ -122,7 +122,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 
 			// Add the reply as a comment to the existing bead
 			commentText := fmt.Sprintf("Reply from %s:\n\n%s", item.GetSourceName(), item.Description)
-			if err := beads.AddComment(ctx, *parentFeedback.BeadID, commentText, mainRepoPath); err != nil {
+			if err := beads.AddComment(ctx, *parentFeedback.BeadID, commentText, beadsPath); err != nil {
 				if !quiet {
 					fmt.Printf("%d. [ERROR] Failed to add comment to bead %s: %v\n", i+1, *parentFeedback.BeadID, err)
 				}
@@ -213,7 +213,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		}
 
 		// Create bead using beads package
-		beadID, err := integration.CreateBeadFromFeedback(ctx, mainRepoPath, beadInfo)
+		beadID, err := integration.CreateBeadFromFeedback(ctx, beadsPath, beadInfo)
 		if err != nil {
 			if !quiet {
 				fmt.Printf("   Error creating bead: %v\n", err)
