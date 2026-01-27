@@ -119,3 +119,42 @@ func IsControlPlaneRunning(ctx context.Context, proj *project.Project) (bool, er
 	}
 	return alive, nil
 }
+
+// SessionInitResult contains information about session initialization
+type SessionInitResult struct {
+	// SessionCreated is true if a new zellij session was created
+	SessionCreated bool
+	// SessionName is the name of the zellij session (e.g., "co-myproject")
+	SessionName string
+}
+
+// InitializeSession ensures a zellij session exists and spawns the control plane if needed.
+// This is a higher-level function that consolidates session + control plane initialization.
+// Returns information about whether a new session was created.
+func InitializeSession(ctx context.Context, proj *project.Project) (*SessionInitResult, error) {
+	projectName := proj.Config.Project.Name
+	sessionName := claude.SessionNameForProject(projectName)
+	zc := zellij.New()
+
+	// Ensure session exists
+	sessionCreated, err := zc.EnsureSession(ctx, sessionName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure zellij session: %w", err)
+	}
+
+	result := &SessionInitResult{
+		SessionCreated: sessionCreated,
+		SessionName:    sessionName,
+	}
+
+	// If a new session was created, spawn the control plane
+	if sessionCreated {
+		logging.Debug("New zellij session created, spawning control plane", "sessionName", sessionName)
+		if err := SpawnControlPlane(ctx, proj); err != nil {
+			// Log but don't fail - session was created successfully
+			logging.Warn("Failed to spawn control plane on new session", "sessionName", sessionName, "error", err)
+		}
+	}
+
+	return result, nil
+}
