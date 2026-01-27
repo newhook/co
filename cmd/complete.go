@@ -128,9 +128,9 @@ func runComplete(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Close any epics whose children are all complete
-		if err := beads.CloseEligibleEpicsInDir(ctx, proj.MainRepoPath()); err != nil {
-			fmt.Printf("Warning: failed to close eligible epics: %v\n", err)
+		// Close any parents whose children are all complete
+		if err := proj.Beads.CloseEligibleParents(ctx, proj.BeadsPath()); err != nil {
+			fmt.Printf("Warning: failed to close eligible parents: %v\n", err)
 		}
 		return nil
 	}
@@ -176,9 +176,9 @@ func runComplete(cmd *cobra.Command, args []string) error {
 				}
 			}
 
-			// Close any epics whose children are all complete
-			if err := beads.CloseEligibleEpicsInDir(ctx, proj.MainRepoPath()); err != nil {
-				fmt.Printf("Warning: failed to close eligible epics: %v\n", err)
+			// Close any parents whose children are all complete
+			if err := proj.Beads.CloseEligibleParents(ctx, proj.BeadsPath()); err != nil {
+				fmt.Printf("Warning: failed to close eligible parents: %v\n", err)
 			}
 		}
 

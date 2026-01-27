@@ -37,7 +37,7 @@ func HandleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task 
 	// Close the root issue if it exists
 	if work.RootIssueID != "" {
 		logging.Info("Closing root issue", "work_id", workID, "root_issue_id", work.RootIssueID)
-		if err := beads.Close(ctx, work.RootIssueID, proj.MainRepoPath()); err != nil {
+		if err := beads.Close(ctx, work.RootIssueID, proj.BeadsPath()); err != nil {
 			// Warn but continue - issue might already be closed or deleted
 			logging.Warn("failed to close root issue", "error", err, "root_issue_id", work.RootIssueID)
 		}

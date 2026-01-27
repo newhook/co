@@ -98,7 +98,8 @@ func load(ctx context.Context, root string) (*Project, error) {
 	proj.DB = database
 
 	// Open the beads client automatically
-	beadsDBPath := filepath.Join(root, MainDir, ".beads", "beads.db")
+	// Use the configured beads path (relative to project root)
+	beadsDBPath := filepath.Join(root, cfg.Beads.Path, "beads.db")
 	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
 	if err != nil {
 		database.Close() // Clean up the already-opened DB
@@ -137,7 +138,7 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 	mainPath := filepath.Join(absDir, MainDir)
 
 	// Determine repo type and set up main/
-	repoType, err := setupRepo(ctx, repoSource, absDir, mainPath)
+	repoType, beadsPath, err := setupRepo(ctx, repoSource, absDir, mainPath)
 	if err != nil {
 		// Clean up on failure
 		os.RemoveAll(absDir)
@@ -154,6 +155,9 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 			Type:   repoType,
 			Source: repoSource,
 			Path:   MainDir,
+		},
+		Beads: BeadsConfig{
+			Path: beadsPath,
 		},
 	}
 
@@ -179,47 +183,68 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 	}, nil
 }
 
-// setupRepo sets up the main/ directory based on the repo source.
-// Returns the repo type ("local" or "github").
-func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (string, error) {
-	var repoType string
+// BeadsPathRepo is the path for beads in the repository (synced with git).
+const BeadsPathRepo = "main/.beads"
 
+// BeadsPathProject is the path for project-local beads (standalone, not synced).
+const BeadsPathProject = ".co/.beads"
+
+// setupRepo sets up the main/ directory based on the repo source.
+// Returns the repo type ("local" or "github") and beads path (relative to project root).
+func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoType string, beadsPath string, err error) {
 	if isGitHubURL(source) {
 		// Clone from GitHub
 		if err := git.Clone(ctx, source, mainPath); err != nil {
-			return "", err
+			return "", "", err
 		}
 		repoType = RepoTypeGitHub
 	} else {
 		// Local path - create symlink
 		absSource, err := filepath.Abs(source)
 		if err != nil {
-			return "", fmt.Errorf("failed to resolve source path: %w", err)
+			return "", "", fmt.Errorf("failed to resolve source path: %w", err)
 		}
 
 		// Verify source exists and is a directory
 		info, err := os.Stat(absSource)
 		if err != nil {
-			return "", fmt.Errorf("source path does not exist: %w", err)
+			return "", "", fmt.Errorf("source path does not exist: %w", err)
 		}
 		if !info.IsDir() {
-			return "", fmt.Errorf("source path is not a directory: %s", absSource)
+			return "", "", fmt.Errorf("source path is not a directory: %s", absSource)
 		}
 
 		// Create symlink
 		if err := os.Symlink(absSource, mainPath); err != nil {
-			return "", fmt.Errorf("failed to create symlink: %w", err)
+			return "", "", fmt.Errorf("failed to create symlink: %w", err)
 		}
 		repoType = RepoTypeLocal
 	}
 
-	// Initialize beads (required - fail on error)
-	fmt.Printf("Initializing beads in %s...\n", mainPath)
-	if err := beads.Init(ctx, mainPath); err != nil {
-		return "", fmt.Errorf("failed to initialize beads: %w", err)
-	}
-	if err := beads.InstallHooks(ctx, mainPath); err != nil {
-		return "", fmt.Errorf("failed to install beads hooks: %w", err)
+	// Check if repo already has beads
+	repoBeadsPath := filepath.Join(mainPath, ".beads")
+	if _, err := os.Stat(repoBeadsPath); err == nil {
+		// Repo already has beads - use them
+		fmt.Printf("Using existing beads in %s\n", repoBeadsPath)
+		beadsPath = BeadsPathRepo
+
+		// Install hooks for repo-based beads
+		if err := beads.InstallHooks(ctx, mainPath); err != nil {
+			return "", "", fmt.Errorf("failed to install beads hooks: %w", err)
+		}
+	} else {
+		// No beads in repo - create project-local beads
+		projectBeadsPath := filepath.Join(projectRoot, ConfigDir, ".beads")
+		fmt.Printf("Initializing project-local beads in %s\n", projectBeadsPath)
+		beadsPath = BeadsPathProject
+
+		// Derive prefix from repo name
+		prefix := repoNameFromSource(source)
+
+		// Initialize beads in project directory (skip hooks - not synced to git)
+		if err := beads.Init(ctx, projectBeadsPath, prefix); err != nil {
+			return "", "", fmt.Errorf("failed to initialize beads: %w", err)
+		}
 	}
 
 	// Generate mise config in project root with co's required tools
@@ -234,7 +259,7 @@ func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (strin
 		fmt.Printf("Warning: mise initialization failed: %v\n", err)
 	}
 
-	return repoType, nil
+	return repoType, beadsPath, nil
 }
 
 // isGitHubURL returns true if the source looks like a GitHub URL.
@@ -244,9 +269,41 @@ func isGitHubURL(source string) bool {
 		strings.HasPrefix(source, "http://github.com/")
 }
 
+// repoNameFromSource extracts the first letter of the repository name from a source URL or path.
+// For GitHub URLs: https://github.com/org/services -> "s"
+// For local paths: /path/to/myrepo -> "m"
+func repoNameFromSource(source string) string {
+	// Remove trailing slashes and .git suffix
+	source = strings.TrimSuffix(source, "/")
+	source = strings.TrimSuffix(source, ".git")
+
+	var name string
+	// For GitHub URLs, extract the repo name (last path component)
+	if isGitHubURL(source) {
+		parts := strings.Split(source, "/")
+		if len(parts) > 0 {
+			name = parts[len(parts)-1]
+		}
+	} else {
+		// For local paths, use the directory name
+		name = filepath.Base(source)
+	}
+
+	// Return just the first letter (lowercase)
+	if len(name) > 0 {
+		return strings.ToLower(string(name[0]))
+	}
+	return "b" // fallback prefix
+}
+
 // MainRepoPath returns the path to the main repository.
 func (p *Project) MainRepoPath() string {
 	return filepath.Join(p.Root, MainDir)
+}
+
+// BeadsPath returns the path to the beads directory.
+func (p *Project) BeadsPath() string {
+	return filepath.Join(p.Root, p.Config.Beads.Path)
 }
 
 // WorktreePath returns the path where a task's worktree should be created.

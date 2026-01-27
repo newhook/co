@@ -197,9 +197,9 @@ func (m *planModel) loadBeadsForChildren(filters beadFilters) ([]beadItem, error
 func (m *planModel) createBead(title, beadType string, priority int, isEpic bool, description string, parent string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := m.ctx
-		mainRepoPath := m.proj.MainRepoPath()
+		beadsPath := m.proj.BeadsPath()
 
-		beadID, err := beads.Create(ctx, mainRepoPath, beads.CreateOptions{
+		beadID, err := beads.Create(ctx, beadsPath, beads.CreateOptions{
 			Title:       title,
 			Type:        beadType,
 			Priority:    priority,
@@ -222,7 +222,7 @@ func (m *planModel) createBead(title, beadType string, priority int, isEpic bool
 
 func (m *planModel) closeBead(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		mainRepoPath := m.proj.MainRepoPath()
+		beadsPath := m.proj.BeadsPath()
 		session := m.sessionName()
 		tabName := db.TabNameForBead(beadID)
 
@@ -235,7 +235,7 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 		}
 
 		// Close the bead
-		if err := beads.Close(m.ctx, beadID, mainRepoPath); err != nil {
+		if err := beads.Close(m.ctx, beadID, beadsPath); err != nil {
 			return planDataMsg{err: fmt.Errorf("failed to close issue: %w", err)}
 		}
 
@@ -248,7 +248,7 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 
 func (m *planModel) closeBeads(beadIDs []string) tea.Cmd {
 	return func() tea.Msg {
-		mainRepoPath := m.proj.MainRepoPath()
+		beadsPath := m.proj.BeadsPath()
 		session := m.sessionName()
 
 		// First, close any active sessions for these beads
@@ -264,7 +264,7 @@ func (m *planModel) closeBeads(beadIDs []string) tea.Cmd {
 
 		// Close all beads using the beads package
 		for _, beadID := range beadIDs {
-			if err := beads.Close(m.ctx, beadID, mainRepoPath); err != nil {
+			if err := beads.Close(m.ctx, beadID, beadsPath); err != nil {
 				return planDataMsg{err: fmt.Errorf("failed to close issue %s: %w", beadID, err)}
 			}
 		}
@@ -278,10 +278,10 @@ func (m *planModel) closeBeads(beadIDs []string) tea.Cmd {
 
 func (m *planModel) saveBeadEdit(beadID, title, description, beadType, status string) tea.Cmd {
 	return func() tea.Msg {
-		mainRepoPath := m.proj.MainRepoPath()
+		beadsPath := m.proj.BeadsPath()
 
 		// Update the bead using beads package
-		err := beads.Update(m.ctx, beadID, mainRepoPath, beads.UpdateOptions{
+		err := beads.Update(m.ctx, beadID, beadsPath, beads.UpdateOptions{
 			Title:       title,
 			Type:        beadType,
 			Description: description,
@@ -301,10 +301,10 @@ func (m *planModel) saveBeadEdit(beadID, title, description, beadType, status st
 
 // openInEditor opens the issue in $EDITOR using bd edit
 func (m *planModel) openInEditor(beadID string) tea.Cmd {
-	mainRepoPath := m.proj.MainRepoPath()
+	beadsPath := m.proj.BeadsPath()
 
 	// Use bd edit which handles $EDITOR and the issue format
-	c := beads.EditCommand(m.ctx, beadID, mainRepoPath)
+	c := beads.EditCommand(m.ctx, beadID, beadsPath)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		if err != nil {
 			return planStatusMsg{message: fmt.Sprintf("Editor error: %v", err), isError: true}
@@ -317,7 +317,7 @@ func (m *planModel) openInEditor(beadID string) tea.Cmd {
 // importLinearIssue imports Linear issues (supports multiple IDs/URLs)
 func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 	return func() tea.Msg {
-		mainRepoPath := m.proj.MainRepoPath()
+		beadsPath := m.proj.BeadsPath()
 
 		// Get API key from environment or config
 		apiKey := os.Getenv("LINEAR_API_KEY")
@@ -329,7 +329,7 @@ func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 		}
 
 		// Create fetcher
-		fetcher, err := linear.NewFetcher(apiKey, mainRepoPath)
+		fetcher, err := linear.NewFetcher(apiKey, beadsPath)
 		if err != nil {
 			return linearImportCompleteMsg{err: fmt.Errorf("failed to create Linear fetcher: %w", err)}
 		}

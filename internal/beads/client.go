@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -17,12 +19,25 @@ import (
 	"github.com/newhook/co/internal/logging"
 )
 
-// Init initializes beads in the specified directory.
-func Init(ctx context.Context, dir string) error {
-	cmd := exec.CommandContext(ctx, "bd", "init")
-	if dir != "" {
-		cmd.Dir = dir
+// bdCommand creates an exec.Cmd for running bd with BEADS_DIR set.
+// The beadsDir parameter should be the path to the .beads directory.
+func bdCommand(ctx context.Context, beadsDir string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "bd", args...)
+	if beadsDir != "" {
+		cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
 	}
+	return cmd
+}
+
+// Init initializes beads in the specified directory.
+// beadsDir should be the path where .beads/ should be created (e.g., /path/to/.beads).
+// prefix is the issue ID prefix (e.g., "myproject" for myproject-1, myproject-2).
+// bd init runs in the parent directory and creates .beads/ there.
+func Init(ctx context.Context, beadsDir, prefix string) error {
+	// bd init creates .beads/ in the current working directory, not via BEADS_DIR
+	parentDir := filepath.Dir(beadsDir)
+	cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", prefix)
+	cmd.Dir = parentDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("bd init failed: %w\n%s", err, output)
 	}
@@ -30,27 +45,90 @@ func Init(ctx context.Context, dir string) error {
 }
 
 // InstallHooks installs beads hooks in the specified directory.
-func InstallHooks(ctx context.Context, dir string) error {
+// repoDir should be the path to the git repository (e.g., /path/to/repo).
+func InstallHooks(ctx context.Context, repoDir string) error {
 	cmd := exec.CommandContext(ctx, "bd", "hooks", "install")
-	if dir != "" {
-		cmd.Dir = dir
-	}
+	cmd.Dir = repoDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("bd hooks install failed: %w\n%s", err, output)
 	}
 	return nil
 }
 
-// CloseEligibleEpicsInDir closes any epics where all children are complete.
-// Runs: bd epic close-eligible
-func CloseEligibleEpicsInDir(ctx context.Context, dir string) error {
-	cmd := exec.CommandContext(ctx, "bd", "epic", "close-eligible")
-	if dir != "" {
-		cmd.Dir = dir
+// CloseEligibleParents closes any parent beads where all children are complete.
+// Uses cached bead data to find eligible parents, then closes them via bd CLI.
+// Works for any parent-child relationship, not just epics.
+func (c *Client) CloseEligibleParents(ctx context.Context, beadsDir string) error {
+	// Get all bead IDs
+	allIDs, err := c.queries.GetAllIssueIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("fetching all bead IDs: %w", err)
 	}
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("bd epic close-eligible failed: %w\n%s", err, output)
+
+	if len(allIDs) == 0 {
+		return nil
 	}
+
+	// Get all beads with dependencies
+	result, err := c.GetBeadsWithDeps(ctx, allIDs)
+	if err != nil {
+		return fmt.Errorf("fetching beads with deps: %w", err)
+	}
+
+	// Find parents that are eligible for closing (all children closed)
+	closed := make(map[string]bool)
+	for {
+		var toClose []string
+
+		for id, bead := range result.Beads {
+			// Skip already closed beads
+			if bead.Status == "closed" || closed[id] {
+				continue
+			}
+
+			// Check if this bead has children (is a parent)
+			dependents := result.Dependents[id]
+			var children []string
+			for _, dep := range dependents {
+				if dep.Type == "parent-child" {
+					children = append(children, dep.IssueID)
+				}
+			}
+
+			if len(children) == 0 {
+				continue // Not a parent
+			}
+
+			// Check if all children are closed
+			allChildrenClosed := true
+			for _, childID := range children {
+				child, ok := result.Beads[childID]
+				if !ok || (child.Status != "closed" && !closed[childID]) {
+					allChildrenClosed = false
+					break
+				}
+			}
+
+			if allChildrenClosed {
+				toClose = append(toClose, id)
+			}
+		}
+
+		if len(toClose) == 0 {
+			break // No more parents to close
+		}
+
+		// Close eligible parents
+		for _, id := range toClose {
+			if err := Close(ctx, id, beadsDir); err != nil {
+				logging.Warn("failed to close parent bead", "id", id, "error", err)
+				continue
+			}
+			closed[id] = true
+			logging.Debug("closed parent bead", "id", id)
+		}
+	}
+
 	return nil
 }
 
@@ -67,7 +145,7 @@ type CreateOptions struct {
 }
 
 // Create creates a new bead and returns its ID.
-func Create(ctx context.Context, dir string, opts CreateOptions) (string, error) {
+func Create(ctx context.Context, beadsDir string, opts CreateOptions) (string, error) {
 	// Determine the type - if IsEpic is set, override type to "epic"
 	beadType := opts.Type
 	if opts.IsEpic {
@@ -89,12 +167,9 @@ func Create(ctx context.Context, dir string, opts CreateOptions) (string, error)
 		}
 	}
 
-	logging.Debug("creating bead", "args", args, "dir", dir, "opts", opts)
+	logging.Debug("creating bead", "args", args, "beadsDir", beadsDir, "opts", opts)
 
-	cmd := exec.CommandContext(ctx, "bd", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+	cmd := bdCommand(ctx, beadsDir, args...)
 	output, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -131,11 +206,8 @@ func Create(ctx context.Context, dir string, opts CreateOptions) (string, error)
 }
 
 // Close closes a bead.
-func Close(ctx context.Context, beadID, dir string) error {
-	cmd := exec.CommandContext(ctx, "bd", "close", beadID)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+func Close(ctx context.Context, beadID, beadsDir string) error {
+	cmd := bdCommand(ctx, beadsDir, "close", beadID)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to close bead %s: %w\n%s", beadID, err, output)
 	}
@@ -143,11 +215,8 @@ func Close(ctx context.Context, beadID, dir string) error {
 }
 
 // AddComment adds a comment to a bead.
-func AddComment(ctx context.Context, beadID, comment, dir string) error {
-	cmd := exec.CommandContext(ctx, "bd", "comments", "add", beadID, comment)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+func AddComment(ctx context.Context, beadID, comment, beadsDir string) error {
+	cmd := bdCommand(ctx, beadsDir, "comments", "add", beadID, comment)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to add comment to bead %s: %w\n%s", beadID, err, output)
 	}
@@ -155,11 +224,8 @@ func AddComment(ctx context.Context, beadID, comment, dir string) error {
 }
 
 // Reopen reopens a closed bead.
-func Reopen(ctx context.Context, beadID, dir string) error {
-	cmd := exec.CommandContext(ctx, "bd", "reopen", beadID)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+func Reopen(ctx context.Context, beadID, beadsDir string) error {
+	cmd := bdCommand(ctx, beadsDir, "reopen", beadID)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to reopen bead %s: %w\n%s", beadID, err, output)
 	}
@@ -177,7 +243,7 @@ type UpdateOptions struct {
 }
 
 // Update updates a bead's fields.
-func Update(ctx context.Context, beadID, dir string, opts UpdateOptions) error {
+func Update(ctx context.Context, beadID, beadsDir string, opts UpdateOptions) error {
 	args := []string{"update", beadID}
 	if opts.Title != "" {
 		args = append(args, "--title="+opts.Title)
@@ -198,10 +264,7 @@ func Update(ctx context.Context, beadID, dir string, opts UpdateOptions) error {
 		args = append(args, "--status="+opts.Status)
 	}
 
-	cmd := exec.CommandContext(ctx, "bd", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+	cmd := bdCommand(ctx, beadsDir, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to update bead %s: %w\n%s", beadID, err, output)
 	}
@@ -209,7 +272,7 @@ func Update(ctx context.Context, beadID, dir string, opts UpdateOptions) error {
 }
 
 // AddLabels adds labels to a bead.
-func AddLabels(ctx context.Context, beadID, dir string, labels []string) error {
+func AddLabels(ctx context.Context, beadID, beadsDir string, labels []string) error {
 	if len(labels) == 0 {
 		return nil
 	}
@@ -219,10 +282,7 @@ func AddLabels(ctx context.Context, beadID, dir string, labels []string) error {
 		args = append(args, "--add-label="+label)
 	}
 
-	cmd := exec.CommandContext(ctx, "bd", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+	cmd := bdCommand(ctx, beadsDir, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to add labels to bead %s: %w\n%s", beadID, err, output)
 	}
@@ -230,17 +290,14 @@ func AddLabels(ctx context.Context, beadID, dir string, labels []string) error {
 }
 
 // SetExternalRef sets the external reference for a bead.
-func SetExternalRef(ctx context.Context, beadID, externalRef, dir string) error {
+func SetExternalRef(ctx context.Context, beadID, externalRef, beadsDir string) error {
 	if externalRef == "" {
 		return nil
 	}
 
 	args := []string{"update", beadID, "--external-ref=" + externalRef}
 
-	cmd := exec.CommandContext(ctx, "bd", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+	cmd := bdCommand(ctx, beadsDir, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to set external ref for bead %s: %w\n%s", beadID, err, output)
 	}
@@ -249,11 +306,8 @@ func SetExternalRef(ctx context.Context, beadID, externalRef, dir string) error 
 
 // AddDependency adds a dependency between two beads.
 // The bead identified by beadID will depend on the bead identified by dependsOnID.
-func AddDependency(ctx context.Context, beadID, dependsOnID, dir string) error {
-	cmd := exec.CommandContext(ctx, "bd", "dep", "add", beadID, dependsOnID)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+func AddDependency(ctx context.Context, beadID, dependsOnID, beadsDir string) error {
+	cmd := bdCommand(ctx, beadsDir, "dep", "add", beadID, dependsOnID)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to add dependency %s -> %s: %w\n%s", beadID, dependsOnID, err, output)
 	}
@@ -262,12 +316,8 @@ func AddDependency(ctx context.Context, beadID, dependsOnID, dir string) error {
 
 // EditCommand returns an exec.Cmd for opening a bead in an editor.
 // This is meant to be used with tea.ExecProcess for interactive editing.
-func EditCommand(ctx context.Context, beadID, dir string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "bd", "edit", beadID)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	return cmd
+func EditCommand(ctx context.Context, beadID, beadsDir string) *exec.Cmd {
+	return bdCommand(ctx, beadsDir, "edit", beadID)
 }
 
 // Client provides database access to beads with caching.

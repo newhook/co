@@ -19,6 +19,7 @@ var configTemplateText string
 type Config struct {
 	Project   ProjectConfig   `toml:"project"`
 	Repo      RepoConfig      `toml:"repo"`
+	Beads     BeadsConfig     `toml:"beads"`
 	Hooks     HooksConfig     `toml:"hooks"`
 	Linear    LinearConfig    `toml:"linear"`
 	Claude    ClaudeConfig    `toml:"claude"`
@@ -190,6 +191,14 @@ type ZellijConfig struct {
 	KillTabsOnDestroy *bool `toml:"kill_tabs_on_destroy"`
 }
 
+// BeadsConfig contains beads path configuration.
+type BeadsConfig struct {
+	// Path to beads directory (relative to project root)
+	// "main/.beads" = beads in repository (synced with git)
+	// ".co/.beads" = project-local beads (standalone, not synced)
+	Path string `toml:"path"`
+}
+
 // ShouldKillTabsOnDestroy returns true if zellij tabs should be killed when work is destroyed.
 // Defaults to true when not explicitly configured.
 func (z *ZellijConfig) ShouldKillTabsOnDestroy() bool {
@@ -237,6 +246,7 @@ type configTemplateData struct {
 	RepoType    string
 	RepoSource  string
 	RepoPath    string
+	BeadsPath   string
 }
 
 // tomlString formats a string for TOML output with proper escaping.
@@ -260,11 +270,12 @@ var configTemplate = template.Must(template.New("config").Funcs(template.FuncMap
 // This includes the actual project values plus commented-out examples for optional sections.
 func (c *Config) GenerateDocumentedConfig() string {
 	data := configTemplateData{
-		ProjectName: c.Project.Name,
-		CreatedAt:   c.Project.CreatedAt.Format(time.RFC3339),
-		RepoType:    c.Repo.Type,
-		RepoSource:  c.Repo.Source,
-		RepoPath:    c.Repo.Path,
+		ProjectName:   c.Project.Name,
+		CreatedAt:     c.Project.CreatedAt.Format(time.RFC3339),
+		RepoType:      c.Repo.Type,
+		RepoSource:    c.Repo.Source,
+		RepoPath:      c.Repo.Path,
+		BeadsPath: c.Beads.Path,
 	}
 
 	var buf bytes.Buffer

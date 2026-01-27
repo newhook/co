@@ -273,12 +273,17 @@ All commands require a project context. Projects are created with `co proj creat
 <project-dir>/
 ├── .co/
 │   ├── config.toml      # Project configuration
-│   └── tracking.db      # SQLite coordination database
+│   ├── tracking.db      # SQLite coordination database
+│   └── .beads/          # Beads (if project-local)
 ├── main/                # Symlink (local) or clone (GitHub)
-│   └── .beads/          # Beads issue tracker
+│   └── .beads/          # Beads (if repo has beads)
 └── <work-id>/           # Work subdirectory (e.g., w-abc, w-xyz)
     └── tree/            # Git worktree for this work
 ```
+
+Beads location is determined at project creation:
+- **Repo beads** (`main/.beads/`): Used when the repository already has beads initialized. Git hooks are installed for sync.
+- **Project-local beads** (`.co/.beads/`): Used when the repository doesn't have beads. No hooks or sync (standalone).
 
 ## Work Concept (3-Tier Hierarchy)
 

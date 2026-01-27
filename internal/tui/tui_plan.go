@@ -144,7 +144,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	ti.Width = 40
 
 	// Initialize beads database watcher
-	beadsDBPath := filepath.Join(proj.Root, "main", ".Beads", "beads.db")
+	beadsDBPath := filepath.Join(proj.BeadsPath(), "beads.db")
 	beadsWatcher, err := beadswatcher.New(beadswatcher.DefaultConfig(beadsDBPath))
 	if err != nil {
 		// Log error but continue without watcher
