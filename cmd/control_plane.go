@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
@@ -44,6 +45,9 @@ func runControlPlane(cmd *cobra.Command, args []string) error {
 
 	// Apply hooks.env to current process - inherited by child processes
 	applyHooksEnv(proj.Config.Hooks.Env)
+
+	// Set BEADS_DIR so bd commands work in any spawned processes
+	_ = os.Setenv("BEADS_DIR", proj.BeadsPath())
 
 	// Register this control plane process for heartbeat monitoring
 	procManager := procmon.NewManager(proj.DB, db.DefaultHeartbeatInterval)

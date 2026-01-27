@@ -184,12 +184,24 @@ func Create(ctx context.Context, beadsDir string, opts CreateOptions) (string, e
 	logging.Debug("bd create output", "output", string(output))
 
 	// Parse the bead ID from output
-	beadID := strings.TrimSpace(string(output))
-	// Handle case where output might have extra text
-	if strings.Contains(beadID, " ") {
-		parts := strings.Fields(beadID)
-		for _, p := range parts {
-			if strings.HasPrefix(p, "ac-") || strings.HasPrefix(p, "bd-") {
+	// bd create outputs multi-line text like "✓ Created issue: s-0o9\n   Title: ..."
+	// We need to extract just the bead ID (format: prefix-xxx)
+	beadID := ""
+	outputStr := string(output)
+	// Split by whitespace (including newlines) and find the bead ID
+	parts := strings.Fields(outputStr)
+	for _, p := range parts {
+		// Bead IDs are typically short alphanumeric with a dash (e.g., s-0o9, ac-123, bd-456)
+		if len(p) >= 3 && len(p) <= 20 && strings.Contains(p, "-") && !strings.HasPrefix(p, "-") {
+			// Check it looks like a bead ID (letters/numbers and dashes only)
+			isBeadID := true
+			for _, c := range p {
+				if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' {
+					isBeadID = false
+					break
+				}
+			}
+			if isBeadID {
 				beadID = p
 				break
 			}

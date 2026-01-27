@@ -108,6 +108,41 @@ func TestGeneratedConfigWithSpecialCharacters(t *testing.T) {
 	}
 }
 
+func TestShouldSkipPermissionsDefault(t *testing.T) {
+	// When Claude config is not specified in TOML, ShouldSkipPermissions should default to true
+	tomlContent := `
+[project]
+  name = "test"
+`
+	var cfg Config
+	if _, err := toml.Decode(tomlContent, &cfg); err != nil {
+		t.Fatalf("Failed to decode: %v", err)
+	}
+
+	if !cfg.Claude.ShouldSkipPermissions() {
+		t.Error("Expected ShouldSkipPermissions() to return true by default, got false")
+	}
+}
+
+func TestShouldSkipPermissionsExplicitFalse(t *testing.T) {
+	// When explicitly set to false, ShouldSkipPermissions should return false
+	tomlContent := `
+[project]
+  name = "test"
+
+[claude]
+  skip_permissions = false
+`
+	var cfg Config
+	if _, err := toml.Decode(tomlContent, &cfg); err != nil {
+		t.Fatalf("Failed to decode: %v", err)
+	}
+
+	if cfg.Claude.ShouldSkipPermissions() {
+		t.Error("Expected ShouldSkipPermissions() to return false when explicitly set, got true")
+	}
+}
+
 func TestGeneratedConfigWithUTF8(t *testing.T) {
 	// Test with UTF-8 characters
 	cfg := &Config{
