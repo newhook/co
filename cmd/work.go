@@ -339,17 +339,17 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  - %s: %s\n", issue.ID, issue.Title)
 	}
 
+	// Initialize zellij session and spawn control plane if new session
+	sessionResult, err := control.InitializeSession(ctx, proj)
+	if err != nil {
+		fmt.Printf("Warning: failed to initialize zellij session: %v\n", err)
+	} else if sessionResult.SessionCreated {
+		// Display notification for new session
+		printSessionCreatedNotification(sessionResult.SessionName)
+	}
+
 	// If --auto, run the full automated workflow
 	if flagAutoRun {
-		// Initialize zellij session and spawn control plane if new session
-		sessionResult, err := control.InitializeSession(ctx, proj)
-		if err != nil {
-			fmt.Printf("Warning: failed to initialize zellij session: %v\n", err)
-		} else if sessionResult.SessionCreated {
-			// Display notification for new session
-			printSessionCreatedNotification(sessionResult.SessionName)
-		}
-
 		fmt.Println("\nRunning automated workflow...")
 		result, err := work.RunWorkAuto(ctx, proj, workID, os.Stdout)
 		if err != nil {
@@ -366,15 +366,6 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println("Switch to the zellij session to monitor progress.")
 		return nil
-	}
-
-	// Initialize zellij session and spawn control plane if new session
-	sessionResult, err := control.InitializeSession(ctx, proj)
-	if err != nil {
-		fmt.Printf("Warning: failed to initialize zellij session: %v\n", err)
-	} else if sessionResult.SessionCreated {
-		// Display notification for new session
-		printSessionCreatedNotification(sessionResult.SessionName)
 	}
 
 	// Spawn the orchestrator for this work
