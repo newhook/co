@@ -301,7 +301,7 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 
 	// Ensure session exists
 	logging.Debug("SpawnWorkOrchestrator ensuring session exists", "sessionName", sessionName)
-	if err := zc.EnsureSession(ctx, sessionName); err != nil {
+	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
 		logging.Error("SpawnWorkOrchestrator EnsureSession failed", "sessionName", sessionName, "error", err)
 		return err
 	}
@@ -364,7 +364,7 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 	zc := zellij.New()
 
 	// Ensure session exists
-	if err := zc.EnsureSession(ctx, sessionName); err != nil {
+	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
 		return err
 	}
 
@@ -423,7 +423,7 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 	zc := zellij.New()
 
 	// Ensure session exists
-	if err := zc.EnsureSession(ctx, sessionName); err != nil {
+	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
 		return err
 	}
 
@@ -491,7 +491,7 @@ func SpawnPlanSession(ctx context.Context, beadID string, projectName string, ma
 	zc := zellij.New()
 
 	// Ensure session exists
-	if err := zc.EnsureSession(ctx, sessionName); err != nil {
+	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
 		return err
 	}
 

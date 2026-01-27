@@ -672,7 +672,11 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = fmt.Sprintf("Failed to create work: %v", msg.err)
 			m.statusIsError = true
 		} else {
-			m.statusMessage = fmt.Sprintf("Created work %s from %s", msg.workID, msg.beadID)
+			if msg.sessionCreated {
+				m.statusMessage = fmt.Sprintf("Created work %s | Zellij: zellij attach %s", msg.workID, msg.sessionName)
+			} else {
+				m.statusMessage = fmt.Sprintf("Created work %s from %s", msg.workID, msg.beadID)
+			}
 			m.statusIsError = false
 		}
 		// Refresh work tiles to show the new work in the tabs bar
@@ -895,9 +899,11 @@ type planSessionSpawnedMsg struct {
 
 // planWorkCreatedMsg indicates work was created from a bead
 type planWorkCreatedMsg struct {
-	beadID string
-	workID string
-	err    error
+	beadID         string
+	workID         string
+	err            error
+	sessionCreated bool   // true if a new zellij session was created
+	sessionName    string // e.g., 'co-myproject'
 }
 
 // beadAddedToWorkMsg indicates a bead was added to a work

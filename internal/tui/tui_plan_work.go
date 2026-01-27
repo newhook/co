@@ -68,6 +68,12 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("no beads found for %s", beadID)}
 		}
 
+		// Initialize zellij session (spawns control plane if new session)
+		sessionResult, err := control.InitializeSession(m.ctx, m.proj)
+		if err != nil {
+			logging.Warn("executeCreateWork InitializeSession failed", "error", err)
+		}
+
 		// Create work asynchronously (DB operations only, schedules tasks for control plane)
 		result, err := work.CreateWorkAsync(m.ctx, m.proj, branchName, "main", beadID, auto)
 		if err != nil {
@@ -86,6 +92,8 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		logging.Debug("executeCreateWork beads added successfully", "workID", result.WorkID)
 
 		// Ensure control plane is running to process the worktree creation task
+		// Note: InitializeSession spawns control plane for new sessions, but we call
+		// EnsureControlPlane for existing sessions that might have a dead control plane
 		err = control.EnsureControlPlane(m.ctx, m.proj)
 		if err != nil {
 			// Non-fatal: work was created but control plane might need manual start
@@ -93,7 +101,13 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		}
 		logging.Debug("executeCreateWork completed successfully", "workID", result.WorkID)
 
-		return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}
+		// Include session creation info in the result
+		msg := planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}
+		if sessionResult != nil && sessionResult.SessionCreated {
+			msg.sessionCreated = true
+			msg.sessionName = sessionResult.SessionName
+		}
+		return msg
 	}
 }
 

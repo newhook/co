@@ -146,28 +146,32 @@ func (c *Client) DeleteSession(ctx context.Context, name string) error {
 }
 
 // EnsureSession creates a session if it doesn't exist, or deletes and recreates it if exited.
-func (c *Client) EnsureSession(ctx context.Context, name string) error {
+// Returns true if a new session was created, false if an existing session was reused.
+func (c *Client) EnsureSession(ctx context.Context, name string) (bool, error) {
 	active, err := c.IsSessionActive(ctx, name)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if active {
-		return nil
+		return false, nil
 	}
 
 	// Check if session exists but is exited
 	exists, err := c.SessionExists(ctx, name)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if exists {
 		// Session is exited - delete it first
 		if err := c.DeleteSession(ctx, name); err != nil {
-			return fmt.Errorf("failed to delete exited session: %w", err)
+			return false, fmt.Errorf("failed to delete exited session: %w", err)
 		}
 	}
 
-	return c.CreateSession(ctx, name)
+	if err := c.CreateSession(ctx, name); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Tab management
