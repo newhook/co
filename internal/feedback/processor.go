@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback/logparser"
 	"github.com/newhook/co/internal/github"
 )
@@ -390,7 +391,7 @@ func (p *FeedbackProcessor) processConflicts(status *github.PRStatus) []github.F
 	var items []github.FeedbackItem
 
 	// GitHub returns mergeStateStatus="DIRTY" for PRs with conflicts
-	if status.MergeableState == "DIRTY" {
+	if status.MergeableState == db.MergeableStateDirty {
 		item := github.FeedbackItem{
 			Type:        github.FeedbackTypeConflict,
 			Title:       "Resolve merge conflicts with main",
