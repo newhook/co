@@ -41,6 +41,17 @@ const (
 	ApprovalStatusChangesRequested = "changes_requested"
 )
 
+// Mergeable state constants (from GitHub API mergeStateStatus)
+const (
+	MergeableStateClean    = "CLEAN"    // Ready to merge
+	MergeableStateDirty    = "DIRTY"    // Has conflicts
+	MergeableStateBlocked  = "BLOCKED"  // Blocked by checks
+	MergeableStateBehind   = "BEHIND"   // Behind base branch
+	MergeableStateDraft    = "DRAFT"    // Draft PR
+	MergeableStateUnstable = "UNSTABLE" // CI unstable
+	MergeableStateUnknown  = "UNKNOWN"  // Unknown state
+)
+
 // DB wraps the SQLite database connection and sqlc queries.
 type DB struct {
 	*sql.DB

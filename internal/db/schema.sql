@@ -24,7 +24,8 @@ CREATE TABLE works (
     approvers TEXT NOT NULL DEFAULT '[]',
     last_pr_poll_at DATETIME,
     has_unseen_pr_changes BOOLEAN NOT NULL DEFAULT FALSE,
-    pr_state TEXT NOT NULL DEFAULT ''
+    pr_state TEXT NOT NULL DEFAULT '',
+    mergeable_state TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX idx_works_status ON works(status);

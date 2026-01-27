@@ -66,7 +66,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE id = ?;
 
@@ -90,7 +91,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 ORDER BY created_at DESC;
 
@@ -114,7 +116,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE status = ?
 ORDER BY created_at DESC;
@@ -144,7 +147,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE worktree_path LIKE ?
 LIMIT 1;
@@ -202,6 +206,7 @@ SET ci_status = ?,
     approval_status = ?,
     approvers = ?,
     pr_state = ?,
+    mergeable_state = ?,
     last_pr_poll_at = ?
 WHERE id = ?;
 
@@ -242,7 +247,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE has_unseen_pr_changes = TRUE
 ORDER BY created_at DESC;
@@ -267,7 +273,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE pr_url != ''
 ORDER BY created_at DESC;

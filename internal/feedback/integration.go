@@ -238,7 +238,7 @@ func validatePriority(priority int) error {
 // GetBeadType converts a feedback type to a bead type string.
 func GetBeadType(feedbackType github.FeedbackType) string {
 	switch feedbackType {
-	case github.FeedbackTypeTest, github.FeedbackTypeBuild, github.FeedbackTypeCI:
+	case github.FeedbackTypeTest, github.FeedbackTypeBuild, github.FeedbackTypeCI, github.FeedbackTypeConflict:
 		return "bug"
 	case github.FeedbackTypeLint, github.FeedbackTypeSecurity:
 		return "task"

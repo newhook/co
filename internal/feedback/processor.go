@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback/logparser"
 	"github.com/newhook/co/internal/github"
 )
@@ -59,6 +60,10 @@ func (p *FeedbackProcessor) ProcessPRFeedback(ctx context.Context, prURL string)
 	// Process general comments
 	commentItems := p.processComments(status)
 	items = append(items, commentItems...)
+
+	// Process merge conflicts
+	conflictItems := p.processConflicts(status)
+	items = append(items, conflictItems...)
 
 	// Filter by minimum priority
 	filtered := make([]github.FeedbackItem, 0, len(items))
@@ -381,6 +386,31 @@ func (p *FeedbackProcessor) processComments(status *github.PRStatus) []github.Fe
 	return items
 }
 
+// processConflicts checks for merge conflicts in the PR.
+func (p *FeedbackProcessor) processConflicts(status *github.PRStatus) []github.FeedbackItem {
+	var items []github.FeedbackItem
+
+	// GitHub returns mergeStateStatus="DIRTY" for PRs with conflicts
+	if status.MergeableState == db.MergeableStateDirty {
+		item := github.FeedbackItem{
+			Type:        github.FeedbackTypeConflict,
+			Title:       "Resolve merge conflicts with main",
+			Description: "This branch has merge conflicts that must be resolved. Merge main into this branch and resolve any conflicts.",
+			Source: github.SourceInfo{
+				Type: github.SourceTypeCI,
+				ID:   "merge-conflict",
+				Name: "Merge Conflict",
+				URL:  status.URL,
+			},
+			Priority:   1,
+			Actionable: true,
+		}
+		items = append(items, item)
+	}
+
+	return items
+}
+
 // Helper functions
 
 func (p *FeedbackProcessor) categorizeCheckFailure(checkName string) github.FeedbackType {
@@ -519,8 +549,8 @@ func (p *FeedbackProcessor) getPriorityForType(feedbackType github.FeedbackType)
 	switch feedbackType {
 	case github.FeedbackTypeSecurity:
 		return 0 // Critical
-	case github.FeedbackTypeBuild, github.FeedbackTypeCI:
-		return 1 // High
+	case github.FeedbackTypeBuild, github.FeedbackTypeCI, github.FeedbackTypeConflict:
+		return 1 // High - conflicts block merging
 	case github.FeedbackTypeTest:
 		return 2 // Medium
 	case github.FeedbackTypeLint, github.FeedbackTypeReview:

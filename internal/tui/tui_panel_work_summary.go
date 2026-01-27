@@ -202,6 +202,41 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 			beadIDsStr := strings.Join(p.focusedWork.FeedbackBeadIDs, ", ")
 			fmt.Fprintf(&content, "  Feedback: %s\n", feedbackStyle.Render(beadIDsStr))
 		}
+
+		// Merge Status
+		if p.focusedWork.MergeableState != "" {
+			mergeIcon := "⏳"
+			mergeText := "Unknown"
+			mergeColor := lipgloss.Color("247") // dim
+			switch p.focusedWork.MergeableState {
+			case db.MergeableStateClean:
+				mergeIcon = "✓"
+				mergeText = "Ready to merge"
+				mergeColor = lipgloss.Color("82") // green
+			case db.MergeableStateDirty:
+				mergeIcon = "⚠"
+				mergeText = "Has conflicts"
+				mergeColor = lipgloss.Color("196") // red
+			case db.MergeableStateBlocked:
+				mergeIcon = "⏸"
+				mergeText = "Blocked by checks"
+				mergeColor = lipgloss.Color("226") // yellow
+			case db.MergeableStateBehind:
+				mergeIcon = "↓"
+				mergeText = "Behind main"
+				mergeColor = lipgloss.Color("247") // dim
+			case db.MergeableStateDraft:
+				mergeIcon = "📝"
+				mergeText = "Draft PR"
+				mergeColor = lipgloss.Color("247") // dim
+			case db.MergeableStateUnstable:
+				mergeIcon = "⚠"
+				mergeText = "CI unstable"
+				mergeColor = lipgloss.Color("226") // yellow
+			}
+			mergeStyle := lipgloss.NewStyle().Foreground(mergeColor)
+			fmt.Fprintf(&content, "  Merge: %s\n", mergeStyle.Render(mergeIcon+" "+mergeText))
+		}
 	}
 
 	// Creation time

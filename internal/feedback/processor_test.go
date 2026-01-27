@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/github"
 )
 
@@ -584,5 +585,66 @@ func TestProcessComments(t *testing.T) {
 	// Second should be test failure
 	if items[1].Type != github.FeedbackTypeTest {
 		t.Errorf("Second item type = %v, want %v", items[1].Type, github.FeedbackTypeTest)
+	}
+}
+
+func TestProcessConflicts(t *testing.T) {
+	processor := &FeedbackProcessor{
+		minPriority: 2,
+	}
+
+	tests := []struct {
+		name           string
+		mergeableState string
+		expectItems    int
+	}{
+		{"DIRTY state returns conflict item", db.MergeableStateDirty, 1},
+		{"CLEAN state returns empty", db.MergeableStateClean, 0},
+		{"BLOCKED state returns empty", db.MergeableStateBlocked, 0},
+		{"UNSTABLE state returns empty", db.MergeableStateUnstable, 0},
+		{"Empty state returns empty", "", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := &github.PRStatus{
+				URL:            "https://github.com/user/repo/pull/123",
+				MergeableState: tt.mergeableState,
+			}
+
+			items := processor.processConflicts(status)
+
+			if len(items) != tt.expectItems {
+				t.Errorf("processConflicts() returned %d items, want %d", len(items), tt.expectItems)
+			}
+
+			if tt.expectItems > 0 {
+				item := items[0]
+				if item.Type != github.FeedbackTypeConflict {
+					t.Errorf("Item type = %v, want %v", item.Type, github.FeedbackTypeConflict)
+				}
+				if item.Title != "Resolve merge conflicts with main" {
+					t.Errorf("Item title = %s, want 'Resolve merge conflicts with main'", item.Title)
+				}
+				if item.Priority != 1 {
+					t.Errorf("Item priority = %d, want 1", item.Priority)
+				}
+				if !item.Actionable {
+					t.Error("Item should be actionable")
+				}
+				if item.Source.ID != "merge-conflict" {
+					t.Errorf("Item source ID = %s, want 'merge-conflict'", item.Source.ID)
+				}
+			}
+		})
+	}
+}
+
+func TestGetPriorityForConflictType(t *testing.T) {
+	processor := &FeedbackProcessor{}
+
+	result := processor.getPriorityForType(github.FeedbackTypeConflict)
+	if result != 1 {
+		t.Errorf("getPriorityForType(FeedbackTypeConflict) = %d, want 1", result)
 	}
 }
