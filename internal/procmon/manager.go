@@ -49,6 +49,7 @@ func (m *Manager) SetNowFunc(f func() time.Time) {
 }
 
 // RegisterControlPlane registers this process as the control plane.
+// Any existing stale control plane record is cleaned up first.
 // Returns an error if registration fails.
 func (m *Manager) RegisterControlPlane(ctx context.Context) error {
 	m.mu.Lock()
@@ -56,6 +57,13 @@ func (m *Manager) RegisterControlPlane(ctx context.Context) error {
 
 	if m.running {
 		return fmt.Errorf("manager already running")
+	}
+
+	// Clean up any stale control plane record before registering
+	// This handles cases where a previous control plane was killed without cleanup
+	if err := m.db.CleanupStaleControlPlane(ctx); err != nil {
+		logging.Warn("failed to cleanup stale control plane", "error", err)
+		// Continue anyway - the registration will fail if there's a real conflict
 	}
 
 	m.id = uuid.New().String()

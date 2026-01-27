@@ -28,6 +28,11 @@ func findConfigFile(dir string) string {
 	return ""
 }
 
+// IsManaged returns true if the directory has a mise config file.
+func IsManaged(dir string) bool {
+	return findConfigFile(dir) != ""
+}
+
 // Trust runs `mise trust` in the given directory.
 func Trust(dir string) error {
 	cmd := exec.Command("mise", "trust")

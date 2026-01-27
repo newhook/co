@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+const deleteControlPlaneProcess = `-- name: DeleteControlPlaneProcess :exec
+DELETE FROM processes WHERE process_type = 'control_plane'
+`
+
+func (q *Queries) DeleteControlPlaneProcess(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteControlPlaneProcess)
+	return err
+}
+
 const deleteProcess = `-- name: DeleteProcess :exec
 DELETE FROM processes WHERE id = ?
 `

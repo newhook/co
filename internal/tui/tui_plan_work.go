@@ -29,8 +29,11 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 		tabName := claude.PlanTabName(beadID)
 		mainRepoPath := m.proj.MainRepoPath()
 
+		logging.Debug("spawnPlanSession started", "beadID", beadID, "session", session, "tabName", tabName)
+
 		// Check if session already running for this bead
 		running, _ := m.proj.DB.IsPlanSessionRunning(m.ctx, beadID)
+		logging.Debug("spawnPlanSession checked if running", "beadID", beadID, "running", running)
 		if running {
 			// Session exists - just switch to it
 			if err := m.zj.SwitchToTab(m.ctx, session, tabName); err != nil {
@@ -39,12 +42,35 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 			return planSessionSpawnedMsg{beadID: beadID, resumed: true}
 		}
 
+		// Initialize zellij session (spawns control plane if new session)
+		sessionResult, err := control.InitializeSession(m.ctx, m.proj)
+		if err != nil {
+			logging.Error("spawnPlanSession InitializeSession failed", "beadID", beadID, "error", err)
+			return planSessionSpawnedMsg{beadID: beadID, err: err}
+		}
+		logging.Debug("spawnPlanSession InitializeSession completed",
+			"beadID", beadID,
+			"sessionCreated", sessionResult != nil && sessionResult.SessionCreated,
+			"sessionName", func() string {
+				if sessionResult != nil {
+					return sessionResult.SessionName
+				}
+				return ""
+			}())
+
 		// Use the helper to spawn the plan session
 		if err := claude.SpawnPlanSession(m.ctx, beadID, m.proj.Config.Project.Name, mainRepoPath, io.Discard); err != nil {
+			logging.Error("spawnPlanSession SpawnPlanSession failed", "beadID", beadID, "error", err)
 			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
 
-		return planSessionSpawnedMsg{beadID: beadID, resumed: false}
+		msg := planSessionSpawnedMsg{beadID: beadID, resumed: false}
+		if sessionResult != nil && sessionResult.SessionCreated {
+			msg.sessionCreated = true
+			msg.sessionName = sessionResult.SessionName
+		}
+		logging.Debug("spawnPlanSession completed", "beadID", beadID, "sessionCreated", msg.sessionCreated, "sessionName", msg.sessionName)
+		return msg
 	}
 }
 

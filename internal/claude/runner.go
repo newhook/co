@@ -315,47 +315,25 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 		return err
 	}
 
-	// Build the orchestrate command with --work flag
-	orchestrateCommand := fmt.Sprintf("co orchestrate --work %s", workID)
-
 	// Check if tab already exists
 	tabExists, err := zc.TabExists(ctx, sessionName, tabName)
 	if err != nil {
 		return fmt.Errorf("failed to check if tab exists: %w", err)
 	}
 	if tabExists {
-		fmt.Fprintf(w, "Tab %s already exists, reusing...\n", tabName)
+		fmt.Fprintf(w, "Tab %s already exists, terminating and recreating...\n", tabName)
 
-		// Switch to the existing tab
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			fmt.Fprintf(w, "Warning: failed to switch to existing tab: %v\n", err)
+		// Terminate and close the existing tab
+		if err := zc.TerminateAndCloseTab(ctx, sessionName, tabName); err != nil {
+			fmt.Fprintf(w, "Warning: failed to terminate existing tab: %v\n", err)
 		}
+		time.Sleep(200 * time.Millisecond)
+	}
 
-		// Send Ctrl+C to terminate any running process
-		zc.SendCtrlC(ctx, sessionName)
-		time.Sleep(zc.CtrlCDelay)
-
-		// Clear the line and execute the command
-		if err := zc.ClearAndExecute(ctx, sessionName, orchestrateCommand); err != nil {
-			return fmt.Errorf("failed to execute orchestrate command: %w", err)
-		}
-	} else {
-		// Create a new tab
-		fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-		if err := zc.CreateTab(ctx, sessionName, tabName, workDir); err != nil {
-			return fmt.Errorf("failed to create tab: %w", err)
-		}
-
-		// Switch to the new tab
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
-		}
-
-		// Execute the orchestrate command
-		fmt.Fprintf(w, "Executing: %s\n", orchestrateCommand)
-		if err := zc.ExecuteCommand(ctx, sessionName, orchestrateCommand); err != nil {
-			return fmt.Errorf("failed to execute orchestrate command: %w", err)
-		}
+	// Create a new tab with the orchestrate command using a layout
+	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, "co", []string{"orchestrate", "--work", workID}); err != nil {
+		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
 	logging.Debug("SpawnWorkOrchestrator completed successfully", "workID", workID, "sessionName", sessionName, "tabName", tabName)
@@ -380,41 +358,31 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 	// Check if tab already exists
 	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
 	if tabExists {
-		fmt.Fprintf(w, "Console tab %s already exists, switching to it...\n", tabName)
-		// Switch to the existing tab
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			return fmt.Errorf("failed to switch to existing tab: %w", err)
+		fmt.Fprintf(w, "Console tab %s already exists\n", tabName)
+		return nil
+	}
+
+	// Build shell command with exports if needed
+	var command string
+	var args []string
+	if len(hooksEnv) > 0 {
+		var exports []string
+		for _, env := range hooksEnv {
+			exports = append(exports, fmt.Sprintf("export %s", env))
 		}
+		// Use bash -c to export vars and then exec bash for interactive shell
+		shellCmd := fmt.Sprintf("%s && exec bash", strings.Join(exports, " && "))
+		command = "bash"
+		args = []string{"-c", shellCmd}
 	} else {
-		// Create a new tab
-		fmt.Fprintf(w, "Creating console tab: %s in session %s with cwd=%s\n", tabName, sessionName, workDir)
-		if err := zc.CreateTab(ctx, sessionName, tabName, workDir); err != nil {
-			return fmt.Errorf("failed to create tab: %w", err)
-		}
+		command = "bash"
+		args = nil
+	}
 
-		// Send cd command and set env vars to ensure proper work context
-		// (zellij --cwd may not always work as expected)
-		if workDir != "" {
-			// Build export commands for hooks env
-			var exports []string
-			for _, env := range hooksEnv {
-				exports = append(exports, fmt.Sprintf("export %s", env))
-			}
-			var cmd string
-			if len(exports) > 0 {
-				cmd = fmt.Sprintf("cd %q && %s", workDir, strings.Join(exports, " && "))
-			} else {
-				cmd = fmt.Sprintf("cd %q", workDir)
-			}
-			if err := zc.ExecuteCommand(ctx, sessionName, cmd); err != nil {
-				fmt.Fprintf(w, "Warning: failed to initialize console: %v\n", err)
-			}
-		}
-
-		// Switch to the new tab
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
-		}
+	// Create tab with shell using layout approach
+	fmt.Fprintf(w, "Creating console tab: %s in session %s\n", tabName, sessionName)
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args); err != nil {
+		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
 	fmt.Fprintf(w, "Console opened in zellij session %s, tab %s\n", sessionName, tabName)
@@ -436,48 +404,43 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 		return err
 	}
 
-	// Build the claude command based on config
-	claudeCmd := "claude"
-	if cfg != nil && cfg.Claude.ShouldSkipPermissions() {
-		claudeCmd = "claude --dangerously-skip-permissions"
-	}
-
 	// Check if tab already exists
 	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
 	if tabExists {
-		fmt.Fprintf(w, "Claude session tab %s already exists, switching to it...\n", tabName)
-		// Switch to the existing tab
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			return fmt.Errorf("failed to switch to existing tab: %w", err)
-		}
-	} else {
-		// Create a new tab
-		fmt.Fprintf(w, "Creating Claude session tab: %s in session %s with cwd=%s\n", tabName, sessionName, workDir)
-		if err := zc.CreateTab(ctx, sessionName, tabName, workDir); err != nil {
-			return fmt.Errorf("failed to create tab: %w", err)
-		}
+		fmt.Fprintf(w, "Claude session tab %s already exists\n", tabName)
+		return nil
+	}
 
-		// Send cd command and set env vars to ensure proper work context
-		// (zellij --cwd may not always work as expected)
-		// Build export commands for hooks env
+	// Build the claude command with exports if needed
+	var claudeArgs []string
+	if cfg != nil && cfg.Claude.ShouldSkipPermissions() {
+		claudeArgs = []string{"--dangerously-skip-permissions"}
+	}
+
+	// If we have environment variables, use bash -c to export them
+	var command string
+	var args []string
+	if len(hooksEnv) > 0 {
 		var exports []string
 		for _, env := range hooksEnv {
 			exports = append(exports, fmt.Sprintf("export %s", env))
 		}
-		var cmd string
-		if len(exports) > 0 {
-			cmd = fmt.Sprintf("cd %q && %s && %s", workDir, strings.Join(exports, " && "), claudeCmd)
-		} else {
-			cmd = fmt.Sprintf("cd %q && %s", workDir, claudeCmd)
+		claudeCmd := "claude"
+		if len(claudeArgs) > 0 {
+			claudeCmd = "claude " + strings.Join(claudeArgs, " ")
 		}
-		if err := zc.ExecuteCommand(ctx, sessionName, cmd); err != nil {
-			fmt.Fprintf(w, "Warning: failed to initialize Claude session: %v\n", err)
-		}
+		shellCmd := fmt.Sprintf("%s && %s", strings.Join(exports, " && "), claudeCmd)
+		command = "bash"
+		args = []string{"-c", shellCmd}
+	} else {
+		command = "claude"
+		args = claudeArgs
+	}
 
-		// Switch to the new tab
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-			fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
-		}
+	// Create tab with command using layout approach
+	fmt.Fprintf(w, "Creating Claude session tab: %s in session %s\n", tabName, sessionName)
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args); err != nil {
+		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
 	fmt.Fprintf(w, "Claude session opened in zellij session %s, tab %s\n", sessionName, tabName)
@@ -504,9 +467,6 @@ func SpawnPlanSession(ctx context.Context, beadID string, projectName string, ma
 		return err
 	}
 
-	// Build the plan command
-	planCommand := fmt.Sprintf("co plan %s", beadID)
-
 	// Check if tab already exists
 	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
 	if tabExists {
@@ -519,23 +479,10 @@ func SpawnPlanSession(ctx context.Context, beadID string, projectName string, ma
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	// Create a new tab
+	// Create a new tab with the plan command using a layout
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTab(ctx, sessionName, tabName, mainRepoPath); err != nil {
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, mainRepoPath, "co", []string{"plan", beadID}); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
-	}
-
-	// Switch to the new tab
-	time.Sleep(200 * time.Millisecond)
-	if err := zc.SwitchToTab(ctx, sessionName, tabName); err != nil {
-		fmt.Fprintf(w, "Warning: failed to switch to tab: %v\n", err)
-	}
-
-	// Execute the plan command
-	fmt.Fprintf(w, "Executing: %s\n", planCommand)
-	time.Sleep(200 * time.Millisecond)
-	if err := zc.ExecuteCommand(ctx, sessionName, planCommand); err != nil {
-		return fmt.Errorf("failed to execute plan command: %w", err)
 	}
 
 	fmt.Fprintf(w, "Plan session spawned in zellij session %s, tab %s\n", sessionName, tabName)
@@ -551,32 +498,17 @@ func EnsureWorkOrchestrator(ctx context.Context, database *db.DB, workID string,
 	sessionName := SessionNameForProject(projectName)
 	tabName := FormatTabName("work", workID, friendlyName)
 
-	// Check if the tab already exists
+	// Check if the orchestrator is alive via database heartbeat
 	if TabExists(ctx, sessionName, tabName) {
-		// Tab exists, but we need to check if the orchestrator is actually running
-		// Check for orchestrator heartbeat in database
 		if alive, err := database.IsOrchestratorAlive(ctx, workID, db.DefaultStalenessThreshold); err == nil && alive {
-			// Orchestrator is alive
 			fmt.Fprintf(w, "Work orchestrator tab %s already exists and orchestrator is alive\n", tabName)
 			return false, nil
 		}
-
-		// Tab exists but orchestrator is dead - restart
+		// Tab exists but orchestrator is dead - SpawnWorkOrchestrator will terminate and recreate
 		fmt.Fprintf(w, "Work orchestrator tab %s exists but orchestrator is dead - restarting...\n", tabName)
-
-		// Try to close the dead tab first
-		zc := zellij.New()
-		if err := zc.SwitchToTab(ctx, sessionName, tabName); err == nil {
-			// Send Ctrl+C to ensure any hung process is terminated
-			zc.SendCtrlC(ctx, sessionName)
-			time.Sleep(zc.CtrlCDelay)
-			// Close the tab
-			zc.CloseTab(ctx, sessionName)
-			time.Sleep(500 * time.Millisecond)
-		}
 	}
 
-	// Spawn the orchestrator
+	// Spawn the orchestrator (handles existing tab termination)
 	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w); err != nil {
 		return false, err
 	}

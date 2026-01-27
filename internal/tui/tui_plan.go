@@ -660,6 +660,9 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.resumed {
 			m.statusMessage = fmt.Sprintf("Resumed session for %s", msg.beadID)
 			m.statusIsError = false
+		} else if msg.sessionCreated {
+			m.statusMessage = fmt.Sprintf("Started session for %s | Zellij: zellij attach %s", msg.beadID, msg.sessionName)
+			m.statusIsError = false
 		} else {
 			m.statusMessage = fmt.Sprintf("Started session for %s", msg.beadID)
 			m.statusIsError = false
@@ -892,9 +895,11 @@ type planStatusMsg struct {
 
 // planSessionSpawnedMsg indicates a planning session was spawned or resumed
 type planSessionSpawnedMsg struct {
-	beadID  string
-	resumed bool
-	err     error
+	beadID         string
+	resumed        bool
+	err            error
+	sessionCreated bool   // true if a new zellij session was created
+	sessionName    string // e.g., 'co-myproject'
 }
 
 // planWorkCreatedMsg indicates work was created from a bead
@@ -1634,9 +1639,6 @@ func (m *planModel) View() string {
 		return m.renderHelp()
 	}
 
-	// Render status bar using the panel
-	statusBar := m.statusBar.Render()
-
 	// Render work tabs bar (always visible)
 	workTabsBar := m.workTabsBar.Render()
 	tabsBarHeight := m.workTabsBar.Height()
@@ -1644,9 +1646,12 @@ func (m *planModel) View() string {
 	// Adjust content height for tabs bar
 	originalHeight := m.height
 	m.height = m.height - tabsBarHeight
-	m.syncPanels() // Re-sync with new height
+	m.syncPanels() // Sync all panels including status bar before rendering
 	content := m.renderTwoColumnLayout()
 	m.height = originalHeight
+
+	// Render status bar AFTER syncPanels to ensure status message is set
+	statusBar := m.statusBar.Render()
 
 	// Always include tab bar at top
 	return lipgloss.JoinVertical(lipgloss.Left, workTabsBar, content, statusBar)

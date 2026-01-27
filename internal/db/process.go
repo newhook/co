@@ -143,6 +143,17 @@ func (db *DB) UnregisterProcess(ctx context.Context, id string) error {
 	return nil
 }
 
+// CleanupStaleControlPlane removes any existing control plane record.
+// This is used before registering a new control plane to handle cases where
+// the previous control plane was killed without proper cleanup.
+func (db *DB) CleanupStaleControlPlane(ctx context.Context) error {
+	err := db.queries.DeleteControlPlaneProcess(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup stale control plane: %w", err)
+	}
+	return nil
+}
+
 // GetOrchestratorProcess retrieves the orchestrator process for a work ID.
 func (db *DB) GetOrchestratorProcess(ctx context.Context, workID string) (*Process, error) {
 	row, err := db.queries.GetOrchestratorProcess(ctx, sql.NullString{String: workID, Valid: true})

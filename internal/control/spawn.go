@@ -22,13 +22,18 @@ func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 	sessionName := claude.SessionNameForProject(projectName)
 	zc := zellij.New()
 
+	logging.Debug("SpawnControlPlane started", "sessionName", sessionName, "projectRoot", projectRoot)
+
 	// Ensure session exists
 	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
+		logging.Error("SpawnControlPlane EnsureSession failed", "error", err)
 		return err
 	}
+	logging.Debug("SpawnControlPlane EnsureSession completed")
 
 	// Check if control plane tab already exists
 	tabExists, _ := zc.TabExists(ctx, sessionName, TabName)
+	logging.Debug("SpawnControlPlane TabExists check", "tabExists", tabExists)
 	if tabExists {
 		return nil
 	}
@@ -37,18 +42,33 @@ func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 	controlPlaneCommand := fmt.Sprintf("co control --root %s", projectRoot)
 
 	// Create a new tab
+	logging.Debug("SpawnControlPlane creating tab", "tabName", TabName)
 	if err := zc.CreateTab(ctx, sessionName, TabName, projectRoot); err != nil {
+		logging.Error("SpawnControlPlane CreateTab failed", "error", err)
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
+	logging.Debug("SpawnControlPlane CreateTab completed")
 
-	// Switch to the tab and execute
-	if err := zc.SwitchToTab(ctx, sessionName, TabName); err != nil {
-		return fmt.Errorf("switching to tab failed: %w", err)
+	// Switch to the tab if we're inside the session
+	// Skip if not attached - go-to-tab-name blocks on detached sessions
+	// The newly created tab is already focused after creation
+	if zellij.IsInsideTargetSession(sessionName) {
+		logging.Debug("SpawnControlPlane switching to tab (inside session)")
+		if err := zc.SwitchToTab(ctx, sessionName, TabName); err != nil {
+			logging.Error("SpawnControlPlane SwitchToTab failed", "error", err)
+			return fmt.Errorf("switching to tab failed: %w", err)
+		}
+		logging.Debug("SpawnControlPlane SwitchToTab completed")
+	} else {
+		logging.Debug("SpawnControlPlane skipping SwitchToTab (not inside session)")
 	}
 
+	logging.Debug("SpawnControlPlane executing command", "command", controlPlaneCommand)
 	if err := zc.ExecuteCommand(ctx, sessionName, controlPlaneCommand); err != nil {
+		logging.Error("SpawnControlPlane ExecuteCommand failed", "error", err)
 		return fmt.Errorf("failed to execute control plane command: %w", err)
 	}
+	logging.Debug("SpawnControlPlane completed successfully")
 
 	return nil
 }
@@ -128,16 +148,16 @@ type SessionInitResult struct {
 	SessionName string
 }
 
-// InitializeSession ensures a zellij session exists and spawns the control plane if needed.
-// This is a higher-level function that consolidates session + control plane initialization.
+// InitializeSession ensures a zellij session exists with the control plane running.
+// When a new session is created, it uses a layout to start the control plane automatically.
 // Returns information about whether a new session was created.
 func InitializeSession(ctx context.Context, proj *project.Project) (*SessionInitResult, error) {
 	projectName := proj.Config.Project.Name
 	sessionName := claude.SessionNameForProject(projectName)
 	zc := zellij.New()
 
-	// Ensure session exists
-	sessionCreated, err := zc.EnsureSession(ctx, sessionName)
+	// Ensure session exists with layout (control plane starts automatically)
+	sessionCreated, err := zc.EnsureSessionWithLayout(ctx, sessionName, proj.Root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure zellij session: %w", err)
 	}
@@ -147,13 +167,8 @@ func InitializeSession(ctx context.Context, proj *project.Project) (*SessionInit
 		SessionName:    sessionName,
 	}
 
-	// If a new session was created, spawn the control plane
 	if sessionCreated {
-		logging.Debug("New zellij session created, spawning control plane", "sessionName", sessionName)
-		if err := SpawnControlPlane(ctx, proj); err != nil {
-			// Log but don't fail - session was created successfully
-			logging.Warn("Failed to spawn control plane on new session", "sessionName", sessionName, "error", err)
-		}
+		logging.Debug("New zellij session created with control plane layout", "sessionName", sessionName)
 	}
 
 	return result, nil

@@ -3,14 +3,36 @@
 package zellij
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
+	"text/template"
 	"time"
 )
+
+//go:embed layout.kdl.tmpl
+var layoutTemplate string
+
+//go:embed tab.kdl.tmpl
+var tabLayoutTemplate string
+
+// LayoutData contains the data for rendering the zellij layout template.
+type LayoutData struct {
+	ProjectRoot string
+}
+
+// TabLayoutData contains the data for rendering a tab layout template.
+type TabLayoutData struct {
+	TabName string
+	Command string
+	Args    []string
+	Cwd     string
+}
 
 // CurrentSessionName returns the name of the zellij session we're currently inside,
 // or empty string if not inside a zellij session.
@@ -136,6 +158,47 @@ func (c *Client) CreateSession(ctx context.Context, name string) error {
 	return nil
 }
 
+// CreateSessionWithLayout creates a new zellij session with a layout that starts
+// the control plane automatically. The layout file is written to .co/layout.kdl
+// for persistence and debugging.
+func (c *Client) CreateSessionWithLayout(ctx context.Context, name string, projectRoot string) error {
+	// Render the layout template
+	tmpl, err := template.New("layout").Parse(layoutTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse layout template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	data := LayoutData{ProjectRoot: projectRoot}
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Errorf("failed to render layout template: %w", err)
+	}
+
+	// Write to .co/layout.kdl
+	layoutPath := fmt.Sprintf("%s/.co/layout.kdl", projectRoot)
+	if err := os.WriteFile(layoutPath, buf.Bytes(), 0600); err != nil {
+		return fmt.Errorf("failed to write layout file: %w", err)
+	}
+
+	// Create session with the layout
+	// Use --new-session-with-layout for detached session creation
+	cmd := exec.CommandContext(ctx, "zellij", "-s", name, "--new-session-with-layout", layoutPath)
+	// Detach immediately by not connecting stdin/stdout
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start zellij session: %w", err)
+	}
+
+	// Don't wait for it - let it run in background
+	go func() { _ = cmd.Wait() }()
+
+	// Give it time to start
+	time.Sleep(c.SessionStartWait)
+	return nil
+}
+
 // DeleteSession deletes a zellij session by name.
 func (c *Client) DeleteSession(ctx context.Context, name string) error {
 	cmd := exec.CommandContext(ctx, "zellij", "delete-session", name)
@@ -174,6 +237,36 @@ func (c *Client) EnsureSession(ctx context.Context, name string) (bool, error) {
 	return true, nil
 }
 
+// EnsureSessionWithLayout creates a session with a layout if it doesn't exist,
+// or deletes and recreates it if exited. The layout starts the control plane automatically.
+// Returns true if a new session was created, false if an existing session was reused.
+func (c *Client) EnsureSessionWithLayout(ctx context.Context, name string, projectRoot string) (bool, error) {
+	active, err := c.IsSessionActive(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	if active {
+		return false, nil
+	}
+
+	// Check if session exists but is exited
+	exists, err := c.SessionExists(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	if exists {
+		// Session is exited - delete it first
+		if err := c.DeleteSession(ctx, name); err != nil {
+			return false, fmt.Errorf("failed to delete exited session: %w", err)
+		}
+	}
+
+	if err := c.CreateSessionWithLayout(ctx, name, projectRoot); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Tab management
 
 // CreateTab creates a new tab in the specified session.
@@ -185,6 +278,51 @@ func (c *Client) CreateTab(ctx context.Context, session, name, cwd string) error
 	cmd := exec.CommandContext(ctx, "zellij", args...)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
+	}
+	time.Sleep(c.TabCreateDelay)
+	return nil
+}
+
+// CreateTabWithCommand creates a new tab that runs a specific command.
+// This uses a layout file to ensure the command runs correctly even when
+// called from outside the zellij session.
+func (c *Client) CreateTabWithCommand(ctx context.Context, session, name, cwd, command string, args []string) error {
+	// Parse and render the tab layout template
+	tmpl, err := template.New("tab").Parse(tabLayoutTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse tab layout template: %w", err)
+	}
+
+	data := TabLayoutData{
+		TabName: name,
+		Command: command,
+		Args:    args,
+		Cwd:     cwd,
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Errorf("failed to render tab layout template: %w", err)
+	}
+
+	// Write layout to temp file
+	tmpFile, err := os.CreateTemp("", "zellij-tab-*.kdl")
+	if err != nil {
+		return fmt.Errorf("failed to create temp layout file: %w", err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+	if _, err := tmpFile.WriteString(buf.String()); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("failed to write tab layout file: %w", err)
+	}
+	_ = tmpFile.Close()
+
+	// Create the tab using the layout
+	cmdArgs := append(sessionArgs(session), "action", "new-tab", "--layout", tmpFile.Name())
+	cmd := exec.CommandContext(ctx, "zellij", cmdArgs...)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create tab with command: %w", err)
 	}
 	time.Sleep(c.TabCreateDelay)
 	return nil
