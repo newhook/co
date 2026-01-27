@@ -39,6 +39,16 @@ func Clone(ctx context.Context, source, dest string) error {
 	return nil
 }
 
+// FetchBranch fetches a specific branch from origin.
+func FetchBranch(ctx context.Context, repoPath, branch string) error {
+	cmd := exec.CommandContext(ctx, "git", "fetch", "origin", branch)
+	cmd.Dir = repoPath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to fetch branch %s: %w\n%s", branch, err, output)
+	}
+	return nil
+}
+
 // BranchExists checks if a branch exists locally or remotely.
 func BranchExists(ctx context.Context, repoPath, branchName string) bool {
 	// Check local branches
