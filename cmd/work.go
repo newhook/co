@@ -798,8 +798,11 @@ func CreatePRTask(ctx context.Context, proj *project.Project, workID string) (*C
 	}
 
 	// Generate task ID for PR creation
-	// Use a special ".pr" suffix for PR tasks
-	prTaskID := fmt.Sprintf("%s.pr", workID)
+	prTaskNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get next task number for PR: %w", err)
+	}
+	prTaskID := fmt.Sprintf("%s.%d", workID, prTaskNum)
 
 	// Create a PR creation task
 	if err := proj.DB.CreateTask(ctx, prTaskID, "pr", []string{}, 0, workID); err != nil {
@@ -881,23 +884,12 @@ func CreateReviewTask(ctx context.Context, proj *project.Project, workID string)
 		return nil, fmt.Errorf("work %s not found", workID)
 	}
 
-	// Get existing tasks to count reviews
-	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
+	// Generate task ID for review
+	reviewTaskNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get work tasks: %w", err)
+		return nil, fmt.Errorf("failed to get next task number for review: %w", err)
 	}
-
-	// Count existing review tasks to generate unique ID
-	reviewCount := 0
-	reviewPrefix := fmt.Sprintf("%s.review", workID)
-	for _, task := range tasks {
-		if strings.HasPrefix(task.ID, reviewPrefix) {
-			reviewCount++
-		}
-	}
-
-	// Generate unique review task ID (e.g., w-xxx.review-1, w-xxx.review-2)
-	reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
+	reviewTaskID := fmt.Sprintf("%s.%d", workID, reviewTaskNum)
 
 	// Create the review task
 	if err := proj.DB.CreateTask(ctx, reviewTaskID, "review", []string{}, 0, workID); err != nil {

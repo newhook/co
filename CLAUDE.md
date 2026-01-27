@@ -485,7 +485,7 @@ Creates a PR task for Claude to generate a pull request:
 ### `co work review [<id>]`
 Creates a review task to examine code changes:
 - Claude examines the work's branch for quality and security issues
-- Generates unique review task IDs (w-xxx.review-1, w-xxx.review-2, etc.)
+- Creates review task with sequential numeric ID (w-xxx.5, w-xxx.6, etc.)
 - Use `--auto` for review-fix loop until clean (max 3 iterations)
 
 ## Agent Commands

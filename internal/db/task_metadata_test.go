@@ -130,7 +130,7 @@ func TestAutoWorkflowMetadata_ManualReviewTask(t *testing.T) {
 	workID := createTestWork(t, db)
 
 	// Simulate creating a manual review task (like TUI does)
-	reviewTaskID := "work-1.review-1"
+	reviewTaskID := "work-1.1"
 	err := db.CreateTask(ctx, reviewTaskID, "review", nil, 0, workID)
 	require.NoError(t, err)
 
@@ -151,7 +151,7 @@ func TestAutoWorkflowMetadata_AutomatedReviewTask(t *testing.T) {
 	workID := createTestWork(t, db)
 
 	// Simulate creating an automated review task (no metadata set)
-	reviewTaskID := "work-1.review-1"
+	reviewTaskID := "work-1.1"
 	err := db.CreateTask(ctx, reviewTaskID, "review", nil, 0, workID)
 	require.NoError(t, err)
 
