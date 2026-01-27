@@ -29,10 +29,10 @@ path = {{.RepoPath | tomlString}}
 # Beads Configuration
 # =============================================================================
 [beads]
-# Where beads are stored: "repo" or "project"
-# "repo" = Uses existing beads in main/.beads/ (synced with git)
-# "project" = Project-local beads in .co/.beads/ (standalone, not synced)
-location = {{.BeadsLocation | tomlString}}
+# Path to beads directory (relative to project root)
+# "main/.beads" = Uses beads in repository (synced with git)
+# ".co/.beads" = Project-local beads (standalone, not synced)
+path = {{.BeadsPath | tomlString}}
 
 # =============================================================================
 # Hooks Configuration (Optional)

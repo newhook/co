@@ -98,14 +98,8 @@ func load(ctx context.Context, root string) (*Project, error) {
 	proj.DB = database
 
 	// Open the beads client automatically
-	// Determine beads path based on config
-	var beadsDBPath string
-	if cfg.Beads.Location == BeadsLocationProject {
-		beadsDBPath = filepath.Join(root, ConfigDir, ".beads", "beads.db")
-	} else {
-		// Default to repo location for backwards compatibility
-		beadsDBPath = filepath.Join(root, MainDir, ".beads", "beads.db")
-	}
+	// Use the configured beads path (relative to project root)
+	beadsDBPath := filepath.Join(root, cfg.Beads.Path, "beads.db")
 	beadsClient, err := beads.NewClient(ctx, beads.DefaultClientConfig(beadsDBPath))
 	if err != nil {
 		database.Close() // Clean up the already-opened DB
@@ -144,7 +138,7 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 	mainPath := filepath.Join(absDir, MainDir)
 
 	// Determine repo type and set up main/
-	repoType, beadsLocation, err := setupRepo(ctx, repoSource, absDir, mainPath)
+	repoType, beadsPath, err := setupRepo(ctx, repoSource, absDir, mainPath)
 	if err != nil {
 		// Clean up on failure
 		os.RemoveAll(absDir)
@@ -163,7 +157,7 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 			Path:   MainDir,
 		},
 		Beads: BeadsConfig{
-			Location: beadsLocation,
+			Path: beadsPath,
 		},
 	}
 
@@ -189,15 +183,15 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 	}, nil
 }
 
-// BeadsLocationRepo indicates beads are in the repository (main/.beads/).
-const BeadsLocationRepo = "repo"
+// BeadsPathRepo is the path for beads in the repository (synced with git).
+const BeadsPathRepo = "main/.beads"
 
-// BeadsLocationProject indicates beads are project-local (.co/.beads/).
-const BeadsLocationProject = "project"
+// BeadsPathProject is the path for project-local beads (standalone, not synced).
+const BeadsPathProject = ".co/.beads"
 
 // setupRepo sets up the main/ directory based on the repo source.
-// Returns the repo type ("local" or "github") and beads location ("repo" or "project").
-func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoType string, beadsLocation string, err error) {
+// Returns the repo type ("local" or "github") and beads path (relative to project root).
+func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoType string, beadsPath string, err error) {
 	if isGitHubURL(source) {
 		// Clone from GitHub
 		if err := git.Clone(ctx, source, mainPath); err != nil {
@@ -232,7 +226,7 @@ func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoT
 	if _, err := os.Stat(repoBeadsPath); err == nil {
 		// Repo already has beads - use them
 		fmt.Printf("Using existing beads in %s\n", repoBeadsPath)
-		beadsLocation = BeadsLocationRepo
+		beadsPath = BeadsPathRepo
 
 		// Install hooks for repo-based beads
 		if err := beads.InstallHooks(ctx, mainPath); err != nil {
@@ -242,7 +236,7 @@ func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoT
 		// No beads in repo - create project-local beads
 		projectBeadsPath := filepath.Join(projectRoot, ConfigDir, ".beads")
 		fmt.Printf("Initializing project-local beads in %s\n", projectBeadsPath)
-		beadsLocation = BeadsLocationProject
+		beadsPath = BeadsPathProject
 
 		// Initialize beads in project directory (skip hooks - not synced to git)
 		if err := beads.Init(ctx, projectBeadsPath); err != nil {
@@ -262,7 +256,7 @@ func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoT
 		fmt.Printf("Warning: mise initialization failed: %v\n", err)
 	}
 
-	return repoType, beadsLocation, nil
+	return repoType, beadsPath, nil
 }
 
 // isGitHubURL returns true if the source looks like a GitHub URL.
@@ -279,10 +273,7 @@ func (p *Project) MainRepoPath() string {
 
 // BeadsPath returns the path to the beads directory.
 func (p *Project) BeadsPath() string {
-	if p.Config.Beads.Location == BeadsLocationProject {
-		return filepath.Join(p.Root, ConfigDir, ".beads")
-	}
-	return filepath.Join(p.Root, MainDir, ".beads")
+	return filepath.Join(p.Root, p.Config.Beads.Path)
 }
 
 // WorktreePath returns the path where a task's worktree should be created.
