@@ -335,6 +335,15 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	// If --auto, run the full automated workflow
 	if flagAutoRun {
+		// Initialize zellij session and spawn control plane if new session
+		sessionResult, err := control.InitializeSession(ctx, proj)
+		if err != nil {
+			fmt.Printf("Warning: failed to initialize zellij session: %v\n", err)
+		} else if sessionResult.SessionCreated {
+			// Display notification for new session
+			printSessionCreatedNotification(sessionResult.SessionName)
+		}
+
 		fmt.Println("\nRunning automated workflow...")
 		result, err := work.RunWorkAuto(ctx, proj, workID, os.Stdout)
 		if err != nil {
@@ -344,11 +353,22 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 			fmt.Println("Orchestrator spawned in zellij tab.")
 		}
 		// Ensure control plane is running (handles scheduled tasks like PR feedback polling)
+		// Note: InitializeSession spawns control plane for new sessions, but we call
+		// EnsureControlPlane for existing sessions that might have a dead control plane
 		if err := control.EnsureControlPlane(ctx, proj); err != nil {
 			fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
 		}
 		fmt.Println("Switch to the zellij session to monitor progress.")
 		return nil
+	}
+
+	// Initialize zellij session and spawn control plane if new session
+	sessionResult, err := control.InitializeSession(ctx, proj)
+	if err != nil {
+		fmt.Printf("Warning: failed to initialize zellij session: %v\n", err)
+	} else if sessionResult.SessionCreated {
+		// Display notification for new session
+		printSessionCreatedNotification(sessionResult.SessionName)
 	}
 
 	// Spawn the orchestrator for this work
@@ -361,6 +381,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Ensure control plane is running (handles scheduled tasks like PR feedback polling)
+	// Note: InitializeSession spawns control plane for new sessions, but we call
+	// EnsureControlPlane for existing sessions that might have a dead control plane
 	if err := control.EnsureControlPlane(ctx, proj); err != nil {
 		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
 	}
@@ -1168,6 +1190,18 @@ func runWorkRestart(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Work %s restarted. The orchestrator will resume processing.\n", workID)
 	return nil
+}
+
+// printSessionCreatedNotification displays a prominent notification when a new zellij session is created.
+func printSessionCreatedNotification(sessionName string) {
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Printf("  Zellij session created: %s\n", sessionName)
+	fmt.Println()
+	fmt.Println("  To attach to the session, run:")
+	fmt.Printf("    zellij attach %s\n", sessionName)
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Println()
 }
 
 func runWorkComplete(cmd *cobra.Command, args []string) error {
