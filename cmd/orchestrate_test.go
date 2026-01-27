@@ -35,7 +35,7 @@ func TestAutoWorkflowMetadata_ManualReviewSkipsAutomatedWorkflow(t *testing.T) {
 	err := testDB.CreateWork(ctx, "work-1", "Test Work", "/tmp/test", "feat/test", "main", "", false)
 	require.NoError(t, err)
 
-	reviewTaskID := "work-1.review-1"
+	reviewTaskID := "work-1.1"
 	err = testDB.CreateTask(ctx, reviewTaskID, "review", nil, 0, "work-1")
 	require.NoError(t, err)
 
@@ -66,7 +66,7 @@ func TestAutoWorkflowMetadata_AutomatedReviewContinuesWorkflow(t *testing.T) {
 	err := testDB.CreateWork(ctx, "work-1", "Test Work", "/tmp/test", "feat/test", "main", "", false)
 	require.NoError(t, err)
 
-	reviewTaskID := "work-1.review-1"
+	reviewTaskID := "work-1.1"
 	err = testDB.CreateTask(ctx, reviewTaskID, "review", nil, 0, "work-1")
 	require.NoError(t, err)
 
@@ -95,7 +95,7 @@ func TestAutoWorkflowMetadata_ExplicitTrueAlsoContinuesWorkflow(t *testing.T) {
 	err := testDB.CreateWork(ctx, "work-1", "Test Work", "/tmp/test", "feat/test", "main", "", false)
 	require.NoError(t, err)
 
-	reviewTaskID := "work-1.review-1"
+	reviewTaskID := "work-1.1"
 	err = testDB.CreateTask(ctx, reviewTaskID, "review", nil, 0, "work-1")
 	require.NoError(t, err)
 
@@ -111,25 +111,21 @@ func TestAutoWorkflowMetadata_ExplicitTrueAlsoContinuesWorkflow(t *testing.T) {
 	assert.True(t, shouldContinueWorkflow, "auto_workflow=true should continue workflow")
 }
 
-func TestReviewTaskIDFormat(t *testing.T) {
-	// Verify the review task ID format used by TUI
-	// The format is: {workID}.review-{reviewNumber}
+func TestTaskIDFormat(t *testing.T) {
+	// Verify all task types use sequential numeric IDs: {workID}.{number}
 
 	workID := "work-1"
 
-	// The actual format in code: fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
-	// When reviewCount=0, the ID is work-1.review-1
-	reviewTaskID := workID + ".review-" + "1"
-	expectedID := "work-1.review-1"
+	// All task types use the same format: workID.number
+	// The task_type column indicates whether it's implement, review, pr, etc.
+	reviewTaskID := workID + ".1"
+	assert.Equal(t, "work-1.1", reviewTaskID)
 
-	// Verify format matches expected
-	assert.Equal(t, expectedID, reviewTaskID)
-	assert.Contains(t, reviewTaskID, workID)
-	assert.Contains(t, reviewTaskID, ".review-")
+	prTaskID := workID + ".2"
+	assert.Equal(t, "work-1.2", prTaskID)
 
-	// Test with different review count (reviewCount=2 -> review-3)
-	reviewTaskID2 := workID + ".review-" + "3"
-	assert.Equal(t, "work-1.review-3", reviewTaskID2)
+	implementTaskID := workID + ".3"
+	assert.Equal(t, "work-1.3", implementTaskID)
 }
 
 // TestGetReadyTasksRespectsDependencies tests that GetReadyTasksForWork

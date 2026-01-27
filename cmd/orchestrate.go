@@ -406,7 +406,11 @@ func handlePostEstimation(proj *project.Project, estimateTask *db.Task, work *db
 
 	// Create review task (depends on all implement tasks)
 	// PR task is NOT created here - it will be created after review passes
-	reviewTaskID := fmt.Sprintf("%s.review-1", work.ID)
+	reviewTaskNum, err := proj.DB.GetNextTaskNumber(ctx, work.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get next task number for review: %w", err)
+	}
+	reviewTaskID := fmt.Sprintf("%s.%d", work.ID, reviewTaskNum)
 	if err := proj.DB.CreateTask(ctx, reviewTaskID, "review", nil, 0, work.ID); err != nil {
 		return fmt.Errorf("failed to create review task: %w", err)
 	}
@@ -525,7 +529,11 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 	}
 
 	// Create a new review task that depends on all fix tasks
-	newReviewTaskID := fmt.Sprintf("%s.review-%d", work.ID, reviewCount+1)
+	newReviewTaskNum, err := proj.DB.GetNextTaskNumber(ctx, work.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get next task number for review: %w", err)
+	}
+	newReviewTaskID := fmt.Sprintf("%s.%d", work.ID, newReviewTaskNum)
 	if err := proj.DB.CreateTask(ctx, newReviewTaskID, "review", nil, 0, work.ID); err != nil {
 		return fmt.Errorf("failed to create new review task: %w", err)
 	}
@@ -543,17 +551,11 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 func createPRTask(proj *project.Project, work *db.Work, reviewTaskID string) error {
 	ctx := GetContext()
 
-	prTaskID := fmt.Sprintf("%s.pr", work.ID)
-
-	// Check if PR task already exists
-	existingTask, err := proj.DB.GetTask(ctx, prTaskID)
+	prTaskNum, err := proj.DB.GetNextTaskNumber(ctx, work.ID)
 	if err != nil {
-		return fmt.Errorf("failed to check for existing PR task: %w", err)
+		return fmt.Errorf("failed to get next task number for PR: %w", err)
 	}
-	if existingTask != nil {
-		fmt.Printf("PR task %s already exists (status: %s)\n", prTaskID, existingTask.Status)
-		return nil
-	}
+	prTaskID := fmt.Sprintf("%s.%d", work.ID, prTaskNum)
 
 	if err := proj.DB.CreateTask(ctx, prTaskID, "pr", nil, 0, work.ID); err != nil {
 		return fmt.Errorf("failed to create PR task: %w", err)

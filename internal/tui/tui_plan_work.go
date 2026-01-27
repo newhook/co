@@ -203,23 +203,12 @@ func (m *planModel) createReviewTask() tea.Cmd {
 			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
-		// Get existing tasks to generate unique review ID
-		tasks, err := m.proj.DB.GetWorkTasks(m.ctx, workID)
+		// Generate task ID for review
+		reviewTaskNum, err := m.proj.DB.GetNextTaskNumber(m.ctx, workID)
 		if err != nil {
-			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("failed to get work tasks: %w", err)}
+			return workCommandMsg{action: "Create review", workID: workID, err: fmt.Errorf("failed to get next task number: %w", err)}
 		}
-
-		// Count existing review tasks
-		reviewCount := 0
-		reviewPrefix := fmt.Sprintf("%s.review", workID)
-		for _, task := range tasks {
-			if strings.HasPrefix(task.ID, reviewPrefix) {
-				reviewCount++
-			}
-		}
-
-		// Generate unique review task ID
-		reviewTaskID := fmt.Sprintf("%s.review-%d", workID, reviewCount+1)
+		reviewTaskID := fmt.Sprintf("%s.%d", workID, reviewTaskNum)
 
 		// Create the review task
 		err = m.proj.DB.CreateTask(m.ctx, reviewTaskID, "review", []string{}, 0, workID)
@@ -254,8 +243,12 @@ func (m *planModel) createPRTask() tea.Cmd {
 			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("PR already exists: %s", work.PRURL)}
 		}
 
-		// Generate PR task ID
-		prTaskID := fmt.Sprintf("%s.pr", workID)
+		// Generate task ID for PR
+		prTaskNum, err := m.proj.DB.GetNextTaskNumber(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Create PR", workID: workID, err: fmt.Errorf("failed to get next task number: %w", err)}
+		}
+		prTaskID := fmt.Sprintf("%s.%d", workID, prTaskNum)
 
 		// Create the PR task
 		err = m.proj.DB.CreateTask(m.ctx, prTaskID, "pr", []string{}, 0, workID)
