@@ -137,7 +137,7 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 	mainPath := filepath.Join(absDir, MainDir)
 
 	// Determine repo type and set up main/
-	repoType, err := setupRepo(ctx, repoSource, mainPath)
+	repoType, err := setupRepo(ctx, repoSource, absDir, mainPath)
 	if err != nil {
 		// Clean up on failure
 		os.RemoveAll(absDir)
@@ -181,7 +181,7 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 
 // setupRepo sets up the main/ directory based on the repo source.
 // Returns the repo type ("local" or "github").
-func setupRepo(ctx context.Context, source, mainPath string) (string, error) {
+func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (string, error) {
 	var repoType string
 
 	if isGitHubURL(source) {
@@ -222,8 +222,15 @@ func setupRepo(ctx context.Context, source, mainPath string) (string, error) {
 		return "", fmt.Errorf("failed to install beads hooks: %w", err)
 	}
 
-	// Initialize mise (optional - warn on error)
-	if err := mise.Initialize(mainPath); err != nil {
+	// Generate mise config in project root with co's required tools
+	if err := mise.GenerateConfig(projectRoot); err != nil {
+		fmt.Printf("Warning: failed to generate mise config: %v\n", err)
+	} else {
+		fmt.Printf("Mise: generated .mise.toml with co requirements\n")
+	}
+
+	// Initialize mise in project root (optional - warn on error)
+	if err := mise.Initialize(projectRoot); err != nil {
 		fmt.Printf("Warning: mise initialization failed: %v\n", err)
 	}
 

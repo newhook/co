@@ -280,8 +280,14 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// Create git worktree inside work directory
 	worktreePath := filepath.Join(workDir, "tree")
 
-	// Create worktree with new branch
-	if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, baseBranch); err != nil {
+	// Fetch latest from origin for the base branch
+	if err := git.FetchBranch(ctx, mainRepoPath, baseBranch); err != nil {
+		os.RemoveAll(workDir)
+		return fmt.Errorf("failed to fetch base branch: %w", err)
+	}
+
+	// Create worktree with new branch based on origin/<baseBranch>
+	if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, "origin/"+baseBranch); err != nil {
 		os.RemoveAll(workDir)
 		return err
 	}
