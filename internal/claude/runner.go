@@ -123,7 +123,9 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w
 	}
 
 	// Find tabs to terminate
-	workTabName := fmt.Sprintf("work-%s", workID)
+	// Use prefix matching for all tab types to handle friendly names
+	// Tab names can be "prefix-workID" or "prefix-workID (friendlyName)"
+	workTabPrefix := fmt.Sprintf("work-%s", workID)
 	taskTabPrefix := fmt.Sprintf("task-%s.", workID)
 	consoleTabPrefix := fmt.Sprintf("console-%s", workID)
 	claudeTabPrefix := fmt.Sprintf("claude-%s", workID)
@@ -135,7 +137,8 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w
 			continue
 		}
 		// Match work orchestrator tab, task tabs, console tabs, or claude tabs for this work
-		if tabName == workTabName ||
+		// Use prefix matching for work tabs too since they may include a friendly name suffix
+		if strings.HasPrefix(tabName, workTabPrefix) ||
 			strings.HasPrefix(tabName, taskTabPrefix) ||
 			strings.HasPrefix(tabName, consoleTabPrefix) ||
 			strings.HasPrefix(tabName, claudeTabPrefix) {
