@@ -15,6 +15,7 @@ const (
 	FeedbackTypeReview   FeedbackType = "review_comment"
 	FeedbackTypeSecurity FeedbackType = "security_issue"
 	FeedbackTypeGeneral  FeedbackType = "general"
+	FeedbackTypeConflict FeedbackType = "merge_conflict"
 )
 
 // FeedbackItem represents a piece of feedback from GitHub that could become a bead.
