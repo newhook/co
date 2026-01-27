@@ -519,8 +519,8 @@ func (p *FeedbackProcessor) getPriorityForType(feedbackType github.FeedbackType)
 	switch feedbackType {
 	case github.FeedbackTypeSecurity:
 		return 0 // Critical
-	case github.FeedbackTypeBuild, github.FeedbackTypeCI:
-		return 1 // High
+	case github.FeedbackTypeBuild, github.FeedbackTypeCI, github.FeedbackTypeConflict:
+		return 1 // High - conflicts block merging
 	case github.FeedbackTypeTest:
 		return 2 // Medium
 	case github.FeedbackTypeLint, github.FeedbackTypeReview:
