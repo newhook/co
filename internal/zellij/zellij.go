@@ -176,7 +176,7 @@ func (c *Client) CreateSessionWithLayout(ctx context.Context, name string, proje
 
 	// Write to .co/layout.kdl
 	layoutPath := fmt.Sprintf("%s/.co/layout.kdl", projectRoot)
-	if err := os.WriteFile(layoutPath, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(layoutPath, buf.Bytes(), 0600); err != nil {
 		return fmt.Errorf("failed to write layout file: %w", err)
 	}
 
@@ -192,7 +192,7 @@ func (c *Client) CreateSessionWithLayout(ctx context.Context, name string, proje
 	}
 
 	// Don't wait for it - let it run in background
-	go cmd.Wait()
+	go func() { _ = cmd.Wait() }()
 
 	// Give it time to start
 	time.Sleep(c.SessionStartWait)
@@ -310,13 +310,13 @@ func (c *Client) CreateTabWithCommand(ctx context.Context, session, name, cwd, c
 	if err != nil {
 		return fmt.Errorf("failed to create temp layout file: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(buf.String()); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return fmt.Errorf("failed to write tab layout file: %w", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Create the tab using the layout
 	cmdArgs := append(sessionArgs(session), "action", "new-tab", "--layout", tmpFile.Name())
