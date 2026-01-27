@@ -100,7 +100,8 @@ func TabExists(ctx context.Context, sessionName, tabName string) bool {
 }
 
 // TerminateWorkTabs terminates all zellij tabs associated with a work unit.
-// This includes the work orchestrator tab (work-<workID>) and all task tabs (task-<workID>.*).
+// This includes the work orchestrator tab (work-<workID>), task tabs (task-<workID>.*),
+// console tabs (console-<workID>*), and claude tabs (claude-<workID>*).
 // Each tab's running process is terminated with Ctrl+C before the tab is closed.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
 func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w io.Writer) error {
@@ -124,6 +125,8 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w
 	// Find tabs to terminate
 	workTabName := fmt.Sprintf("work-%s", workID)
 	taskTabPrefix := fmt.Sprintf("task-%s.", workID)
+	consoleTabPrefix := fmt.Sprintf("console-%s", workID)
+	claudeTabPrefix := fmt.Sprintf("claude-%s", workID)
 
 	var tabsToClose []string
 	for _, tabName := range tabNames {
@@ -131,8 +134,11 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w
 		if tabName == "" {
 			continue
 		}
-		// Match work orchestrator tab or task tabs for this work
-		if tabName == workTabName || strings.HasPrefix(tabName, taskTabPrefix) {
+		// Match work orchestrator tab, task tabs, console tabs, or claude tabs for this work
+		if tabName == workTabName ||
+			strings.HasPrefix(tabName, taskTabPrefix) ||
+			strings.HasPrefix(tabName, consoleTabPrefix) ||
+			strings.HasPrefix(tabName, claudeTabPrefix) {
 			tabsToClose = append(tabsToClose, tabName)
 		}
 	}

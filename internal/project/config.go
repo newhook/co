@@ -24,6 +24,7 @@ type Config struct {
 	Claude    ClaudeConfig    `toml:"claude"`
 	Workflow  WorkflowConfig  `toml:"workflow"`
 	Scheduler SchedulerConfig `toml:"scheduler"`
+	Zellij    ZellijConfig    `toml:"zellij"`
 }
 
 // ClaudeConfig contains Claude Code configuration.
@@ -179,6 +180,23 @@ func (s *SchedulerConfig) GetActivityUpdateInterval() time.Duration {
 		return time.Duration(*s.ActivityUpdateSeconds) * time.Second
 	}
 	return 30 * time.Second
+}
+
+// ZellijConfig contains zellij tab management configuration.
+type ZellijConfig struct {
+	// KillTabsOnDestroy controls whether to automatically kill zellij tabs
+	// when work is destroyed. Includes work, task, console, and claude tabs.
+	// Defaults to true when not specified.
+	KillTabsOnDestroy *bool `toml:"kill_tabs_on_destroy"`
+}
+
+// ShouldKillTabsOnDestroy returns true if zellij tabs should be killed when work is destroyed.
+// Defaults to true when not explicitly configured.
+func (z *ZellijConfig) ShouldKillTabsOnDestroy() bool {
+	if z.KillTabsOnDestroy == nil {
+		return true // default to true
+	}
+	return *z.KillTabsOnDestroy
 }
 
 // LoadConfig reads and parses a config.toml file.

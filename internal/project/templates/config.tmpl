@@ -95,6 +95,17 @@ path = {{.RepoPath | tomlString}}
 # activity_update_seconds = 60
 
 # =============================================================================
+# Zellij Configuration (Optional)
+# =============================================================================
+# Controls zellij tab management behavior.
+#
+# [zellij]
+# # Whether to automatically kill zellij tabs when work is destroyed.
+# # Includes work, task, console, and claude tabs for the work unit.
+# # Defaults to true when not specified.
+# kill_tabs_on_destroy = false
+
+# =============================================================================
 # Linear Integration (Optional)
 # =============================================================================
 # Authentication for importing issues from Linear.
