@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/github"
 )
 
@@ -597,10 +598,10 @@ func TestProcessConflicts(t *testing.T) {
 		mergeableState string
 		expectItems    int
 	}{
-		{"DIRTY state returns conflict item", "DIRTY", 1},
-		{"CLEAN state returns empty", "CLEAN", 0},
-		{"BLOCKED state returns empty", "BLOCKED", 0},
-		{"UNSTABLE state returns empty", "UNSTABLE", 0},
+		{"DIRTY state returns conflict item", db.MergeableStateDirty, 1},
+		{"CLEAN state returns empty", db.MergeableStateClean, 0},
+		{"BLOCKED state returns empty", db.MergeableStateBlocked, 0},
+		{"UNSTABLE state returns empty", db.MergeableStateUnstable, 0},
 		{"Empty state returns empty", "", 0},
 	}
 
