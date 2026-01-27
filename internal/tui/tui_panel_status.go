@@ -178,7 +178,6 @@ func (s *StatusBar) Render() string {
 		if availableWidth <= 3 {
 			// Not enough room for status, hide it
 			status = ""
-			statusPlain = ""
 			statusWidth = 0
 		} else {
 			// Truncate with ellipsis

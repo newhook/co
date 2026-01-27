@@ -196,7 +196,7 @@ func Create(ctx context.Context, beadsDir string, opts CreateOptions) (string, e
 			// Check it looks like a bead ID (letters/numbers and dashes only)
 			isBeadID := true
 			for _, c := range p {
-				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+				if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' {
 					isBeadID = false
 					break
 				}
