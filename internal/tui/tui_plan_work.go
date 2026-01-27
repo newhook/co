@@ -69,9 +69,9 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		}
 
 		// Initialize zellij session (spawns control plane if new session)
-		sessionResult, sessionErr := control.InitializeSession(m.ctx, m.proj)
-		if sessionErr != nil {
-			logging.Warn("executeCreateWork InitializeSession failed", "error", sessionErr)
+		sessionResult, err := control.InitializeSession(m.ctx, m.proj)
+		if err != nil {
+			logging.Warn("executeCreateWork InitializeSession failed", "error", err)
 		}
 
 		// Create work asynchronously (DB operations only, schedules tasks for control plane)
