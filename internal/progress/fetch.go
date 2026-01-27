@@ -238,6 +238,7 @@ func FetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 	wp.CIStatus = work.CIStatus
 	wp.ApprovalStatus = work.ApprovalStatus
 	wp.HasUnseenPRChanges = work.HasUnseenPRChanges
+	wp.MergeableState = work.MergeableState
 
 	// Parse approvers JSON array
 	if work.Approvers != "" {

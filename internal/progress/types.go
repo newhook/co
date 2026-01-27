@@ -19,6 +19,7 @@ type WorkProgress struct {
 	ApprovalStatus     string   // pending, approved, changes_requested
 	Approvers          []string // list of usernames who approved
 	HasUnseenPRChanges bool     // true if there are unseen PR changes
+	MergeableState     string   // CLEAN, DIRTY, BLOCKED, BEHIND, DRAFT, UNSTABLE, UNKNOWN
 }
 
 // TaskProgress holds progress info for a task.

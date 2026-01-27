@@ -151,6 +151,7 @@ type Work struct {
 	LastPrPollAt       sql.NullTime `json:"last_pr_poll_at"`
 	HasUnseenPrChanges bool         `json:"has_unseen_pr_changes"`
 	PrState            string       `json:"pr_state"`
+	MergeableState     string       `json:"mergeable_state"`
 }
 
 type WorkBead struct {

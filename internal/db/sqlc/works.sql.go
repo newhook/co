@@ -172,7 +172,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE id = ?
 `
@@ -202,6 +203,7 @@ func (q *Queries) GetWork(ctx context.Context, id string) (Work, error) {
 		&i.LastPrPollAt,
 		&i.HasUnseenPrChanges,
 		&i.PrState,
+		&i.MergeableState,
 	)
 	return i, err
 }
@@ -226,7 +228,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE worktree_path LIKE ?
 LIMIT 1
@@ -257,6 +260,7 @@ func (q *Queries) GetWorkByDirectory(ctx context.Context, worktreePath string) (
 		&i.LastPrPollAt,
 		&i.HasUnseenPrChanges,
 		&i.PrState,
+		&i.MergeableState,
 	)
 	return i, err
 }
@@ -356,7 +360,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE pr_url != ''
 ORDER BY created_at DESC
@@ -393,6 +398,7 @@ func (q *Queries) GetWorksWithPRs(ctx context.Context) ([]Work, error) {
 			&i.LastPrPollAt,
 			&i.HasUnseenPrChanges,
 			&i.PrState,
+			&i.MergeableState,
 		); err != nil {
 			return nil, err
 		}
@@ -427,7 +433,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE has_unseen_pr_changes = TRUE
 ORDER BY created_at DESC
@@ -464,6 +471,7 @@ func (q *Queries) GetWorksWithUnseenChanges(ctx context.Context) ([]Work, error)
 			&i.LastPrPollAt,
 			&i.HasUnseenPrChanges,
 			&i.PrState,
+			&i.MergeableState,
 		); err != nil {
 			return nil, err
 		}
@@ -543,7 +551,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 ORDER BY created_at DESC
 `
@@ -579,6 +588,7 @@ func (q *Queries) ListWorks(ctx context.Context) ([]Work, error) {
 			&i.LastPrPollAt,
 			&i.HasUnseenPrChanges,
 			&i.PrState,
+			&i.MergeableState,
 		); err != nil {
 			return nil, err
 		}
@@ -613,7 +623,8 @@ SELECT id, status,
        approvers,
        last_pr_poll_at,
        has_unseen_pr_changes,
-       pr_state
+       pr_state,
+       mergeable_state
 FROM works
 WHERE status = ?
 ORDER BY created_at DESC
@@ -650,6 +661,7 @@ func (q *Queries) ListWorksByStatus(ctx context.Context, status string) ([]Work,
 			&i.LastPrPollAt,
 			&i.HasUnseenPrChanges,
 			&i.PrState,
+			&i.MergeableState,
 		); err != nil {
 			return nil, err
 		}
@@ -801,6 +813,7 @@ SET ci_status = ?,
     approval_status = ?,
     approvers = ?,
     pr_state = ?,
+    mergeable_state = ?,
     last_pr_poll_at = ?
 WHERE id = ?
 `
@@ -810,6 +823,7 @@ type UpdateWorkPRStatusParams struct {
 	ApprovalStatus string       `json:"approval_status"`
 	Approvers      string       `json:"approvers"`
 	PrState        string       `json:"pr_state"`
+	MergeableState string       `json:"mergeable_state"`
 	LastPrPollAt   sql.NullTime `json:"last_pr_poll_at"`
 	ID             string       `json:"id"`
 }
@@ -820,6 +834,7 @@ func (q *Queries) UpdateWorkPRStatus(ctx context.Context, arg UpdateWorkPRStatus
 		arg.ApprovalStatus,
 		arg.Approvers,
 		arg.PrState,
+		arg.MergeableState,
 		arg.LastPrPollAt,
 		arg.ID,
 	)

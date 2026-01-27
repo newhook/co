@@ -17,6 +17,7 @@ type PRStatusInfo struct {
 	ApprovalStatus string   // pending, approved, changes_requested
 	Approvers      []string // List of usernames who approved
 	PRState        string   // open, closed, merged
+	MergeableState string   // CLEAN, DIRTY, BLOCKED, BEHIND, DRAFT, UNSTABLE, UNKNOWN
 }
 
 // ExtractStatusFromPRStatus extracts CI and approval status from a PRStatus object.
@@ -26,6 +27,7 @@ func ExtractStatusFromPRStatus(status *github.PRStatus) *PRStatusInfo {
 		ApprovalStatus: db.ApprovalStatusPending,
 		Approvers:      []string{},
 		PRState:        normalizePRState(status.State),
+		MergeableState: status.MergeableState,
 	}
 
 	// Extract CI status from status checks and workflow runs
@@ -170,11 +172,12 @@ func UpdatePRStatusIfChanged(ctx context.Context, database *db.DB, work *db.Work
 	approvalChanged := work.ApprovalStatus != newStatus.ApprovalStatus
 	approversChanged := !stringSlicesEqual(currentApprovers, newStatus.Approvers)
 	prStateChanged := work.PRState != newStatus.PRState
+	mergeableChanged := work.MergeableState != newStatus.MergeableState
 
-	if !ciChanged && !approvalChanged && !approversChanged && !prStateChanged {
+	if !ciChanged && !approvalChanged && !approversChanged && !prStateChanged && !mergeableChanged {
 		// No changes
 		if !quiet {
-			fmt.Printf("PR status unchanged: CI=%s, Approval=%s, State=%s\n", work.CIStatus, work.ApprovalStatus, work.PRState)
+			fmt.Printf("PR status unchanged: CI=%s, Approval=%s, State=%s, Mergeable=%s\n", work.CIStatus, work.ApprovalStatus, work.PRState, work.MergeableState)
 		}
 		return false
 	}
@@ -193,13 +196,16 @@ func UpdatePRStatusIfChanged(ctx context.Context, database *db.DB, work *db.Work
 		if prStateChanged {
 			fmt.Printf("PR state changed: %s -> %s\n", work.PRState, newStatus.PRState)
 		}
+		if mergeableChanged {
+			fmt.Printf("Mergeable state changed: %s -> %s\n", work.MergeableState, newStatus.MergeableState)
+		}
 	}
 
 	// Convert approvers to JSON
 	approversJSON := ApproversToJSON(newStatus.Approvers)
 
 	// Update the database
-	if err := database.UpdateWorkPRStatus(ctx, work.ID, newStatus.CIStatus, newStatus.ApprovalStatus, approversJSON, newStatus.PRState); err != nil {
+	if err := database.UpdateWorkPRStatus(ctx, work.ID, newStatus.CIStatus, newStatus.ApprovalStatus, approversJSON, newStatus.PRState, newStatus.MergeableState); err != nil {
 		if !quiet {
 			fmt.Printf("Warning: failed to update PR status: %v\n", err)
 		}

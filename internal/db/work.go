@@ -36,6 +36,7 @@ func workToLocal(w *sqlc.Work) *Work {
 		Approvers:          w.Approvers,
 		HasUnseenPRChanges: w.HasUnseenPrChanges,
 		PRState:            w.PrState,
+		MergeableState:     w.MergeableState,
 	}
 	if w.StartedAt.Valid {
 		work.StartedAt = &w.StartedAt.Time
@@ -72,6 +73,7 @@ type Work struct {
 	LastPRPollAt       *time.Time
 	HasUnseenPRChanges bool
 	PRState            string // open, closed, merged
+	MergeableState     string // CLEAN, DIRTY, BLOCKED, BEHIND, DRAFT, UNSTABLE, UNKNOWN
 }
 
 // CreateWork creates a new work unit.
@@ -720,13 +722,15 @@ func (db *DB) DeleteWork(ctx context.Context, workID string) error {
 // ciStatus: pending, success, failure
 // approvalStatus: pending, approved, changes_requested
 // approvers: JSON array of approver usernames
-func (db *DB) UpdateWorkPRStatus(ctx context.Context, id, ciStatus, approvalStatus, approvers, prState string) error {
+// mergeableState: CLEAN, DIRTY, BLOCKED, BEHIND, DRAFT, UNSTABLE, UNKNOWN
+func (db *DB) UpdateWorkPRStatus(ctx context.Context, id, ciStatus, approvalStatus, approvers, prState, mergeableState string) error {
 	now := time.Now()
 	rows, err := db.queries.UpdateWorkPRStatus(ctx, sqlc.UpdateWorkPRStatusParams{
 		CiStatus:       ciStatus,
 		ApprovalStatus: approvalStatus,
 		Approvers:      approvers,
 		PrState:        prState,
+		MergeableState: mergeableState,
 		LastPrPollAt:   nullTime(now),
 		ID:             id,
 	})
