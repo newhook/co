@@ -164,8 +164,9 @@ func (s *StatusBar) Render() string {
 	minPadding := 2
 	commandsWidth := ansi.StringWidth(commandsPlain)
 	statusWidth := ansi.StringWidth(statusPlain)
-	availableWidth := s.width - commandsWidth - minPadding - 4
-	if statusWidth > availableWidth && availableWidth > 6 {
+	// Available width for status = total width minus commands, padding, and border allowance
+	availableWidth := max(s.width-commandsWidth-minPadding-4, 10)
+	if statusWidth > availableWidth {
 		// Truncate with ellipsis using ansi.Truncate for proper UTF-8 handling
 		truncatedPlain := ansi.Truncate(statusPlain, availableWidth, "...")
 		statusPlain = truncatedPlain
@@ -182,6 +183,7 @@ func (s *StatusBar) Render() string {
 	}
 
 	// Build bar with commands left, status right
+	// Ensure padding doesn't go negative (which would cause issues)
 	padding := max(s.width-commandsWidth-statusWidth-4, minPadding)
 	return tuiStatusBarStyle.Width(s.width).Render(commands + strings.Repeat(" ", padding) + status)
 }
