@@ -80,7 +80,10 @@ func (s *StatusBar) SetDataProviders(
 
 // SetStatus updates the status message
 func (s *StatusBar) SetStatus(message string, isError bool) {
-	s.statusMessage = message
+	// Strip newlines - status bar is single line only
+	message = strings.ReplaceAll(message, "\n", " ")
+	message = strings.ReplaceAll(message, "\r", "")
+	s.statusMessage = strings.TrimSpace(message)
 	s.statusIsError = isError
 }
 
