@@ -24,7 +24,7 @@ func HandleCreateWorktreeTask(ctx context.Context, proj *project.Project, task *
 	workerName := task.Metadata["worker_name"]
 
 	if baseBranch == "" {
-		baseBranch = "main"
+		baseBranch = proj.Config.Repo.GetBaseBranch()
 	}
 
 	logging.Info("Creating worktree for work",

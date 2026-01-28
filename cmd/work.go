@@ -167,7 +167,6 @@ Use this command to mark the work as truly completed (e.g., after PR is merged).
 }
 
 var (
-	flagBaseBranch string
 	flagAutoRun    bool
 	flagReviewAuto bool
 	flagAddWork    string
@@ -177,7 +176,6 @@ var (
 )
 
 func init() {
-	workCreateCmd.Flags().StringVar(&flagBaseBranch, "base", "main", "base branch to create feature branch from (also used as PR target)")
 	workCreateCmd.Flags().BoolVar(&flagAutoRun, "auto", false, "run full automated workflow (implement, review, fix, PR)")
 	workCreateCmd.Flags().StringVar(&flagBranchName, "branch", "", "branch name to use (skip prompt)")
 	workCreateCmd.Flags().BoolVarP(&flagYes, "yes", "y", false, "skip confirmation prompts")
@@ -200,7 +198,6 @@ func init() {
 }
 
 func runWorkCreate(cmd *cobra.Command, args []string) error {
-	baseBranch := flagBaseBranch
 	ctx := GetContext()
 
 	// Find project
@@ -209,6 +206,9 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer proj.Close()
+
+	// Get base branch from project config
+	baseBranch := proj.Config.Repo.GetBaseBranch()
 
 	mainRepoPath := proj.MainRepoPath()
 	beadID := args[0]

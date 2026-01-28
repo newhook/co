@@ -101,7 +101,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		}
 
 		// Create work asynchronously (DB operations only, schedules tasks for control plane)
-		result, err := work.CreateWorkAsync(m.ctx, m.proj, branchName, "main", beadID, auto)
+		result, err := work.CreateWorkAsync(m.ctx, m.proj, branchName, m.proj.Config.Repo.GetBaseBranch(), beadID, auto)
 		if err != nil {
 			logging.Error("executeCreateWork CreateWorkWithBranch failed", "beadID", beadID, "error", err)
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}

@@ -93,9 +93,18 @@ type ProjectConfig struct {
 
 // RepoConfig contains repository configuration.
 type RepoConfig struct {
-	Type   string `toml:"type"`   // "local" or "github"
-	Source string `toml:"source"` // Original path or URL
-	Path   string `toml:"path"`   // Always "main"
+	Type       string `toml:"type"`        // "local" or "github"
+	Source     string `toml:"source"`      // Original path or URL
+	Path       string `toml:"path"`        // Always "main"
+	BaseBranch string `toml:"base_branch"` // Base branch for feature branches (default: "main")
+}
+
+// GetBaseBranch returns the configured base branch or "main" if not set.
+func (r *RepoConfig) GetBaseBranch() string {
+	if r.BaseBranch == "" {
+		return "main"
+	}
+	return r.BaseBranch
 }
 
 // HooksConfig contains hook configuration.
