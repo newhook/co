@@ -159,7 +159,7 @@ func (p *CreateWorkPanel) Update(msg tea.KeyMsg) (tea.Cmd, CreateWorkAction) {
 		}
 	case 1: // Branch input or selector
 		if p.useExistingBranch {
-			cmd = p.updateBranchSelector(msg)
+			p.updateBranchSelector(msg)
 		} else {
 			p.branchInput, cmd = p.branchInput.Update(msg)
 		}
@@ -202,7 +202,7 @@ func (p *CreateWorkPanel) updateFocus() {
 }
 
 // updateBranchSelector handles key events for the branch selector
-func (p *CreateWorkPanel) updateBranchSelector(msg tea.KeyMsg) tea.Cmd {
+func (p *CreateWorkPanel) updateBranchSelector(msg tea.KeyMsg) {
 	switch msg.String() {
 	case "k", "up":
 		if p.selectedBranchIdx > 0 {
@@ -233,7 +233,6 @@ func (p *CreateWorkPanel) updateBranchSelector(msg tea.KeyMsg) tea.Cmd {
 			p.applyBranchFilter()
 		}
 	}
-	return nil
 }
 
 // getSelectedBranchName returns the currently selected branch name
