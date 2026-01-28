@@ -148,6 +148,16 @@ The `.co/config.toml` file stores project settings:
   # Interval for updating task activity timestamps in seconds.
   # Defaults to 30 seconds when not specified.
   activity_update_seconds = 30
+
+[log_parser]
+  # Use Claude for log analysis instead of the Go-based parser.
+  # Enables multi-language support and better error extraction.
+  # Defaults to false.
+  use_claude = false
+
+  # Claude model for log analysis: "haiku", "sonnet", or "opus"
+  # Defaults to "haiku".
+  model = "haiku"
 ```
 
 #### Configuration Details
@@ -183,6 +193,15 @@ The scheduler section controls timing for background operations during orchestra
 - `comment_resolution_interval_minutes`: How often to check for resolved feedback that needs GitHub comment updates. Defaults to 5 minutes.
 - `scheduler_poll_seconds`: Internal scheduler polling frequency. Defaults to 1 second.
 - `activity_update_seconds`: How often to update task activity timestamps. Defaults to 30 seconds.
+
+**`[log_parser]`**
+
+Controls how CI logs are analyzed to extract specific failures:
+
+- `use_claude`: When `true`, use Claude to analyze CI logs instead of the built-in Go parser. Claude can handle any programming language and provides more detailed error context. Defaults to `false`.
+- `model`: Which Claude model to use for log analysis (`haiku`, `sonnet`, or `opus`). Haiku is fastest and cheapest. Sonnet provides more detailed analysis. Opus is most capable but slower. Defaults to `haiku`.
+
+The native Go parser handles Go test failures and common lint output patterns. Use Claude for polyglot projects, complex test frameworks, or when the native parser misses failures.
 
 ### Mise Setup Task for JavaScript Projects
 

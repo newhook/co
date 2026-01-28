@@ -1,0 +1,51 @@
+You are analyzing CI logs for Work {{.WorkID}}.
+
+Branch: {{.BranchName}}
+Job: {{.JobName}}
+Workflow: {{.WorkflowName}}
+
+Instructions:
+1. Analyze the CI log output below to identify all failures, errors, and issues.
+
+2. For each distinct failure found, create a bead{{if .RootIssueID}} under the root issue{{end}}:
+   ```
+   bd create "<issue title>"{{if .RootIssueID}} --parent {{.RootIssueID}}{{end}} --type <bug|task> \
+     --priority <priority> \
+     --description "<detailed description>"
+   ```
+
+3. Priority Guidelines:
+   - P0 (--priority 0): Security vulnerabilities, critical runtime errors
+   - P1 (--priority 1): Build failures, compilation errors
+   - P2 (--priority 2): Test failures, lint errors
+   - P3 (--priority 3): Warnings, minor style issues
+
+4. Description should include:
+   - File path and line number (if available)
+   - The error message
+   - Relevant context from the log
+
+5. Examples:
+   ```
+   # Test failure
+   bd create "Fix TestUserAuthentication failure"{{if .RootIssueID}} --parent {{.RootIssueID}}{{end}} --type bug \
+     --priority 2 \
+     --description "Test failed at internal/auth/user_test.go:145. Expected token to be valid but got expired error."
+
+   # Build error
+   bd create "Fix undefined reference in handler"{{if .RootIssueID}} --parent {{.RootIssueID}}{{end}} --type bug \
+     --priority 1 \
+     --description "Compilation error at cmd/server/handler.go:89 - undefined: processRequest"
+
+   # Lint issue
+   bd create "Fix golint warning in utils"{{if .RootIssueID}} --parent {{.RootIssueID}}{{end}} --type task \
+     --priority 2 \
+     --description "Lint error at internal/utils/helper.go:23 - exported function should have comment"
+   ```
+
+6. After creating all beads, mark the task complete: co complete {{.TaskID}}
+
+If the logs show all checks passed with no failures, simply mark the task complete without creating any beads.
+
+--- CI Log Output ---
+{{.LogContent}}

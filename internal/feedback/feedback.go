@@ -47,7 +47,8 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 		fmt.Printf("Root issue: %s\n", work.RootIssueID)
 	}
 
-	integration := NewIntegration(minPriority)
+	// Create integration with project context to enable Claude-based log analysis
+	integration := NewIntegrationWithProject(minPriority, proj, workID)
 
 	// Extract and store PR status (CI status, approval status)
 	if !quiet {

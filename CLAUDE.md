@@ -247,6 +247,61 @@ The TUI (`co tui`) provides:
 - Visual feedback indicator showing polling status
 - Automatic refresh when new beads are created from feedback
 
+### Log Parser Configuration
+
+The system can analyze CI logs to extract specific failures using two approaches:
+
+#### Native Parser (Default)
+
+The built-in Go parser handles common patterns:
+- Go test failures (standard `go test` and `gotestsum` output)
+- Lint errors (golangci-lint, eslint style)
+- Compilation errors with file:line:column format
+
+This is fast, free, and works offline but only supports recognized patterns.
+
+#### Claude-Based Parser
+
+When enabled, Claude analyzes CI logs directly and creates beads for each failure found. This approach:
+- Handles any programming language or test framework
+- Provides detailed error context and file locations
+- Creates beads with appropriate priorities (P0-P3)
+- Works with complex, multi-line error messages
+
+Enable in `.co/config.toml`:
+
+```toml
+[log_parser]
+# Use Claude for log analysis instead of the Go-based parser
+use_claude = true
+
+# Model for log analysis: "haiku", "sonnet", or "opus"
+# - haiku: Fastest and cheapest, good for most logs
+# - sonnet: More detailed analysis for complex failures
+# - opus: Most capable, use for difficult debugging
+model = "haiku"
+```
+
+#### When to Use Each
+
+| Scenario | Recommended Parser |
+|----------|-------------------|
+| Go/TypeScript projects with standard tooling | Native (default) |
+| Polyglot monorepos with multiple languages | Claude |
+| Complex test frameworks (Jest, pytest, RSpec) | Claude |
+| Custom CI output formats | Claude |
+| Cost-sensitive environments | Native |
+| Offline development | Native |
+
+#### Cost/Performance Tradeoffs
+
+- **Native parser**: Zero cost, ~1ms per log
+- **Claude haiku**: ~$0.01 per log, ~2-5s
+- **Claude sonnet**: ~$0.03 per log, ~5-10s
+- **Claude opus**: ~$0.15 per log, ~10-20s
+
+For most projects, the native parser is sufficient. Enable Claude parsing when you need multi-language support or the native parser misses failures in your CI output.
+
 ## PR Requirements
 
 **NEVER push directly to main.** All changes must go through a PR.

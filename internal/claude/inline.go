@@ -42,6 +42,13 @@ func Run(ctx context.Context, database *db.DB, taskID string, prompt string, wor
 	if cfg != nil && cfg.Claude.ShouldSkipPermissions() {
 		claudeArgs = append(claudeArgs, "--dangerously-skip-permissions")
 	}
+	// Use configured model for log_analysis tasks
+	if task.TaskType == "log_analysis" && cfg != nil {
+		model := cfg.LogParser.GetModel()
+		if model != "" {
+			claudeArgs = append(claudeArgs, "--model", model)
+		}
+	}
 	claudeArgs = append(claudeArgs, prompt)
 	claudeCmd := exec.CommandContext(ctx, "claude", claudeArgs...)
 	claudeCmd.Dir = workDir

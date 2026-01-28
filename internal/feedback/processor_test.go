@@ -437,6 +437,60 @@ func TestCreateGenericFailureItem(t *testing.T) {
 	}
 }
 
+func TestCategorizeComment_HumanVsBot(t *testing.T) {
+	client := &github.Client{}
+	processor := NewFeedbackProcessor(client, 2)
+
+	tests := []struct {
+		name           string
+		author         string
+		body           string
+		expectedType   github.FeedbackType
+		expectedPriority int
+	}{
+		{
+			name:           "human actionable comment",
+			author:         "shubsengupta",
+			body:           "Please remove any markdown / implementation detail files",
+			expectedType:   github.FeedbackTypeReview,
+			expectedPriority: 2,
+		},
+		{
+			name:           "bot general comment",
+			author:         "github-actions[bot]",
+			body:           "Some general bot message",
+			expectedType:   github.FeedbackTypeGeneral,
+			expectedPriority: 3,
+		},
+		{
+			name:           "bot security comment",
+			author:         "security-bot",
+			body:           "Security vulnerability detected",
+			expectedType:   github.FeedbackTypeSecurity,
+			expectedPriority: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			comment := github.Comment{
+				Author: tt.author,
+				Body:   tt.body,
+			}
+
+			feedbackType := processor.categorizeComment(comment)
+			if feedbackType != tt.expectedType {
+				t.Errorf("categorizeComment() type = %v, want %v", feedbackType, tt.expectedType)
+			}
+
+			priority := processor.getPriorityForType(feedbackType)
+			if priority != tt.expectedPriority {
+				t.Errorf("getPriorityForType(%v) = %d, want %d", feedbackType, priority, tt.expectedPriority)
+			}
+		})
+	}
+}
+
 func TestCategorizeComment(t *testing.T) {
 	processor := &FeedbackProcessor{}
 
@@ -475,7 +529,7 @@ func TestCategorizeComment(t *testing.T) {
 				Author: "user123",
 				Body:   "Please fix this issue",
 			},
-			expected: github.FeedbackTypeGeneral,
+			expected: github.FeedbackTypeReview,
 		},
 		{
 			name: "Generic bot comment",
@@ -646,5 +700,113 @@ func TestGetPriorityForConflictType(t *testing.T) {
 	result := processor.getPriorityForType(github.FeedbackTypeConflict)
 	if result != 1 {
 		t.Errorf("getPriorityForType(FeedbackTypeConflict) = %d, want 1", result)
+	}
+}
+
+func TestNewFeedbackProcessorWithProject(t *testing.T) {
+	client := &github.Client{}
+
+	t.Run("with nil project", func(t *testing.T) {
+		processor := NewFeedbackProcessorWithProject(client, 2, nil, "work-123")
+		if processor == nil {
+			t.Fatal("NewFeedbackProcessorWithProject returned nil")
+		}
+		if processor.minPriority != 2 {
+			t.Errorf("minPriority = %d, want 2", processor.minPriority)
+		}
+		if processor.proj != nil {
+			t.Error("Expected proj to be nil")
+		}
+		if processor.workID != "work-123" {
+			t.Errorf("workID = %s, want work-123", processor.workID)
+		}
+	})
+
+	t.Run("stores all parameters", func(t *testing.T) {
+		// Can't test with real project, but we can verify struct fields are set
+		processor := NewFeedbackProcessorWithProject(client, 1, nil, "w-abc")
+		if processor.client != client {
+			t.Error("Expected client to be set")
+		}
+		if processor.minPriority != 1 {
+			t.Errorf("minPriority = %d, want 1", processor.minPriority)
+		}
+		if processor.workID != "w-abc" {
+			t.Errorf("workID = %s, want w-abc", processor.workID)
+		}
+	})
+}
+
+func TestShouldUseClaude(t *testing.T) {
+	client := &github.Client{}
+
+	t.Run("returns false when project is nil", func(t *testing.T) {
+		processor := NewFeedbackProcessorWithProject(client, 2, nil, "work-123")
+		if processor.shouldUseClaude() {
+			t.Error("Expected shouldUseClaude() to return false when project is nil")
+		}
+	})
+
+	t.Run("returns false with basic processor", func(t *testing.T) {
+		processor := NewFeedbackProcessor(client, 2)
+		if processor.shouldUseClaude() {
+			t.Error("Expected shouldUseClaude() to return false for basic processor")
+		}
+	})
+}
+
+func TestTruncateLogContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		logs     string
+		maxBytes int
+		expected string
+	}{
+		{
+			name:     "short log under limit",
+			logs:     "short log",
+			maxBytes: 100,
+			expected: "short log",
+		},
+		{
+			name:     "log exactly at limit",
+			logs:     "exact",
+			maxBytes: 5,
+			expected: "exact",
+		},
+		{
+			name:     "long log truncated to last N bytes",
+			logs:     "beginning middle end",
+			maxBytes: 10,
+			expected: "middle end",
+		},
+		{
+			name:     "empty log",
+			logs:     "",
+			maxBytes: 100,
+			expected: "",
+		},
+		{
+			name:     "truncate to single byte",
+			logs:     "hello",
+			maxBytes: 1,
+			expected: "o",
+		},
+		{
+			name:     "preserves error at end of log",
+			logs:     "INFO: Starting build\nINFO: Compiling\nERROR: Test failed at line 42",
+			maxBytes: 30,
+			expected: "\nERROR: Test failed at line 42",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := truncateLogContent(tt.logs, tt.maxBytes)
+			if result != tt.expected {
+				t.Errorf("truncateLogContent(%q, %d) = %q, want %q",
+					tt.logs, tt.maxBytes, result, tt.expected)
+			}
+		})
 	}
 }

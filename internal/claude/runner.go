@@ -38,6 +38,9 @@ var updatePRDescriptionTemplateText string
 //go:embed templates/plan.tmpl
 var planTemplateText string
 
+//go:embed templates/log_analysis.tmpl
+var logAnalysisTemplateText string
+
 var (
 	estimateTmpl            = template.Must(template.New("estimate").Parse(estimateTemplateText))
 	taskTmpl                = template.Must(template.New("task").Parse(taskTemplateText))
@@ -45,6 +48,7 @@ var (
 	reviewTmpl              = template.Must(template.New("review").Parse(reviewTemplateText))
 	updatePRDescriptionTmpl = template.Must(template.New("update-pr-description").Parse(updatePRDescriptionTemplateText))
 	planTmpl                = template.Must(template.New("plan").Parse(planTemplateText))
+	logAnalysisTmpl         = template.Must(template.New("log_analysis").Parse(logAnalysisTemplateText))
 )
 
 // SessionNameForProject returns the zellij session name for a specific project.
@@ -275,6 +279,28 @@ func BuildPlanPrompt(beadID string) string {
 	return buf.String()
 }
 
+// LogAnalysisParams contains parameters for building a log analysis prompt.
+type LogAnalysisParams struct {
+	TaskID       string
+	WorkID       string
+	BranchName   string
+	RootIssueID  string
+	WorkflowName string
+	JobName      string
+	LogContent   string
+}
+
+// BuildLogAnalysisPrompt builds a prompt for Claude-based CI log analysis.
+func BuildLogAnalysisPrompt(params LogAnalysisParams) string {
+	var buf bytes.Buffer
+	if err := logAnalysisTmpl.Execute(&buf, params); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("Log analysis task %s for work %s", params.TaskID, params.WorkID)
+	}
+
+	return buf.String()
+}
+
 // RunPlanSession runs an interactive Claude session for planning an issue.
 // This launches Claude with the plan prompt and connects stdin/stdout/stderr
 // for interactive use. The config parameter controls Claude settings like --dangerously-skip-permissions.
@@ -334,7 +360,7 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 
 	// Create a new tab with the orchestrate command using a layout
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, "co", []string{"orchestrate", "--work", workID}, ""); err != nil {
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, "co", []string{"orchestrate", "--work", workID}, "orchestrator"); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
@@ -490,7 +516,7 @@ func SpawnPlanSession(ctx context.Context, beadID string, projectName string, ma
 
 	// Create a new tab with the plan command using a layout
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, mainRepoPath, "co", []string{"plan", beadID}, ""); err != nil {
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, mainRepoPath, "co", []string{"plan", beadID}, "planning"); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
