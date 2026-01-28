@@ -700,3 +700,59 @@ func TestShouldUseClaude(t *testing.T) {
 		}
 	})
 }
+
+func TestTruncateLogContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		logs     string
+		maxBytes int
+		expected string
+	}{
+		{
+			name:     "short log under limit",
+			logs:     "short log",
+			maxBytes: 100,
+			expected: "short log",
+		},
+		{
+			name:     "log exactly at limit",
+			logs:     "exact",
+			maxBytes: 5,
+			expected: "exact",
+		},
+		{
+			name:     "long log truncated to last N bytes",
+			logs:     "beginning middle end",
+			maxBytes: 10,
+			expected: "middle end",
+		},
+		{
+			name:     "empty log",
+			logs:     "",
+			maxBytes: 100,
+			expected: "",
+		},
+		{
+			name:     "truncate to single byte",
+			logs:     "hello",
+			maxBytes: 1,
+			expected: "o",
+		},
+		{
+			name:     "preserves error at end of log",
+			logs:     "INFO: Starting build\nINFO: Compiling\nERROR: Test failed at line 42",
+			maxBytes: 30,
+			expected: "\nERROR: Test failed at line 42",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := truncateLogContent(tt.logs, tt.maxBytes)
+			if result != tt.expected {
+				t.Errorf("truncateLogContent(%q, %d) = %q, want %q",
+					tt.logs, tt.maxBytes, result, tt.expected)
+			}
+		})
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback/logparser"
 	"github.com/newhook/co/internal/github"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 )
 
@@ -238,7 +239,7 @@ func (p *FeedbackProcessor) createLogAnalysisTask(ctx context.Context, workflow 
 	for key, value := range metadata {
 		if err := p.proj.DB.SetTaskMetadata(ctx, taskID, key, value); err != nil {
 			// Log warning but don't fail the task creation
-			fmt.Printf("Warning: failed to set metadata %s for task %s: %v\n", key, taskID, err)
+			logging.Warn("failed to set metadata for task", "key", key, "task_id", taskID, "error", err)
 		}
 	}
 
