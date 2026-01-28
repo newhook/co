@@ -130,22 +130,24 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 		return nil, fmt.Errorf("project already exists at %s", absDir)
 	}
 
-	// Create project directory structure
+	// 1. Create project directory structure
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create project directory: %w", err)
 	}
 
 	mainPath := filepath.Join(absDir, MainDir)
 
-	// Determine repo type and set up main/
-	repoType, beadsPath, err := setupRepo(ctx, repoSource, absDir, mainPath)
+	// 2. Clone or symlink the repository
+	repoType, err := cloneRepo(ctx, repoSource, mainPath)
 	if err != nil {
-		// Clean up on failure
 		os.RemoveAll(absDir)
 		return nil, err
 	}
 
-	// Create config
+	// 3. Generate mise config and run mise install
+	setupMise(absDir, mainPath)
+
+	// 4. Create config (before beads init, so config exists)
 	cfg := &Config{
 		Project: ProjectConfig{
 			Name:      filepath.Base(absDir),
@@ -156,9 +158,7 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 			Source: repoSource,
 			Path:   MainDir,
 		},
-		Beads: BeadsConfig{
-			Path: beadsPath,
-		},
+		// Beads path will be set after setupBeads
 	}
 
 	// Save config with comprehensive documentation
@@ -168,7 +168,23 @@ func Create(ctx context.Context, dir, repoSource string) (*Project, error) {
 		return nil, err
 	}
 
-	// Initialize tracking database
+	// 5. Initialize beads (after mise, so bd CLI is available)
+	beadsPath, err := setupBeads(ctx, repoSource, absDir, mainPath)
+	if err != nil {
+		os.RemoveAll(absDir)
+		return nil, err
+	}
+
+	// Update config with beads path and save again
+	cfg.Beads = BeadsConfig{
+		Path: beadsPath,
+	}
+	if err := cfg.SaveDocumentedConfig(configPath); err != nil {
+		os.RemoveAll(absDir)
+		return nil, err
+	}
+
+	// 6. Initialize tracking database
 	dbPath := filepath.Join(configDir, TrackingDB)
 	database, err := db.OpenPath(ctx, dbPath)
 	if err != nil {
@@ -189,38 +205,43 @@ const BeadsPathRepo = "main/.beads"
 // BeadsPathProject is the path for project-local beads (standalone, not synced).
 const BeadsPathProject = ".co/.beads"
 
-// setupRepo sets up the main/ directory based on the repo source.
-// Returns the repo type ("local" or "github") and beads path (relative to project root).
-func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoType string, beadsPath string, err error) {
+// cloneRepo sets up the main/ directory based on the repo source.
+// It only handles cloning/symlinking the repository.
+// Returns the repo type ("local" or "github").
+func cloneRepo(ctx context.Context, source, mainPath string) (repoType string, err error) {
 	if isGitHubURL(source) {
 		// Clone from GitHub
 		if err := git.Clone(ctx, source, mainPath); err != nil {
-			return "", "", err
+			return "", err
 		}
-		repoType = RepoTypeGitHub
-	} else {
-		// Local path - create symlink
-		absSource, err := filepath.Abs(source)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to resolve source path: %w", err)
-		}
-
-		// Verify source exists and is a directory
-		info, err := os.Stat(absSource)
-		if err != nil {
-			return "", "", fmt.Errorf("source path does not exist: %w", err)
-		}
-		if !info.IsDir() {
-			return "", "", fmt.Errorf("source path is not a directory: %s", absSource)
-		}
-
-		// Create symlink
-		if err := os.Symlink(absSource, mainPath); err != nil {
-			return "", "", fmt.Errorf("failed to create symlink: %w", err)
-		}
-		repoType = RepoTypeLocal
+		return RepoTypeGitHub, nil
 	}
 
+	// Local path - create symlink
+	absSource, err := filepath.Abs(source)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve source path: %w", err)
+	}
+
+	// Verify source exists and is a directory
+	info, err := os.Stat(absSource)
+	if err != nil {
+		return "", fmt.Errorf("source path does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("source path is not a directory: %s", absSource)
+	}
+
+	// Create symlink
+	if err := os.Symlink(absSource, mainPath); err != nil {
+		return "", fmt.Errorf("failed to create symlink: %w", err)
+	}
+	return RepoTypeLocal, nil
+}
+
+// setupBeads initializes or connects to beads for the project.
+// Returns the beads path (relative to project root).
+func setupBeads(ctx context.Context, source, projectRoot, mainPath string) (beadsPath string, err error) {
 	// Check if repo already has beads
 	repoBeadsPath := filepath.Join(mainPath, ".beads")
 	if _, err := os.Stat(repoBeadsPath); err == nil {
@@ -230,7 +251,7 @@ func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoT
 
 		// Install hooks for repo-based beads
 		if err := beads.InstallHooks(ctx, mainPath); err != nil {
-			return "", "", fmt.Errorf("failed to install beads hooks: %w", err)
+			return "", fmt.Errorf("failed to install beads hooks: %w", err)
 		}
 	} else {
 		// No beads in repo - create project-local beads
@@ -243,10 +264,15 @@ func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoT
 
 		// Initialize beads in project directory (skip hooks - not synced to git)
 		if err := beads.Init(ctx, projectBeadsPath, prefix); err != nil {
-			return "", "", fmt.Errorf("failed to initialize beads: %w", err)
+			return "", fmt.Errorf("failed to initialize beads: %w", err)
 		}
 	}
 
+	return beadsPath, nil
+}
+
+// setupMise generates mise config and runs mise install.
+func setupMise(projectRoot, mainPath string) {
 	// Generate mise config in project root with co's required tools
 	if err := mise.GenerateConfig(projectRoot); err != nil {
 		fmt.Printf("Warning: failed to generate mise config: %v\n", err)
@@ -267,8 +293,6 @@ func setupRepo(ctx context.Context, source, projectRoot, mainPath string) (repoT
 			fmt.Printf("Warning: mise initialization failed in repo: %v\n", err)
 		}
 	}
-
-	return repoType, beadsPath, nil
 }
 
 // isGitHubURL returns true if the source looks like a GitHub URL.
