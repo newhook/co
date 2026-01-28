@@ -334,7 +334,7 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 
 	// Create a new tab with the orchestrate command using a layout
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, "co", []string{"orchestrate", "--work", workID}, ""); err != nil {
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, "co", []string{"orchestrate", "--work", workID}, "orchestrator"); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
@@ -490,7 +490,7 @@ func SpawnPlanSession(ctx context.Context, beadID string, projectName string, ma
 
 	// Create a new tab with the plan command using a layout
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, mainRepoPath, "co", []string{"plan", beadID}, ""); err != nil {
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, mainRepoPath, "co", []string{"plan", beadID}, "planning"); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
