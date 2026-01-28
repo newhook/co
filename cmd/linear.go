@@ -91,7 +91,7 @@ func runLinearImport(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if apiKey == "" {
-		return fmt.Errorf("Linear API key is required (set via --api-key flag or [linear] api_key in config.toml)")
+		return fmt.Errorf("linear API key is required (set via --api-key flag or [linear] api_key in config.toml)")
 	}
 
 	// Get beads directory
