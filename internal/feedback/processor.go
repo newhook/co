@@ -117,8 +117,8 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 		if workflow.Conclusion == "failure" {
 			for _, job := range workflow.Jobs {
 				if job.Conclusion == "failure" {
-					// Try to get detailed test failures for test jobs
-					if isTestJob(job.Name) {
+					// Try to get detailed failures for test or lint jobs
+					if isTestJob(job.Name) || isLintJob(job.Name) {
 						logs, err := p.client.GetJobLogs(ctx, repo, job.ID)
 						if err == nil {
 							failures, _ := logparser.ParseFailures(logs)
@@ -144,22 +144,37 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 func (p *FeedbackProcessor) createFailureItem(workflow github.WorkflowRun, job github.Job, f logparser.Failure) github.FeedbackItem {
 	shortCtx := lastPathComponent(f.Context)
 
-	title := fmt.Sprintf("Fix %s", f.Name)
-	if shortCtx != "" {
+	// Determine title based on whether we have file/line info
+	var title string
+	if f.File != "" {
+		if f.Column > 0 {
+			title = fmt.Sprintf("Fix %s at %s:%d:%d", f.Name, f.File, f.Line, f.Column)
+		} else {
+			title = fmt.Sprintf("Fix %s at %s:%d", f.Name, f.File, f.Line)
+		}
+	} else if shortCtx != "" {
 		title = fmt.Sprintf("Fix %s in %s", f.Name, shortCtx)
+	} else {
+		title = fmt.Sprintf("Fix %s", f.Name)
+	}
+
+	// Determine feedback type based on job name
+	feedbackType := github.FeedbackTypeTest
+	if isLintJob(job.Name) {
+		feedbackType = github.FeedbackTypeLint
 	}
 
 	return github.FeedbackItem{
-		Type:        github.FeedbackTypeTest,
+		Type:        feedbackType,
 		Title:       title,
 		Description: formatFailure(f),
 		Source: github.SourceInfo{
 			Type: github.SourceTypeWorkflow,
-			ID:   fmt.Sprintf("%d-%s", job.ID, f.Name),
+			ID:   fmt.Sprintf("%d-%s-%s-%d-%d", job.ID, f.Name, f.File, f.Line, f.Column),
 			Name: workflow.Name,
 			URL:  job.URL,
 		},
-		Priority:   2,
+		Priority:   p.getPriorityForType(feedbackType),
 		Actionable: true,
 		Workflow: &github.WorkflowContext{
 			WorkflowName:  workflow.Name,
@@ -238,6 +253,12 @@ func formatFailure(f logparser.Failure) string {
 func isTestJob(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.Contains(lower, "test")
+}
+
+// isLintJob returns true if the job name suggests it runs linting.
+func isLintJob(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "lint") || strings.Contains(lower, "format") || strings.Contains(lower, "style")
 }
 
 // lastPathComponent returns the last component of a path.
