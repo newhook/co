@@ -46,6 +46,11 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 		}
 		return claude.BuildUpdatePRDescriptionPrompt(task.ID, work.ID, work.PRURL, work.BranchName, baseBranch), nil
 
+	case "log_analysis":
+		// Log analysis tasks require metadata with log content
+		// This task type is created by the feedback processor with embedded log data
+		return "", fmt.Errorf("log_analysis tasks must be built via buildLogAnalysisPrompt with log metadata")
+
 	default:
 		return "", fmt.Errorf("unknown task type: %s", task.TaskType)
 	}
