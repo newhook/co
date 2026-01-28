@@ -283,13 +283,9 @@ func (p *FeedbackProcessor) findExistingLogAnalysisTaskByJobID(ctx context.Conte
 	jobIDStr := fmt.Sprintf("%d", jobID)
 
 	// Check each log_analysis task for matching job_id metadata
+	// Any status counts - same job_id means same CI run, same logs
 	for _, task := range tasks {
 		if task.TaskType != "log_analysis" {
-			continue
-		}
-
-		// Skip completed or failed tasks - allow re-analysis if previous attempt is done
-		if task.Status == "completed" || task.Status == "failed" {
 			continue
 		}
 
