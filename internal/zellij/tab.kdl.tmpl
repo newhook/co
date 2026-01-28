@@ -11,7 +11,7 @@ layout {
 
     tab name="{{.TabName}}" {
         pane command="{{.Command}}" {
-            args {{range .Args}}"{{.}}" {{end}}
+            {{if .Args}}args {{range .Args}}"{{.}}" {{end}}{{end}}
             cwd "{{.Cwd}}"
         }
     }
