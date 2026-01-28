@@ -21,8 +21,9 @@ const (
 
 // CreateWorkResult contains form values when submitted
 type CreateWorkResult struct {
-	BranchName string
-	BeadID     string
+	BranchName        string
+	BeadID            string
+	UseExistingBranch bool
 }
 
 // CreateWorkPanel renders the work creation form.
@@ -37,8 +38,17 @@ type CreateWorkPanel struct {
 	// Form state (owned directly)
 	beadID      string
 	branchInput textinput.Model
-	fieldIdx    int // 0=branch, 1=buttons
+	fieldIdx    int // 0=mode toggle, 1=branch input/selector, 2=buttons
 	buttonIdx   int // 0=Execute, 1=Auto, 2=Cancel
+
+	// Branch mode selection
+	useExistingBranch   bool     // true = select existing branch, false = create new
+	branches            []string // all available branches
+	filteredBranches    []string // branches matching filter
+	branchFilter        string   // current filter text
+	selectedBranchIdx   int      // selected index in filteredBranches
+	branchScrollOffset  int      // scroll offset for branch list
+	maxVisibleBranches  int      // max branches visible at once
 
 	// Mouse state
 	hoveredButton string
@@ -55,9 +65,10 @@ func NewCreateWorkPanel() *CreateWorkPanel {
 	branchInput.Width = 60
 
 	return &CreateWorkPanel{
-		width:       60,
-		height:      20,
-		branchInput: branchInput,
+		width:              60,
+		height:             20,
+		branchInput:        branchInput,
+		maxVisibleBranches: 8,
 	}
 }
 
@@ -74,6 +85,41 @@ func (p *CreateWorkPanel) Reset(beadID string, branchName string) {
 	p.branchInput.Focus()
 	p.fieldIdx = 0
 	p.buttonIdx = 0
+
+	// Reset branch selection state
+	p.useExistingBranch = false
+	p.branches = nil
+	p.filteredBranches = nil
+	p.branchFilter = ""
+	p.selectedBranchIdx = 0
+	p.branchScrollOffset = 0
+}
+
+// SetBranches sets the available branches for selection
+func (p *CreateWorkPanel) SetBranches(branches []string) {
+	p.branches = branches
+	p.applyBranchFilter()
+}
+
+// applyBranchFilter filters branches based on current filter text
+func (p *CreateWorkPanel) applyBranchFilter() {
+	if p.branchFilter == "" {
+		p.filteredBranches = p.branches
+	} else {
+		filterLower := strings.ToLower(p.branchFilter)
+		p.filteredBranches = nil
+		for _, b := range p.branches {
+			if strings.Contains(strings.ToLower(b), filterLower) {
+				p.filteredBranches = append(p.filteredBranches, b)
+			}
+		}
+	}
+
+	// Reset selection if out of bounds
+	if p.selectedBranchIdx >= len(p.filteredBranches) {
+		p.selectedBranchIdx = 0
+	}
+	p.branchScrollOffset = 0
 }
 
 // Update handles key events and returns an action
@@ -83,34 +129,41 @@ func (p *CreateWorkPanel) Update(msg tea.KeyMsg) (tea.Cmd, CreateWorkAction) {
 		return nil, CreateWorkActionCancel
 	}
 
-	// Tab cycles between branch(0), buttons(1)
+	// Tab cycles between mode(0), branch(1), buttons(2)
 	if msg.Type == tea.KeyTab {
-		p.fieldIdx = (p.fieldIdx + 1) % 2
-		if p.fieldIdx == 0 {
-			p.branchInput.Focus()
-		} else {
-			p.branchInput.Blur()
-		}
+		p.fieldIdx = (p.fieldIdx + 1) % 3
+		p.updateFocus()
 		return nil, CreateWorkActionNone
 	}
 
 	// Shift+Tab goes backwards
 	if msg.Type == tea.KeyShiftTab {
-		p.fieldIdx = 1 - p.fieldIdx
-		if p.fieldIdx == 0 {
-			p.branchInput.Focus()
-		} else {
-			p.branchInput.Blur()
+		p.fieldIdx--
+		if p.fieldIdx < 0 {
+			p.fieldIdx = 2
 		}
+		p.updateFocus()
 		return nil, CreateWorkActionNone
 	}
 
 	// Handle input based on focused field
 	var cmd tea.Cmd
 	switch p.fieldIdx {
-	case 0: // Branch name input
-		p.branchInput, cmd = p.branchInput.Update(msg)
-	case 1: // Buttons
+	case 0: // Mode toggle
+		switch msg.String() {
+		case "enter", " ", "left", "right", "h", "l":
+			p.useExistingBranch = !p.useExistingBranch
+			// Reset filter when switching modes
+			p.branchFilter = ""
+			p.applyBranchFilter()
+		}
+	case 1: // Branch input or selector
+		if p.useExistingBranch {
+			p.updateBranchSelector(msg)
+		} else {
+			p.branchInput, cmd = p.branchInput.Update(msg)
+		}
+	case 2: // Buttons
 		switch msg.String() {
 		case "k", "up":
 			p.buttonIdx--
@@ -120,7 +173,7 @@ func (p *CreateWorkPanel) Update(msg tea.KeyMsg) (tea.Cmd, CreateWorkAction) {
 		case "j", "down":
 			p.buttonIdx = (p.buttonIdx + 1) % 3
 		case "enter":
-			branchName := strings.TrimSpace(p.branchInput.Value())
+			branchName := p.getSelectedBranchName()
 			if branchName == "" {
 				// Empty branch name - don't submit
 				return nil, CreateWorkActionNone
@@ -139,11 +192,66 @@ func (p *CreateWorkPanel) Update(msg tea.KeyMsg) (tea.Cmd, CreateWorkAction) {
 	return cmd, CreateWorkActionNone
 }
 
+// updateFocus updates focus state based on current field index
+func (p *CreateWorkPanel) updateFocus() {
+	if p.fieldIdx == 1 && !p.useExistingBranch {
+		p.branchInput.Focus()
+	} else {
+		p.branchInput.Blur()
+	}
+}
+
+// updateBranchSelector handles key events for the branch selector
+func (p *CreateWorkPanel) updateBranchSelector(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "k", "up":
+		if p.selectedBranchIdx > 0 {
+			p.selectedBranchIdx--
+			// Scroll up if needed
+			if p.selectedBranchIdx < p.branchScrollOffset {
+				p.branchScrollOffset = p.selectedBranchIdx
+			}
+		}
+	case "j", "down":
+		if p.selectedBranchIdx < len(p.filteredBranches)-1 {
+			p.selectedBranchIdx++
+			// Scroll down if needed
+			if p.selectedBranchIdx >= p.branchScrollOffset+p.maxVisibleBranches {
+				p.branchScrollOffset = p.selectedBranchIdx - p.maxVisibleBranches + 1
+			}
+		}
+	case "backspace":
+		// Remove last character from filter
+		if len(p.branchFilter) > 0 {
+			p.branchFilter = p.branchFilter[:len(p.branchFilter)-1]
+			p.applyBranchFilter()
+		}
+	default:
+		// Add typed characters to filter
+		if len(msg.String()) == 1 && msg.String() >= " " && msg.String() <= "~" {
+			p.branchFilter += msg.String()
+			p.applyBranchFilter()
+		}
+	}
+}
+
+// getSelectedBranchName returns the currently selected branch name
+func (p *CreateWorkPanel) getSelectedBranchName() string {
+	if p.useExistingBranch {
+		if p.selectedBranchIdx < len(p.filteredBranches) {
+			return p.filteredBranches[p.selectedBranchIdx]
+		}
+		return ""
+	}
+	return strings.TrimSpace(p.branchInput.Value())
+}
+
 // GetResult returns the current form values
 func (p *CreateWorkPanel) GetResult() CreateWorkResult {
 	return CreateWorkResult{
-		BranchName: strings.TrimSpace(p.branchInput.Value()),
-		BeadID:     p.beadID,
+		BranchName:        p.getSelectedBranchName(),
+		BeadID:            p.beadID,
+		UseExistingBranch: p.useExistingBranch,
 	}
 }
 
@@ -213,19 +321,118 @@ func (p *CreateWorkPanel) Render() string {
 	content.WriteString("\n\n")
 	currentLine += 2
 
-	// Branch name input
-	var branchLabel string
+	// Mode toggle
+	var modeLabel string
 	if p.fieldIdx == 0 {
-		branchLabel = tuiSuccessStyle.Render("Branch name:") + " " + tuiDimStyle.Render("(editing)")
+		modeLabel = tuiSuccessStyle.Render("Branch mode:") + " " + tuiDimStyle.Render("(press Enter/Space to toggle)")
 	} else {
-		branchLabel = tuiLabelStyle.Render("Branch name:")
+		modeLabel = tuiLabelStyle.Render("Branch mode:")
 	}
-	content.WriteString(branchLabel)
+	content.WriteString(modeLabel)
 	content.WriteString("\n")
 	currentLine++
-	content.WriteString(p.branchInput.View())
+
+	// Mode options
+	newBranchStyle := tuiDimStyle
+	existingBranchStyle := tuiDimStyle
+	if !p.useExistingBranch {
+		newBranchStyle = tuiSelectedStyle
+	} else {
+		existingBranchStyle = tuiSelectedStyle
+	}
+	content.WriteString("  " + newBranchStyle.Render("[New branch]") + "  " + existingBranchStyle.Render("[Existing branch]"))
 	content.WriteString("\n\n")
 	currentLine += 2
+
+	// Branch input or selector based on mode
+	if p.useExistingBranch {
+		// Existing branch selector
+		var branchLabel string
+		if p.fieldIdx == 1 {
+			branchLabel = tuiSuccessStyle.Render("Select branch:") + " " + tuiDimStyle.Render("(type to filter, j/k to navigate)")
+		} else {
+			branchLabel = tuiLabelStyle.Render("Select branch:")
+		}
+		content.WriteString(branchLabel)
+		content.WriteString("\n")
+		currentLine++
+
+		// Show filter if active
+		if p.branchFilter != "" {
+			content.WriteString(tuiDimStyle.Render("Filter: ") + p.branchFilter + tuiDimStyle.Render("_"))
+			content.WriteString("\n")
+			currentLine++
+		}
+
+		// Show branches
+		if len(p.filteredBranches) == 0 {
+			if len(p.branches) == 0 {
+				content.WriteString(tuiDimStyle.Render("  (loading branches...)"))
+			} else {
+				content.WriteString(tuiDimStyle.Render("  (no matching branches)"))
+			}
+			content.WriteString("\n")
+			currentLine++
+		} else {
+			// Determine visible range
+			endIdx := p.branchScrollOffset + p.maxVisibleBranches
+			if endIdx > len(p.filteredBranches) {
+				endIdx = len(p.filteredBranches)
+			}
+
+			// Show scroll indicator if needed
+			if p.branchScrollOffset > 0 {
+				content.WriteString(tuiDimStyle.Render("  ↑ (more above)"))
+				content.WriteString("\n")
+				currentLine++
+			}
+
+			for i := p.branchScrollOffset; i < endIdx; i++ {
+				branch := p.filteredBranches[i]
+				prefix := "  "
+				style := tuiDimStyle
+				if i == p.selectedBranchIdx {
+					prefix = "> "
+					if p.fieldIdx == 1 {
+						style = tuiSelectedStyle
+					} else {
+						style = tuiLabelStyle
+					}
+				}
+				// Truncate long branch names
+				displayBranch := branch
+				if len(displayBranch) > 50 {
+					displayBranch = displayBranch[:47] + "..."
+				}
+				content.WriteString(prefix + style.Render(displayBranch))
+				content.WriteString("\n")
+				currentLine++
+			}
+
+			// Show scroll indicator if needed
+			if endIdx < len(p.filteredBranches) {
+				content.WriteString(tuiDimStyle.Render("  ↓ (more below)"))
+				content.WriteString("\n")
+				currentLine++
+			}
+		}
+		content.WriteString("\n")
+		currentLine++
+	} else {
+		// New branch name input
+		var branchLabel string
+		if p.fieldIdx == 1 {
+			branchLabel = tuiSuccessStyle.Render("Branch name:") + " " + tuiDimStyle.Render("(editing)")
+		} else {
+			branchLabel = tuiLabelStyle.Render("Branch name:")
+		}
+		content.WriteString(branchLabel)
+		content.WriteString("\n")
+		currentLine++
+		content.WriteString(p.branchInput.View())
+		content.WriteString("\n\n")
+		currentLine += 2
+	}
 
 	// Action buttons
 	content.WriteString("Actions:\n")
@@ -234,7 +441,7 @@ func (p *CreateWorkPanel) Render() string {
 	// Execute button
 	executeStyle := tuiDimStyle
 	executePrefix := "  "
-	if p.fieldIdx == 1 && p.buttonIdx == 0 {
+	if p.fieldIdx == 2 && p.buttonIdx == 0 {
 		executeStyle = tuiSelectedStyle
 		executePrefix = "> "
 	} else if p.hoveredButton == "execute" {
@@ -254,7 +461,7 @@ func (p *CreateWorkPanel) Render() string {
 	// Auto button
 	autoStyle := tuiDimStyle
 	autoPrefix := "  "
-	if p.fieldIdx == 1 && p.buttonIdx == 1 {
+	if p.fieldIdx == 2 && p.buttonIdx == 1 {
 		autoStyle = tuiSelectedStyle
 		autoPrefix = "> "
 	} else if p.hoveredButton == "auto" {
@@ -274,7 +481,7 @@ func (p *CreateWorkPanel) Render() string {
 	// Cancel button
 	cancelStyle := tuiDimStyle
 	cancelPrefix := "  "
-	if p.fieldIdx == 1 && p.buttonIdx == 2 {
+	if p.fieldIdx == 2 && p.buttonIdx == 2 {
 		cancelStyle = tuiSelectedStyle
 		cancelPrefix = "> "
 	} else if p.hoveredButton == "cancel" {
@@ -292,7 +499,13 @@ func (p *CreateWorkPanel) Render() string {
 
 	// Navigation help
 	content.WriteString("\n")
-	content.WriteString(tuiDimStyle.Render("Navigation: [Tab/Shift+Tab] Switch field  [j/k] Select button  [Enter] Confirm  [Esc] Cancel"))
+	var helpText string
+	if p.useExistingBranch && p.fieldIdx == 1 {
+		helpText = "Navigation: [Tab/Shift+Tab] Switch field  [j/k] Navigate  [type] Filter  [Backspace] Clear filter  [Esc] Cancel"
+	} else {
+		helpText = "Navigation: [Tab/Shift+Tab] Switch field  [j/k] Select button  [Enter] Confirm  [Esc] Cancel"
+	}
+	content.WriteString(tuiDimStyle.Render(helpText))
 
 	return content.String()
 }

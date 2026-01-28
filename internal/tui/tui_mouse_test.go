@@ -226,56 +226,56 @@ func TestDetectDialogButton(t *testing.T) {
 			name:           "ViewCreateWork mode - execute button start",
 			viewMode:       ViewCreateWork,
 			x:              53, // detailsPanelStart (51) + button StartX (2)
-			y:              11, // absoluteY = tabsBarHeight (1) + button.Y (8) + 2
+			y:              14, // absoluteY = tabsBarHeight (1) + button.Y (11) + 2
 			expectedButton: "execute",
 		},
 		{
 			name:           "ViewCreateWork mode - execute button middle",
 			viewMode:       ViewCreateWork,
 			x:              58, // detailsPanelStart (51) + button middle (7)
-			y:              11,
+			y:              14,
 			expectedButton: "execute",
 		},
 		{
 			name:           "ViewCreateWork mode - auto button start",
 			viewMode:       ViewCreateWork,
 			x:              53, // detailsPanelStart (51) + button StartX (2)
-			y:              12, // absoluteY = tabsBarHeight (1) + button.Y (9) + 2
+			y:              15, // absoluteY = tabsBarHeight (1) + button.Y (12) + 2
 			expectedButton: "auto",
 		},
 		{
 			name:           "ViewCreateWork mode - cancel button start",
 			viewMode:       ViewCreateWork,
 			x:              53, // detailsPanelStart (51) + button StartX (2)
-			y:              13, // absoluteY = tabsBarHeight (1) + button.Y (10) + 2
+			y:              16, // absoluteY = tabsBarHeight (1) + button.Y (13) + 2
 			expectedButton: "cancel",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (wrong Y)",
 			viewMode:       ViewCreateWork,
 			x:              53,
-			y:              10, // Wrong Y coordinate (before execute button)
+			y:              13, // Wrong Y coordinate (before execute button)
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (past execute end)",
 			viewMode:       ViewCreateWork,
 			x:              70, // Past execute button EndX (51 + 13 = 64)
-			y:              11,
+			y:              14,
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (before detailsPanelStart)",
 			viewMode:       ViewCreateWork,
 			x:              50, // Before details panel
-			y:              11,
+			y:              14,
 			expectedButton: "",
 		},
 		{
 			name:           "ViewCreateWork mode - miss button (after cancel button)",
 			viewMode:       ViewCreateWork,
 			x:              70, // Past cancel button EndX
-			y:              13,
+			y:              16,
 			expectedButton: "",
 		},
 		{

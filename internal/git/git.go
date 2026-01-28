@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // PushSetUpstreamInDir pushes the specified branch and sets upstream tracking.
@@ -62,4 +63,85 @@ func BranchExists(ctx context.Context, repoPath, branchName string) bool {
 	cmd = exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branchName)
 	cmd.Dir = repoPath
 	return cmd.Run() == nil
+}
+
+// ValidateExistingBranch checks if a branch exists locally, remotely, or both.
+// Returns (existsLocal, existsRemote, error).
+func ValidateExistingBranch(ctx context.Context, repoPath, branchName string) (bool, bool, error) {
+	// Check local branches
+	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
+	cmd.Dir = repoPath
+	existsLocal := cmd.Run() == nil
+
+	// Check remote branches
+	cmd = exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branchName)
+	cmd.Dir = repoPath
+	existsRemote := cmd.Run() == nil
+
+	return existsLocal, existsRemote, nil
+}
+
+// ListBranches returns a deduplicated list of all branches (local and remote).
+// Excludes HEAD and the current branch. Remote branches have their origin/ prefix stripped.
+func ListBranches(ctx context.Context, repoPath string) ([]string, error) {
+	// Get local branches
+	cmd := exec.CommandContext(ctx, "git", "branch", "--format=%(refname:short)")
+	cmd.Dir = repoPath
+	localOutput, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list local branches: %w", err)
+	}
+
+	// Get remote branches
+	cmd = exec.CommandContext(ctx, "git", "branch", "-r", "--format=%(refname:short)")
+	cmd.Dir = repoPath
+	remoteOutput, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list remote branches: %w", err)
+	}
+
+	// Get current branch to exclude it
+	cmd = exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = repoPath
+	currentBranchBytes, _ := cmd.Output()
+	currentBranch := strings.TrimSpace(string(currentBranchBytes))
+
+	// Deduplicate branches
+	seen := make(map[string]bool)
+	var branches []string
+
+	// Process local branches
+	for _, line := range strings.Split(strings.TrimSpace(string(localOutput)), "\n") {
+		branch := strings.TrimSpace(line)
+		if branch == "" || branch == currentBranch {
+			continue
+		}
+		if !seen[branch] {
+			seen[branch] = true
+			branches = append(branches, branch)
+		}
+	}
+
+	// Process remote branches (strip origin/ prefix)
+	for _, line := range strings.Split(strings.TrimSpace(string(remoteOutput)), "\n") {
+		branch := strings.TrimSpace(line)
+		if branch == "" {
+			continue
+		}
+		// Skip HEAD pointer
+		if strings.HasSuffix(branch, "/HEAD") {
+			continue
+		}
+		// Strip origin/ prefix
+		branch = strings.TrimPrefix(branch, "origin/")
+		if branch == currentBranch {
+			continue
+		}
+		if !seen[branch] {
+			seen[branch] = true
+			branches = append(branches, branch)
+		}
+	}
+
+	return branches, nil
 }

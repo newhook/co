@@ -80,9 +80,9 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 // 2. Adds beads to work_beads
 // 3. Schedules TaskTypeCreateWorktree task
 // 4. Returns immediately (control plane handles worktree creation + orchestrator spawning)
-func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool) tea.Cmd {
+func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool, useExistingBranch bool) tea.Cmd {
 	return func() tea.Msg {
-		logging.Debug("executeCreateWork started", "beadID", beadID, "branchName", branchName, "auto", auto)
+		logging.Debug("executeCreateWork started", "beadID", beadID, "branchName", branchName, "auto", auto, "useExistingBranch", useExistingBranch)
 
 		// Collect the bead and any transitive dependencies (or children if it has parent-child relationships)
 		allIssueIDs, err := work.CollectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
@@ -101,7 +101,14 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		}
 
 		// Create work asynchronously (DB operations only, schedules tasks for control plane)
-		result, err := work.CreateWorkAsync(m.ctx, m.proj, branchName, m.proj.Config.Repo.GetBaseBranch(), beadID, auto)
+		opts := work.CreateWorkAsyncOptions{
+			BranchName:        branchName,
+			BaseBranch:        m.proj.Config.Repo.GetBaseBranch(),
+			RootIssueID:       beadID,
+			Auto:              auto,
+			UseExistingBranch: useExistingBranch,
+		}
+		result, err := work.CreateWorkAsyncWithOptions(m.ctx, m.proj, opts)
 		if err != nil {
 			logging.Error("executeCreateWork CreateWorkWithBranch failed", "beadID", beadID, "error", err)
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
