@@ -11,17 +11,12 @@ import (
 func TestNewFeedbackProcessor(t *testing.T) {
 	client := &github.Client{}
 
-	processor := NewFeedbackProcessor(client, 2)
+	processor := NewFeedbackProcessor(client)
 	if processor == nil {
 		t.Fatal("NewFeedbackProcessor returned nil")
 	}
-	if processor.minPriority != 2 {
-		t.Errorf("minPriority = %d, want 2", processor.minPriority)
-	}
-
-	processor = NewFeedbackProcessor(client, 1)
-	if processor.minPriority != 1 {
-		t.Errorf("minPriority = %d, want 1", processor.minPriority)
+	if processor.client != client {
+		t.Error("Expected client to be set")
 	}
 }
 
@@ -167,9 +162,7 @@ func TestTruncateText(t *testing.T) {
 }
 
 func TestProcessStatusChecks(t *testing.T) {
-	processor := &FeedbackProcessor{
-		minPriority: 2,
-	}
+	processor := &FeedbackProcessor{}
 
 	status := &github.PRStatus{
 		StatusChecks: []github.StatusCheck{
@@ -220,8 +213,7 @@ func TestProcessStatusChecks(t *testing.T) {
 
 func TestProcessWorkflowRuns(t *testing.T) {
 	processor := &FeedbackProcessor{
-		client:      &github.Client{},
-		minPriority: 2,
+		client: &github.Client{},
 	}
 
 	status := &github.PRStatus{
@@ -274,9 +266,7 @@ func TestProcessWorkflowRuns(t *testing.T) {
 }
 
 func TestProcessReviews(t *testing.T) {
-	processor := &FeedbackProcessor{
-		minPriority: 2,
-	}
+	processor := &FeedbackProcessor{}
 
 	status := &github.PRStatus{
 		URL: "https://github.com/user/repo/pull/123",
@@ -337,46 +327,9 @@ func TestProcessReviews(t *testing.T) {
 	}
 }
 
-func TestFilterByMinimumPriority(t *testing.T) {
-	processor := &FeedbackProcessor{
-		client:      &github.Client{},
-		minPriority: 2, // Only priority 0, 1, 2
-	}
-
-	// Create mock feedback items with different priorities
-	items := []github.FeedbackItem{
-		{Title: "Critical", Priority: 0},
-		{Title: "High", Priority: 1},
-		{Title: "Medium", Priority: 2},
-		{Title: "Low", Priority: 3},
-		{Title: "Lowest", Priority: 4},
-	}
-
-	// Simulate the filtering logic from ProcessPRFeedback
-	filtered := make([]github.FeedbackItem, 0, len(items))
-	for _, item := range items {
-		if item.Priority <= processor.minPriority {
-			filtered = append(filtered, item)
-		}
-	}
-
-	// Should have 3 items (priorities 0, 1, 2)
-	if len(filtered) != 3 {
-		t.Fatalf("Expected 3 filtered items, got %d", len(filtered))
-	}
-
-	expectedTitles := []string{"Critical", "High", "Medium"}
-	for i, title := range expectedTitles {
-		if filtered[i].Title != title {
-			t.Errorf("Item %d title = %s, want %s", i, filtered[i].Title, title)
-		}
-	}
-}
-
 func TestCreateGenericFailureItem(t *testing.T) {
 	processor := &FeedbackProcessor{
-		client:      &github.Client{},
-		minPriority: 2,
+		client: &github.Client{},
 	}
 
 	workflow := github.WorkflowRun{
@@ -429,7 +382,7 @@ func TestCreateGenericFailureItem(t *testing.T) {
 
 func TestCategorizeComment_HumanVsBot(t *testing.T) {
 	client := &github.Client{}
-	processor := NewFeedbackProcessor(client, 2)
+	processor := NewFeedbackProcessor(client)
 
 	tests := []struct {
 		name             string
@@ -589,9 +542,7 @@ func TestExtractTitleFromComment(t *testing.T) {
 }
 
 func TestProcessComments(t *testing.T) {
-	processor := &FeedbackProcessor{
-		minPriority: 2,
-	}
+	processor := &FeedbackProcessor{}
 
 	status := &github.PRStatus{
 		URL: "https://github.com/user/repo/pull/123",
@@ -633,9 +584,7 @@ func TestProcessComments(t *testing.T) {
 }
 
 func TestProcessConflicts(t *testing.T) {
-	processor := &FeedbackProcessor{
-		minPriority: 2,
-	}
+	processor := &FeedbackProcessor{}
 
 	tests := []struct {
 		name           string
@@ -694,12 +643,9 @@ func TestNewFeedbackProcessorWithProject(t *testing.T) {
 	client := &github.Client{}
 
 	t.Run("with nil project", func(t *testing.T) {
-		processor := NewFeedbackProcessorWithProject(client, 2, nil, "work-123")
+		processor := NewFeedbackProcessorWithProject(client, nil, "work-123")
 		if processor == nil {
 			t.Fatal("NewFeedbackProcessorWithProject returned nil")
-		}
-		if processor.minPriority != 2 {
-			t.Errorf("minPriority = %d, want 2", processor.minPriority)
 		}
 		if processor.proj != nil {
 			t.Error("Expected proj to be nil")
@@ -711,12 +657,9 @@ func TestNewFeedbackProcessorWithProject(t *testing.T) {
 
 	t.Run("stores all parameters", func(t *testing.T) {
 		// Can't test with real project, but we can verify struct fields are set
-		processor := NewFeedbackProcessorWithProject(client, 1, nil, "w-abc")
+		processor := NewFeedbackProcessorWithProject(client, nil, "w-abc")
 		if processor.client != client {
 			t.Error("Expected client to be set")
-		}
-		if processor.minPriority != 1 {
-			t.Errorf("minPriority = %d, want 1", processor.minPriority)
 		}
 		if processor.workID != "w-abc" {
 			t.Errorf("workID = %s, want w-abc", processor.workID)
@@ -728,14 +671,14 @@ func TestShouldUseClaude(t *testing.T) {
 	client := &github.Client{}
 
 	t.Run("returns false when project is nil", func(t *testing.T) {
-		processor := NewFeedbackProcessorWithProject(client, 2, nil, "work-123")
+		processor := NewFeedbackProcessorWithProject(client, nil, "work-123")
 		if processor.shouldUseClaude() {
 			t.Error("Expected shouldUseClaude() to return false when project is nil")
 		}
 	})
 
 	t.Run("returns false with basic processor", func(t *testing.T) {
-		processor := NewFeedbackProcessor(client, 2)
+		processor := NewFeedbackProcessor(client)
 		if processor.shouldUseClaude() {
 			t.Error("Expected shouldUseClaude() to return false for basic processor")
 		}

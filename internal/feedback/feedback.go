@@ -14,19 +14,19 @@ import (
 // ProcessPRFeedbackQuiet processes PR feedback without outputting to stdout.
 // This is used by the scheduler to avoid interfering with the TUI.
 // Returns the number of beads created and any error.
-func ProcessPRFeedbackQuiet(ctx context.Context, proj *project.Project, database *db.DB, workID string, minPriority int) (int, error) {
-	return processPRFeedbackInternal(ctx, proj, database, workID, minPriority, true)
+func ProcessPRFeedbackQuiet(ctx context.Context, proj *project.Project, database *db.DB, workID string) (int, error) {
+	return processPRFeedbackInternal(ctx, proj, database, workID, true)
 }
 
 // ProcessPRFeedback processes PR feedback for a work and creates beads.
 // This is an internal function that can be called directly.
 // Returns the number of beads created and any error.
-func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string, minPriority int) (int, error) {
-	return processPRFeedbackInternal(ctx, proj, database, workID, minPriority, false)
+func ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string) (int, error) {
+	return processPRFeedbackInternal(ctx, proj, database, workID, false)
 }
 
 // processPRFeedbackInternal is the actual implementation with output control
-func processPRFeedbackInternal(ctx context.Context, proj *project.Project, database *db.DB, workID string, minPriority int, quiet bool) (int, error) {
+func processPRFeedbackInternal(ctx context.Context, proj *project.Project, database *db.DB, workID string, quiet bool) (int, error) {
 	// Get work details
 	work, err := database.GetWork(ctx, workID)
 	if err != nil {
@@ -48,7 +48,7 @@ func processPRFeedbackInternal(ctx context.Context, proj *project.Project, datab
 	}
 
 	// Create integration with project context to enable Claude-based log analysis
-	integration := NewIntegrationWithProject(minPriority, proj, workID)
+	integration := NewIntegrationWithProject(proj, workID)
 
 	// Extract and store PR status (CI status, approval status)
 	if !quiet {

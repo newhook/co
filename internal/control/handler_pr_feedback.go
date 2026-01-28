@@ -28,7 +28,7 @@ func HandlePRFeedbackTask(ctx context.Context, proj *project.Project, task *db.S
 	logging.Debug("Checking PR feedback", "pr_url", work.PRURL, "work_id", workID)
 
 	// Process PR feedback - creates beads but doesn't add them to work
-	createdCount, err := feedback.ProcessPRFeedbackQuiet(ctx, proj, proj.DB, workID, 2)
+	createdCount, err := feedback.ProcessPRFeedbackQuiet(ctx, proj, proj.DB, workID)
 	if err != nil {
 		return fmt.Errorf("failed to check PR feedback: %w", err)
 	}

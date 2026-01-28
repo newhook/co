@@ -18,29 +18,26 @@ const maxLogContentSize = 50 * 1024 // 50KB
 
 // FeedbackProcessor processes PR feedback and generates actionable items.
 type FeedbackProcessor struct {
-	client      *github.Client
-	minPriority int
+	client *github.Client
 	// Optional fields for Claude log analysis integration
 	proj   *project.Project
 	workID string
 }
 
 // NewFeedbackProcessor creates a new feedback processor.
-func NewFeedbackProcessor(client *github.Client, minPriority int) *FeedbackProcessor {
+func NewFeedbackProcessor(client *github.Client) *FeedbackProcessor {
 	return &FeedbackProcessor{
-		client:      client,
-		minPriority: minPriority,
+		client: client,
 	}
 }
 
 // NewFeedbackProcessorWithProject creates a feedback processor with project context.
 // This enables Claude-based log analysis when configured.
-func NewFeedbackProcessorWithProject(client *github.Client, minPriority int, proj *project.Project, workID string) *FeedbackProcessor {
+func NewFeedbackProcessorWithProject(client *github.Client, proj *project.Project, workID string) *FeedbackProcessor {
 	return &FeedbackProcessor{
-		client:      client,
-		minPriority: minPriority,
-		proj:        proj,
-		workID:      workID,
+		client: client,
+		proj:   proj,
+		workID: workID,
 	}
 }
 
@@ -85,15 +82,7 @@ func (p *FeedbackProcessor) ProcessPRFeedback(ctx context.Context, prURL string)
 	conflictItems := p.processConflicts(status)
 	items = append(items, conflictItems...)
 
-	// Filter by minimum priority
-	filtered := make([]github.FeedbackItem, 0, len(items))
-	for _, item := range items {
-		if item.Priority <= p.minPriority {
-			filtered = append(filtered, item)
-		}
-	}
-
-	return filtered, nil
+	return items, nil
 }
 
 // processStatusChecks processes status check failures.

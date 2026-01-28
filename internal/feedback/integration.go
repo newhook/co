@@ -31,9 +31,9 @@ type Integration struct {
 }
 
 // NewIntegration creates a new feedback integration.
-func NewIntegration(minPriority int) *Integration {
+func NewIntegration() *Integration {
 	client := github.NewClient()
-	processor := NewFeedbackProcessor(client, minPriority)
+	processor := NewFeedbackProcessor(client)
 
 	return &Integration{
 		client:    client,
@@ -43,9 +43,9 @@ func NewIntegration(minPriority int) *Integration {
 
 // NewIntegrationWithProject creates a new feedback integration with project context.
 // This enables Claude-based log analysis when configured.
-func NewIntegrationWithProject(minPriority int, proj *project.Project, workID string) *Integration {
+func NewIntegrationWithProject(proj *project.Project, workID string) *Integration {
 	client := github.NewClient()
-	processor := NewFeedbackProcessorWithProject(client, minPriority, proj, workID)
+	processor := NewFeedbackProcessorWithProject(client, proj, workID)
 
 	return &Integration{
 		client:    client,
