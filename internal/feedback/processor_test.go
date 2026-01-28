@@ -208,9 +208,6 @@ func TestProcessStatusChecks(t *testing.T) {
 	if items[0].Title != "Fix unit-tests failure" {
 		t.Errorf("First item title = %s, want 'Fix unit-tests failure'", items[0].Title)
 	}
-	if !items[0].Actionable {
-		t.Error("First item should be actionable")
-	}
 
 	// Check second item (lint error)
 	if items[1].Type != github.FeedbackTypeLint {
@@ -273,9 +270,6 @@ func TestProcessWorkflowRuns(t *testing.T) {
 	// Generic fallback format: "Fix {jobName}: {stepName} in {workflowName}"
 	if items[0].Title != "Fix Unit Tests: Run tests in Test Suite" {
 		t.Errorf("Item title = %s, want 'Fix Unit Tests: Run tests in Test Suite'", items[0].Title)
-	}
-	if !items[0].Actionable {
-		t.Error("Item should be actionable")
 	}
 }
 
@@ -351,23 +345,22 @@ func TestFilterByMinimumPriority(t *testing.T) {
 
 	// Create mock feedback items with different priorities
 	items := []github.FeedbackItem{
-		{Title: "Critical", Priority: 0, Actionable: true},
-		{Title: "High", Priority: 1, Actionable: true},
-		{Title: "Medium", Priority: 2, Actionable: true},
-		{Title: "Low", Priority: 3, Actionable: true},
-		{Title: "Lowest", Priority: 4, Actionable: true},
-		{Title: "Not actionable", Priority: 0, Actionable: false},
+		{Title: "Critical", Priority: 0},
+		{Title: "High", Priority: 1},
+		{Title: "Medium", Priority: 2},
+		{Title: "Low", Priority: 3},
+		{Title: "Lowest", Priority: 4},
 	}
 
 	// Simulate the filtering logic from ProcessPRFeedback
 	filtered := make([]github.FeedbackItem, 0, len(items))
 	for _, item := range items {
-		if item.Priority <= processor.minPriority && item.Actionable {
+		if item.Priority <= processor.minPriority {
 			filtered = append(filtered, item)
 		}
 	}
 
-	// Should have 3 items (priorities 0, 1, 2 that are actionable)
+	// Should have 3 items (priorities 0, 1, 2)
 	if len(filtered) != 3 {
 		t.Fatalf("Expected 3 filtered items, got %d", len(filtered))
 	}
@@ -429,9 +422,6 @@ func TestCreateGenericFailureItem(t *testing.T) {
 			item := processor.createGenericFailureItem(workflow, tt.job)
 			if item.Title != tt.expectedTitle {
 				t.Errorf("createGenericFailureItem().Title = %s, want %s", item.Title, tt.expectedTitle)
-			}
-			if !item.Actionable {
-				t.Error("Item should be actionable")
 			}
 		})
 	}
@@ -682,9 +672,6 @@ func TestProcessConflicts(t *testing.T) {
 				}
 				if item.Priority != 1 {
 					t.Errorf("Item priority = %d, want 1", item.Priority)
-				}
-				if !item.Actionable {
-					t.Error("Item should be actionable")
 				}
 				if item.Source.ID != "merge-conflict" {
 					t.Errorf("Item source ID = %s, want 'merge-conflict'", item.Source.ID)
