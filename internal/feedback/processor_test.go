@@ -432,31 +432,31 @@ func TestCategorizeComment_HumanVsBot(t *testing.T) {
 	processor := NewFeedbackProcessor(client, 2)
 
 	tests := []struct {
-		name           string
-		author         string
-		body           string
-		expectedType   github.FeedbackType
+		name             string
+		author           string
+		body             string
+		expectedType     github.FeedbackType
 		expectedPriority int
 	}{
 		{
-			name:           "human actionable comment",
-			author:         "shubsengupta",
-			body:           "Please remove any markdown / implementation detail files",
-			expectedType:   github.FeedbackTypeReview,
+			name:             "human actionable comment",
+			author:           "shubsengupta",
+			body:             "Please remove any markdown / implementation detail files",
+			expectedType:     github.FeedbackTypeReview,
 			expectedPriority: 2,
 		},
 		{
-			name:           "bot general comment",
-			author:         "github-actions[bot]",
-			body:           "Some general bot message",
-			expectedType:   github.FeedbackTypeGeneral,
+			name:             "bot general comment",
+			author:           "github-actions[bot]",
+			body:             "Some general bot message",
+			expectedType:     github.FeedbackTypeGeneral,
 			expectedPriority: 3,
 		},
 		{
-			name:           "bot security comment",
-			author:         "security-bot",
-			body:           "Security vulnerability detected",
-			expectedType:   github.FeedbackTypeSecurity,
+			name:             "bot security comment",
+			author:           "security-bot",
+			body:             "Security vulnerability detected",
+			expectedType:     github.FeedbackTypeSecurity,
 			expectedPriority: 0,
 		},
 	}

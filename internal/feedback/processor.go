@@ -114,7 +114,7 @@ func (p *FeedbackProcessor) processStatusChecks(status *github.PRStatus) []githu
 					Name: check.Context,
 					URL:  check.TargetURL,
 				},
-				Priority:   p.getPriorityForType(feedbackType),
+				Priority: p.getPriorityForType(feedbackType),
 				CICheck: &github.CICheckContext{
 					CheckName: check.Context,
 					State:     check.State,
@@ -322,7 +322,7 @@ func (p *FeedbackProcessor) createFailureItem(workflow github.WorkflowRun, job g
 			Name: workflow.Name,
 			URL:  job.URL,
 		},
-		Priority:   p.getPriorityForType(feedbackType),
+		Priority: p.getPriorityForType(feedbackType),
 		Workflow: &github.WorkflowContext{
 			WorkflowName:  workflow.Name,
 			FailureDetail: f.Name,
@@ -361,7 +361,7 @@ func (p *FeedbackProcessor) createGenericFailureItem(workflow github.WorkflowRun
 			Name: workflow.Name,
 			URL:  job.URL,
 		},
-		Priority:   p.getPriorityForType(feedbackType),
+		Priority: p.getPriorityForType(feedbackType),
 		Workflow: &github.WorkflowContext{
 			WorkflowName:  workflow.Name,
 			FailureDetail: detail,
@@ -458,7 +458,7 @@ func (p *FeedbackProcessor) processReviews(status *github.PRStatus) []github.Fee
 					Name: review.Author,
 					URL:  status.URL, // Link to PR
 				},
-				Priority:   1, // High priority for requested changes
+				Priority: 1, // High priority for requested changes
 				Review: &github.ReviewContext{
 					Reviewer:  review.Author,
 					CommentID: int64(review.ID),
@@ -495,7 +495,7 @@ func (p *FeedbackProcessor) processReviews(status *github.PRStatus) []github.Fee
 					Name: comment.Author,
 					URL:  commentURL,
 				},
-				Priority:   2, // Medium priority for line comments
+				Priority: 2, // Medium priority for line comments
 				Review: &github.ReviewContext{
 					File:        comment.Path,
 					Line:        lineNum,
@@ -533,7 +533,7 @@ func (p *FeedbackProcessor) processComments(status *github.PRStatus) []github.Fe
 					Name: comment.Author,
 					URL:  commentURL,
 				},
-				Priority:   p.getPriorityForType(feedbackType),
+				Priority: p.getPriorityForType(feedbackType),
 				IssueComment: &github.IssueCommentContext{
 					Author:    comment.Author,
 					CommentID: int64(comment.ID),
@@ -563,8 +563,8 @@ func (p *FeedbackProcessor) processConflicts(status *github.PRStatus) []github.F
 				Name: "Merge Conflict",
 				URL:  status.URL,
 			},
-			Priority:   1,
-			}
+			Priority: 1,
+		}
 		items = append(items, item)
 	}
 
