@@ -31,6 +31,18 @@ func Create(ctx context.Context, repoPath, worktreePath, branch, baseBranch stri
 	return nil
 }
 
+// CreateFromExisting creates a worktree at worktreePath for an existing branch.
+// If the branch only exists on remote (not locally), git will auto-track origin/<branch>.
+// Uses: git -C <repo> worktree add <path> <branch>
+func CreateFromExisting(ctx context.Context, repoPath, worktreePath, branch string) error {
+	args := []string{"-C", repoPath, "worktree", "add", worktreePath, branch}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create worktree from existing branch: %w\n%s", err, output)
+	}
+	return nil
+}
+
 // RemoveForce forcefully removes a worktree even if it has uncommitted changes.
 // Uses: git -C <repo> worktree remove --force <path>
 func RemoveForce(ctx context.Context, repoPath, worktreePath string) error {
