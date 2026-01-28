@@ -81,7 +81,6 @@ func TestNewClient(t *testing.T) {
 	tests := []struct {
 		name    string
 		apiKey  string
-		envKey  string
 		wantErr bool
 	}{
 		{
@@ -92,18 +91,12 @@ func TestNewClient(t *testing.T) {
 		{
 			name:    "no API key",
 			apiKey:  "",
-			envKey:  "",
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Set up environment
-			if tt.envKey != "" {
-				t.Setenv("LINEAR_API_KEY", tt.envKey)
-			}
-
 			client, err := NewClient(tt.apiKey)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewClient() error = %v, wantErr %v", err, tt.wantErr)

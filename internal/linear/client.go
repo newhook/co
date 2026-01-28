@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -29,13 +28,9 @@ type Client struct {
 }
 
 // NewClient creates a new Linear GraphQL API client
-// API key is read from LINEAR_API_KEY environment variable if not provided
 func NewClient(apiKey string) (*Client, error) {
 	if apiKey == "" {
-		apiKey = os.Getenv("LINEAR_API_KEY")
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("linear API key not provided and LINEAR_API_KEY environment variable not set")
+		return nil, fmt.Errorf("linear API key not provided")
 	}
 
 	return &Client{

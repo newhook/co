@@ -42,11 +42,9 @@ Examples:
 Authentication:
   The Linear API key can be provided via (in order of precedence):
   1. --api-key flag
-  2. LINEAR_API_KEY environment variable
-  3. [linear] api_key in .co/config.toml
+  2. [linear] api_key in .co/config.toml
 
 Environment Variables:
-  LINEAR_API_KEY     Linear API key for authentication
   BEADS_DIR          Beads directory (default: auto-detect)
 `,
 	Args: cobra.MinimumNArgs(1),
@@ -70,7 +68,7 @@ func init() {
 	linearCmd.AddCommand(linearImportCmd)
 
 	// Import command flags
-	linearImportCmd.Flags().StringVar(&linearAPIKey, "api-key", "", "Linear API key (or set LINEAR_API_KEY env var)")
+	linearImportCmd.Flags().StringVar(&linearAPIKey, "api-key", "", "Linear API key (or set [linear] api_key in config.toml)")
 	linearImportCmd.Flags().StringVar(&linearBeadsDir, "beads-dir", "", "Beads directory (default: auto-detect)")
 	linearImportCmd.Flags().BoolVar(&linearDryRun, "dry-run", false, "Preview import without creating beads")
 	linearImportCmd.Flags().BoolVar(&linearUpdateExist, "update", false, "Update existing beads if already imported")
@@ -84,11 +82,8 @@ func init() {
 func runLinearImport(cmd *cobra.Command, args []string) error {
 	ctx := GetContext()
 
-	// Get API key from flag, environment, or config
+	// Get API key from flag or config
 	apiKey := linearAPIKey
-	if apiKey == "" {
-		apiKey = os.Getenv("LINEAR_API_KEY")
-	}
 	if apiKey == "" {
 		// Try to get from project config
 		if proj, err := project.Find(ctx, ""); err == nil && proj.Config != nil {
@@ -96,7 +91,7 @@ func runLinearImport(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if apiKey == "" {
-		return fmt.Errorf("LINEAR_API_KEY is required (set via --api-key flag, environment variable, or config.toml)")
+		return fmt.Errorf("Linear API key is required (set via --api-key flag or [linear] api_key in config.toml)")
 	}
 
 	// Get beads directory

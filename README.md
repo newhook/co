@@ -111,7 +111,6 @@ The `.co/config.toml` file stores project settings:
 
 [linear]
   # Linear API key for importing issues
-  # Can also be set via LINEAR_API_KEY environment variable
   api_key = "lin_api_..."
 
 [claude]
@@ -162,7 +161,7 @@ The `hooks.env` setting is useful for:
 
 **`[linear]`**
 
-The `linear.api_key` setting provides authentication for Linear integration. This is used by `co linear import` to fetch issues from Linear. The API key can alternatively be set via the `LINEAR_API_KEY` environment variable.
+The `linear.api_key` setting provides authentication for Linear integration. This is used by `co linear import` to fetch issues from Linear.
 
 **`[claude]`**
 
@@ -480,7 +479,7 @@ co linear import ENG-123 --dry-run
 
 | Flag | Description |
 |------|-------------|
-| `--api-key` | Linear API key (or use `LINEAR_API_KEY` env var or config.toml) |
+| `--api-key` | Linear API key (or use `[linear] api_key` in config.toml) |
 | `--create-deps` | Import blocking issues as dependencies |
 | `--max-dep-depth` | Maximum depth for dependency import (default: 1) |
 | `--update` | Update existing beads if already imported |

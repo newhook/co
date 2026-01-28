@@ -224,19 +224,8 @@ func TestNewFetcher(t *testing.T) {
 	})
 
 	t.Run("fails with empty API key", func(t *testing.T) {
-		// Clear environment variable for this test
-		t.Setenv("LINEAR_API_KEY", "")
-
 		fetcher, err := NewFetcher("", ".")
 		require.Error(t, err, "expected error for empty API key")
 		assert.Nil(t, fetcher, "expected nil fetcher on error")
-	})
-
-	t.Run("uses environment variable when API key not provided", func(t *testing.T) {
-		t.Setenv("LINEAR_API_KEY", "env-test-key")
-
-		fetcher, err := NewFetcher("", ".")
-		require.NoError(t, err)
-		assert.NotNil(t, fetcher)
 	})
 }
