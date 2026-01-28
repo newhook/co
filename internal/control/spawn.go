@@ -85,8 +85,9 @@ func EnsureControlPlane(ctx context.Context, proj *project.Project) error {
 		return fmt.Errorf("failed to check session existence: %w", err)
 	}
 	if !exists {
-		// No session yet - will be created when needed
-		return nil
+		// No session yet - initialize it (which spawns control plane via layout)
+		_, err := InitializeSession(ctx, proj)
+		return err
 	}
 
 	// Check if control plane tab exists
