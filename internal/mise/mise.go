@@ -82,6 +82,20 @@ func RunTask(dir, taskName string) error {
 	return nil
 }
 
+// Exec runs a command with the mise environment in the given directory.
+// This uses `mise exec -- command args...` to ensure mise-managed tools are available.
+func Exec(dir, command string, args ...string) ([]byte, error) {
+	miseArgs := append([]string{"exec", "--"}, command)
+	miseArgs = append(miseArgs, args...)
+	cmd := exec.Command("mise", miseArgs...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("mise exec %s failed: %w\n%s", command, err, output)
+	}
+	return output, nil
+}
+
 // Initialize runs mise trust, install, and setup task if available.
 // Returns nil if mise is not enabled in the directory.
 // Errors are returned but callers may choose to treat them as warnings.
