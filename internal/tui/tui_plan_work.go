@@ -411,6 +411,12 @@ func (m *planModel) checkPRFeedback() tea.Cmd {
 		if err := control.TriggerPRFeedbackCheck(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Check PR feedback", workID: workID, err: err}
 		}
+
+		// Ensure control plane is running to process the feedback check
+		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+			return workCommandMsg{action: "PR feedback check triggered", workID: workID, err: fmt.Errorf("feedback check scheduled but control plane failed: %w", err)}
+		}
+
 		return workCommandMsg{action: "PR feedback check triggered", workID: workID}
 	}
 }
