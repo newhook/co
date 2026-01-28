@@ -193,6 +193,13 @@ func (m *planModel) destroyWork(workID string) tea.Cmd {
 		if err := control.ScheduleDestroyWorktree(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Destroy work", workID: workID, err: err}
 		}
+
+		// Ensure control plane is running to process the destroy task
+		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+			// Non-fatal: task was scheduled but control plane might need manual start
+			return workCommandMsg{action: "Destroy work scheduled", workID: workID, err: fmt.Errorf("destroy scheduled but control plane failed: %w", err)}
+		}
+
 		return workCommandMsg{action: "Destroy work scheduled", workID: workID}
 	}
 }
