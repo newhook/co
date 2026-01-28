@@ -26,6 +26,33 @@ type Config struct {
 	Workflow  WorkflowConfig  `toml:"workflow"`
 	Scheduler SchedulerConfig `toml:"scheduler"`
 	Zellij    ZellijConfig    `toml:"zellij"`
+	LogParser LogParserConfig `toml:"log_parser"`
+}
+
+// LogParserConfig contains log parser configuration.
+type LogParserConfig struct {
+	// UseClaude controls whether to use Claude for log analysis instead of the Go parser.
+	// Defaults to false when not specified.
+	UseClaude bool `toml:"use_claude"`
+
+	// Model specifies which Claude model to use for log analysis.
+	// Valid values: "haiku", "sonnet", "opus"
+	// Defaults to "haiku" when not specified.
+	Model string `toml:"model"`
+}
+
+// ShouldUseClaude returns true if Claude should be used for log analysis.
+func (l *LogParserConfig) ShouldUseClaude() bool {
+	return l.UseClaude
+}
+
+// GetModel returns the configured Claude model for log analysis.
+// Defaults to "haiku" when not specified.
+func (l *LogParserConfig) GetModel() string {
+	if l.Model == "" {
+		return "haiku"
+	}
+	return l.Model
 }
 
 // ClaudeConfig contains Claude Code configuration.
