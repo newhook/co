@@ -87,6 +87,7 @@ func RunTask(dir, taskName string) error {
 func Exec(dir, command string, args ...string) ([]byte, error) {
 	miseArgs := append([]string{"exec", "--"}, command)
 	miseArgs = append(miseArgs, args...)
+	// #nosec G204 -- command and args are from trusted internal callers
 	cmd := exec.Command("mise", miseArgs...)
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
