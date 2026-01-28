@@ -26,14 +26,10 @@ If no work ID is provided, detects from current directory.`,
 	RunE: runWorkFeedback,
 }
 
-var (
-	feedbackDryRun      bool
-	feedbackMinPriority int
-)
+var feedbackDryRun bool
 
 func init() {
 	workFeedbackCmd.Flags().BoolVar(&feedbackDryRun, "dry-run", false, "Show what beads would be created without creating them")
-	workFeedbackCmd.Flags().IntVar(&feedbackMinPriority, "min-priority", 2, "Minimum priority for created beads (0-4, 0=critical)")
 }
 
 func runWorkFeedback(cmd *cobra.Command, args []string) error {
@@ -65,7 +61,7 @@ func runWorkFeedback(cmd *cobra.Command, args []string) error {
 	}
 
 	// Call the internal function
-	_, err = feedback.ProcessPRFeedback(ctx, proj, proj.DB, workID, feedbackMinPriority)
+	_, err = feedback.ProcessPRFeedback(ctx, proj, proj.DB, workID)
 	return err
 }
 

@@ -18,29 +18,26 @@ const maxLogContentSize = 50 * 1024 // 50KB
 
 // FeedbackProcessor processes PR feedback and generates actionable items.
 type FeedbackProcessor struct {
-	client      *github.Client
-	minPriority int
+	client *github.Client
 	// Optional fields for Claude log analysis integration
 	proj   *project.Project
 	workID string
 }
 
 // NewFeedbackProcessor creates a new feedback processor.
-func NewFeedbackProcessor(client *github.Client, minPriority int) *FeedbackProcessor {
+func NewFeedbackProcessor(client *github.Client) *FeedbackProcessor {
 	return &FeedbackProcessor{
-		client:      client,
-		minPriority: minPriority,
+		client: client,
 	}
 }
 
 // NewFeedbackProcessorWithProject creates a feedback processor with project context.
 // This enables Claude-based log analysis when configured.
-func NewFeedbackProcessorWithProject(client *github.Client, minPriority int, proj *project.Project, workID string) *FeedbackProcessor {
+func NewFeedbackProcessorWithProject(client *github.Client, proj *project.Project, workID string) *FeedbackProcessor {
 	return &FeedbackProcessor{
-		client:      client,
-		minPriority: minPriority,
-		proj:        proj,
-		workID:      workID,
+		client: client,
+		proj:   proj,
+		workID: workID,
 	}
 }
 
@@ -85,15 +82,7 @@ func (p *FeedbackProcessor) ProcessPRFeedback(ctx context.Context, prURL string)
 	conflictItems := p.processConflicts(status)
 	items = append(items, conflictItems...)
 
-	// Filter by minimum priority
-	filtered := make([]github.FeedbackItem, 0, len(items))
-	for _, item := range items {
-		if item.Priority <= p.minPriority && item.Actionable {
-			filtered = append(filtered, item)
-		}
-	}
-
-	return filtered, nil
+	return items, nil
 }
 
 // processStatusChecks processes status check failures.
@@ -114,8 +103,7 @@ func (p *FeedbackProcessor) processStatusChecks(status *github.PRStatus) []githu
 					Name: check.Context,
 					URL:  check.TargetURL,
 				},
-				Priority:   p.getPriorityForType(feedbackType),
-				Actionable: true,
+				Priority: p.getPriorityForType(feedbackType),
 				CICheck: &github.CICheckContext{
 					CheckName: check.Context,
 					State:     check.State,
@@ -163,25 +151,11 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 							if p.shouldUseClaude() {
 								// Create a log_analysis task instead of parsing inline
 								if taskID, err := p.createLogAnalysisTask(ctx, workflow, job, logs); err == nil {
-									// Add a placeholder feedback item indicating Claude will handle this
-									items = append(items, github.FeedbackItem{
-										Type:        github.FeedbackTypeCI,
-										Title:       fmt.Sprintf("Log analysis scheduled: %s/%s", workflow.Name, job.Name),
-										Description: fmt.Sprintf("Claude will analyze logs for job %s in workflow %s. Task: %s", job.Name, workflow.Name, taskID),
-										Source: github.SourceInfo{
-											Type: github.SourceTypeWorkflow,
-											ID:   fmt.Sprintf("log-analysis-%d-%s", job.ID, taskID),
-											Name: workflow.Name,
-											URL:  job.URL,
-										},
-										Priority:   3, // Lower priority since beads will be created by Claude
-										Actionable: false, // Not directly actionable - Claude will create specific beads
-										Workflow: &github.WorkflowContext{
-											WorkflowName: workflow.Name,
-											RunID:        workflow.ID,
-											JobName:      job.Name,
-										},
-									})
+									logging.Debug("scheduled log_analysis task for Claude",
+										"task_id", taskID,
+										"workflow", workflow.Name,
+										"job", job.Name,
+										"job_id", job.ID)
 									continue // Skip further processing for this job
 								}
 								// If task creation fails, fall through to Go-based parsing
@@ -337,8 +311,7 @@ func (p *FeedbackProcessor) createFailureItem(workflow github.WorkflowRun, job g
 			Name: workflow.Name,
 			URL:  job.URL,
 		},
-		Priority:   p.getPriorityForType(feedbackType),
-		Actionable: true,
+		Priority: p.getPriorityForType(feedbackType),
 		Workflow: &github.WorkflowContext{
 			WorkflowName:  workflow.Name,
 			FailureDetail: f.Name,
@@ -377,8 +350,7 @@ func (p *FeedbackProcessor) createGenericFailureItem(workflow github.WorkflowRun
 			Name: workflow.Name,
 			URL:  job.URL,
 		},
-		Priority:   p.getPriorityForType(feedbackType),
-		Actionable: true,
+		Priority: p.getPriorityForType(feedbackType),
 		Workflow: &github.WorkflowContext{
 			WorkflowName:  workflow.Name,
 			FailureDetail: detail,
@@ -475,8 +447,7 @@ func (p *FeedbackProcessor) processReviews(status *github.PRStatus) []github.Fee
 					Name: review.Author,
 					URL:  status.URL, // Link to PR
 				},
-				Priority:   1, // High priority for requested changes
-				Actionable: true,
+				Priority: 1, // High priority for requested changes
 				Review: &github.ReviewContext{
 					Reviewer:  review.Author,
 					CommentID: int64(review.ID),
@@ -513,8 +484,7 @@ func (p *FeedbackProcessor) processReviews(status *github.PRStatus) []github.Fee
 					Name: comment.Author,
 					URL:  commentURL,
 				},
-				Priority:   2, // Medium priority for line comments
-				Actionable: true,
+				Priority: 2, // Medium priority for line comments
 				Review: &github.ReviewContext{
 					File:        comment.Path,
 					Line:        lineNum,
@@ -552,8 +522,7 @@ func (p *FeedbackProcessor) processComments(status *github.PRStatus) []github.Fe
 					Name: comment.Author,
 					URL:  commentURL,
 				},
-				Priority:   p.getPriorityForType(feedbackType),
-				Actionable: true,
+				Priority: p.getPriorityForType(feedbackType),
 				IssueComment: &github.IssueCommentContext{
 					Author:    comment.Author,
 					CommentID: int64(comment.ID),
@@ -583,8 +552,7 @@ func (p *FeedbackProcessor) processConflicts(status *github.PRStatus) []github.F
 				Name: "Merge Conflict",
 				URL:  status.URL,
 			},
-			Priority:   1,
-			Actionable: true,
+			Priority: 1,
 		}
 		items = append(items, item)
 	}

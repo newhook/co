@@ -25,7 +25,6 @@ type FeedbackItem struct {
 	Description string
 	Source      SourceInfo // Structured source information
 	Priority    int        // 0-4 (0=critical, 4=backlog)
-	Actionable  bool       // Whether this feedback requires action
 
 	// Typed context fields (only one will be set based on Source.Type)
 	CICheck      *CICheckContext      // Set when Source.Type == SourceTypeCI
