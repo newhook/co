@@ -458,6 +458,8 @@ func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int
 		taskType = "rev"
 	case "pr":
 		taskType = "pr"
+	case "log_analysis":
+		taskType = "log"
 	}
 
 	content.WriteString(prefix)

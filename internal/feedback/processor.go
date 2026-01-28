@@ -139,6 +139,24 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 				if job.Conclusion == "failure" {
 					// Try to get detailed failures for test or lint jobs
 					if isTestJob(job.Name) || isLintJob(job.Name) {
+						// Check if Claude-based log analysis is enabled
+						if p.shouldUseClaude() {
+							// Check if we've already created a task for this specific job
+							// Job IDs are unique per CI run, so this prevents duplicate analysis
+							existingTaskID, err := p.findExistingLogAnalysisTaskByJobID(ctx, job.ID)
+							if err != nil {
+								logging.Warn("failed to check for existing log_analysis task", "job_id", job.ID, "error", err)
+							}
+							if existingTaskID != "" {
+								logging.Debug("skipping log fetch - log_analysis task already exists",
+									"existing_task_id", existingTaskID,
+									"job_id", job.ID,
+									"workflow", workflow.Name,
+									"job", job.Name)
+								continue // Skip this job entirely - already being analyzed
+							}
+						}
+
 						logs, err := p.client.GetJobLogs(ctx, repo, job.ID)
 						if err == nil {
 							// Check if Claude-based log analysis is enabled
@@ -198,6 +216,7 @@ func (p *FeedbackProcessor) shouldUseClaude() bool {
 
 // createLogAnalysisTask creates a log_analysis task for Claude to process.
 // Returns the task ID on success.
+// Note: Caller should check for existing tasks via findExistingLogAnalysisTaskByJobID before calling.
 func (p *FeedbackProcessor) createLogAnalysisTask(ctx context.Context, workflow github.WorkflowRun, job github.Job, logs string) (string, error) {
 	if p.proj == nil || p.workID == "" {
 		return "", fmt.Errorf("project context not available for log analysis task creation")
@@ -231,6 +250,7 @@ func (p *FeedbackProcessor) createLogAnalysisTask(ctx context.Context, workflow 
 	metadata := map[string]string{
 		"workflow_name": workflow.Name,
 		"job_name":      job.Name,
+		"job_id":        fmt.Sprintf("%d", job.ID), // Used for deduplication
 		"branch_name":   work.BranchName,
 		"root_issue_id": work.RootIssueID,
 		"log_content":   truncatedLogs,
@@ -244,6 +264,47 @@ func (p *FeedbackProcessor) createLogAnalysisTask(ctx context.Context, workflow 
 	}
 
 	return taskID, nil
+}
+
+// findExistingLogAnalysisTaskByJobID checks if a log_analysis task already exists for this CI job.
+// Job IDs are unique per CI run, so this prevents duplicate analysis of the same failing job.
+// Returns the task ID if found, empty string otherwise.
+func (p *FeedbackProcessor) findExistingLogAnalysisTaskByJobID(ctx context.Context, jobID int64) (string, error) {
+	if p.proj == nil || p.workID == "" {
+		return "", nil
+	}
+
+	// Get all tasks for this work
+	tasks, err := p.proj.DB.GetWorkTasks(ctx, p.workID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get work tasks: %w", err)
+	}
+
+	jobIDStr := fmt.Sprintf("%d", jobID)
+
+	// Check each log_analysis task for matching job_id metadata
+	for _, task := range tasks {
+		if task.TaskType != "log_analysis" {
+			continue
+		}
+
+		// Skip completed or failed tasks - allow re-analysis if previous attempt is done
+		if task.Status == "completed" || task.Status == "failed" {
+			continue
+		}
+
+		// Check metadata for matching job_id
+		taskJobID, err := p.proj.DB.GetTaskMetadata(ctx, task.ID, "job_id")
+		if err != nil {
+			continue // Skip if we can't read metadata
+		}
+
+		if taskJobID == jobIDStr {
+			return task.ID, nil
+		}
+	}
+
+	return "", nil
 }
 
 // createFailureItem creates a FeedbackItem for a specific failure.
