@@ -133,9 +133,7 @@ func ListBranches(ctx context.Context, repoPath string) ([]string, error) {
 			continue
 		}
 		// Strip origin/ prefix
-		if strings.HasPrefix(branch, "origin/") {
-			branch = strings.TrimPrefix(branch, "origin/")
-		}
+		branch = strings.TrimPrefix(branch, "origin/")
 		if branch == currentBranch {
 			continue
 		}
