@@ -193,6 +193,13 @@ func (m *planModel) destroyWork(workID string) tea.Cmd {
 		if err := control.ScheduleDestroyWorktree(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Destroy work", workID: workID, err: err}
 		}
+
+		// Ensure control plane is running to process the destroy task
+		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+			// Non-fatal: task was scheduled but control plane might need manual start
+			return workCommandMsg{action: "Destroy work scheduled", workID: workID, err: fmt.Errorf("destroy scheduled but control plane failed: %w", err)}
+		}
+
 		return workCommandMsg{action: "Destroy work scheduled", workID: workID}
 	}
 }
@@ -404,6 +411,12 @@ func (m *planModel) checkPRFeedback() tea.Cmd {
 		if err := control.TriggerPRFeedbackCheck(m.ctx, m.proj, workID); err != nil {
 			return workCommandMsg{action: "Check PR feedback", workID: workID, err: err}
 		}
+
+		// Ensure control plane is running to process the feedback check
+		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+			return workCommandMsg{action: "PR feedback check triggered", workID: workID, err: fmt.Errorf("feedback check scheduled but control plane failed: %w", err)}
+		}
+
 		return workCommandMsg{action: "PR feedback check triggered", workID: workID}
 	}
 }
