@@ -112,3 +112,6 @@ SET status = 'completed',
     executed_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE idempotency_key = ?;
+
+-- name: DeleteSchedulerForWork :execrows
+DELETE FROM scheduler WHERE work_id = ?;
