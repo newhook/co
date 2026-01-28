@@ -143,6 +143,84 @@ func CreateWorkAsync(ctx context.Context, proj *project.Project, branchName, bas
 	}, nil
 }
 
+// CreateWorkAsyncOptions contains options for creating a work unit asynchronously.
+type CreateWorkAsyncOptions struct {
+	BranchName        string
+	BaseBranch        string
+	RootIssueID       string
+	Auto              bool
+	UseExistingBranch bool
+}
+
+// CreateWorkAsyncWithOptions creates a work unit asynchronously with the given options.
+// This is similar to CreateWorkAsync but supports additional options like using an existing branch.
+func CreateWorkAsyncWithOptions(ctx context.Context, proj *project.Project, opts CreateWorkAsyncOptions) (*CreateWorkAsyncResult, error) {
+	baseBranch := opts.BaseBranch
+	if baseBranch == "" {
+		baseBranch = proj.Config.Repo.GetBaseBranch()
+	}
+
+	mainRepoPath := proj.MainRepoPath()
+	branchName := opts.BranchName
+
+	// For new branches, ensure unique name; for existing branches, use as-is
+	if !opts.UseExistingBranch {
+		var err error
+		branchName, err = EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find unique branch name: %w", err)
+		}
+	}
+
+	// Generate work ID
+	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate work ID: %w", err)
+	}
+
+	// Get a human-readable name for this worker
+	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
+	if err != nil {
+		workerName = "" // Non-fatal
+	}
+
+	// Create work record in DB (without worktree path - control plane will set it)
+	if err := proj.DB.CreateWork(ctx, workID, workerName, "", branchName, baseBranch, opts.RootIssueID, opts.Auto); err != nil {
+		return nil, fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Schedule the worktree creation task for the control plane
+	autoStr := "false"
+	if opts.Auto {
+		autoStr = "true"
+	}
+	useExistingStr := "false"
+	if opts.UseExistingBranch {
+		useExistingStr = "true"
+	}
+	err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeCreateWorktree, time.Now(), map[string]string{
+		"branch":        branchName,
+		"base_branch":   baseBranch,
+		"root_issue_id": opts.RootIssueID,
+		"worker_name":   workerName,
+		"auto":          autoStr,
+		"use_existing":  useExistingStr,
+	}, fmt.Sprintf("create-worktree-%s", workID), db.DefaultMaxAttempts)
+	if err != nil {
+		// Work record created but task scheduling failed - cleanup
+		_ = proj.DB.DeleteWork(ctx, workID)
+		return nil, fmt.Errorf("failed to schedule worktree creation: %w", err)
+	}
+
+	return &CreateWorkAsyncResult{
+		WorkID:      workID,
+		WorkerName:  workerName,
+		BranchName:  branchName,
+		BaseBranch:  baseBranch,
+		RootIssueID: opts.RootIssueID,
+	}, nil
+}
+
 // DestroyWork destroys a work unit and all its resources.
 // This is the core work destruction logic that can be called from both the CLI and TUI.
 // It does not perform interactive confirmation - that should be handled by the caller.

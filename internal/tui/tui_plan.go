@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/newhook/co/internal/beads"
 	beadswatcher "github.com/newhook/co/internal/beads/watcher"
+	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/progress"
 	"github.com/newhook/co/internal/project"
 	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
@@ -526,7 +527,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(result.BeadID, result.BranchName, false)
+						return m, m.executeCreateWork(result.BeadID, result.BranchName, false, result.UseExistingBranch)
 					}
 				} else if clickedDialogButton == "auto" {
 					// Handle auto button for work creation
@@ -539,7 +540,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.viewMode = ViewNormal
 						m.selectedBeads = make(map[string]bool)
-						return m, m.executeCreateWork(result.BeadID, result.BranchName, true)
+						return m, m.executeCreateWork(result.BeadID, result.BranchName, true, result.UseExistingBranch)
 					}
 				}
 
@@ -1036,7 +1037,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewNormal
 			// Clear selections after work creation
 			m.selectedBeads = make(map[string]bool)
-			return m, m.executeCreateWork(result.BeadID, result.BranchName, false)
+			return m, m.executeCreateWork(result.BeadID, result.BranchName, false, result.UseExistingBranch)
 
 		case CreateWorkActionAuto:
 			result := m.createWorkPanel.GetResult()
@@ -1048,7 +1049,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewNormal
 			// Clear selections after work creation
 			m.selectedBeads = make(map[string]bool)
-			return m, m.executeCreateWork(result.BeadID, result.BranchName, true)
+			return m, m.executeCreateWork(result.BeadID, result.BranchName, true, result.UseExistingBranch)
 		}
 
 		return m, cmd
@@ -1406,6 +1407,10 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			branchBeads := []*beadsForBranch{{ID: bead.ID, Title: bead.Title}}
 			branchName := generateBranchNameFromBeadsForBranch(branchBeads)
 			m.createWorkPanel.Reset(bead.ID, branchName)
+			// Load available branches for the "existing branch" mode
+			if branches, err := git.ListBranches(m.ctx, m.proj.MainRepoPath()); err == nil {
+				m.createWorkPanel.SetBranches(branches)
+			}
 			m.viewMode = ViewCreateWork
 			return m, m.createWorkPanel.Init()
 		}
