@@ -172,12 +172,14 @@ var (
 	flagAddWork    string
 	flagRemoveWork string
 	flagBranchName string
+	flagFromBranch string
 	flagYes        bool
 )
 
 func init() {
 	workCreateCmd.Flags().BoolVar(&flagAutoRun, "auto", false, "run full automated workflow (implement, review, fix, PR)")
 	workCreateCmd.Flags().StringVar(&flagBranchName, "branch", "", "branch name to use (skip prompt)")
+	workCreateCmd.Flags().StringVar(&flagFromBranch, "from-branch", "", "use an existing git branch instead of creating a new one")
 	workCreateCmd.Flags().BoolVarP(&flagYes, "yes", "y", false, "skip confirmation prompts")
 	workReviewCmd.Flags().BoolVar(&flagReviewAuto, "auto", false, "run review-fix loop until clean")
 	workAddCmd.Flags().StringVar(&flagAddWork, "work", "", "work ID (default: auto-detect from current directory)")
@@ -240,7 +242,24 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	// Determine branch name
 	var branchName string
-	if flagBranchName != "" {
+	var useExistingBranch bool
+	var branchExistsOnRemote bool
+
+	if flagFromBranch != "" {
+		// Use an existing branch
+		branchName = flagFromBranch
+		useExistingBranch = true
+
+		// Validate the branch exists
+		existsLocal, existsRemote, err := git.ValidateExistingBranch(ctx, mainRepoPath, branchName)
+		if err != nil {
+			return fmt.Errorf("failed to validate branch: %w", err)
+		}
+		if !existsLocal && !existsRemote {
+			return fmt.Errorf("branch %s does not exist locally or on remote", branchName)
+		}
+		branchExistsOnRemote = existsRemote
+	} else if flagBranchName != "" {
 		// Use provided branch name
 		branchName = flagBranchName
 	} else {
@@ -280,23 +299,46 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// Create git worktree inside work directory
 	worktreePath := filepath.Join(workDir, "tree")
 
-	// Fetch latest from origin for the base branch
-	if err := git.FetchBranch(ctx, mainRepoPath, baseBranch); err != nil {
-		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to fetch base branch: %w", err)
-	}
+	if useExistingBranch {
+		// For existing branches, fetch the branch first
+		if err := git.FetchBranch(ctx, mainRepoPath, branchName); err != nil {
+			// Ignore fetch errors - branch might only exist locally
+			fmt.Printf("Note: Could not fetch branch %s from origin (may only exist locally)\n", branchName)
+		}
 
-	// Create worktree with new branch based on origin/<baseBranch>
-	if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, "origin/"+baseBranch); err != nil {
-		os.RemoveAll(workDir)
-		return err
-	}
+		// Create worktree from existing branch
+		if err := worktree.CreateFromExisting(ctx, mainRepoPath, worktreePath, branchName); err != nil {
+			os.RemoveAll(workDir)
+			return err
+		}
 
-	// Push branch and set upstream
-	if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
-		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
-		os.RemoveAll(workDir)
-		return err
+		// Only push if branch doesn't exist on remote yet
+		if !branchExistsOnRemote {
+			if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
+				worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
+				os.RemoveAll(workDir)
+				return err
+			}
+		}
+	} else {
+		// Fetch latest from origin for the base branch
+		if err := git.FetchBranch(ctx, mainRepoPath, baseBranch); err != nil {
+			os.RemoveAll(workDir)
+			return fmt.Errorf("failed to fetch base branch: %w", err)
+		}
+
+		// Create worktree with new branch based on origin/<baseBranch>
+		if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, "origin/"+baseBranch); err != nil {
+			os.RemoveAll(workDir)
+			return err
+		}
+
+		// Push branch and set upstream
+		if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
+			worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
+			os.RemoveAll(workDir)
+			return err
+		}
 	}
 
 	// Initialize mise in worktree if needed
