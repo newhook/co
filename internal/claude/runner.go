@@ -6,7 +6,9 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -332,7 +334,7 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 
 	// Create a new tab with the orchestrate command using a layout
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, "co", []string{"orchestrate", "--work", workID}); err != nil {
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, "co", []string{"orchestrate", "--work", workID}, ""); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
@@ -363,6 +365,13 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 	}
 
 	// Build shell command with exports if needed
+	// Use user's preferred shell from $SHELL, default to bash
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "bash"
+	}
+	shellName := filepath.Base(shell)
+
 	var command string
 	var args []string
 	if len(hooksEnv) > 0 {
@@ -370,18 +379,18 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 		for _, env := range hooksEnv {
 			exports = append(exports, fmt.Sprintf("export %s", env))
 		}
-		// Use bash -c to export vars and then exec bash for interactive shell
-		shellCmd := fmt.Sprintf("%s && exec bash", strings.Join(exports, " && "))
-		command = "bash"
+		// Use shell -c to export vars and then exec shell for interactive shell
+		shellCmd := fmt.Sprintf("%s && exec %s", strings.Join(exports, " && "), shell)
+		command = shell
 		args = []string{"-c", shellCmd}
 	} else {
-		command = "bash"
+		command = shell
 		args = nil
 	}
 
 	// Create tab with shell using layout approach
 	fmt.Fprintf(w, "Creating console tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args); err != nil {
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args, shellName); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
@@ -439,7 +448,7 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 
 	// Create tab with command using layout approach
 	fmt.Fprintf(w, "Creating Claude session tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args); err != nil {
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args, "claude"); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
@@ -481,7 +490,7 @@ func SpawnPlanSession(ctx context.Context, beadID string, projectName string, ma
 
 	// Create a new tab with the plan command using a layout
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, mainRepoPath, "co", []string{"plan", beadID}); err != nil {
+	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, mainRepoPath, "co", []string{"plan", beadID}, ""); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 

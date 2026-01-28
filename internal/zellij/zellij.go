@@ -28,10 +28,11 @@ type LayoutData struct {
 
 // TabLayoutData contains the data for rendering a tab layout template.
 type TabLayoutData struct {
-	TabName string
-	Command string
-	Args    []string
-	Cwd     string
+	TabName  string
+	PaneName string
+	Command  string
+	Args     []string
+	Cwd      string
 }
 
 // CurrentSessionName returns the name of the zellij session we're currently inside,
@@ -286,7 +287,8 @@ func (c *Client) CreateTab(ctx context.Context, session, name, cwd string) error
 // CreateTabWithCommand creates a new tab that runs a specific command.
 // This uses a layout file to ensure the command runs correctly even when
 // called from outside the zellij session.
-func (c *Client) CreateTabWithCommand(ctx context.Context, session, name, cwd, command string, args []string) error {
+// The paneName parameter sets the pane title (optional, empty string uses command as title).
+func (c *Client) CreateTabWithCommand(ctx context.Context, session, name, cwd, command string, args []string, paneName string) error {
 	// Parse and render the tab layout template
 	tmpl, err := template.New("tab").Parse(tabLayoutTemplate)
 	if err != nil {
@@ -294,10 +296,11 @@ func (c *Client) CreateTabWithCommand(ctx context.Context, session, name, cwd, c
 	}
 
 	data := TabLayoutData{
-		TabName: name,
-		Command: command,
-		Args:    args,
-		Cwd:     cwd,
+		TabName:  name,
+		PaneName: paneName,
+		Command:  command,
+		Args:     args,
+		Cwd:      cwd,
 	}
 
 	var buf bytes.Buffer
