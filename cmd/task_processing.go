@@ -16,7 +16,7 @@ import (
 func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Task, work *db.Work) (string, error) {
 	baseBranch := work.BaseBranch
 	if baseBranch == "" {
-		baseBranch = "main"
+		baseBranch = proj.Config.Repo.GetBaseBranch()
 	}
 
 	switch task.TaskType {

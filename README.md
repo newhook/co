@@ -255,8 +255,9 @@ Tasks within a work are executed sequentially in the work's worktree.
 
 | Flag | Description |
 |------|-------------|
-| `--base` | Specify base branch (default: main) |
 | `--auto` | Full automated workflow (implement, review/fix loop, PR) |
+
+Base branch is configured in `config.toml` under `[repo] base_branch` (default: main).
 
 ### Run Command Flags
 

@@ -379,7 +379,7 @@ Creates a new work unit from a bead:
 - Pushes branch and sets upstream
 - Spawns orchestrator in zellij tab
 - Initializes mise if configured
-- Use `--base` to specify base branch (default: main)
+- Base branch comes from project config (`[repo] base_branch`, default: main)
 - Use `--auto` for full automated workflow (implement, review/fix loop, PR)
 
 ### `co work add <bead-ids...>`

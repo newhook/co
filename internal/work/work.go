@@ -87,7 +87,7 @@ type CreateWorkAsyncResult struct {
 // The control plane will handle worktree creation, git push, and orchestrator spawning.
 func CreateWorkAsync(ctx context.Context, proj *project.Project, branchName, baseBranch, rootIssueID string, auto bool) (*CreateWorkAsyncResult, error) {
 	if baseBranch == "" {
-		baseBranch = "main"
+		baseBranch = proj.Config.Repo.GetBaseBranch()
 	}
 
 	mainRepoPath := proj.MainRepoPath()

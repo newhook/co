@@ -25,6 +25,11 @@ source = {{.RepoSource | tomlString}}
 # Directory containing the repository (always "main")
 path = {{.RepoPath | tomlString}}
 
+# Base branch for creating feature branches (e.g., "main", "develop", "master")
+# Used as the target branch for PRs and the starting point for new work branches.
+# Defaults to "main" when not specified.
+# base_branch = "develop"
+
 # =============================================================================
 # Beads Configuration
 # =============================================================================
