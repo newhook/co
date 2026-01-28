@@ -250,6 +250,11 @@ func setupBeads(_ context.Context, source, projectRoot, mainPath string) (beadsP
 		fmt.Printf("Using existing beads in %s\n", repoBeadsPath)
 		beadsPath = BeadsPathRepo
 
+		// Run bd init to create/regenerate the database from JSONL files
+		if _, err := mise.Exec(mainPath, "bd", "init"); err != nil {
+			return "", fmt.Errorf("failed to initialize beads: %w", err)
+		}
+
 		// Install hooks for repo-based beads using mise exec
 		if _, err := mise.Exec(mainPath, "bd", "hooks", "install"); err != nil {
 			return "", fmt.Errorf("failed to install beads hooks: %w", err)
