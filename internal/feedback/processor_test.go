@@ -437,6 +437,60 @@ func TestCreateGenericFailureItem(t *testing.T) {
 	}
 }
 
+func TestCategorizeComment_HumanVsBot(t *testing.T) {
+	client := &github.Client{}
+	processor := NewFeedbackProcessor(client, 2)
+
+	tests := []struct {
+		name           string
+		author         string
+		body           string
+		expectedType   github.FeedbackType
+		expectedPriority int
+	}{
+		{
+			name:           "human actionable comment",
+			author:         "shubsengupta",
+			body:           "Please remove any markdown / implementation detail files",
+			expectedType:   github.FeedbackTypeReview,
+			expectedPriority: 2,
+		},
+		{
+			name:           "bot general comment",
+			author:         "github-actions[bot]",
+			body:           "Some general bot message",
+			expectedType:   github.FeedbackTypeGeneral,
+			expectedPriority: 3,
+		},
+		{
+			name:           "bot security comment",
+			author:         "security-bot",
+			body:           "Security vulnerability detected",
+			expectedType:   github.FeedbackTypeSecurity,
+			expectedPriority: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			comment := github.Comment{
+				Author: tt.author,
+				Body:   tt.body,
+			}
+
+			feedbackType := processor.categorizeComment(comment)
+			if feedbackType != tt.expectedType {
+				t.Errorf("categorizeComment() type = %v, want %v", feedbackType, tt.expectedType)
+			}
+
+			priority := processor.getPriorityForType(feedbackType)
+			if priority != tt.expectedPriority {
+				t.Errorf("getPriorityForType(%v) = %d, want %d", feedbackType, priority, tt.expectedPriority)
+			}
+		})
+	}
+}
+
 func TestCategorizeComment(t *testing.T) {
 	processor := &FeedbackProcessor{}
 
@@ -475,7 +529,7 @@ func TestCategorizeComment(t *testing.T) {
 				Author: "user123",
 				Body:   "Please fix this issue",
 			},
-			expected: github.FeedbackTypeGeneral,
+			expected: github.FeedbackTypeReview,
 		},
 		{
 			name: "Generic bot comment",

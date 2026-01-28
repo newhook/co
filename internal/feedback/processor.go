@@ -522,9 +522,13 @@ func (p *FeedbackProcessor) categorizeComment(comment github.Comment) github.Fee
 		} else if strings.Contains(lower, "lint") || strings.Contains(lower, "style") {
 			return github.FeedbackTypeLint
 		}
+		// Bot comments that don't match specific patterns are still general (priority 3)
+		return github.FeedbackTypeGeneral
 	}
 
-	return github.FeedbackTypeGeneral
+	// Human-written comments should be treated as review-level feedback (priority 2)
+	// since they represent actionable feedback from team members
+	return github.FeedbackTypeReview
 }
 
 func (p *FeedbackProcessor) extractTitleFromComment(body string) string {
