@@ -10,6 +10,7 @@ import (
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/github"
+	"github.com/newhook/co/internal/project"
 )
 
 // BeadInfo represents information for creating a bead from feedback.
@@ -33,6 +34,18 @@ type Integration struct {
 func NewIntegration(minPriority int) *Integration {
 	client := github.NewClient()
 	processor := NewFeedbackProcessor(client, minPriority)
+
+	return &Integration{
+		client:    client,
+		processor: processor,
+	}
+}
+
+// NewIntegrationWithProject creates a new feedback integration with project context.
+// This enables Claude-based log analysis when configured.
+func NewIntegrationWithProject(minPriority int, proj *project.Project, workID string) *Integration {
+	client := github.NewClient()
+	processor := NewFeedbackProcessorWithProject(client, minPriority, proj, workID)
 
 	return &Integration{
 		client:    client,

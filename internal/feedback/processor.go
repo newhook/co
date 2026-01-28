@@ -8,12 +8,16 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback/logparser"
 	"github.com/newhook/co/internal/github"
+	"github.com/newhook/co/internal/project"
 )
 
 // FeedbackProcessor processes PR feedback and generates actionable items.
 type FeedbackProcessor struct {
 	client      *github.Client
 	minPriority int
+	// Optional fields for Claude log analysis integration
+	proj   *project.Project
+	workID string
 }
 
 // NewFeedbackProcessor creates a new feedback processor.
@@ -21,6 +25,17 @@ func NewFeedbackProcessor(client *github.Client, minPriority int) *FeedbackProce
 	return &FeedbackProcessor{
 		client:      client,
 		minPriority: minPriority,
+	}
+}
+
+// NewFeedbackProcessorWithProject creates a feedback processor with project context.
+// This enables Claude-based log analysis when configured.
+func NewFeedbackProcessorWithProject(client *github.Client, minPriority int, proj *project.Project, workID string) *FeedbackProcessor {
+	return &FeedbackProcessor{
+		client:      client,
+		minPriority: minPriority,
+		proj:        proj,
+		workID:      workID,
 	}
 }
 
@@ -121,6 +136,34 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 					if isTestJob(job.Name) || isLintJob(job.Name) {
 						logs, err := p.client.GetJobLogs(ctx, repo, job.ID)
 						if err == nil {
+							// Check if Claude-based log analysis is enabled
+							if p.shouldUseClaude() {
+								// Create a log_analysis task instead of parsing inline
+								if taskID, err := p.createLogAnalysisTask(ctx, workflow, job, logs); err == nil {
+									// Add a placeholder feedback item indicating Claude will handle this
+									items = append(items, github.FeedbackItem{
+										Type:        github.FeedbackTypeCI,
+										Title:       fmt.Sprintf("Log analysis scheduled: %s/%s", workflow.Name, job.Name),
+										Description: fmt.Sprintf("Claude will analyze logs for job %s in workflow %s. Task: %s", job.Name, workflow.Name, taskID),
+										Source: github.SourceInfo{
+											Type: github.SourceTypeWorkflow,
+											ID:   fmt.Sprintf("log-analysis-%d-%s", job.ID, taskID),
+											Name: workflow.Name,
+											URL:  job.URL,
+										},
+										Priority:   3, // Lower priority since beads will be created by Claude
+										Actionable: false, // Not directly actionable - Claude will create specific beads
+										Workflow: &github.WorkflowContext{
+											WorkflowName: workflow.Name,
+											RunID:        workflow.ID,
+											JobName:      job.Name,
+										},
+									})
+									continue // Skip further processing for this job
+								}
+								// If task creation fails, fall through to Go-based parsing
+							}
+
 							failures, _ := logparser.ParseFailures(logs)
 							if len(failures) > 0 {
 								for _, f := range failures {
@@ -138,6 +181,58 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 	}
 
 	return items
+}
+
+// shouldUseClaude returns true if Claude-based log analysis is enabled and configured.
+func (p *FeedbackProcessor) shouldUseClaude() bool {
+	if p.proj == nil {
+		return false
+	}
+	return p.proj.Config.LogParser.ShouldUseClaude()
+}
+
+// createLogAnalysisTask creates a log_analysis task for Claude to process.
+// Returns the task ID on success.
+func (p *FeedbackProcessor) createLogAnalysisTask(ctx context.Context, workflow github.WorkflowRun, job github.Job, logs string) (string, error) {
+	if p.proj == nil || p.workID == "" {
+		return "", fmt.Errorf("project context not available for log analysis task creation")
+	}
+
+	// Get work details for root issue ID
+	work, err := p.proj.DB.GetWork(ctx, p.workID)
+	if err != nil || work == nil {
+		return "", fmt.Errorf("failed to get work: %w", err)
+	}
+
+	// Generate task ID
+	taskNum, err := p.proj.DB.GetNextTaskNumber(ctx, p.workID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get next task number: %w", err)
+	}
+	taskID := fmt.Sprintf("%s.%d", p.workID, taskNum)
+
+	// Create the task (no beads - Claude will create them)
+	if err := p.proj.DB.CreateTask(ctx, taskID, "log_analysis", nil, 0, p.workID); err != nil {
+		return "", fmt.Errorf("failed to create log_analysis task: %w", err)
+	}
+
+	// Store log analysis parameters as task metadata
+	metadata := map[string]string{
+		"workflow_name": workflow.Name,
+		"job_name":      job.Name,
+		"branch_name":   work.BranchName,
+		"root_issue_id": work.RootIssueID,
+		"log_content":   logs,
+	}
+
+	for key, value := range metadata {
+		if err := p.proj.DB.SetTaskMetadata(ctx, taskID, key, value); err != nil {
+			// Log warning but don't fail the task creation
+			fmt.Printf("Warning: failed to set metadata %s for task %s: %v\n", key, taskID, err)
+		}
+	}
+
+	return taskID, nil
 }
 
 // createFailureItem creates a FeedbackItem for a specific failure.
