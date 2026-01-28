@@ -120,6 +120,25 @@ path = {{.BeadsPath | tomlString}}
 # kill_tabs_on_destroy = false
 
 # =============================================================================
+# Log Parser Configuration (Optional)
+# =============================================================================
+# Controls how CI logs are analyzed for failures.
+#
+# [log_parser]
+# # Use Claude for log analysis instead of the Go-based parser.
+# # When true, CI log failures are analyzed using Claude which can handle
+# # any programming language and provide more detailed error context.
+# # Defaults to false (use Go parser).
+# use_claude = true
+#
+# # Claude model to use for log analysis: "haiku", "sonnet", or "opus"
+# # Haiku is fastest and cheapest, suitable for most log analysis.
+# # Sonnet provides more detailed analysis for complex failures.
+# # Opus is most capable but slower and more expensive.
+# # Defaults to "haiku" when not specified.
+# model = "haiku"
+
+# =============================================================================
 # Linear Integration (Optional)
 # =============================================================================
 # Authentication for importing issues from Linear.

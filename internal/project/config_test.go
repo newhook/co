@@ -170,3 +170,153 @@ func TestGeneratedConfigWithUTF8(t *testing.T) {
 		t.Errorf("Project.Name: expected %q, got %q", cfg.Project.Name, parsed.Project.Name)
 	}
 }
+
+func TestLogParserConfig_ShouldUseClaude(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   LogParserConfig
+		expected bool
+	}{
+		{
+			name:     "Default (false)",
+			config:   LogParserConfig{},
+			expected: false,
+		},
+		{
+			name:     "Explicitly enabled",
+			config:   LogParserConfig{UseClaude: true},
+			expected: true,
+		},
+		{
+			name:     "Explicitly disabled",
+			config:   LogParserConfig{UseClaude: false},
+			expected: false,
+		},
+		{
+			name:     "Enabled with model",
+			config:   LogParserConfig{UseClaude: true, Model: "sonnet"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.ShouldUseClaude()
+			if result != tt.expected {
+				t.Errorf("ShouldUseClaude() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestLogParserConfig_GetModel(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   LogParserConfig
+		expected string
+	}{
+		{
+			name:     "Default (empty) returns haiku",
+			config:   LogParserConfig{},
+			expected: "haiku",
+		},
+		{
+			name:     "Haiku model",
+			config:   LogParserConfig{Model: "haiku"},
+			expected: "haiku",
+		},
+		{
+			name:     "Sonnet model",
+			config:   LogParserConfig{Model: "sonnet"},
+			expected: "sonnet",
+		},
+		{
+			name:     "Opus model",
+			config:   LogParserConfig{Model: "opus"},
+			expected: "opus",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.GetModel()
+			if result != tt.expected {
+				t.Errorf("GetModel() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestLogParserConfigFromTOML(t *testing.T) {
+	tests := []struct {
+		name              string
+		tomlContent       string
+		wantUseClaude     bool
+		wantModel         string
+	}{
+		{
+			name: "Not specified defaults",
+			tomlContent: `
+[project]
+name = "test"
+`,
+			wantUseClaude: false,
+			wantModel:     "haiku",
+		},
+		{
+			name: "Enabled with haiku",
+			tomlContent: `
+[project]
+name = "test"
+
+[log_parser]
+use_claude = true
+model = "haiku"
+`,
+			wantUseClaude: true,
+			wantModel:     "haiku",
+		},
+		{
+			name: "Enabled with sonnet",
+			tomlContent: `
+[project]
+name = "test"
+
+[log_parser]
+use_claude = true
+model = "sonnet"
+`,
+			wantUseClaude: true,
+			wantModel:     "sonnet",
+		},
+		{
+			name: "Enabled without model (defaults to haiku)",
+			tomlContent: `
+[project]
+name = "test"
+
+[log_parser]
+use_claude = true
+`,
+			wantUseClaude: true,
+			wantModel:     "haiku",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg Config
+			if _, err := toml.Decode(tt.tomlContent, &cfg); err != nil {
+				t.Fatalf("Failed to decode TOML: %v", err)
+			}
+
+			if cfg.LogParser.ShouldUseClaude() != tt.wantUseClaude {
+				t.Errorf("ShouldUseClaude() = %v, want %v", cfg.LogParser.ShouldUseClaude(), tt.wantUseClaude)
+			}
+
+			if cfg.LogParser.GetModel() != tt.wantModel {
+				t.Errorf("GetModel() = %q, want %q", cfg.LogParser.GetModel(), tt.wantModel)
+			}
+		})
+	}
+}

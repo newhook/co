@@ -46,9 +46,64 @@ func buildPromptForTask(ctx context.Context, proj *project.Project, task *db.Tas
 		}
 		return claude.BuildUpdatePRDescriptionPrompt(task.ID, work.ID, work.PRURL, work.BranchName, baseBranch), nil
 
+	case "log_analysis":
+		// Log analysis tasks have metadata with log content stored by the feedback processor
+		return buildLogAnalysisPromptFromMetadata(ctx, proj, task, work)
+
 	default:
 		return "", fmt.Errorf("unknown task type: %s", task.TaskType)
 	}
+}
+
+// buildLogAnalysisPromptFromMetadata builds a log analysis prompt from task metadata.
+// The metadata is stored by the feedback processor when creating log_analysis tasks.
+func buildLogAnalysisPromptFromMetadata(ctx context.Context, proj *project.Project, task *db.Task, work *db.Work) (string, error) {
+	// Retrieve metadata stored by the feedback processor
+	workflowName, err := proj.DB.GetTaskMetadata(ctx, task.ID, "workflow_name")
+	if err != nil {
+		return "", fmt.Errorf("failed to get workflow_name metadata: %w", err)
+	}
+
+	jobName, err := proj.DB.GetTaskMetadata(ctx, task.ID, "job_name")
+	if err != nil {
+		return "", fmt.Errorf("failed to get job_name metadata: %w", err)
+	}
+
+	branchName, err := proj.DB.GetTaskMetadata(ctx, task.ID, "branch_name")
+	if err != nil {
+		return "", fmt.Errorf("failed to get branch_name metadata: %w", err)
+	}
+	if branchName == "" {
+		branchName = work.BranchName
+	}
+
+	rootIssueID, err := proj.DB.GetTaskMetadata(ctx, task.ID, "root_issue_id")
+	if err != nil {
+		return "", fmt.Errorf("failed to get root_issue_id metadata: %w", err)
+	}
+	if rootIssueID == "" {
+		rootIssueID = work.RootIssueID
+	}
+
+	logContent, err := proj.DB.GetTaskMetadata(ctx, task.ID, "log_content")
+	if err != nil {
+		return "", fmt.Errorf("failed to get log_content metadata: %w", err)
+	}
+	if logContent == "" {
+		return "", fmt.Errorf("log_content metadata is missing for task %s", task.ID)
+	}
+
+	params := claude.LogAnalysisParams{
+		TaskID:       task.ID,
+		WorkID:       work.ID,
+		BranchName:   branchName,
+		RootIssueID:  rootIssueID,
+		WorkflowName: workflowName,
+		JobName:      jobName,
+		LogContent:   logContent,
+	}
+
+	return claude.BuildLogAnalysisPrompt(params), nil
 }
 
 // getBeadsForTask retrieves the beads associated with a task.

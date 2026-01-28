@@ -8,12 +8,21 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback/logparser"
 	"github.com/newhook/co/internal/github"
+	"github.com/newhook/co/internal/logging"
+	"github.com/newhook/co/internal/project"
 )
+
+// maxLogContentSize is the maximum size in bytes for log content stored in task metadata.
+// Logs exceeding this size are truncated, keeping the last portion (most relevant for errors).
+const maxLogContentSize = 50 * 1024 // 50KB
 
 // FeedbackProcessor processes PR feedback and generates actionable items.
 type FeedbackProcessor struct {
 	client      *github.Client
 	minPriority int
+	// Optional fields for Claude log analysis integration
+	proj   *project.Project
+	workID string
 }
 
 // NewFeedbackProcessor creates a new feedback processor.
@@ -21,6 +30,17 @@ func NewFeedbackProcessor(client *github.Client, minPriority int) *FeedbackProce
 	return &FeedbackProcessor{
 		client:      client,
 		minPriority: minPriority,
+	}
+}
+
+// NewFeedbackProcessorWithProject creates a feedback processor with project context.
+// This enables Claude-based log analysis when configured.
+func NewFeedbackProcessorWithProject(client *github.Client, minPriority int, proj *project.Project, workID string) *FeedbackProcessor {
+	return &FeedbackProcessor{
+		client:      client,
+		minPriority: minPriority,
+		proj:        proj,
+		workID:      workID,
 	}
 }
 
@@ -119,8 +139,54 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 				if job.Conclusion == "failure" {
 					// Try to get detailed failures for test or lint jobs
 					if isTestJob(job.Name) || isLintJob(job.Name) {
+						// Check if Claude-based log analysis is enabled
+						if p.shouldUseClaude() {
+							// Check if we've already created a task for this specific job
+							// Job IDs are unique per CI run, so this prevents duplicate analysis
+							existingTaskID, err := p.findExistingLogAnalysisTaskByJobID(ctx, job.ID)
+							if err != nil {
+								logging.Warn("failed to check for existing log_analysis task", "job_id", job.ID, "error", err)
+							}
+							if existingTaskID != "" {
+								logging.Debug("skipping log fetch - log_analysis task already exists",
+									"existing_task_id", existingTaskID,
+									"job_id", job.ID,
+									"workflow", workflow.Name,
+									"job", job.Name)
+								continue // Skip this job entirely - already being analyzed
+							}
+						}
+
 						logs, err := p.client.GetJobLogs(ctx, repo, job.ID)
 						if err == nil {
+							// Check if Claude-based log analysis is enabled
+							if p.shouldUseClaude() {
+								// Create a log_analysis task instead of parsing inline
+								if taskID, err := p.createLogAnalysisTask(ctx, workflow, job, logs); err == nil {
+									// Add a placeholder feedback item indicating Claude will handle this
+									items = append(items, github.FeedbackItem{
+										Type:        github.FeedbackTypeCI,
+										Title:       fmt.Sprintf("Log analysis scheduled: %s/%s", workflow.Name, job.Name),
+										Description: fmt.Sprintf("Claude will analyze logs for job %s in workflow %s. Task: %s", job.Name, workflow.Name, taskID),
+										Source: github.SourceInfo{
+											Type: github.SourceTypeWorkflow,
+											ID:   fmt.Sprintf("log-analysis-%d-%s", job.ID, taskID),
+											Name: workflow.Name,
+											URL:  job.URL,
+										},
+										Priority:   3, // Lower priority since beads will be created by Claude
+										Actionable: false, // Not directly actionable - Claude will create specific beads
+										Workflow: &github.WorkflowContext{
+											WorkflowName: workflow.Name,
+											RunID:        workflow.ID,
+											JobName:      job.Name,
+										},
+									})
+									continue // Skip further processing for this job
+								}
+								// If task creation fails, fall through to Go-based parsing
+							}
+
 							failures, _ := logparser.ParseFailures(logs)
 							if len(failures) > 0 {
 								for _, f := range failures {
@@ -138,6 +204,103 @@ func (p *FeedbackProcessor) processWorkflowRuns(ctx context.Context, repo string
 	}
 
 	return items
+}
+
+// shouldUseClaude returns true if Claude-based log analysis is enabled and configured.
+func (p *FeedbackProcessor) shouldUseClaude() bool {
+	if p.proj == nil {
+		return false
+	}
+	return p.proj.Config.LogParser.ShouldUseClaude()
+}
+
+// createLogAnalysisTask creates a log_analysis task for Claude to process.
+// Returns the task ID on success.
+// Note: Caller should check for existing tasks via findExistingLogAnalysisTaskByJobID before calling.
+func (p *FeedbackProcessor) createLogAnalysisTask(ctx context.Context, workflow github.WorkflowRun, job github.Job, logs string) (string, error) {
+	if p.proj == nil || p.workID == "" {
+		return "", fmt.Errorf("project context not available for log analysis task creation")
+	}
+
+	// Get work details for root issue ID
+	work, err := p.proj.DB.GetWork(ctx, p.workID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return "", fmt.Errorf("work not found for ID: %s", p.workID)
+	}
+
+	// Generate task ID
+	taskNum, err := p.proj.DB.GetNextTaskNumber(ctx, p.workID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get next task number: %w", err)
+	}
+	taskID := fmt.Sprintf("%s.%d", p.workID, taskNum)
+
+	// Create the task (no beads - Claude will create them)
+	if err := p.proj.DB.CreateTask(ctx, taskID, "log_analysis", nil, 0, p.workID); err != nil {
+		return "", fmt.Errorf("failed to create log_analysis task: %w", err)
+	}
+
+	// Store log analysis parameters as task metadata
+	// Truncate log content to prevent database issues with very large CI logs
+	truncatedLogs := truncateLogContent(logs, maxLogContentSize)
+
+	metadata := map[string]string{
+		"workflow_name": workflow.Name,
+		"job_name":      job.Name,
+		"job_id":        fmt.Sprintf("%d", job.ID), // Used for deduplication
+		"branch_name":   work.BranchName,
+		"root_issue_id": work.RootIssueID,
+		"log_content":   truncatedLogs,
+	}
+
+	for key, value := range metadata {
+		if err := p.proj.DB.SetTaskMetadata(ctx, taskID, key, value); err != nil {
+			// Log warning but don't fail the task creation
+			logging.Warn("failed to set metadata for task", "key", key, "task_id", taskID, "error", err)
+		}
+	}
+
+	return taskID, nil
+}
+
+// findExistingLogAnalysisTaskByJobID checks if a log_analysis task already exists for this CI job.
+// Job IDs are unique per CI run, so this prevents duplicate analysis of the same failing job.
+// Returns the task ID if found, empty string otherwise.
+func (p *FeedbackProcessor) findExistingLogAnalysisTaskByJobID(ctx context.Context, jobID int64) (string, error) {
+	if p.proj == nil || p.workID == "" {
+		return "", nil
+	}
+
+	// Get all tasks for this work
+	tasks, err := p.proj.DB.GetWorkTasks(ctx, p.workID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get work tasks: %w", err)
+	}
+
+	jobIDStr := fmt.Sprintf("%d", jobID)
+
+	// Check each log_analysis task for matching job_id metadata
+	// Any status counts - same job_id means same CI run, same logs
+	for _, task := range tasks {
+		if task.TaskType != "log_analysis" {
+			continue
+		}
+
+		// Check metadata for matching job_id
+		taskJobID, err := p.proj.DB.GetTaskMetadata(ctx, task.ID, "job_id")
+		if err != nil {
+			continue // Skip if we can't read metadata
+		}
+
+		if taskJobID == jobIDStr {
+			return task.ID, nil
+		}
+	}
+
+	return "", nil
 }
 
 // createFailureItem creates a FeedbackItem for a specific failure.
@@ -583,4 +746,15 @@ func (p *FeedbackProcessor) truncateText(text string, maxLen int) string {
 		return text
 	}
 	return text[:maxLen] + "..."
+}
+
+// truncateLogContent truncates log content to the specified maximum size.
+// It keeps the last maxBytes of the log, as the end typically contains the most
+// relevant error information.
+func truncateLogContent(logs string, maxBytes int) string {
+	if len(logs) <= maxBytes {
+		return logs
+	}
+	// Keep the last maxBytes - error details are usually at the end
+	return logs[len(logs)-maxBytes:]
 }

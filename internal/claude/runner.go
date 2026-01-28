@@ -38,6 +38,9 @@ var updatePRDescriptionTemplateText string
 //go:embed templates/plan.tmpl
 var planTemplateText string
 
+//go:embed templates/log_analysis.tmpl
+var logAnalysisTemplateText string
+
 var (
 	estimateTmpl            = template.Must(template.New("estimate").Parse(estimateTemplateText))
 	taskTmpl                = template.Must(template.New("task").Parse(taskTemplateText))
@@ -45,6 +48,7 @@ var (
 	reviewTmpl              = template.Must(template.New("review").Parse(reviewTemplateText))
 	updatePRDescriptionTmpl = template.Must(template.New("update-pr-description").Parse(updatePRDescriptionTemplateText))
 	planTmpl                = template.Must(template.New("plan").Parse(planTemplateText))
+	logAnalysisTmpl         = template.Must(template.New("log_analysis").Parse(logAnalysisTemplateText))
 )
 
 // SessionNameForProject returns the zellij session name for a specific project.
@@ -270,6 +274,28 @@ func BuildPlanPrompt(beadID string) string {
 	if err := planTmpl.Execute(&buf, data); err != nil {
 		// Fallback to simple string if template execution fails
 		return fmt.Sprintf("Planning for issue %s", beadID)
+	}
+
+	return buf.String()
+}
+
+// LogAnalysisParams contains parameters for building a log analysis prompt.
+type LogAnalysisParams struct {
+	TaskID       string
+	WorkID       string
+	BranchName   string
+	RootIssueID  string
+	WorkflowName string
+	JobName      string
+	LogContent   string
+}
+
+// BuildLogAnalysisPrompt builds a prompt for Claude-based CI log analysis.
+func BuildLogAnalysisPrompt(params LogAnalysisParams) string {
+	var buf bytes.Buffer
+	if err := logAnalysisTmpl.Execute(&buf, params); err != nil {
+		// Fallback to simple string if template execution fails
+		return fmt.Sprintf("Log analysis task %s for work %s", params.TaskID, params.WorkID)
 	}
 
 	return buf.String()
