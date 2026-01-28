@@ -25,8 +25,13 @@ zellij = "latest"
 # =============================================================================
 # Tasks (Optional)
 # =============================================================================
-# Customize these tasks for your project's needs.
-#
-# [tasks]
-# # Project-specific setup (e.g., npm install, pip install, etc.)
-# setup = "echo 'Add your setup commands here'"
+# The setup task runs automatically during project/worktree creation.
+# Uncomment and customize for your project's needs.
+
+[tasks]
+# Project-specific setup - uncomment ONE of these examples or add your own:
+# setup = "npm install"                      # Node.js with npm
+# setup = "pnpm install"                     # Node.js with pnpm
+# setup = "yarn install"                     # Node.js with yarn
+# setup = "pip install -r requirements.txt"  # Python
+# setup = "bundle install"                   # Ruby

@@ -185,6 +185,30 @@ The scheduler section controls timing for background operations during orchestra
 - `scheduler_poll_seconds`: Internal scheduler polling frequency. Defaults to 1 second.
 - `activity_update_seconds`: How often to update task activity timestamps. Defaults to 30 seconds.
 
+### Mise Setup Task for JavaScript Projects
+
+For JavaScript/Node.js projects that require dependency installation, configure the mise `setup` task. This task runs automatically during project creation and worktree creation.
+
+Add a `[tasks]` section to your project's `.mise.toml`:
+
+```toml
+# For npm projects
+[tasks]
+setup = "npm install"
+
+# For pnpm projects
+[tasks]
+setup = "pnpm install"
+
+# For yarn projects
+[tasks]
+setup = "yarn install"
+```
+
+When you create a project with `co proj create` or a work unit with `co work create`, the setup task runs automatically to install dependencies in each worktree.
+
+**Note:** The setup task is optional. If your project doesn't require dependency installation or other initialization, you can omit it.
+
 ## Usage
 
 All commands must be run from within a project directory (or subdirectory).
