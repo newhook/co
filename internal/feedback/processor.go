@@ -11,6 +11,10 @@ import (
 	"github.com/newhook/co/internal/project"
 )
 
+// maxLogContentSize is the maximum size in bytes for log content stored in task metadata.
+// Logs exceeding this size are truncated, keeping the last portion (most relevant for errors).
+const maxLogContentSize = 50 * 1024 // 50KB
+
 // FeedbackProcessor processes PR feedback and generates actionable items.
 type FeedbackProcessor struct {
 	client      *github.Client
@@ -200,8 +204,11 @@ func (p *FeedbackProcessor) createLogAnalysisTask(ctx context.Context, workflow 
 
 	// Get work details for root issue ID
 	work, err := p.proj.DB.GetWork(ctx, p.workID)
-	if err != nil || work == nil {
+	if err != nil {
 		return "", fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return "", fmt.Errorf("work not found for ID: %s", p.workID)
 	}
 
 	// Generate task ID
@@ -217,12 +224,15 @@ func (p *FeedbackProcessor) createLogAnalysisTask(ctx context.Context, workflow 
 	}
 
 	// Store log analysis parameters as task metadata
+	// Truncate log content to prevent database issues with very large CI logs
+	truncatedLogs := truncateLogContent(logs, maxLogContentSize)
+
 	metadata := map[string]string{
 		"workflow_name": workflow.Name,
 		"job_name":      job.Name,
 		"branch_name":   work.BranchName,
 		"root_issue_id": work.RootIssueID,
-		"log_content":   logs,
+		"log_content":   truncatedLogs,
 	}
 
 	for key, value := range metadata {
@@ -678,4 +688,15 @@ func (p *FeedbackProcessor) truncateText(text string, maxLen int) string {
 		return text
 	}
 	return text[:maxLen] + "..."
+}
+
+// truncateLogContent truncates log content to the specified maximum size.
+// It keeps the last maxBytes of the log, as the end typically contains the most
+// relevant error information.
+func truncateLogContent(logs string, maxBytes int) string {
+	if len(logs) <= maxBytes {
+		return logs
+	}
+	// Keep the last maxBytes - error details are usually at the end
+	return logs[len(logs)-maxBytes:]
 }

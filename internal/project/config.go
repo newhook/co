@@ -47,12 +47,20 @@ func (l *LogParserConfig) ShouldUseClaude() bool {
 }
 
 // GetModel returns the configured Claude model for log analysis.
-// Defaults to "haiku" when not specified.
+// Defaults to "haiku" when not specified or when an invalid model is configured.
+// Valid models are: "haiku", "sonnet", "opus".
 func (l *LogParserConfig) GetModel() string {
 	if l.Model == "" {
 		return "haiku"
 	}
-	return l.Model
+	// Validate the model is one of the allowed values
+	switch l.Model {
+	case "haiku", "sonnet", "opus":
+		return l.Model
+	default:
+		// Return default for invalid values
+		return "haiku"
+	}
 }
 
 // ClaudeConfig contains Claude Code configuration.
