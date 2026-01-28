@@ -118,7 +118,6 @@ type HooksConfig struct {
 // LinearConfig contains Linear integration configuration.
 type LinearConfig struct {
 	// APIKey is the Linear API key for authentication.
-	// Can also be set via LINEAR_API_KEY environment variable.
 	APIKey string `toml:"api_key"`
 }
 

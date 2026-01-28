@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -319,13 +318,13 @@ func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 	return func() tea.Msg {
 		beadsPath := m.proj.BeadsPath()
 
-		// Get API key from environment or config
-		apiKey := os.Getenv("LINEAR_API_KEY")
-		if apiKey == "" && m.proj.Config != nil {
+		// Get API key from config
+		var apiKey string
+		if m.proj.Config != nil {
 			apiKey = m.proj.Config.Linear.APIKey
 		}
 		if apiKey == "" {
-			return linearImportCompleteMsg{err: fmt.Errorf("LINEAR_API_KEY not set (use env var or config.toml)")}
+			return linearImportCompleteMsg{err: fmt.Errorf("linear API key not set (set [linear] api_key in config.toml)")}
 		}
 
 		// Create fetcher

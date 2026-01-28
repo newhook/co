@@ -1440,12 +1440,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "i":
 		// Import Linear issue inline - check for API key first
-		apiKey := os.Getenv("LINEAR_API_KEY")
-		if apiKey == "" && m.proj.Config != nil {
+		var apiKey string
+		if m.proj.Config != nil {
 			apiKey = m.proj.Config.Linear.APIKey
 		}
 		if apiKey == "" {
-			m.statusMessage = "Linear API key not configured (set LINEAR_API_KEY env var or [linear] api_key in config.toml)"
+			m.statusMessage = "Linear API key not configured (set [linear] api_key in config.toml)"
 			m.statusIsError = true
 			return m, nil
 		}
