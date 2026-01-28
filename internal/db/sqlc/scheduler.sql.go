@@ -104,6 +104,18 @@ func (q *Queries) DeleteScheduledTask(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteSchedulerForWork = `-- name: DeleteSchedulerForWork :execrows
+DELETE FROM scheduler WHERE work_id = ?
+`
+
+func (q *Queries) DeleteSchedulerForWork(ctx context.Context, workID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteSchedulerForWork, workID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getNextScheduledTask = `-- name: GetNextScheduledTask :one
 SELECT id, work_id, task_type, scheduled_at, executed_at, status, error_message, metadata, attempt_count, max_attempts, idempotency_key, created_at, updated_at FROM scheduler
 WHERE status = 'pending'

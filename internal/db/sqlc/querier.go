@@ -39,6 +39,7 @@ type Querier interface {
 	DeletePRFeedbackForWork(ctx context.Context, workID string) error
 	DeleteProcess(ctx context.Context, id string) error
 	DeleteScheduledTask(ctx context.Context, id string) error
+	DeleteSchedulerForWork(ctx context.Context, workID string) (int64, error)
 	DeleteStaleProcesses(ctx context.Context, dollar_1 sql.NullString) error
 	DeleteTask(ctx context.Context, id string) (int64, error)
 	DeleteTaskBeadsByTask(ctx context.Context, taskID string) (int64, error)

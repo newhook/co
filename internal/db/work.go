@@ -675,6 +675,8 @@ func (db *DB) GetNextTaskNumber(ctx context.Context, workID string) (int, error)
 // - Task beads associations for all tasks in the work
 // - Tasks belonging to the work
 // - Work-task relationships
+// - Work-bead associations
+// - Scheduled tasks for this work
 // - The work record itself
 func (db *DB) DeleteWork(ctx context.Context, workID string) error {
 	// Start a transaction to ensure all deletes happen atomically
@@ -699,6 +701,16 @@ func (db *DB) DeleteWork(ctx context.Context, workID string) error {
 	// Delete all tasks belonging to this work
 	if _, err := qtx.DeleteTasksForWork(ctx, workID); err != nil {
 		return fmt.Errorf("failed to delete tasks for work %s: %w", workID, err)
+	}
+
+	// Delete work_beads associations
+	if _, err := qtx.DeleteWorkBeads(ctx, workID); err != nil {
+		return fmt.Errorf("failed to delete work beads for work %s: %w", workID, err)
+	}
+
+	// Delete scheduled tasks for this work
+	if _, err := qtx.DeleteSchedulerForWork(ctx, workID); err != nil {
+		return fmt.Errorf("failed to delete scheduled tasks for work %s: %w", workID, err)
 	}
 
 	// Finally, delete the work itself
