@@ -1,14 +1,24 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/git"
+	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/linear"
+	"github.com/newhook/co/internal/mise"
+	"github.com/newhook/co/internal/names"
+	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/work"
+	"github.com/newhook/co/internal/worktree"
 )
 
 // refreshData creates a tea.Cmd that refreshes bead data
@@ -412,4 +422,171 @@ func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 			errors:       errors,
 		}
 	}
+}
+
+// prImportCompleteMsg indicates a PR import completed
+type prImportCompleteMsg struct {
+	workID     string
+	prMetadata *github.PRMetadata
+	err        error
+}
+
+// prImportPreviewMsg indicates a PR preview was fetched
+type prImportPreviewMsg struct {
+	metadata *github.PRMetadata
+	err      error
+}
+
+// previewPR fetches PR metadata for preview
+func (m *planModel) previewPR(prURL string) tea.Cmd {
+	return func() tea.Msg {
+		ghClient := github.NewClient()
+		importer := github.NewPRImporter(ghClient)
+
+		metadata, err := importer.FetchPRMetadata(m.ctx, prURL, "")
+		if err != nil {
+			return prImportPreviewMsg{err: fmt.Errorf("failed to fetch PR: %w", err)}
+		}
+
+		return prImportPreviewMsg{metadata: metadata}
+	}
+}
+
+// importPR imports a PR into a work unit
+func (m *planModel) importPR(prURL string, createBead, auto bool) tea.Cmd {
+	return func() tea.Msg {
+		ghClient := github.NewClient()
+		importer := github.NewPRImporter(ghClient)
+
+		// Fetch PR metadata first
+		metadata, err := importer.FetchPRMetadata(m.ctx, prURL, "")
+		if err != nil {
+			return prImportCompleteMsg{err: fmt.Errorf("failed to fetch PR: %w", err)}
+		}
+
+		// Use the PR's branch name
+		branchName := metadata.HeadRefName
+
+		// Generate work ID
+		workID, err := m.proj.DB.GenerateWorkID(m.ctx, branchName, m.proj.Config.Project.Name)
+		if err != nil {
+			return prImportCompleteMsg{err: fmt.Errorf("failed to generate work ID: %w", err)}
+		}
+
+		// Create work asynchronously using the same pattern as executeCreateWork
+		result := m.importPRSync(workID, prURL, branchName, metadata, createBead, auto)
+		return result
+	}
+}
+
+// importPRSync performs the synchronous PR import operations
+func (m *planModel) importPRSync(workID, prURL, branchName string, metadata *github.PRMetadata, createBead, auto bool) prImportCompleteMsg {
+	ctx := m.ctx
+	proj := m.proj
+
+	// Import the PR using the internal work package
+	// This is a simplified version - the full implementation uses work.CreateWorkAsyncWithOptions
+	// with the PR import fields
+	opts := importPROpts{
+		WorkID:     workID,
+		PRURL:      prURL,
+		BranchName: branchName,
+		Metadata:   metadata,
+		CreateBead: createBead,
+		Auto:       auto,
+	}
+
+	err := doImportPR(ctx, proj, &opts)
+	if err != nil {
+		return prImportCompleteMsg{err: err}
+	}
+
+	return prImportCompleteMsg{
+		workID:     workID,
+		prMetadata: metadata,
+	}
+}
+
+// importPROpts contains options for PR import
+type importPROpts struct {
+	WorkID     string
+	PRURL      string
+	BranchName string
+	Metadata   *github.PRMetadata
+	CreateBead bool
+	Auto       bool
+}
+
+// doImportPR performs the actual PR import
+func doImportPR(ctx context.Context, proj *project.Project, opts *importPROpts) error {
+	// This delegates to the work package for the actual import
+	// The implementation is in cmd/work_import_pr.go runWorkImportPR
+	// For TUI, we need a programmatic version
+
+	importer := github.NewPRImporter(github.NewClient())
+	mainRepoPath := proj.MainRepoPath()
+
+	// Create work subdirectory
+	workDir := filepath.Join(proj.Root, opts.WorkID)
+	if err := os.Mkdir(workDir, 0755); err != nil {
+		return fmt.Errorf("failed to create work directory: %w", err)
+	}
+
+	// Set up worktree from PR
+	_, worktreePath, err := importer.SetupWorktreeFromPR(ctx, mainRepoPath, opts.PRURL, "", workDir, opts.BranchName)
+	if err != nil {
+		os.RemoveAll(workDir)
+		return fmt.Errorf("failed to set up worktree: %w", err)
+	}
+
+	// Set up upstream tracking
+	gitOps := git.NewOperations()
+	wtOps := worktree.NewOperations()
+	if err := gitOps.PushSetUpstream(ctx, opts.BranchName, worktreePath); err != nil {
+		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
+		os.RemoveAll(workDir)
+		return fmt.Errorf("failed to set upstream: %w", err)
+	}
+
+	// Initialize mise if needed
+	_ = mise.Initialize(worktreePath)
+
+	// Get worker name
+	workerName, _ := names.GetNextAvailableName(ctx, proj.DB.DB)
+
+	// Optionally create a bead from PR metadata
+	var rootIssueID string
+	if opts.CreateBead {
+		result, err := importer.CreateBeadFromPR(ctx, opts.Metadata, &github.CreateBeadOptions{
+			BeadsDir:     proj.BeadsPath(),
+			SkipIfExists: true,
+		})
+		if err == nil && result.Created {
+			rootIssueID = result.BeadID
+		} else if err == nil && result.BeadID != "" {
+			rootIssueID = result.BeadID
+		}
+	}
+
+	// Get base branch from project config
+	baseBranch := proj.Config.Repo.GetBaseBranch()
+
+	// Create work record in database
+	if err := proj.DB.CreateWork(ctx, opts.WorkID, workerName, worktreePath, opts.BranchName, baseBranch, rootIssueID, opts.Auto); err != nil {
+		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
+		os.RemoveAll(workDir)
+		return fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Set PR URL on the work
+	prFeedbackInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
+	commentResolutionInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
+	_ = proj.DB.SetWorkPRURLAndScheduleFeedback(ctx, opts.WorkID, opts.PRURL, prFeedbackInterval, commentResolutionInterval)
+
+	// Add bead to work_beads if created
+	if rootIssueID != "" {
+		_ = work.AddBeadsToWorkInternal(ctx, proj, opts.WorkID, []string{rootIssueID})
+	}
+
+	return nil
 }

@@ -48,6 +48,9 @@ func (m *planModel) renderFocusedWorkSplitView() string {
 	case ViewLinearImportInline:
 		m.linearImportPanel.SetSize(detailsWidth, planPanelHeight)
 		detailsPanel = m.linearImportPanel.RenderWithPanel(planPanelHeight)
+	case ViewPRImportInline:
+		m.prImportPanel.SetSize(detailsWidth, planPanelHeight)
+		detailsPanel = m.prImportPanel.RenderWithPanel(planPanelHeight)
 	case ViewCreateWork:
 		m.createWorkPanel.SetSize(detailsWidth, planPanelHeight)
 		detailsPanel = m.createWorkPanel.RenderWithPanel(planPanelHeight)
@@ -83,6 +86,8 @@ func (m *planModel) renderTwoColumnLayout() string {
 		rightPanel = m.beadFormPanel.RenderWithPanel(contentHeight)
 	case ViewLinearImportInline:
 		rightPanel = m.linearImportPanel.RenderWithPanel(contentHeight)
+	case ViewPRImportInline:
+		rightPanel = m.prImportPanel.RenderWithPanel(contentHeight)
 	case ViewCreateWork:
 		rightPanel = m.createWorkPanel.RenderWithPanel(contentHeight)
 	default:

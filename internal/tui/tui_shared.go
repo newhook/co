@@ -139,6 +139,7 @@ const (
 	ViewBeadSearch
 	ViewLabelFilter
 	ViewLinearImportInline // Import from Linear (inline in details panel)
+	ViewPRImportInline     // Import from GitHub PR (inline in details panel)
 	ViewHelp
 )
 
