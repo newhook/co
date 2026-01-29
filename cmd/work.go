@@ -317,7 +317,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		// Only push if branch doesn't exist on remote yet
 		if !branchExistsOnRemote {
 			if err := gitOps.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
-				wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
+				_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
 				os.RemoveAll(workDir)
 				return err
 			}
@@ -337,7 +337,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 		// Push branch and set upstream
 		if err := gitOps.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
-			wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
+			_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
 			os.RemoveAll(workDir)
 			return err
 		}
@@ -356,14 +356,14 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	// Create work record in database with the root issue ID (the original bead that was expanded)
 	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID, flagAutoRun); err != nil {
-		wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
+		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 
 	// Add beads to work_beads
 	if err := work.AddBeadsToWorkInternal(ctx, proj, workID, expandedIssueIDs); err != nil {
-		wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
+		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to add beads to work: %w", err)
 	}
