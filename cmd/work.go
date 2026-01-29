@@ -892,7 +892,8 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 
 	// Auto-run the PR task
 	fmt.Printf("Running PR task...\n")
-	if err := processTask(proj, result.TaskID); err != nil {
+	runner := claude.NewRunner()
+	if err := processTask(proj, result.TaskID, runner); err != nil {
 		return err
 	}
 
@@ -973,6 +974,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run review-fix loop if --auto is set
+	runner := claude.NewRunner()
 	maxIterations := proj.Config.Workflow.GetMaxReviewIterations()
 	for iteration := 0; ; iteration++ {
 		// Check max iterations
@@ -999,7 +1001,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 
 		// Run the review task
 		fmt.Printf("Running review task...\n")
-		if err := processTask(proj, reviewTaskID); err != nil {
+		if err := processTask(proj, reviewTaskID, runner); err != nil {
 			return fmt.Errorf("review task failed: %w", err)
 		}
 
@@ -1057,7 +1059,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Created fix task %s for bead %s: %s\n", taskID, b.ID, b.Title)
 
 			// Run the fix task
-			if err := processTask(proj, taskID); err != nil {
+			if err := processTask(proj, taskID, runner); err != nil {
 				return fmt.Errorf("fix task %s failed: %w", taskID, err)
 			}
 		}

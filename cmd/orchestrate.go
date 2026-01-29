@@ -117,6 +117,9 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 	// git push retries, PR feedback polling, etc. This allows scheduled tasks
 	// to be processed even when no orchestrator is running for a theWork.
 
+	// Create runner once for all tasks
+	runner := claude.NewRunner()
+
 	// Main orchestration loop: poll for ready tasks and execute them
 	for {
 
@@ -239,14 +242,14 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Warning: failed to update task activity at start: %v\n", err)
 		}
 
-		if err := executeTask(proj, task, theWork); err != nil {
+		if err := executeTask(proj, task, theWork, runner); err != nil {
 			return fmt.Errorf("task %s failed: %w", task.ID, err)
 		}
 	}
 }
 
 // executeTask executes a single task inline based on its type.
-func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
+func executeTask(proj *project.Project, t *db.Task, work *db.Work, runner claude.Runner) error {
 	ctx := GetContext()
 
 	// Create a context with timeout from configuration
@@ -263,7 +266,6 @@ func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 	}
 
 	// Execute Claude inline with timeout context
-	runner := claude.NewRunner()
 	if err = runner.Run(taskCtx, proj.DB, t.ID, prompt, work.WorktreePath, proj.Config); err != nil {
 		// Check if it was a timeout error
 		if errors.Is(err, context.DeadlineExceeded) {
