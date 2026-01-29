@@ -8,8 +8,11 @@ import (
 )
 
 // CollectIssueIDsForAutomatedWorkflow collects all issue IDs to include in the workflow.
-// For an issue with parent-child dependents, it includes all children recursively.
-// For other issues, it includes all transitive dependencies.
+// It includes:
+// - The issue itself
+// - All children recursively (parent-child dependents)
+// - All blocked issues recursively (blocks dependents)
+// - For issues without children/blocked, all transitive dependencies
 func CollectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, beadsClient *beads.Client) ([]string, error) {
 	if beadsClient == nil {
 		return nil, fmt.Errorf("beads client is nil")
@@ -24,30 +27,32 @@ func CollectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, bea
 		return nil, fmt.Errorf("bead %s not found", beadID)
 	}
 
-	// Check if this issue has children (parent-child relationships)
-	var hasChildren bool
+	// Check if this issue has children or blocked issues
+	var hasChildrenOrBlocked bool
 	for _, dep := range mainIssue.Dependents {
-		if dep.Type == "parent-child" {
-			hasChildren = true
+		if dep.Type == "parent-child" || dep.Type == "blocks" {
+			hasChildrenOrBlocked = true
 			break
 		}
 	}
 
-	if hasChildren {
-		// Collect all children recursively
-		allIssues, err := beadsClient.GetBeadWithChildren(ctx, beadID)
+	if hasChildrenOrBlocked {
+		// Collect all children and blocked issues recursively
+		allIssueIDs, err := collectChildrenAndBlocked(ctx, beadID, beadsClient)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get children for %s: %w", beadID, err)
+			return nil, fmt.Errorf("failed to collect children and blocked for %s: %w", beadID, err)
 		}
 
-		// Include all open issues for tracking
+		// Filter out closed issues
 		var result []string
-		for _, issue := range allIssues {
-			// Skip closed issues
-			if issue.Status == beads.StatusClosed {
-				continue
+		for _, id := range allIssueIDs {
+			issue, err := beadsClient.GetBead(ctx, id)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get bead %s: %w", id, err)
 			}
-			result = append(result, issue.ID)
+			if issue != nil && issue.Status != beads.StatusClosed {
+				result = append(result, id)
+			}
 		}
 		return result, nil
 	}
@@ -67,6 +72,47 @@ func CollectIssueIDsForAutomatedWorkflow(ctx context.Context, beadID string, bea
 	}
 
 	return issueIDs, nil
+}
+
+// collectChildrenAndBlocked recursively collects all children (parent-child) and
+// blocked issues (blocks) for a given bead.
+func collectChildrenAndBlocked(ctx context.Context, beadID string, beadsClient *beads.Client) ([]string, error) {
+	visited := make(map[string]bool)
+	var orderedIDs []string
+
+	var collect func(id string) error
+	collect = func(id string) error {
+		if visited[id] {
+			return nil
+		}
+		visited[id] = true
+
+		// Add this bead first
+		orderedIDs = append(orderedIDs, id)
+
+		// Get this bead to find its dependents
+		result, err := beadsClient.GetBeadsWithDeps(ctx, []string{id})
+		if err != nil {
+			return err
+		}
+
+		// Recursively collect all children and blocked issues
+		for _, dep := range result.Dependents[id] {
+			if (dep.Type == "parent-child" || dep.Type == "blocks") && !visited[dep.IssueID] {
+				if err := collect(dep.IssueID); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+
+	if err := collect(beadID); err != nil {
+		return nil, err
+	}
+
+	return orderedIDs, nil
 }
 
 // CollectIssuesForMultipleIDs collects all issues to include for multiple bead IDs.
