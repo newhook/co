@@ -12,7 +12,7 @@ import (
 
 // Fetcher orchestrates fetching Linear issues and importing them into Beads
 type Fetcher struct {
-	client     *Client
+	client     ClientInterface
 	beadsDir   string
 	beadsCache map[string]string // linearID -> beadID cache
 }
@@ -29,6 +29,16 @@ func NewFetcher(apiKey string, beadsDir string) (*Fetcher, error) {
 		beadsDir:   beadsDir,
 		beadsCache: make(map[string]string),
 	}, nil
+}
+
+// NewFetcherWithClient creates a new fetcher with a provided client implementation.
+// This is useful for testing with a mock client.
+func NewFetcherWithClient(client ClientInterface, beadsDir string) *Fetcher {
+	return &Fetcher{
+		client:     client,
+		beadsDir:   beadsDir,
+		beadsCache: make(map[string]string),
+	}
 }
 
 // FetchAndImport fetches a Linear issue and imports it into Beads
