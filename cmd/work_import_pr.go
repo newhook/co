@@ -100,7 +100,7 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 
 	// Create work subdirectory
 	workDir := filepath.Join(proj.Root, workID)
-	if err := os.Mkdir(workDir, 0755); err != nil {
+	if err := os.Mkdir(workDir, 0750); err != nil {
 		return fmt.Errorf("failed to create work directory: %w", err)
 	}
 
@@ -112,14 +112,14 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Setting up worktree from PR branch...\n")
 	_, worktreePath, err := importer.SetupWorktreeFromPR(ctx, mainRepoPath, prURL, "", workDir, branchName)
 	if err != nil {
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to set up worktree: %w", err)
 	}
 
 	// Set up upstream tracking
 	if err := gitOps.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
 		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to set upstream: %w", err)
 	}
 
@@ -159,7 +159,7 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 	// Create work record in database
 	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID, flagImportPRAuto); err != nil {
 		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 

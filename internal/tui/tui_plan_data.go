@@ -528,14 +528,14 @@ func doImportPR(ctx context.Context, proj *project.Project, opts *importPROpts) 
 
 	// Create work subdirectory
 	workDir := filepath.Join(proj.Root, opts.WorkID)
-	if err := os.Mkdir(workDir, 0755); err != nil {
+	if err := os.Mkdir(workDir, 0750); err != nil {
 		return fmt.Errorf("failed to create work directory: %w", err)
 	}
 
 	// Set up worktree from PR
 	_, worktreePath, err := importer.SetupWorktreeFromPR(ctx, mainRepoPath, opts.PRURL, "", workDir, opts.BranchName)
 	if err != nil {
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to set up worktree: %w", err)
 	}
 
@@ -544,7 +544,7 @@ func doImportPR(ctx context.Context, proj *project.Project, opts *importPROpts) 
 	wtOps := worktree.NewOperations()
 	if err := gitOps.PushSetUpstream(ctx, opts.BranchName, worktreePath); err != nil {
 		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to set upstream: %w", err)
 	}
 
@@ -574,7 +574,7 @@ func doImportPR(ctx context.Context, proj *project.Project, opts *importPROpts) 
 	// Create work record in database
 	if err := proj.DB.CreateWork(ctx, opts.WorkID, workerName, worktreePath, opts.BranchName, baseBranch, rootIssueID, opts.Auto); err != nil {
 		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 
