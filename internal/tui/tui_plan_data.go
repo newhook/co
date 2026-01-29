@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/linear"
@@ -479,6 +480,16 @@ func (m *planModel) importPR(prURL string) tea.Cmd {
 		})
 		if err != nil {
 			return prImportCompleteMsg{err: fmt.Errorf("failed to schedule PR import: %w", err)}
+		}
+
+		// Ensure control plane is running to process the import task
+		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+			// Non-fatal: task was scheduled but control plane might need manual start
+			return prImportCompleteMsg{
+				workID:     result.WorkID,
+				prMetadata: metadata,
+				err:        fmt.Errorf("import scheduled but control plane failed: %w", err),
+			}
 		}
 
 		return prImportCompleteMsg{
