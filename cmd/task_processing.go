@@ -203,7 +203,8 @@ func processTask(proj *project.Project, taskID string) error {
 	}
 
 	// Execute Claude inline (blocking)
-	if err := claude.Run(ctx, proj.DB, taskID, prompt, work.WorktreePath, proj.Config); err != nil {
+	runner := claude.NewRunner()
+	if err := runner.Run(ctx, proj.DB, taskID, prompt, work.WorktreePath, proj.Config); err != nil {
 		return fmt.Errorf("task %s failed: %w", taskID, err)
 	}
 

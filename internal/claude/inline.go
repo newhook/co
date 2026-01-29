@@ -23,24 +23,19 @@ type Runner interface {
 	Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string, cfg *project.Config) error
 }
 
-// cliRunner implements Runner using the claude CLI.
-type cliRunner struct{}
+// CLIRunner implements Runner using the claude CLI.
+type CLIRunner struct{}
 
-// Compile-time check that cliRunner implements Runner.
-var _ Runner = (*cliRunner)(nil)
+// Compile-time check that CLIRunner implements Runner.
+var _ Runner = (*CLIRunner)(nil)
 
-// Default is the default Runner implementation using the claude CLI.
-var Default Runner = &cliRunner{}
-
-// Run executes Claude directly in the current terminal (fork/exec).
-// This blocks until Claude exits or the task is marked complete in the database.
-// The config parameter controls Claude settings like --dangerously-skip-permissions.
-func Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string, cfg *project.Config) error {
-	return Default.Run(ctx, database, taskID, prompt, workDir, cfg)
+// NewRunner creates a new Runner that uses the claude CLI.
+func NewRunner() Runner {
+	return &CLIRunner{}
 }
 
 // Run implements Runner.Run.
-func (r *cliRunner) Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string, cfg *project.Config) error {
+func (r *CLIRunner) Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string, cfg *project.Config) error {
 	// Get task to verify it exists
 	task, err := database.GetTask(ctx, taskID)
 	if err != nil {

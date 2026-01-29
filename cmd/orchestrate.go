@@ -263,7 +263,8 @@ func executeTask(proj *project.Project, t *db.Task, work *db.Work) error {
 	}
 
 	// Execute Claude inline with timeout context
-	if err = claude.Run(taskCtx, proj.DB, t.ID, prompt, work.WorktreePath, proj.Config); err != nil {
+	runner := claude.NewRunner()
+	if err = runner.Run(taskCtx, proj.DB, t.ID, prompt, work.WorktreePath, proj.Config); err != nil {
 		// Check if it was a timeout error
 		if errors.Is(err, context.DeadlineExceeded) {
 			// Mark the task as failed due to timeout
