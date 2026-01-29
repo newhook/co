@@ -11,34 +11,39 @@ import (
 
 // Operations defines the interface for mise operations.
 // This abstraction enables testing without actual mise commands.
+// Each Operations instance is bound to a specific directory.
 type Operations interface {
 	// IsManaged returns true if the directory has a mise config file.
-	IsManaged(dir string) bool
-	// Trust runs `mise trust` in the given directory.
-	Trust(dir string) error
-	// Install runs `mise install` in the given directory.
-	Install(dir string) error
-	// HasTask checks if a mise task exists in the given directory.
-	HasTask(dir, taskName string) bool
-	// RunTask runs a mise task in the given directory.
-	RunTask(dir, taskName string) error
-	// Exec runs a command with the mise environment in the given directory.
-	Exec(dir, command string, args ...string) ([]byte, error)
+	IsManaged() bool
+	// Trust runs `mise trust` in the directory.
+	Trust() error
+	// Install runs `mise install` in the directory.
+	Install() error
+	// HasTask checks if a mise task exists in the directory.
+	HasTask(taskName string) bool
+	// RunTask runs a mise task in the directory.
+	RunTask(taskName string) error
+	// Exec runs a command with the mise environment in the directory.
+	Exec(command string, args ...string) ([]byte, error)
 	// Initialize runs mise trust, install, and setup task if available.
-	Initialize(dir string) error
+	Initialize() error
 	// InitializeWithOutput runs mise trust, install, and setup task if available,
 	// writing progress messages to the provided writer.
-	InitializeWithOutput(dir string, w io.Writer) error
+	InitializeWithOutput(w io.Writer) error
 }
 
 // cliOperations implements Operations using the mise CLI.
-type cliOperations struct{}
+type cliOperations struct {
+	dir string
+}
 
 // Compile-time check that cliOperations implements Operations.
 var _ Operations = (*cliOperations)(nil)
 
-// Default is the default Operations implementation using the mise CLI.
-var Default Operations = &cliOperations{}
+// NewOperations creates a new Operations instance bound to the specified directory.
+func NewOperations(dir string) Operations {
+	return &cliOperations{dir: dir}
+}
 
 // configFiles lists all mise config file locations to check.
 var configFiles = []string{
@@ -60,20 +65,19 @@ func findConfigFile(dir string) string {
 }
 
 // IsManaged implements Operations.IsManaged.
-func (c *cliOperations) IsManaged(dir string) bool {
-	return findConfigFile(dir) != ""
+func (c *cliOperations) IsManaged() bool {
+	return findConfigFile(c.dir) != ""
 }
 
 // IsManaged returns true if the directory has a mise config file.
-// Deprecated: Use Default.IsManaged instead.
 func IsManaged(dir string) bool {
-	return Default.IsManaged(dir)
+	return NewOperations(dir).IsManaged()
 }
 
 // Trust implements Operations.Trust.
-func (c *cliOperations) Trust(dir string) error {
+func (c *cliOperations) Trust() error {
 	cmd := exec.Command("mise", "trust")
-	cmd.Dir = dir
+	cmd.Dir = c.dir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("mise trust failed: %w\n%s", err, output)
 	}
@@ -81,15 +85,14 @@ func (c *cliOperations) Trust(dir string) error {
 }
 
 // Trust runs `mise trust` in the given directory.
-// Deprecated: Use Default.Trust instead.
 func Trust(dir string) error {
-	return Default.Trust(dir)
+	return NewOperations(dir).Trust()
 }
 
 // Install implements Operations.Install.
-func (c *cliOperations) Install(dir string) error {
+func (c *cliOperations) Install() error {
 	cmd := exec.Command("mise", "install")
-	cmd.Dir = dir
+	cmd.Dir = c.dir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("mise install failed: %w\n%s", err, output)
 	}
@@ -97,15 +100,14 @@ func (c *cliOperations) Install(dir string) error {
 }
 
 // Install runs `mise install` in the given directory.
-// Deprecated: Use Default.Install instead.
 func Install(dir string) error {
-	return Default.Install(dir)
+	return NewOperations(dir).Install()
 }
 
 // HasTask implements Operations.HasTask.
-func (c *cliOperations) HasTask(dir, taskName string) bool {
+func (c *cliOperations) HasTask(taskName string) bool {
 	cmd := exec.Command("mise", "task", "ls")
-	cmd.Dir = dir
+	cmd.Dir = c.dir
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -122,15 +124,14 @@ func (c *cliOperations) HasTask(dir, taskName string) bool {
 }
 
 // HasTask checks if a mise task exists in the given directory.
-// Deprecated: Use Default.HasTask instead.
 func HasTask(dir, taskName string) bool {
-	return Default.HasTask(dir, taskName)
+	return NewOperations(dir).HasTask(taskName)
 }
 
 // RunTask implements Operations.RunTask.
-func (c *cliOperations) RunTask(dir, taskName string) error {
+func (c *cliOperations) RunTask(taskName string) error {
 	cmd := exec.Command("mise", "run", taskName)
-	cmd.Dir = dir
+	cmd.Dir = c.dir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("mise run %s failed: %w\n%s", taskName, err, output)
 	}
@@ -138,18 +139,17 @@ func (c *cliOperations) RunTask(dir, taskName string) error {
 }
 
 // RunTask runs a mise task in the given directory.
-// Deprecated: Use Default.RunTask instead.
 func RunTask(dir, taskName string) error {
-	return Default.RunTask(dir, taskName)
+	return NewOperations(dir).RunTask(taskName)
 }
 
 // Exec implements Operations.Exec.
-func (c *cliOperations) Exec(dir, command string, args ...string) ([]byte, error) {
+func (c *cliOperations) Exec(command string, args ...string) ([]byte, error) {
 	miseArgs := append([]string{"exec", "--"}, command)
 	miseArgs = append(miseArgs, args...)
 	// #nosec G204 -- command and args are from trusted internal callers
 	cmd := exec.Command("mise", miseArgs...)
-	cmd.Dir = dir
+	cmd.Dir = c.dir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return output, fmt.Errorf("mise exec %s failed: %w\n%s", command, err, output)
@@ -158,25 +158,23 @@ func (c *cliOperations) Exec(dir, command string, args ...string) ([]byte, error
 }
 
 // Exec runs a command with the mise environment in the given directory.
-// Deprecated: Use Default.Exec instead.
 func Exec(dir, command string, args ...string) ([]byte, error) {
-	return Default.Exec(dir, command, args...)
+	return NewOperations(dir).Exec(command, args...)
 }
 
 // Initialize implements Operations.Initialize.
-func (c *cliOperations) Initialize(dir string) error {
-	return c.InitializeWithOutput(dir, os.Stdout)
+func (c *cliOperations) Initialize() error {
+	return c.InitializeWithOutput(os.Stdout)
 }
 
 // Initialize runs mise trust, install, and setup task if available.
-// Deprecated: Use Default.Initialize instead.
 func Initialize(dir string) error {
-	return Default.Initialize(dir)
+	return NewOperations(dir).Initialize()
 }
 
 // InitializeWithOutput implements Operations.InitializeWithOutput.
-func (c *cliOperations) InitializeWithOutput(dir string, w io.Writer) error {
-	configFile := findConfigFile(dir)
+func (c *cliOperations) InitializeWithOutput(w io.Writer) error {
+	configFile := findConfigFile(c.dir)
 	if configFile == "" {
 		fmt.Fprintf(w, "  Mise: not enabled (no config file found)\n")
 		return nil
@@ -185,19 +183,19 @@ func (c *cliOperations) InitializeWithOutput(dir string, w io.Writer) error {
 	fmt.Fprintf(w, "  Mise: found %s\n", configFile)
 
 	fmt.Fprintf(w, "  Mise: running trust...\n")
-	if err := c.Trust(dir); err != nil {
+	if err := c.Trust(); err != nil {
 		return err
 	}
 
 	fmt.Fprintf(w, "  Mise: running install...\n")
-	if err := c.Install(dir); err != nil {
+	if err := c.Install(); err != nil {
 		return err
 	}
 
 	// Run setup task if it exists
-	if c.HasTask(dir, "setup") {
+	if c.HasTask("setup") {
 		fmt.Fprintf(w, "  Mise: running setup task...\n")
-		if err := c.RunTask(dir, "setup"); err != nil {
+		if err := c.RunTask("setup"); err != nil {
 			return err
 		}
 	}
@@ -207,7 +205,6 @@ func (c *cliOperations) InitializeWithOutput(dir string, w io.Writer) error {
 }
 
 // InitializeWithOutput runs mise trust, install, and setup task if available.
-// Deprecated: Use Default.InitializeWithOutput instead.
 func InitializeWithOutput(dir string, w io.Writer) error {
-	return Default.InitializeWithOutput(dir, w)
+	return NewOperations(dir).InitializeWithOutput(w)
 }
