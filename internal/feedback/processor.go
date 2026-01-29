@@ -18,14 +18,14 @@ const maxLogContentSize = 50 * 1024 // 50KB
 
 // FeedbackProcessor processes PR feedback and generates actionable items.
 type FeedbackProcessor struct {
-	client *github.Client
+	client github.ClientInterface
 	// Optional fields for Claude log analysis integration
 	proj   *project.Project
 	workID string
 }
 
 // NewFeedbackProcessor creates a new feedback processor.
-func NewFeedbackProcessor(client *github.Client) *FeedbackProcessor {
+func NewFeedbackProcessor(client github.ClientInterface) *FeedbackProcessor {
 	return &FeedbackProcessor{
 		client: client,
 	}
@@ -33,7 +33,7 @@ func NewFeedbackProcessor(client *github.Client) *FeedbackProcessor {
 
 // NewFeedbackProcessorWithProject creates a feedback processor with project context.
 // This enables Claude-based log analysis when configured.
-func NewFeedbackProcessorWithProject(client *github.Client, proj *project.Project, workID string) *FeedbackProcessor {
+func NewFeedbackProcessorWithProject(client github.ClientInterface, proj *project.Project, workID string) *FeedbackProcessor {
 	return &FeedbackProcessor{
 		client: client,
 		proj:   proj,

@@ -36,7 +36,7 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 		logging.Debug("spawnPlanSession checked if running", "beadID", beadID, "running", running)
 		if running {
 			// Session exists - just switch to it
-			if err := m.zj.SwitchToTab(m.ctx, session, tabName); err != nil {
+			if err := m.zj.Session(session).SwitchToTab(m.ctx, tabName); err != nil {
 				return planSessionSpawnedMsg{beadID: beadID, err: err}
 			}
 			return planSessionSpawnedMsg{beadID: beadID, resumed: true}

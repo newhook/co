@@ -228,7 +228,7 @@ func (m *planModel) closeBead(beadID string) tea.Cmd {
 		// If there's an active session for this bead, close it
 		if m.activeBeadSessions[beadID] {
 			// Terminate and close the tab
-			_ = m.zj.TerminateAndCloseTab(m.ctx, session, tabName)
+			_ = m.zj.Session(session).TerminateAndCloseTab(m.ctx, tabName)
 			// Unregister from database
 			_ = m.proj.DB.UnregisterPlanSession(m.ctx, beadID)
 		}
@@ -251,11 +251,12 @@ func (m *planModel) closeBeads(beadIDs []string) tea.Cmd {
 		session := m.sessionName()
 
 		// First, close any active sessions for these beads
+		zjSession := m.zj.Session(session)
 		for _, beadID := range beadIDs {
 			if m.activeBeadSessions[beadID] {
 				tabName := db.TabNameForBead(beadID)
 				// Terminate and close the tab
-				_ = m.zj.TerminateAndCloseTab(m.ctx, session, tabName)
+				_ = zjSession.TerminateAndCloseTab(m.ctx, tabName)
 				// Unregister from database
 				_ = m.proj.DB.UnregisterPlanSession(m.ctx, beadID)
 			}
