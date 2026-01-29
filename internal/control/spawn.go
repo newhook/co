@@ -38,38 +38,12 @@ func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 		return nil
 	}
 
-	// Build the control plane command with project root for identification
-	controlPlaneCommand := fmt.Sprintf("co control --root %s", projectRoot)
-
-	// Create a new tab
-	logging.Debug("SpawnControlPlane creating tab", "tabName", TabName)
-	if err := zc.CreateTab(ctx, sessionName, TabName, projectRoot); err != nil {
-		logging.Error("SpawnControlPlane CreateTab failed", "error", err)
-		return fmt.Errorf("failed to create tab: %w", err)
-	}
-	logging.Debug("SpawnControlPlane CreateTab completed")
-
-	// Wait for the shell in the new tab to be ready
-	time.Sleep(500 * time.Millisecond)
-
-	// Switch to the tab if we're inside the session
-	// Skip if not attached - go-to-tab-name blocks on detached sessions
-	// The newly created tab is already focused after creation
-	if zellij.IsInsideTargetSession(sessionName) {
-		logging.Debug("SpawnControlPlane switching to tab (inside session)")
-		if err := zc.SwitchToTab(ctx, sessionName, TabName); err != nil {
-			logging.Error("SpawnControlPlane SwitchToTab failed", "error", err)
-			return fmt.Errorf("switching to tab failed: %w", err)
-		}
-		logging.Debug("SpawnControlPlane SwitchToTab completed")
-	} else {
-		logging.Debug("SpawnControlPlane skipping SwitchToTab (not inside session)")
-	}
-
-	logging.Debug("SpawnControlPlane executing command", "command", controlPlaneCommand)
-	if err := zc.ExecuteCommand(ctx, sessionName, controlPlaneCommand); err != nil {
-		logging.Error("SpawnControlPlane ExecuteCommand failed", "error", err)
-		return fmt.Errorf("failed to execute control plane command: %w", err)
+	// Create control plane tab with command using layout
+	// This avoids race conditions from creating a tab then executing a command
+	logging.Debug("SpawnControlPlane creating tab with command", "tabName", TabName)
+	if err := zc.CreateTabWithCommand(ctx, sessionName, TabName, projectRoot, "co", []string{"control", "--root", projectRoot}, "control"); err != nil {
+		logging.Error("SpawnControlPlane CreateTabWithCommand failed", "error", err)
+		return fmt.Errorf("failed to create control plane tab: %w", err)
 	}
 	logging.Debug("SpawnControlPlane completed successfully")
 
