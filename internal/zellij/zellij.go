@@ -51,6 +51,45 @@ func IsInsideTargetSession(session string) bool {
 	return CurrentSessionName() == session
 }
 
+// ClientInterface defines the interface for zellij operations.
+// This abstraction enables testing without actual zellij commands.
+type ClientInterface interface {
+	// Session management
+	ListSessions(ctx context.Context) ([]string, error)
+	SessionExists(ctx context.Context, name string) (bool, error)
+	IsSessionActive(ctx context.Context, name string) (bool, error)
+	CreateSession(ctx context.Context, name string) error
+	CreateSessionWithLayout(ctx context.Context, name string, projectRoot string) error
+	DeleteSession(ctx context.Context, name string) error
+	EnsureSession(ctx context.Context, name string) (bool, error)
+	EnsureSessionWithLayout(ctx context.Context, name string, projectRoot string) (bool, error)
+
+	// Tab management
+	CreateTab(ctx context.Context, session, name, cwd string) error
+	CreateTabWithCommand(ctx context.Context, session, name, cwd, command string, args []string, paneName string) error
+	SwitchToTab(ctx context.Context, session, name string) error
+	QueryTabNames(ctx context.Context, session string) ([]string, error)
+	TabExists(ctx context.Context, session, name string) (bool, error)
+	CloseTab(ctx context.Context, session string) error
+
+	// Pane input control
+	WriteASCII(ctx context.Context, session string, code int) error
+	WriteChars(ctx context.Context, session, text string) error
+	SendCtrlC(ctx context.Context, session string) error
+	SendEnter(ctx context.Context, session string) error
+	ExecuteCommand(ctx context.Context, session, cmd string) error
+
+	// High-level operations
+	TerminateProcess(ctx context.Context, session string) error
+	ClearAndExecute(ctx context.Context, session, cmd string) error
+	TerminateAndCloseTab(ctx context.Context, session, tabName string) error
+
+	// Floating pane operations
+	RunFloating(ctx context.Context, session, name, cwd string, command ...string) error
+	ToggleFloatingPanes(ctx context.Context, session string) error
+	Run(ctx context.Context, session, name, cwd string, command ...string) error
+}
+
 // Client provides methods for interacting with zellij sessions, tabs, and panes.
 type Client struct {
 	// Timeouts for various operations
@@ -59,6 +98,9 @@ type Client struct {
 	CommandDelay     time.Duration
 	SessionStartWait time.Duration
 }
+
+// Compile-time check that Client implements ClientInterface.
+var _ ClientInterface = (*Client)(nil)
 
 // New creates a new zellij client with default configuration.
 func New() *Client {
