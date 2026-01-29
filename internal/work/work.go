@@ -221,6 +221,64 @@ func CreateWorkAsyncWithOptions(ctx context.Context, proj *project.Project, opts
 	}, nil
 }
 
+// ImportPRAsyncOptions contains options for importing a PR asynchronously.
+type ImportPRAsyncOptions struct {
+	PRURL       string
+	BranchName  string
+	RootIssueID string
+}
+
+// ImportPRAsyncResult contains the result of scheduling a PR import.
+type ImportPRAsyncResult struct {
+	WorkID      string
+	WorkerName  string
+	BranchName  string
+	RootIssueID string
+}
+
+// ImportPRAsync imports a PR asynchronously by scheduling a control plane task.
+// This creates the work record and schedules the import task - the actual
+// worktree setup happens in the control plane.
+func ImportPRAsync(ctx context.Context, proj *project.Project, opts ImportPRAsyncOptions) (*ImportPRAsyncResult, error) {
+	baseBranch := proj.Config.Repo.GetBaseBranch()
+
+	// Generate work ID
+	workID, err := proj.DB.GenerateWorkID(ctx, opts.BranchName, proj.Config.Project.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate work ID: %w", err)
+	}
+
+	// Get a human-readable name for this worker
+	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
+	if err != nil {
+		workerName = "" // Non-fatal
+	}
+
+	// Create work record in DB (without worktree path - control plane will set it)
+	if err := proj.DB.CreateWork(ctx, workID, workerName, "", opts.BranchName, baseBranch, opts.RootIssueID, false); err != nil {
+		return nil, fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Schedule the PR import task for the control plane
+	err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeImportPR, time.Now(), map[string]string{
+		"pr_url":      opts.PRURL,
+		"branch":      opts.BranchName,
+		"worker_name": workerName,
+	}, fmt.Sprintf("import-pr-%s", workID), db.DefaultMaxAttempts)
+	if err != nil {
+		// Work record created but task scheduling failed - cleanup
+		_ = proj.DB.DeleteWork(ctx, workID)
+		return nil, fmt.Errorf("failed to schedule PR import: %w", err)
+	}
+
+	return &ImportPRAsyncResult{
+		WorkID:      workID,
+		WorkerName:  workerName,
+		BranchName:  opts.BranchName,
+		RootIssueID: opts.RootIssueID,
+	}, nil
+}
+
 // DestroyWork destroys a work unit and all its resources.
 // This is the core work destruction logic that can be called from both the CLI and TUI.
 // It does not perform interactive confirmation - that should be handled by the caller.

@@ -85,6 +85,7 @@ type TaskHandler func(ctx context.Context, proj *project.Project, task *db.Sched
 // taskHandlers maps task types to their handler functions.
 var taskHandlers = map[string]TaskHandler{
 	db.TaskTypeCreateWorktree:      HandleCreateWorktreeTask,
+	db.TaskTypeImportPR:            HandleImportPRTask,
 	db.TaskTypeSpawnOrchestrator:   HandleSpawnOrchestratorTask,
 	db.TaskTypePRFeedback:          HandlePRFeedbackTask,
 	db.TaskTypeCommentResolution:   HandleCommentResolutionTask,

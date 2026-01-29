@@ -36,6 +36,7 @@ const (
 	TaskTypeGitHubComment       = "github_comment"
 	TaskTypeGitHubResolveThread = "github_resolve_thread"
 	TaskTypeCreateWorktree      = "create_worktree"
+	TaskTypeImportPR            = "import_pr"
 	TaskTypeSpawnOrchestrator   = "spawn_orchestrator"
 	TaskTypeDestroyWorktree     = "destroy_worktree"
 )

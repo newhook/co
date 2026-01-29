@@ -492,6 +492,7 @@ func (m *planModel) renderHelp() string {
   w             Create work from issue(s)
   A             Add issue to existing work
   i             Import issue from Linear
+  I             Import from GitHub PR
 
   Filtering & Sorting
   ────────────────────────────

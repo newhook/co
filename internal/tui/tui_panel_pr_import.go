@@ -22,9 +22,7 @@ const (
 
 // PRImportResult contains form values when submitted
 type PRImportResult struct {
-	PRURL      string
-	CreateBead bool
-	Auto       bool
+	PRURL string
 }
 
 // PRImportPanel renders the PR import form.
@@ -37,11 +35,9 @@ type PRImportPanel struct {
 	focused bool
 
 	// Form state
-	input      textinput.Model
-	createBead bool
-	auto       bool
-	focusIdx   int
-	importing  bool
+	input     textinput.Model
+	focusIdx  int
+	importing bool
 
 	// Preview state
 	previewing bool
@@ -60,10 +56,9 @@ func NewPRImportPanel() *PRImportPanel {
 	input.Width = 60
 
 	return &PRImportPanel{
-		width:      60,
-		height:     20,
-		input:      input,
-		createBead: true, // Default to creating a bead
+		width:  60,
+		height: 20,
+		input:  input,
 	}
 }
 
@@ -77,8 +72,6 @@ func (p *PRImportPanel) Reset() {
 	p.input.Reset()
 	p.input.Focus()
 	p.focusIdx = 0
-	p.createBead = true
-	p.auto = false
 	p.importing = false
 	p.previewing = false
 	p.prMetadata = nil
@@ -93,14 +86,14 @@ func (p *PRImportPanel) Update(msg tea.KeyMsg) (tea.Cmd, PRImportAction) {
 		return nil, PRImportActionCancel
 	}
 
-	// Tab cycles between elements: input(0) -> createBead(1) -> auto(2) -> Preview(3) -> Import(4) -> Cancel(5)
+	// Tab cycles between elements: input(0) -> Import(1) -> Cancel(2)
 	if msg.Type == tea.KeyTab || msg.String() == "tab" {
 		// Leave text input focus before switching
 		if p.focusIdx == 0 {
 			p.input.Blur()
 		}
 
-		p.focusIdx = (p.focusIdx + 1) % 6
+		p.focusIdx = (p.focusIdx + 1) % 3
 
 		// Enter new focus
 		if p.focusIdx == 0 {
@@ -118,7 +111,7 @@ func (p *PRImportPanel) Update(msg tea.KeyMsg) (tea.Cmd, PRImportAction) {
 
 		p.focusIdx--
 		if p.focusIdx < 0 {
-			p.focusIdx = 5
+			p.focusIdx = 2
 		}
 
 		// Enter new focus
@@ -136,39 +129,25 @@ func (p *PRImportPanel) Update(msg tea.KeyMsg) (tea.Cmd, PRImportAction) {
 		}
 
 		switch p.focusIdx {
-		case 0: // Input field - enter triggers preview
-			return nil, PRImportActionPreview
-		case 3: // Preview button
-			return nil, PRImportActionPreview
-		case 4: // Import button
+		case 0: // Input field
+			// If preview not loaded yet, load it; otherwise import
+			if p.prMetadata == nil && !p.previewing {
+				return nil, PRImportActionPreview
+			}
 			return nil, PRImportActionSubmit
-		case 5: // Cancel button
+		case 1: // Import button
+			return nil, PRImportActionSubmit
+		case 2: // Cancel button
 			p.input.Blur()
 			return nil, PRImportActionCancel
-		default:
-			// From checkboxes, enter triggers import
-			return nil, PRImportActionSubmit
 		}
 	}
 
 	// Handle input based on focused element
-	switch p.focusIdx {
-	case 0: // Text input field
+	if p.focusIdx == 0 {
 		var cmd tea.Cmd
 		p.input, cmd = p.input.Update(msg)
 		return cmd, PRImportActionNone
-
-	case 1: // Create bead checkbox
-		if msg.String() == " " || msg.String() == "x" {
-			p.createBead = !p.createBead
-		}
-		return nil, PRImportActionNone
-
-	case 2: // Auto checkbox
-		if msg.String() == " " || msg.String() == "x" {
-			p.auto = !p.auto
-		}
-		return nil, PRImportActionNone
 	}
 
 	return nil, PRImportActionNone
@@ -177,9 +156,7 @@ func (p *PRImportPanel) Update(msg tea.KeyMsg) (tea.Cmd, PRImportAction) {
 // GetResult returns the current form values
 func (p *PRImportPanel) GetResult() PRImportResult {
 	return PRImportResult{
-		PRURL:      strings.TrimSpace(p.input.Value()),
-		CreateBead: p.createBead,
-		Auto:       p.auto,
+		PRURL: strings.TrimSpace(p.input.Value()),
 	}
 }
 
@@ -237,29 +214,14 @@ func (p *PRImportPanel) Render() string {
 	}
 	p.input.Width = inputWidth
 
-	// Show focus labels
+	// Show focus label with context-aware hint
 	prURLLabel := "PR URL:"
-	createBeadLabel := "Create Bead:"
-	autoLabel := "Auto Run:"
-
 	if p.focusIdx == 0 {
-		prURLLabel = tuiValueStyle.Render("PR URL:") + " (paste GitHub PR URL, Enter to preview)"
-	}
-	if p.focusIdx == 1 {
-		createBeadLabel = tuiValueStyle.Render("Create Bead:") + " (space to toggle)"
-	}
-	if p.focusIdx == 2 {
-		autoLabel = tuiValueStyle.Render("Auto Run:") + " (space to toggle)"
-	}
-
-	// Checkbox display
-	createBeadCheck := " "
-	autoCheck := " "
-	if p.createBead {
-		createBeadCheck = "x"
-	}
-	if p.auto {
-		autoCheck = "x"
+		if p.prMetadata != nil {
+			prURLLabel = tuiValueStyle.Render("PR URL:") + " (Enter to import)"
+		} else {
+			prURLLabel = tuiValueStyle.Render("PR URL:") + " (Enter to load preview)"
+		}
 	}
 
 	content.WriteString(tuiLabelStyle.Render("Import from GitHub PR"))
@@ -289,45 +251,31 @@ func (p *PRImportPanel) Render() string {
 		content.WriteString("\n")
 	}
 
-	content.WriteString(createBeadLabel + " [" + createBeadCheck + "]")
-	content.WriteString(tuiDimStyle.Render(" (track in beads system)"))
-	content.WriteString("\n")
-	content.WriteString(autoLabel + " [" + autoCheck + "]")
-	content.WriteString(tuiDimStyle.Render(" (run automated workflow)"))
-	content.WriteString("\n\n")
-
-	// Render buttons
-	var previewLabel, importLabel, cancelLabel string
+	// Render buttons (Import and Cancel only)
+	var importLabel, cancelLabel string
 	focusHint := ""
 
-	if p.focusIdx == 3 {
-		previewLabel = tuiValueStyle.Render("[Preview]")
-		focusHint = tuiDimStyle.Render(" (press Enter)")
-	} else {
-		previewLabel = styleButtonWithHover("Preview", p.hoveredButton == "preview")
-	}
-
-	if p.focusIdx == 4 {
+	if p.focusIdx == 1 {
 		importLabel = tuiValueStyle.Render("[Import]")
 		focusHint = tuiDimStyle.Render(" (press Enter)")
 	} else {
 		importLabel = styleButtonWithHover("Import", p.hoveredButton == "import")
 	}
 
-	if p.focusIdx == 5 {
+	if p.focusIdx == 2 {
 		cancelLabel = tuiValueStyle.Render("[Cancel]")
 		focusHint = tuiDimStyle.Render(" (press Enter)")
 	} else {
 		cancelLabel = styleButtonWithHover("Cancel", p.hoveredButton == "cancel")
 	}
 
-	content.WriteString(previewLabel + "  " + importLabel + "  " + cancelLabel + focusHint)
+	content.WriteString(importLabel + "  " + cancelLabel + focusHint)
 	content.WriteString("\n")
 
 	if p.importing {
 		content.WriteString(tuiDimStyle.Render("Importing..."))
 	} else {
-		content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Enter] Activate"))
+		content.WriteString(tuiDimStyle.Render("[Tab] Next field  [Esc] Cancel"))
 	}
 
 	return content.String()

@@ -1126,7 +1126,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			result := m.prImportPanel.GetResult()
 			if result.PRURL != "" {
 				m.prImportPanel.SetImporting(true)
-				return m, m.importPR(result.PRURL, result.CreateBead, result.Auto)
+				return m, m.importPR(result.PRURL)
 			}
 			return m, cmd
 		}

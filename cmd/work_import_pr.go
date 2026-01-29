@@ -25,26 +25,19 @@ var workImportPRCmd = &cobra.Command{
 This command fetches the PR's branch, creates a worktree, and sets up the work
 for further development or review. The PR's branch becomes the work's feature branch.
 
-Optionally creates a bead from the PR metadata to track the work in the beads system.
+A bead is automatically created from the PR metadata to track the work in the beads system.
 
 Examples:
   co work import-pr https://github.com/owner/repo/pull/123
-  co work import-pr https://github.com/owner/repo/pull/123 --create-bead
   co work import-pr https://github.com/owner/repo/pull/123 --branch custom-branch-name`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkImportPR,
 }
 
-var (
-	flagImportPRCreateBead bool
-	flagImportPRBranch     string
-	flagImportPRAuto       bool
-)
+var flagImportPRBranch string
 
 func init() {
-	workImportPRCmd.Flags().BoolVar(&flagImportPRCreateBead, "create-bead", false, "create a bead from PR metadata")
 	workImportPRCmd.Flags().StringVar(&flagImportPRBranch, "branch", "", "override the local branch name (default: use PR's branch name)")
-	workImportPRCmd.Flags().BoolVar(&flagImportPRAuto, "auto", false, "run full automated workflow after import")
 	workCmd.AddCommand(workImportPRCmd)
 }
 
@@ -134,30 +127,30 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Warning: failed to get worker name: %v\n", err)
 	}
 
-	// Optionally create a bead from PR metadata
+	// Create a bead from PR metadata (required for work to function)
+	fmt.Printf("Creating bead from PR metadata...\n")
 	var rootIssueID string
-	if flagImportPRCreateBead {
-		fmt.Printf("Creating bead from PR metadata...\n")
-		result, err := importer.CreateBeadFromPR(ctx, metadata, &github.CreateBeadOptions{
-			BeadsDir:     proj.BeadsPath(),
-			SkipIfExists: true,
-		})
-		if err != nil {
-			fmt.Printf("Warning: failed to create bead: %v\n", err)
-		} else if result.Created {
-			fmt.Printf("Created bead: %s\n", result.BeadID)
-			rootIssueID = result.BeadID
-		} else {
-			fmt.Printf("Bead already exists: %s (%s)\n", result.BeadID, result.SkipReason)
-			rootIssueID = result.BeadID
-		}
+	beadResult, err := importer.CreateBeadFromPR(ctx, metadata, &github.CreateBeadOptions{
+		BeadsDir:     proj.BeadsPath(),
+		SkipIfExists: true,
+	})
+	if err != nil {
+		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
+		_ = os.RemoveAll(workDir)
+		return fmt.Errorf("failed to create bead: %w", err)
 	}
+	if beadResult.Created {
+		fmt.Printf("Created bead: %s\n", beadResult.BeadID)
+	} else {
+		fmt.Printf("Bead already exists: %s (%s)\n", beadResult.BeadID, beadResult.SkipReason)
+	}
+	rootIssueID = beadResult.BeadID
 
 	// Get base branch from project config
 	baseBranch := proj.Config.Repo.GetBaseBranch()
 
-	// Create work record in database
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID, flagImportPRAuto); err != nil {
+	// Create work record in database (auto=false, user can run manually)
+	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID, false); err != nil {
 		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
 		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
@@ -194,24 +187,6 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 	} else if sessionResult.SessionCreated {
 		// Display notification for new session
 		printSessionCreatedNotification(sessionResult.SessionName)
-	}
-
-	// If --auto, run the full automated workflow
-	if flagImportPRAuto {
-		fmt.Println("\nRunning automated workflow...")
-		result, err := work.RunWorkAuto(ctx, proj, workID, os.Stdout)
-		if err != nil {
-			return fmt.Errorf("failed to run automated workflow: %w", err)
-		}
-		if result.OrchestratorSpawned {
-			fmt.Println("Orchestrator spawned in zellij tab.")
-		}
-		// Ensure control plane is running
-		if err := control.EnsureControlPlane(ctx, proj); err != nil {
-			fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
-		}
-		fmt.Println("Switch to the zellij session to monitor progress.")
-		return nil
 	}
 
 	fmt.Printf("\nNext steps:\n")
