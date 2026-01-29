@@ -26,7 +26,7 @@ type BeadInfo struct {
 
 // Integration handles the integration between GitHub PR feedback and beads.
 type Integration struct {
-	client    *github.Client
+	client    github.ClientInterface
 	processor *FeedbackProcessor
 }
 

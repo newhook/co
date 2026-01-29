@@ -13,8 +13,28 @@ import (
 	"github.com/newhook/co/internal/logging"
 )
 
+// ClientInterface defines the interface for GitHub API operations.
+// This abstraction enables testing without actual GitHub API calls.
+type ClientInterface interface {
+	// GetPRStatus fetches comprehensive PR status information.
+	GetPRStatus(ctx context.Context, prURL string) (*PRStatus, error)
+	// PostPRComment posts a comment on a PR issue.
+	PostPRComment(ctx context.Context, prURL string, body string) error
+	// PostReplyToComment posts a reply to a specific comment on a PR.
+	PostReplyToComment(ctx context.Context, prURL string, commentID int, body string) error
+	// PostReviewReply posts a reply to a review comment.
+	PostReviewReply(ctx context.Context, prURL string, reviewCommentID int, body string) error
+	// ResolveReviewThread resolves a review thread containing the specified comment.
+	ResolveReviewThread(ctx context.Context, prURL string, commentID int) error
+	// GetJobLogs fetches the logs for a specific job.
+	GetJobLogs(ctx context.Context, repo string, jobID int64) (string, error)
+}
+
 // Client wraps the gh CLI for GitHub API operations.
 type Client struct{}
+
+// Compile-time check that Client implements ClientInterface.
+var _ ClientInterface = (*Client)(nil)
 
 // NewClient creates a new GitHub client.
 func NewClient() *Client {
