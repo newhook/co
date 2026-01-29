@@ -49,6 +49,9 @@ func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 	}
 	logging.Debug("SpawnControlPlane CreateTab completed")
 
+	// Wait for the shell in the new tab to be ready
+	time.Sleep(500 * time.Millisecond)
+
 	// Switch to the tab if we're inside the session
 	// Skip if not attached - go-to-tab-name blocks on detached sessions
 	// The newly created tab is already focused after creation
