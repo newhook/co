@@ -18,6 +18,9 @@ type Operations interface {
 	Clone(ctx context.Context, source, dest string) error
 	// FetchBranch fetches a specific branch from origin.
 	FetchBranch(ctx context.Context, repoPath, branch string) error
+	// FetchPRRef fetches a PR's head ref and creates/updates a local branch.
+	// This handles both same-repo PRs and fork PRs via GitHub's pull/<n>/head refs.
+	FetchPRRef(ctx context.Context, repoPath string, prNumber int, localBranch string) error
 	// BranchExists checks if a branch exists locally or remotely.
 	BranchExists(ctx context.Context, repoPath, branchName string) bool
 	// ValidateExistingBranch checks if a branch exists locally, remotely, or both.
@@ -76,6 +79,21 @@ func (c *CLIOperations) FetchBranch(ctx context.Context, repoPath, branch string
 	cmd.Dir = repoPath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to fetch branch %s: %w\n%s", branch, err, output)
+	}
+	return nil
+}
+
+// FetchPRRef implements Operations.FetchPRRef.
+// This fetches a PR's head ref using GitHub's special refs/pull/<n>/head ref
+// and creates or updates a local branch pointing to it.
+func (c *CLIOperations) FetchPRRef(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
+	// Fetch the PR's head ref from origin
+	// GitHub makes PR branches available at refs/pull/<number>/head
+	refSpec := fmt.Sprintf("refs/pull/%d/head:%s", prNumber, localBranch)
+	cmd := exec.CommandContext(ctx, "git", "fetch", "origin", refSpec)
+	cmd.Dir = repoPath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to fetch PR #%d: %w\n%s", prNumber, err, output)
 	}
 	return nil
 }
