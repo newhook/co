@@ -51,10 +51,9 @@ func IsInsideTargetSession(session string) bool {
 	return CurrentSessionName() == session
 }
 
-// ClientInterface defines the interface for zellij operations.
+// SessionManager defines the interface for managing zellij sessions.
 // This abstraction enables testing without actual zellij commands.
-type ClientInterface interface {
-	// Session management
+type SessionManager interface {
 	ListSessions(ctx context.Context) ([]string, error)
 	SessionExists(ctx context.Context, name string) (bool, error)
 	IsSessionActive(ctx context.Context, name string) (bool, error)
@@ -64,7 +63,45 @@ type ClientInterface interface {
 	EnsureSession(ctx context.Context, name string) (bool, error)
 	EnsureSessionWithLayout(ctx context.Context, name string, projectRoot string) (bool, error)
 
+	// Session returns a Session interface bound to the specified session name.
+	Session(name string) Session
+}
+
+// Session defines the interface for operations within a specific zellij session.
+// Each Session instance is bound to a specific session name.
+type Session interface {
 	// Tab management
+	CreateTab(ctx context.Context, name, cwd string) error
+	CreateTabWithCommand(ctx context.Context, name, cwd, command string, args []string, paneName string) error
+	SwitchToTab(ctx context.Context, name string) error
+	QueryTabNames(ctx context.Context) ([]string, error)
+	TabExists(ctx context.Context, name string) (bool, error)
+	CloseTab(ctx context.Context) error
+
+	// Pane input control
+	WriteASCII(ctx context.Context, code int) error
+	WriteChars(ctx context.Context, text string) error
+	SendCtrlC(ctx context.Context) error
+	SendEnter(ctx context.Context) error
+	ExecuteCommand(ctx context.Context, cmd string) error
+
+	// High-level operations
+	TerminateProcess(ctx context.Context) error
+	ClearAndExecute(ctx context.Context, cmd string) error
+	TerminateAndCloseTab(ctx context.Context, tabName string) error
+
+	// Floating pane operations
+	RunFloating(ctx context.Context, name, cwd string, command ...string) error
+	ToggleFloatingPanes(ctx context.Context) error
+	Run(ctx context.Context, name, cwd string, command ...string) error
+}
+
+// ClientInterface defines the combined interface for zellij operations.
+// Deprecated: Use SessionManager and Session interfaces instead.
+type ClientInterface interface {
+	SessionManager
+
+	// Tab management (deprecated - use Session interface)
 	CreateTab(ctx context.Context, session, name, cwd string) error
 	CreateTabWithCommand(ctx context.Context, session, name, cwd, command string, args []string, paneName string) error
 	SwitchToTab(ctx context.Context, session, name string) error
@@ -72,19 +109,19 @@ type ClientInterface interface {
 	TabExists(ctx context.Context, session, name string) (bool, error)
 	CloseTab(ctx context.Context, session string) error
 
-	// Pane input control
+	// Pane input control (deprecated - use Session interface)
 	WriteASCII(ctx context.Context, session string, code int) error
 	WriteChars(ctx context.Context, session, text string) error
 	SendCtrlC(ctx context.Context, session string) error
 	SendEnter(ctx context.Context, session string) error
 	ExecuteCommand(ctx context.Context, session, cmd string) error
 
-	// High-level operations
+	// High-level operations (deprecated - use Session interface)
 	TerminateProcess(ctx context.Context, session string) error
 	ClearAndExecute(ctx context.Context, session, cmd string) error
 	TerminateAndCloseTab(ctx context.Context, session, tabName string) error
 
-	// Floating pane operations
+	// Floating pane operations (deprecated - use Session interface)
 	RunFloating(ctx context.Context, session, name, cwd string, command ...string) error
 	ToggleFloatingPanes(ctx context.Context, session string) error
 	Run(ctx context.Context, session, name, cwd string, command ...string) error
@@ -99,8 +136,12 @@ type Client struct {
 	SessionStartWait time.Duration
 }
 
-// Compile-time check that Client implements ClientInterface.
-var _ ClientInterface = (*Client)(nil)
+// Compile-time checks.
+var (
+	_ ClientInterface = (*Client)(nil)
+	_ SessionManager  = (*Client)(nil)
+	_ Session         = (*session)(nil)
+)
 
 // New creates a new zellij client with default configuration.
 func New() *Client {
@@ -110,6 +151,87 @@ func New() *Client {
 		CommandDelay:     100 * time.Millisecond,
 		SessionStartWait: 1 * time.Second,
 	}
+}
+
+// session implements the Session interface for a specific zellij session.
+type session struct {
+	client *Client
+	name   string
+}
+
+// Session returns a Session interface bound to the specified session name.
+func (c *Client) Session(name string) Session {
+	return &session{client: c, name: name}
+}
+
+// Session interface implementations for session struct
+
+func (s *session) CreateTab(ctx context.Context, name, cwd string) error {
+	return s.client.CreateTab(ctx, s.name, name, cwd)
+}
+
+func (s *session) CreateTabWithCommand(ctx context.Context, name, cwd, command string, args []string, paneName string) error {
+	return s.client.CreateTabWithCommand(ctx, s.name, name, cwd, command, args, paneName)
+}
+
+func (s *session) SwitchToTab(ctx context.Context, name string) error {
+	return s.client.SwitchToTab(ctx, s.name, name)
+}
+
+func (s *session) QueryTabNames(ctx context.Context) ([]string, error) {
+	return s.client.QueryTabNames(ctx, s.name)
+}
+
+func (s *session) TabExists(ctx context.Context, name string) (bool, error) {
+	return s.client.TabExists(ctx, s.name, name)
+}
+
+func (s *session) CloseTab(ctx context.Context) error {
+	return s.client.CloseTab(ctx, s.name)
+}
+
+func (s *session) WriteASCII(ctx context.Context, code int) error {
+	return s.client.WriteASCII(ctx, s.name, code)
+}
+
+func (s *session) WriteChars(ctx context.Context, text string) error {
+	return s.client.WriteChars(ctx, s.name, text)
+}
+
+func (s *session) SendCtrlC(ctx context.Context) error {
+	return s.client.SendCtrlC(ctx, s.name)
+}
+
+func (s *session) SendEnter(ctx context.Context) error {
+	return s.client.SendEnter(ctx, s.name)
+}
+
+func (s *session) ExecuteCommand(ctx context.Context, cmd string) error {
+	return s.client.ExecuteCommand(ctx, s.name, cmd)
+}
+
+func (s *session) TerminateProcess(ctx context.Context) error {
+	return s.client.TerminateProcess(ctx, s.name)
+}
+
+func (s *session) ClearAndExecute(ctx context.Context, cmd string) error {
+	return s.client.ClearAndExecute(ctx, s.name, cmd)
+}
+
+func (s *session) TerminateAndCloseTab(ctx context.Context, tabName string) error {
+	return s.client.TerminateAndCloseTab(ctx, s.name, tabName)
+}
+
+func (s *session) RunFloating(ctx context.Context, name, cwd string, command ...string) error {
+	return s.client.RunFloating(ctx, s.name, name, cwd, command...)
+}
+
+func (s *session) ToggleFloatingPanes(ctx context.Context) error {
+	return s.client.ToggleFloatingPanes(ctx, s.name)
+}
+
+func (s *session) Run(ctx context.Context, name, cwd string, command ...string) error {
+	return s.client.Run(ctx, s.name, name, cwd, command...)
 }
 
 // sessionArgs returns the appropriate session arguments for zellij commands.
