@@ -102,7 +102,7 @@ type planModel struct {
 
 	// Per-bead session tracking
 	activeBeadSessions map[string]bool // beadID -> has active session
-	zj                 zellij.ClientInterface
+	zj                 zellij.SessionManager
 
 	// Two-column layout settings
 	columnRatio float64 // Ratio of issues column width (0.0-1.0), default 0.4 for 40/60 split

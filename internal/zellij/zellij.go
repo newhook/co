@@ -96,37 +96,6 @@ type Session interface {
 	Run(ctx context.Context, name, cwd string, command ...string) error
 }
 
-// ClientInterface defines the combined interface for zellij operations.
-// Deprecated: Use SessionManager and Session interfaces instead.
-type ClientInterface interface {
-	SessionManager
-
-	// Tab management (deprecated - use Session interface)
-	CreateTab(ctx context.Context, session, name, cwd string) error
-	CreateTabWithCommand(ctx context.Context, session, name, cwd, command string, args []string, paneName string) error
-	SwitchToTab(ctx context.Context, session, name string) error
-	QueryTabNames(ctx context.Context, session string) ([]string, error)
-	TabExists(ctx context.Context, session, name string) (bool, error)
-	CloseTab(ctx context.Context, session string) error
-
-	// Pane input control (deprecated - use Session interface)
-	WriteASCII(ctx context.Context, session string, code int) error
-	WriteChars(ctx context.Context, session, text string) error
-	SendCtrlC(ctx context.Context, session string) error
-	SendEnter(ctx context.Context, session string) error
-	ExecuteCommand(ctx context.Context, session, cmd string) error
-
-	// High-level operations (deprecated - use Session interface)
-	TerminateProcess(ctx context.Context, session string) error
-	ClearAndExecute(ctx context.Context, session, cmd string) error
-	TerminateAndCloseTab(ctx context.Context, session, tabName string) error
-
-	// Floating pane operations (deprecated - use Session interface)
-	RunFloating(ctx context.Context, session, name, cwd string, command ...string) error
-	ToggleFloatingPanes(ctx context.Context, session string) error
-	Run(ctx context.Context, session, name, cwd string, command ...string) error
-}
-
 // Client provides methods for interacting with zellij sessions, tabs, and panes.
 type Client struct {
 	// Timeouts for various operations
@@ -138,9 +107,8 @@ type Client struct {
 
 // Compile-time checks.
 var (
-	_ ClientInterface = (*Client)(nil)
-	_ SessionManager  = (*Client)(nil)
-	_ Session         = (*session)(nil)
+	_ SessionManager = (*Client)(nil)
+	_ Session        = (*session)(nil)
 )
 
 // New creates a new zellij client with default configuration.
