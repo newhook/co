@@ -58,6 +58,9 @@ WHERE datetime(heartbeat) < datetime('now', ? || ' seconds');
 -- name: DeleteControlPlaneProcess :exec
 DELETE FROM processes WHERE process_type = 'control_plane';
 
+-- name: DeleteOrchestratorByWorkID :exec
+DELETE FROM processes WHERE work_id = ? AND process_type = 'orchestrator';
+
 -- name: GetOrchestratorProcess :one
 SELECT * FROM processes
 WHERE work_id = ? AND process_type = 'orchestrator'

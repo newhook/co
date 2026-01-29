@@ -80,6 +80,7 @@ func (m *Manager) RegisterControlPlane(ctx context.Context) error {
 }
 
 // RegisterOrchestrator registers this process as an orchestrator for the given work ID.
+// Any existing stale orchestrator record for this work ID is cleaned up first.
 // Returns an error if registration fails.
 func (m *Manager) RegisterOrchestrator(ctx context.Context, workID string) error {
 	m.mu.Lock()
@@ -87,6 +88,13 @@ func (m *Manager) RegisterOrchestrator(ctx context.Context, workID string) error
 
 	if m.running {
 		return fmt.Errorf("manager already running")
+	}
+
+	// Clean up any stale orchestrator record before registering
+	// This handles cases where a previous orchestrator was killed without cleanup
+	if err := m.db.CleanupStaleOrchestrator(ctx, workID); err != nil {
+		logging.Warn("failed to cleanup stale orchestrator", "workID", workID, "error", err)
+		// Continue anyway - the registration will fail if there's a real conflict
 	}
 
 	m.id = uuid.New().String()

@@ -143,13 +143,48 @@ func (db *DB) UnregisterProcess(ctx context.Context, id string) error {
 	return nil
 }
 
-// CleanupStaleControlPlane removes any existing control plane record.
+// CleanupStaleControlPlane removes any existing control plane record if its heartbeat is stale.
 // This is used before registering a new control plane to handle cases where
 // the previous control plane was killed without proper cleanup.
+// Returns nil if no control plane exists or if it was successfully cleaned up.
+// Returns an error if the control plane has a fresh heartbeat (likely still alive).
 func (db *DB) CleanupStaleControlPlane(ctx context.Context) error {
-	err := db.queries.DeleteControlPlaneProcess(ctx)
+	// Check if control plane has a fresh heartbeat
+	alive, err := db.IsControlPlaneAlive(ctx, DefaultStalenessThreshold)
+	if err != nil {
+		return fmt.Errorf("failed to check control plane status: %w", err)
+	}
+	if alive {
+		return fmt.Errorf("control plane has fresh heartbeat - refusing to cleanup")
+	}
+
+	// Heartbeat is stale or no record exists, safe to delete
+	err = db.queries.DeleteControlPlaneProcess(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup stale control plane: %w", err)
+	}
+	return nil
+}
+
+// CleanupStaleOrchestrator removes any existing orchestrator record for a work ID if its heartbeat is stale.
+// This is used before registering a new orchestrator to handle cases where
+// the previous orchestrator was killed without proper cleanup.
+// Returns nil if no orchestrator exists or if it was successfully cleaned up.
+// Returns an error if the orchestrator has a fresh heartbeat (likely still alive).
+func (db *DB) CleanupStaleOrchestrator(ctx context.Context, workID string) error {
+	// Check if orchestrator has a fresh heartbeat
+	alive, err := db.IsOrchestratorAlive(ctx, workID, DefaultStalenessThreshold)
+	if err != nil {
+		return fmt.Errorf("failed to check orchestrator status: %w", err)
+	}
+	if alive {
+		return fmt.Errorf("orchestrator for work %s has fresh heartbeat - refusing to cleanup", workID)
+	}
+
+	// Heartbeat is stale or no record exists, safe to delete
+	err = db.queries.DeleteOrchestratorByWorkID(ctx, sql.NullString{String: workID, Valid: true})
+	if err != nil {
+		return fmt.Errorf("failed to cleanup stale orchestrator: %w", err)
 	}
 	return nil
 }

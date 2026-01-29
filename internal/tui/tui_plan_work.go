@@ -382,6 +382,11 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 			time.Sleep(500 * time.Millisecond)
 		}
 
+		// Ensure control plane is running (may have been killed along with zellij)
+		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("failed to ensure control plane: %w", err)}
+		}
+
 		// Spawn a new orchestrator
 		spawned, err := claude.EnsureWorkOrchestrator(
 			m.ctx,

@@ -35,6 +35,7 @@ type Querier interface {
 	DeleteCompletedTasksOlderThan(ctx context.Context, executedAt sql.NullTime) error
 	DeleteControlPlaneProcess(ctx context.Context) error
 	DeleteMigration(ctx context.Context, version string) error
+	DeleteOrchestratorByWorkID(ctx context.Context, workID sql.NullString) error
 	DeletePRFeedback(ctx context.Context, id string) error
 	DeletePRFeedbackForWork(ctx context.Context, workID string) error
 	DeleteProcess(ctx context.Context, id string) error

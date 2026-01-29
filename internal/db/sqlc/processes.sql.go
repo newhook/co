@@ -20,6 +20,15 @@ func (q *Queries) DeleteControlPlaneProcess(ctx context.Context) error {
 	return err
 }
 
+const deleteOrchestratorByWorkID = `-- name: DeleteOrchestratorByWorkID :exec
+DELETE FROM processes WHERE work_id = ? AND process_type = 'orchestrator'
+`
+
+func (q *Queries) DeleteOrchestratorByWorkID(ctx context.Context, workID sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, deleteOrchestratorByWorkID, workID)
+	return err
+}
+
 const deleteProcess = `-- name: DeleteProcess :exec
 DELETE FROM processes WHERE id = ?
 `
