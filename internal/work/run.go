@@ -44,7 +44,7 @@ func RunWorkWithOptions(ctx context.Context, proj *project.Project, workID strin
 		return nil, fmt.Errorf("work %s has no worktree path configured", work.ID)
 	}
 
-	if !worktree.ExistsPath(work.WorktreePath) {
+	if !worktree.NewOperations().ExistsPath(work.WorktreePath) {
 		return nil, fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
 	}
 
@@ -95,7 +95,7 @@ func RunWorkAuto(ctx context.Context, proj *project.Project, workID string, w io
 		return nil, fmt.Errorf("work %s has no worktree path configured", work.ID)
 	}
 
-	if !worktree.ExistsPath(work.WorktreePath) {
+	if !worktree.NewOperations().ExistsPath(work.WorktreePath) {
 		return nil, fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
 	}
 

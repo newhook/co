@@ -34,7 +34,7 @@ func HandleGitPushTask(ctx context.Context, proj *project.Project, task *db.Sche
 
 	logging.Info("Executing git push", "branch", branch, "dir", dir, "attempt", task.AttemptCount+1)
 
-	if err := git.PushSetUpstreamInDir(ctx, branch, dir); err != nil {
+	if err := git.NewOperations().PushSetUpstream(ctx, branch, dir); err != nil {
 		return err
 	}
 

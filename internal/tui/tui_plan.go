@@ -1408,7 +1408,7 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			branchName := generateBranchNameFromBeadsForBranch(branchBeads)
 			m.createWorkPanel.Reset(bead.ID, branchName)
 			// Load available branches for the "existing branch" mode
-			if branches, err := git.ListBranches(m.ctx, m.proj.MainRepoPath()); err == nil {
+			if branches, err := git.NewOperations().ListBranches(m.ctx, m.proj.MainRepoPath()); err == nil {
 				m.createWorkPanel.SetBranches(branches)
 			}
 			m.viewMode = ViewCreateWork

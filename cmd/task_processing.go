@@ -192,7 +192,7 @@ func processTask(proj *project.Project, taskID string, runner claude.Runner) err
 		return fmt.Errorf("work %s has no worktree path configured", work.ID)
 	}
 
-	if !worktree.ExistsPath(work.WorktreePath) {
+	if !worktree.NewOperations().ExistsPath(work.WorktreePath) {
 		return fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
 	}
 

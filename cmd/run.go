@@ -117,7 +117,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("work %s has no worktree path configured", workRecord.ID)
 	}
 
-	if !worktree.ExistsPath(workRecord.WorktreePath) {
+	if !worktree.NewOperations().ExistsPath(workRecord.WorktreePath) {
 		return fmt.Errorf("work %s worktree does not exist at %s", workRecord.ID, workRecord.WorktreePath)
 	}
 

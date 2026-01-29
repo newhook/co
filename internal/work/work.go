@@ -255,7 +255,7 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 
 	// Remove git worktree if it exists
 	if work.WorktreePath != "" {
-		if err := worktree.RemoveForce(ctx, proj.MainRepoPath(), work.WorktreePath); err != nil {
+		if err := worktree.NewOperations().RemoveForce(ctx, proj.MainRepoPath(), work.WorktreePath); err != nil {
 			fmt.Fprintf(w, "Warning: failed to remove worktree: %v\n", err)
 		}
 	}

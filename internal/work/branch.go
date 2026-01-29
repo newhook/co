@@ -95,15 +95,17 @@ func GenerateBranchNameFromIssues(issues []*beads.Bead) string {
 // EnsureUniqueBranchName checks if a branch already exists and appends a suffix if needed.
 // Returns a unique branch name that doesn't conflict with existing branches.
 func EnsureUniqueBranchName(ctx context.Context, repoPath, baseName string) (string, error) {
+	gitOps := git.NewOperations()
+
 	// Check if the base name is available
-	if !git.BranchExists(ctx, repoPath, baseName) {
+	if !gitOps.BranchExists(ctx, repoPath, baseName) {
 		return baseName, nil
 	}
 
 	// Try appending suffixes until we find an available name
 	for i := 2; i <= 100; i++ {
 		candidate := fmt.Sprintf("%s-%d", baseName, i)
-		if !git.BranchExists(ctx, repoPath, candidate) {
+		if !gitOps.BranchExists(ctx, repoPath, candidate) {
 			return candidate, nil
 		}
 	}
