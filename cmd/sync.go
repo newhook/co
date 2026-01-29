@@ -35,7 +35,9 @@ func runSync(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Syncing project: %s\n", proj.Config.Project.Name)
 
 	// Get all worktrees
-	worktrees, err := worktree.List(ctx, proj.MainRepoPath())
+	wtOps := worktree.NewOperations()
+	gitOps := git.NewOperations()
+	worktrees, err := wtOps.List(ctx, proj.MainRepoPath())
 	if err != nil {
 		return fmt.Errorf("failed to list worktrees: %w", err)
 	}
@@ -58,7 +60,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 		fmt.Printf("  Pulling %s [%s]... ", wt.Path, branchInfo)
 
-		if err := git.PullInDir(ctx, wt.Path); err != nil {
+		if err := gitOps.Pull(ctx, wt.Path); err != nil {
 			fmt.Printf("FAILED: %v\n", err)
 			failCount++
 		} else {

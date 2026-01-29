@@ -134,7 +134,7 @@ func getBeadsForTask(ctx context.Context, proj *project.Project, taskID string) 
 
 // processTask processes a single task by ID using inline execution.
 // This blocks until the task is complete.
-func processTask(proj *project.Project, taskID string) error {
+func processTask(proj *project.Project, taskID string, runner claude.Runner) error {
 	ctx := GetContext()
 
 	// Get the task
@@ -192,7 +192,7 @@ func processTask(proj *project.Project, taskID string) error {
 		return fmt.Errorf("work %s has no worktree path configured", work.ID)
 	}
 
-	if !worktree.ExistsPath(work.WorktreePath) {
+	if !worktree.NewOperations().ExistsPath(work.WorktreePath) {
 		return fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
 	}
 
@@ -203,7 +203,7 @@ func processTask(proj *project.Project, taskID string) error {
 	}
 
 	// Execute Claude inline (blocking)
-	if err := claude.Run(ctx, proj.DB, taskID, prompt, work.WorktreePath, proj.Config); err != nil {
+	if err := runner.Run(ctx, proj.DB, taskID, prompt, work.WorktreePath, proj.Config); err != nil {
 		return fmt.Errorf("task %s failed: %w", taskID, err)
 	}
 

@@ -213,6 +213,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	baseBranch := proj.Config.Repo.GetBaseBranch()
 
 	mainRepoPath := proj.MainRepoPath()
+	gitOps := git.NewOperations()
+	wtOps := worktree.NewOperations()
 	beadID := args[0]
 
 	// Expand the bead (handles epics and transitive deps)
@@ -251,7 +253,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		useExistingBranch = true
 
 		// Validate the branch exists
-		existsLocal, existsRemote, err := git.ValidateExistingBranch(ctx, mainRepoPath, branchName)
+		existsLocal, existsRemote, err := gitOps.ValidateExistingBranch(ctx, mainRepoPath, branchName)
 		if err != nil {
 			return fmt.Errorf("failed to validate branch: %w", err)
 		}
@@ -301,41 +303,41 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	if useExistingBranch {
 		// For existing branches, fetch the branch first
-		if err := git.FetchBranch(ctx, mainRepoPath, branchName); err != nil {
+		if err := gitOps.FetchBranch(ctx, mainRepoPath, branchName); err != nil {
 			// Ignore fetch errors - branch might only exist locally
 			fmt.Printf("Note: Could not fetch branch %s from origin (may only exist locally)\n", branchName)
 		}
 
 		// Create worktree from existing branch
-		if err := worktree.CreateFromExisting(ctx, mainRepoPath, worktreePath, branchName); err != nil {
+		if err := wtOps.CreateFromExisting(ctx, mainRepoPath, worktreePath, branchName); err != nil {
 			os.RemoveAll(workDir)
 			return err
 		}
 
 		// Only push if branch doesn't exist on remote yet
 		if !branchExistsOnRemote {
-			if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
-				worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
+			if err := gitOps.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
+				_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
 				os.RemoveAll(workDir)
 				return err
 			}
 		}
 	} else {
 		// Fetch latest from origin for the base branch
-		if err := git.FetchBranch(ctx, mainRepoPath, baseBranch); err != nil {
+		if err := gitOps.FetchBranch(ctx, mainRepoPath, baseBranch); err != nil {
 			os.RemoveAll(workDir)
 			return fmt.Errorf("failed to fetch base branch: %w", err)
 		}
 
 		// Create worktree with new branch based on origin/<baseBranch>
-		if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, "origin/"+baseBranch); err != nil {
+		if err := wtOps.Create(ctx, mainRepoPath, worktreePath, branchName, "origin/"+baseBranch); err != nil {
 			os.RemoveAll(workDir)
 			return err
 		}
 
 		// Push branch and set upstream
-		if err := git.PushSetUpstreamInDir(ctx, branchName, worktreePath); err != nil {
-			worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
+		if err := gitOps.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
+			_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
 			os.RemoveAll(workDir)
 			return err
 		}
@@ -354,14 +356,14 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	// Create work record in database with the root issue ID (the original bead that was expanded)
 	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID, flagAutoRun); err != nil {
-		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
+		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create work record: %w", err)
 	}
 
 	// Add beads to work_beads
 	if err := work.AddBeadsToWorkInternal(ctx, proj, workID, expandedIssueIDs); err != nil {
-		worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
+		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
 		os.RemoveAll(workDir)
 		return fmt.Errorf("failed to add beads to work: %w", err)
 	}
@@ -892,7 +894,8 @@ func runWorkPR(cmd *cobra.Command, args []string) error {
 
 	// Auto-run the PR task
 	fmt.Printf("Running PR task...\n")
-	if err := processTask(proj, result.TaskID); err != nil {
+	runner := claude.NewRunner()
+	if err := processTask(proj, result.TaskID, runner); err != nil {
 		return err
 	}
 
@@ -973,6 +976,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run review-fix loop if --auto is set
+	runner := claude.NewRunner()
 	maxIterations := proj.Config.Workflow.GetMaxReviewIterations()
 	for iteration := 0; ; iteration++ {
 		// Check max iterations
@@ -999,7 +1003,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 
 		// Run the review task
 		fmt.Printf("Running review task...\n")
-		if err := processTask(proj, reviewTaskID); err != nil {
+		if err := processTask(proj, reviewTaskID, runner); err != nil {
 			return fmt.Errorf("review task failed: %w", err)
 		}
 
@@ -1057,7 +1061,7 @@ func runWorkReview(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Created fix task %s for bead %s: %s\n", taskID, b.ID, b.Title)
 
 			// Run the fix task
-			if err := processTask(proj, taskID); err != nil {
+			if err := processTask(proj, taskID, runner); err != nil {
 				return fmt.Errorf("fix task %s failed: %w", taskID, err)
 			}
 		}

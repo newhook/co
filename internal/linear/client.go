@@ -20,12 +20,28 @@ const (
 	DefaultTimeout = 30 * time.Second
 )
 
+// ClientInterface defines the interface for Linear API operations.
+// This abstraction enables testing without HTTP calls.
+type ClientInterface interface {
+	// GetIssue fetches a single issue by ID or URL.
+	GetIssue(ctx context.Context, issueIDOrURL string) (*Issue, error)
+	// SearchIssues searches for issues using a text query.
+	SearchIssues(ctx context.Context, searchQuery string, filters map[string]any) ([]*Issue, error)
+	// ListIssues lists issues with optional filters.
+	ListIssues(ctx context.Context, filters map[string]any) ([]*Issue, error)
+	// GetIssueComments fetches comments for an issue.
+	GetIssueComments(ctx context.Context, issueID string) ([]Comment, error)
+}
+
 // Client is a Linear GraphQL API client
 type Client struct {
 	endpoint   string
 	apiKey     string
 	httpClient *http.Client
 }
+
+// Compile-time check that Client implements ClientInterface.
+var _ ClientInterface = (*Client)(nil)
 
 // NewClient creates a new Linear GraphQL API client
 func NewClient(apiKey string) (*Client, error) {

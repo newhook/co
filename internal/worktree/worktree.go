@@ -16,10 +16,34 @@ type Worktree struct {
 	Branch string // Branch name (empty if detached)
 }
 
-// Create creates a new worktree at worktreePath from repoPath with a new branch.
-// If baseBranch is non-empty, the new branch is created from that base.
-// Uses: git -C <repo> worktree add <path> -b <branch> [<base>]
-func Create(ctx context.Context, repoPath, worktreePath, branch, baseBranch string) error {
+// Operations defines the interface for worktree operations.
+// This abstraction enables testing without actual git commands.
+type Operations interface {
+	// Create creates a new worktree at worktreePath from repoPath with a new branch.
+	Create(ctx context.Context, repoPath, worktreePath, branch, baseBranch string) error
+	// CreateFromExisting creates a worktree at worktreePath for an existing branch.
+	CreateFromExisting(ctx context.Context, repoPath, worktreePath, branch string) error
+	// RemoveForce forcefully removes a worktree even if it has uncommitted changes.
+	RemoveForce(ctx context.Context, repoPath, worktreePath string) error
+	// List returns all worktrees for the given repository.
+	List(ctx context.Context, repoPath string) ([]Worktree, error)
+	// ExistsPath checks if the worktree path exists on disk.
+	ExistsPath(worktreePath string) bool
+}
+
+// CLIOperations implements Operations using the git CLI.
+type CLIOperations struct{}
+
+// Compile-time check that CLIOperations implements Operations.
+var _ Operations = (*CLIOperations)(nil)
+
+// NewOperations creates a new Operations implementation using the git CLI.
+func NewOperations() Operations {
+	return &CLIOperations{}
+}
+
+// Create implements Operations.Create.
+func (c *CLIOperations) Create(ctx context.Context, repoPath, worktreePath, branch, baseBranch string) error {
 	args := []string{"-C", repoPath, "worktree", "add", worktreePath, "-b", branch}
 	if baseBranch != "" {
 		args = append(args, baseBranch)
@@ -31,10 +55,8 @@ func Create(ctx context.Context, repoPath, worktreePath, branch, baseBranch stri
 	return nil
 }
 
-// CreateFromExisting creates a worktree at worktreePath for an existing branch.
-// If the branch only exists on remote (not locally), git will auto-track origin/<branch>.
-// Uses: git -C <repo> worktree add <path> <branch>
-func CreateFromExisting(ctx context.Context, repoPath, worktreePath, branch string) error {
+// CreateFromExisting implements Operations.CreateFromExisting.
+func (c *CLIOperations) CreateFromExisting(ctx context.Context, repoPath, worktreePath, branch string) error {
 	args := []string{"-C", repoPath, "worktree", "add", worktreePath, branch}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -43,9 +65,8 @@ func CreateFromExisting(ctx context.Context, repoPath, worktreePath, branch stri
 	return nil
 }
 
-// RemoveForce forcefully removes a worktree even if it has uncommitted changes.
-// Uses: git -C <repo> worktree remove --force <path>
-func RemoveForce(ctx context.Context, repoPath, worktreePath string) error {
+// RemoveForce implements Operations.RemoveForce.
+func (c *CLIOperations) RemoveForce(ctx context.Context, repoPath, worktreePath string) error {
 	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "remove", "--force", worktreePath)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to force remove worktree: %w\n%s", err, output)
@@ -53,9 +74,8 @@ func RemoveForce(ctx context.Context, repoPath, worktreePath string) error {
 	return nil
 }
 
-// List returns all worktrees for the given repository.
-// Uses: git -C <repo> worktree list --porcelain
-func List(ctx context.Context, repoPath string) ([]Worktree, error) {
+// List implements Operations.List.
+func (c *CLIOperations) List(ctx context.Context, repoPath string) ([]Worktree, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "list", "--porcelain")
 	output, err := cmd.Output()
 	if err != nil {
@@ -108,8 +128,8 @@ func parseWorktreeList(output string) ([]Worktree, error) {
 	return worktrees, scanner.Err()
 }
 
-// ExistsPath checks if the worktree path exists on disk.
-func ExistsPath(worktreePath string) bool {
+// ExistsPath implements Operations.ExistsPath.
+func (c *CLIOperations) ExistsPath(worktreePath string) bool {
 	info, err := os.Stat(worktreePath)
 	if err != nil {
 		return false

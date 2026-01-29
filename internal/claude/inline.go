@@ -16,10 +16,26 @@ import (
 	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
 )
 
-// Run executes Claude directly in the current terminal (fork/exec).
-// This blocks until Claude exits or the task is marked complete in the database.
-// The config parameter controls Claude settings like --dangerously-skip-permissions.
-func Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string, cfg *project.Config) error {
+// Runner defines the interface for running Claude.
+// This abstraction enables testing without spawning the actual claude CLI.
+type Runner interface {
+	// Run executes Claude directly in the current terminal (fork/exec).
+	Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string, cfg *project.Config) error
+}
+
+// CLIRunner implements Runner using the claude CLI.
+type CLIRunner struct{}
+
+// Compile-time check that CLIRunner implements Runner.
+var _ Runner = (*CLIRunner)(nil)
+
+// NewRunner creates a new Runner that uses the claude CLI.
+func NewRunner() Runner {
+	return &CLIRunner{}
+}
+
+// Run implements Runner.Run.
+func (r *CLIRunner) Run(ctx context.Context, database *db.DB, taskID string, prompt string, workDir string, cfg *project.Config) error {
 	// Get task to verify it exists
 	task, err := database.GetTask(ctx, taskID)
 	if err != nil {

@@ -211,7 +211,7 @@ const BeadsPathProject = ".co/.beads"
 func cloneRepo(ctx context.Context, source, mainPath string) (repoType string, err error) {
 	if isGitHubURL(source) {
 		// Clone from GitHub
-		if err := git.Clone(ctx, source, mainPath); err != nil {
+		if err := git.NewOperations().Clone(ctx, source, mainPath); err != nil {
 			return "", err
 		}
 		return RepoTypeGitHub, nil

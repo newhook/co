@@ -47,11 +47,13 @@ func HandleCreateWorktreeTask(ctx context.Context, proj *project.Project, task *
 	}
 
 	mainRepoPath := proj.MainRepoPath()
+	gitOps := git.NewOperations()
+	wtOps := worktree.NewOperations()
 	var branchExistsOnRemote bool
 
 	// For existing branches, check if branch exists on remote
 	if useExisting {
-		_, branchExistsOnRemote, _ = git.ValidateExistingBranch(ctx, mainRepoPath, branchName)
+		_, branchExistsOnRemote, _ = gitOps.ValidateExistingBranch(ctx, mainRepoPath, branchName)
 	}
 
 	// If worktree path is already set and exists, skip creation
@@ -70,25 +72,25 @@ func HandleCreateWorktreeTask(ctx context.Context, proj *project.Project, task *
 
 		if useExisting {
 			// For existing branches, fetch the branch first
-			if err := git.FetchBranch(ctx, mainRepoPath, branchName); err != nil {
+			if err := gitOps.FetchBranch(ctx, mainRepoPath, branchName); err != nil {
 				// Ignore fetch errors - branch might only exist locally
 				logging.Debug("Could not fetch branch from origin (may only exist locally)", "branch", branchName)
 			}
 
 			// Create worktree from existing branch
-			if err := worktree.CreateFromExisting(ctx, mainRepoPath, worktreePath, branchName); err != nil {
+			if err := wtOps.CreateFromExisting(ctx, mainRepoPath, worktreePath, branchName); err != nil {
 				_ = os.RemoveAll(workDir)
 				return fmt.Errorf("failed to create worktree from existing branch: %w", err)
 			}
 		} else {
 			// Fetch latest from origin for the base branch
-			if err := git.FetchBranch(ctx, mainRepoPath, baseBranch); err != nil {
+			if err := gitOps.FetchBranch(ctx, mainRepoPath, baseBranch); err != nil {
 				_ = os.RemoveAll(workDir)
 				return fmt.Errorf("failed to fetch base branch: %w", err)
 			}
 
 			// Create git worktree with new branch based on origin/<baseBranch>
-			if err := worktree.Create(ctx, mainRepoPath, worktreePath, branchName, "origin/"+baseBranch); err != nil {
+			if err := wtOps.Create(ctx, mainRepoPath, worktreePath, branchName, "origin/"+baseBranch); err != nil {
 				_ = os.RemoveAll(workDir)
 				return fmt.Errorf("failed to create worktree: %w", err)
 			}
@@ -112,7 +114,7 @@ func HandleCreateWorktreeTask(ctx context.Context, proj *project.Project, task *
 		if useExisting && branchExistsOnRemote {
 			logging.Info("Skipping git push - branch already exists on remote", "branch", branchName)
 		} else {
-			if err := git.PushSetUpstreamInDir(ctx, branchName, work.WorktreePath); err != nil {
+			if err := gitOps.PushSetUpstream(ctx, branchName, work.WorktreePath); err != nil {
 				return fmt.Errorf("git push failed: %w", err)
 			}
 		}

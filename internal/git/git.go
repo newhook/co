@@ -26,17 +26,19 @@ type Operations interface {
 	ListBranches(ctx context.Context, repoPath string) ([]string, error)
 }
 
-// cliOperations implements Operations using the git CLI.
-type cliOperations struct{}
+// CLIOperations implements Operations using the git CLI.
+type CLIOperations struct{}
 
-// Compile-time check that cliOperations implements Operations.
-var _ Operations = (*cliOperations)(nil)
+// Compile-time check that CLIOperations implements Operations.
+var _ Operations = (*CLIOperations)(nil)
 
-// Default is the default Operations implementation using the git CLI.
-var Default Operations = &cliOperations{}
+// NewOperations creates a new Operations implementation using the git CLI.
+func NewOperations() Operations {
+	return &CLIOperations{}
+}
 
 // PushSetUpstream implements Operations.PushSetUpstream.
-func (c *cliOperations) PushSetUpstream(ctx context.Context, branch, dir string) error {
+func (c *CLIOperations) PushSetUpstream(ctx context.Context, branch, dir string) error {
 	cmd := exec.CommandContext(ctx, "git", "push", "--set-upstream", "origin", branch)
 	if dir != "" {
 		cmd.Dir = dir
@@ -47,14 +49,8 @@ func (c *cliOperations) PushSetUpstream(ctx context.Context, branch, dir string)
 	return nil
 }
 
-// PushSetUpstreamInDir pushes the specified branch and sets upstream tracking.
-// Deprecated: Use Default.PushSetUpstream instead.
-func PushSetUpstreamInDir(ctx context.Context, branch, dir string) error {
-	return Default.PushSetUpstream(ctx, branch, dir)
-}
-
 // Pull implements Operations.Pull.
-func (c *cliOperations) Pull(ctx context.Context, dir string) error {
+func (c *CLIOperations) Pull(ctx context.Context, dir string) error {
 	cmd := exec.CommandContext(ctx, "git", "pull")
 	if dir != "" {
 		cmd.Dir = dir
@@ -65,14 +61,8 @@ func (c *cliOperations) Pull(ctx context.Context, dir string) error {
 	return nil
 }
 
-// PullInDir pulls the latest changes in a specific directory.
-// Deprecated: Use Default.Pull instead.
-func PullInDir(ctx context.Context, dir string) error {
-	return Default.Pull(ctx, dir)
-}
-
 // Clone implements Operations.Clone.
-func (c *cliOperations) Clone(ctx context.Context, source, dest string) error {
+func (c *CLIOperations) Clone(ctx context.Context, source, dest string) error {
 	cmd := exec.CommandContext(ctx, "git", "clone", source, dest)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to clone repository: %w\n%s", err, output)
@@ -80,14 +70,8 @@ func (c *cliOperations) Clone(ctx context.Context, source, dest string) error {
 	return nil
 }
 
-// Clone clones a repository from source to dest.
-// Deprecated: Use Default.Clone instead.
-func Clone(ctx context.Context, source, dest string) error {
-	return Default.Clone(ctx, source, dest)
-}
-
 // FetchBranch implements Operations.FetchBranch.
-func (c *cliOperations) FetchBranch(ctx context.Context, repoPath, branch string) error {
+func (c *CLIOperations) FetchBranch(ctx context.Context, repoPath, branch string) error {
 	cmd := exec.CommandContext(ctx, "git", "fetch", "origin", branch)
 	cmd.Dir = repoPath
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -96,14 +80,8 @@ func (c *cliOperations) FetchBranch(ctx context.Context, repoPath, branch string
 	return nil
 }
 
-// FetchBranch fetches a specific branch from origin.
-// Deprecated: Use Default.FetchBranch instead.
-func FetchBranch(ctx context.Context, repoPath, branch string) error {
-	return Default.FetchBranch(ctx, repoPath, branch)
-}
-
 // BranchExists implements Operations.BranchExists.
-func (c *cliOperations) BranchExists(ctx context.Context, repoPath, branchName string) bool {
+func (c *CLIOperations) BranchExists(ctx context.Context, repoPath, branchName string) bool {
 	// Check local branches
 	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
 	cmd.Dir = repoPath
@@ -117,14 +95,8 @@ func (c *cliOperations) BranchExists(ctx context.Context, repoPath, branchName s
 	return cmd.Run() == nil
 }
 
-// BranchExists checks if a branch exists locally or remotely.
-// Deprecated: Use Default.BranchExists instead.
-func BranchExists(ctx context.Context, repoPath, branchName string) bool {
-	return Default.BranchExists(ctx, repoPath, branchName)
-}
-
 // ValidateExistingBranch implements Operations.ValidateExistingBranch.
-func (c *cliOperations) ValidateExistingBranch(ctx context.Context, repoPath, branchName string) (bool, bool, error) {
+func (c *CLIOperations) ValidateExistingBranch(ctx context.Context, repoPath, branchName string) (bool, bool, error) {
 	// Check local branches
 	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
 	cmd.Dir = repoPath
@@ -138,14 +110,8 @@ func (c *cliOperations) ValidateExistingBranch(ctx context.Context, repoPath, br
 	return existsLocal, existsRemote, nil
 }
 
-// ValidateExistingBranch checks if a branch exists locally, remotely, or both.
-// Deprecated: Use Default.ValidateExistingBranch instead.
-func ValidateExistingBranch(ctx context.Context, repoPath, branchName string) (bool, bool, error) {
-	return Default.ValidateExistingBranch(ctx, repoPath, branchName)
-}
-
 // ListBranches implements Operations.ListBranches.
-func (c *cliOperations) ListBranches(ctx context.Context, repoPath string) ([]string, error) {
+func (c *CLIOperations) ListBranches(ctx context.Context, repoPath string) ([]string, error) {
 	// Get local branches
 	cmd := exec.CommandContext(ctx, "git", "branch", "--format=%(refname:short)")
 	cmd.Dir = repoPath
@@ -206,10 +172,4 @@ func (c *cliOperations) ListBranches(ctx context.Context, repoPath string) ([]st
 	}
 
 	return branches, nil
-}
-
-// ListBranches returns a deduplicated list of all branches (local and remote).
-// Deprecated: Use Default.ListBranches instead.
-func ListBranches(ctx context.Context, repoPath string) ([]string, error) {
-	return Default.ListBranches(ctx, repoPath)
 }
