@@ -150,6 +150,7 @@ type CreateWorkAsyncOptions struct {
 	RootIssueID       string
 	Auto              bool
 	UseExistingBranch bool
+	BeadIDs           []string // Beads to add to the work (added immediately, not by control plane)
 }
 
 // CreateWorkAsyncWithOptions creates a work unit asynchronously with the given options.
@@ -187,6 +188,14 @@ func CreateWorkAsyncWithOptions(ctx context.Context, proj *project.Project, opts
 	// Create work record in DB (without worktree path - control plane will set it)
 	if err := proj.DB.CreateWork(ctx, workID, workerName, "", branchName, baseBranch, opts.RootIssueID, opts.Auto); err != nil {
 		return nil, fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Add beads to work_beads (done immediately, not by control plane)
+	if len(opts.BeadIDs) > 0 {
+		if err := AddBeadsToWorkInternal(ctx, proj, workID, opts.BeadIDs); err != nil {
+			_ = proj.DB.DeleteWork(ctx, workID)
+			return nil, fmt.Errorf("failed to add beads to work: %w", err)
+		}
 	}
 
 	// Schedule the worktree creation task for the control plane
@@ -257,6 +266,14 @@ func ImportPRAsync(ctx context.Context, proj *project.Project, opts ImportPRAsyn
 	// Create work record in DB (without worktree path - control plane will set it)
 	if err := proj.DB.CreateWork(ctx, workID, workerName, "", opts.BranchName, baseBranch, opts.RootIssueID, false); err != nil {
 		return nil, fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Add root issue to work_beads immediately (before control plane runs)
+	if opts.RootIssueID != "" {
+		if err := AddBeadsToWorkInternal(ctx, proj, workID, []string{opts.RootIssueID}); err != nil {
+			_ = proj.DB.DeleteWork(ctx, workID)
+			return nil, fmt.Errorf("failed to add bead to work: %w", err)
+		}
 	}
 
 	// Schedule the PR import task for the control plane
