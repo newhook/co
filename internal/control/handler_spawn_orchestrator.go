@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 )
 
 // HandleSpawnOrchestratorTask handles a scheduled orchestrator spawn task
-func HandleSpawnOrchestratorTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+func (cp *ControlPlane) HandleSpawnOrchestratorTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
 	workID := task.WorkID
 	workerName := task.Metadata["worker_name"]
 
@@ -36,7 +35,7 @@ func HandleSpawnOrchestratorTask(ctx context.Context, proj *project.Project, tas
 	}
 
 	// Spawn the orchestrator
-	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, workerName, io.Discard); err != nil {
+	if err := cp.OrchestratorSpawner.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, work.WorktreePath, workerName, io.Discard); err != nil {
 		return fmt.Errorf("failed to spawn orchestrator: %w", err)
 	}
 

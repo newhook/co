@@ -11,10 +11,10 @@ import (
 	"github.com/newhook/co/internal/project"
 )
 
-// ProcessPRFeedbackQuiet processes PR feedback without outputting to stdout.
+// processPRFeedbackQuiet processes PR feedback without outputting to stdout.
 // This is used by the scheduler to avoid interfering with the TUI.
 // Returns the number of beads created and any error.
-func ProcessPRFeedbackQuiet(ctx context.Context, proj *project.Project, database *db.DB, workID string) (int, error) {
+func processPRFeedbackQuiet(ctx context.Context, proj *project.Project, database *db.DB, workID string) (int, error) {
 	return processPRFeedbackInternal(ctx, proj, database, workID, true)
 }
 

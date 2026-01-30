@@ -7,11 +7,10 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
-	"github.com/newhook/co/internal/work"
 )
 
 // HandleDestroyWorktreeTask handles a scheduled worktree destruction task
-func HandleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+func (cp *ControlPlane) HandleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
 	workID := task.WorkID
 
 	logging.Info("Destroying worktree for work",
@@ -30,7 +29,7 @@ func HandleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task 
 	}
 
 	// Delegate to the shared DestroyWork function
-	if err := work.DestroyWork(ctx, proj, workID, io.Discard); err != nil {
+	if err := cp.WorkDestroyer.DestroyWork(ctx, proj, workID, io.Discard); err != nil {
 		return err
 	}
 

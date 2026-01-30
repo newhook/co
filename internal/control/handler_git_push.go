@@ -5,14 +5,13 @@ import (
 	"fmt"
 
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 )
 
 // HandleGitPushTask handles a scheduled git push task with retry support.
 // Returns nil on success, error on failure (caller handles retry/completion).
-func HandleGitPushTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+func (cp *ControlPlane) HandleGitPushTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
 	workID := task.WorkID
 	// Get branch and directory from metadata
 	branch := task.Metadata["branch"]
@@ -34,7 +33,7 @@ func HandleGitPushTask(ctx context.Context, proj *project.Project, task *db.Sche
 
 	logging.Info("Executing git push", "branch", branch, "dir", dir, "attempt", task.AttemptCount+1)
 
-	if err := git.NewOperations().PushSetUpstream(ctx, branch, dir); err != nil {
+	if err := cp.Git.PushSetUpstream(ctx, branch, dir); err != nil {
 		return err
 	}
 

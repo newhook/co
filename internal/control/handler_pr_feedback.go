@@ -6,14 +6,13 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/feedback"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 )
 
 // HandlePRFeedbackTask handles a scheduled PR feedback check.
 // Returns nil on success, error on failure (caller handles retry/completion).
-func HandlePRFeedbackTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
+func (cp *ControlPlane) HandlePRFeedbackTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
 	workID := task.WorkID
 	logging.Debug("Starting PR feedback check task", "task_id", task.ID, "work_id", workID)
 
@@ -28,7 +27,7 @@ func HandlePRFeedbackTask(ctx context.Context, proj *project.Project, task *db.S
 	logging.Debug("Checking PR feedback", "pr_url", work.PRURL, "work_id", workID)
 
 	// Process PR feedback - creates beads but doesn't add them to work
-	createdCount, err := feedback.ProcessPRFeedbackQuiet(ctx, proj, proj.DB, workID)
+	createdCount, err := cp.FeedbackProcessor.ProcessPRFeedback(ctx, proj, proj.DB, workID)
 	if err != nil {
 		return fmt.Errorf("failed to check PR feedback: %w", err)
 	}
