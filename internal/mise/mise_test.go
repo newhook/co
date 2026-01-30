@@ -69,7 +69,7 @@ func TestFindConfigFile(t *testing.T) {
 		{
 			name: ".mise/config.toml exists",
 			setup: func() {
-				os.MkdirAll(filepath.Join(tempDir, ".mise"), 0755)
+				os.MkdirAll(filepath.Join(tempDir, ".mise"), 0750)
 				os.WriteFile(filepath.Join(tempDir, ".mise", "config.toml"), []byte(""), 0644)
 			},
 			expected: ".mise/config.toml",

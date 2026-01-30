@@ -49,7 +49,7 @@ func setupTestProject(t *testing.T) (*project.Project, func()) {
 }
 
 // setupControlPlane creates a ControlPlane with all mocked dependencies.
-func setupControlPlane() (*control.ControlPlane, *testutil.GitOperationsMock, *testutil.WorktreeOperationsMock, *testutil.MiseOperationsMock, *testutil.FeedbackProcessorMock, *OrchestratorSpawnerMock, *WorkDestroyerMock) {
+func setupControlPlane() (*control.ControlPlane, *testutil.GitOperationsMock, *testutil.WorktreeOperationsMock, *testutil.FeedbackProcessorMock, *OrchestratorSpawnerMock, *WorkDestroyerMock) {
 	gitMock := &testutil.GitOperationsMock{}
 	wtMock := &testutil.WorktreeOperationsMock{}
 	miseMock := &testutil.MiseOperationsMock{}
@@ -67,7 +67,7 @@ func setupControlPlane() (*control.ControlPlane, *testutil.GitOperationsMock, *t
 		destroyerMock,
 	)
 
-	return cp, gitMock, wtMock, miseMock, feedbackMock, spawnerMock, destroyerMock
+	return cp, gitMock, wtMock, feedbackMock, spawnerMock, destroyerMock
 }
 
 // createTestWork creates a work record for testing with minimal required fields.
@@ -83,7 +83,7 @@ func TestHandleGitPushTask(t *testing.T) {
 	defer cleanup()
 
 	t.Run("succeeds with metadata", func(t *testing.T) {
-		cp, gitMock, _, _, _, _, _ := setupControlPlane()
+		cp, gitMock, _, _, _, _ := setupControlPlane()
 
 		// Configure git mock to succeed
 		gitMock.PushSetUpstreamFunc = func(ctx context.Context, branch, dir string) error {
@@ -115,7 +115,7 @@ func TestHandleGitPushTask(t *testing.T) {
 	})
 
 	t.Run("uses work info when metadata empty", func(t *testing.T) {
-		cp, gitMock, _, _, _, _, _ := setupControlPlane()
+		cp, gitMock, _, _, _, _ := setupControlPlane()
 
 		// Configure git mock
 		gitMock.PushSetUpstreamFunc = func(ctx context.Context, branch, dir string) error {
@@ -146,7 +146,7 @@ func TestHandleGitPushTask(t *testing.T) {
 	})
 
 	t.Run("returns error when git push fails", func(t *testing.T) {
-		cp, gitMock, _, _, _, _, _ := setupControlPlane()
+		cp, gitMock, _, _, _, _ := setupControlPlane()
 
 		gitMock.PushSetUpstreamFunc = func(ctx context.Context, branch, dir string) error {
 			return errors.New("push failed: authentication error")
@@ -168,7 +168,7 @@ func TestHandleGitPushTask(t *testing.T) {
 	})
 
 	t.Run("returns error when no branch or dir", func(t *testing.T) {
-		cp, _, _, _, _, _, _ := setupControlPlane()
+		cp, _, _, _, _, _ := setupControlPlane()
 
 		task := &db.ScheduledTask{
 			ID:       "task-4",
@@ -189,7 +189,7 @@ func TestHandleSpawnOrchestratorTask(t *testing.T) {
 	defer cleanup()
 
 	t.Run("succeeds when work exists", func(t *testing.T) {
-		cp, _, _, _, _, spawnerMock, _ := setupControlPlane()
+		cp, _, _, _, spawnerMock, _ := setupControlPlane()
 
 		spawnerMock.SpawnWorkOrchestratorFunc = func(ctx context.Context, workID, projectName, workDir, friendlyName string, w io.Writer) error {
 			return nil
@@ -223,7 +223,7 @@ func TestHandleSpawnOrchestratorTask(t *testing.T) {
 	})
 
 	t.Run("succeeds when work deleted", func(t *testing.T) {
-		cp, _, _, _, _, spawnerMock, _ := setupControlPlane()
+		cp, _, _, _, spawnerMock, _ := setupControlPlane()
 
 		// Work doesn't exist - task should complete without error
 		task := &db.ScheduledTask{
@@ -241,7 +241,7 @@ func TestHandleSpawnOrchestratorTask(t *testing.T) {
 	})
 
 	t.Run("returns error when no worktree path", func(t *testing.T) {
-		cp, _, _, _, _, _, _ := setupControlPlane()
+		cp, _, _, _, _, _ := setupControlPlane()
 
 		// Create work without worktree path
 		createTestWork(ctx, t, proj.DB, "w-no-tree", "branch", "root-1")
@@ -260,7 +260,7 @@ func TestHandleSpawnOrchestratorTask(t *testing.T) {
 	})
 
 	t.Run("returns error when spawner fails", func(t *testing.T) {
-		cp, _, _, _, _, spawnerMock, _ := setupControlPlane()
+		cp, _, _, _, spawnerMock, _ := setupControlPlane()
 
 		spawnerMock.SpawnWorkOrchestratorFunc = func(ctx context.Context, workID, projectName, workDir, friendlyName string, w io.Writer) error {
 			return errors.New("zellij error")
@@ -290,7 +290,7 @@ func TestHandleDestroyWorktreeTask(t *testing.T) {
 	defer cleanup()
 
 	t.Run("succeeds when work exists", func(t *testing.T) {
-		cp, _, _, _, _, _, destroyerMock := setupControlPlane()
+		cp, _, _, _, _, destroyerMock := setupControlPlane()
 
 		destroyerMock.DestroyWorkFunc = func(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
 			return nil
@@ -317,7 +317,7 @@ func TestHandleDestroyWorktreeTask(t *testing.T) {
 	})
 
 	t.Run("succeeds when work already deleted", func(t *testing.T) {
-		cp, _, _, _, _, _, destroyerMock := setupControlPlane()
+		cp, _, _, _, _, destroyerMock := setupControlPlane()
 
 		// Work doesn't exist - task should complete without error
 		task := &db.ScheduledTask{
@@ -334,7 +334,7 @@ func TestHandleDestroyWorktreeTask(t *testing.T) {
 	})
 
 	t.Run("returns error when destroyer fails", func(t *testing.T) {
-		cp, _, _, _, _, _, destroyerMock := setupControlPlane()
+		cp, _, _, _, _, destroyerMock := setupControlPlane()
 
 		destroyerMock.DestroyWorkFunc = func(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
 			return errors.New("filesystem error")
@@ -361,7 +361,7 @@ func TestHandlePRFeedbackTask(t *testing.T) {
 	defer cleanup()
 
 	t.Run("processes feedback when PR exists", func(t *testing.T) {
-		cp, _, _, _, feedbackMock, _, _ := setupControlPlane()
+		cp, _, _, feedbackMock, _, _ := setupControlPlane()
 
 		feedbackMock.ProcessPRFeedbackFunc = func(ctx context.Context, proj *project.Project, database *db.DB, workID string) (int, error) {
 			return 3, nil // Created 3 beads
@@ -389,7 +389,7 @@ func TestHandlePRFeedbackTask(t *testing.T) {
 	})
 
 	t.Run("skips processing when no PR URL", func(t *testing.T) {
-		cp, _, _, _, feedbackMock, _, _ := setupControlPlane()
+		cp, _, _, feedbackMock, _, _ := setupControlPlane()
 
 		// Create work without PR URL
 		createTestWork(ctx, t, proj.DB, "w-no-pr", "no-pr-branch", "root-1")
@@ -409,7 +409,7 @@ func TestHandlePRFeedbackTask(t *testing.T) {
 	})
 
 	t.Run("returns error when feedback processing fails", func(t *testing.T) {
-		cp, _, _, _, feedbackMock, _, _ := setupControlPlane()
+		cp, _, _, feedbackMock, _, _ := setupControlPlane()
 
 		feedbackMock.ProcessPRFeedbackFunc = func(ctx context.Context, proj *project.Project, database *db.DB, workID string) (int, error) {
 			return 0, errors.New("GitHub API error")
@@ -433,7 +433,7 @@ func TestHandlePRFeedbackTask(t *testing.T) {
 }
 
 func TestGetTaskHandlers(t *testing.T) {
-	cp, _, _, _, _, _, _ := setupControlPlane()
+	cp, _, _, _, _, _ := setupControlPlane()
 
 	handlers := cp.GetTaskHandlers()
 
@@ -486,7 +486,7 @@ func TestHandleCreateWorktreeTask(t *testing.T) {
 	defer cleanup()
 
 	t.Run("succeeds when work is deleted", func(t *testing.T) {
-		cp, _, _, _, _, _, _ := setupControlPlane()
+		cp, _, _, _, _, _ := setupControlPlane()
 
 		// Work doesn't exist - should complete without error
 		task := &db.ScheduledTask{
@@ -503,7 +503,7 @@ func TestHandleCreateWorktreeTask(t *testing.T) {
 	})
 
 	t.Run("skips worktree creation when already exists", func(t *testing.T) {
-		cp, gitMock, wtMock, _, _, _, _ := setupControlPlane()
+		cp, gitMock, wtMock, _, _, _ := setupControlPlane()
 
 		gitMock.PushSetUpstreamFunc = func(ctx context.Context, branch, dir string) error {
 			return nil
@@ -533,7 +533,7 @@ func TestHandleCreateWorktreeTask(t *testing.T) {
 	})
 
 	t.Run("uses default base branch from config", func(t *testing.T) {
-		cp, gitMock, wtMock, _, _, _, _ := setupControlPlane()
+		cp, gitMock, wtMock, _, _, _ := setupControlPlane()
 
 		gitMock.PushSetUpstreamFunc = func(ctx context.Context, branch, dir string) error {
 			return nil
@@ -619,7 +619,7 @@ func TestProcessAllDueTasksWithControlPlane(t *testing.T) {
 	defer cleanup()
 
 	t.Run("processes due tasks and handles completion", func(t *testing.T) {
-		cp, gitMock, _, _, _, _, _ := setupControlPlane()
+		cp, gitMock, _, _, _, _ := setupControlPlane()
 
 		gitMock.PushSetUpstreamFunc = func(ctx context.Context, branch, dir string) error {
 			return nil
@@ -644,7 +644,7 @@ func TestProcessAllDueTasksWithControlPlane(t *testing.T) {
 	})
 
 	t.Run("handles unknown task type", func(t *testing.T) {
-		cp, _, _, _, _, _, _ := setupControlPlane()
+		cp, _, _, _, _, _ := setupControlPlane()
 
 		createTestWork(ctx, t, proj.DB, "w-unknown", "branch", "root-1")
 		defer proj.DB.DeleteWork(ctx, "w-unknown")
@@ -660,7 +660,7 @@ func TestProcessAllDueTasksWithControlPlane(t *testing.T) {
 	})
 
 	t.Run("handles task failure with retry", func(t *testing.T) {
-		cp, gitMock, _, _, _, _, _ := setupControlPlane()
+		cp, gitMock, _, _, _, _ := setupControlPlane()
 
 		gitMock.PushSetUpstreamFunc = func(ctx context.Context, branch, dir string) error {
 			return errors.New("transient error")
@@ -681,7 +681,7 @@ func TestProcessAllDueTasksWithControlPlane(t *testing.T) {
 	})
 
 	t.Run("processes multiple tasks in order", func(t *testing.T) {
-		cp, gitMock, _, _, _, _, _ := setupControlPlane()
+		cp, gitMock, _, _, _, _ := setupControlPlane()
 
 		callOrder := []string{}
 		gitMock.PushSetUpstreamFunc = func(ctx context.Context, branch, dir string) error {
