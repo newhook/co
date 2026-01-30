@@ -6,18 +6,15 @@ import (
 
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/github"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewFeedbackProcessor(t *testing.T) {
 	client := &github.Client{}
 
 	processor := NewFeedbackProcessor(client)
-	if processor == nil {
-		t.Fatal("NewFeedbackProcessor returned nil")
-	}
-	if processor.client != client {
-		t.Error("Expected client to be set")
-	}
+	require.NotNil(t, processor, "NewFeedbackProcessor returned nil")
+	require.Equal(t, client, processor.client, "Expected client to be set")
 }
 
 func TestCategorizeCheckFailure(t *testing.T) {
@@ -43,9 +40,7 @@ func TestCategorizeCheckFailure(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := processor.categorizeCheckFailure(tt.check)
-			if result != tt.expected {
-				t.Errorf("categorizeCheckFailure(%s) = %v, want %v", tt.check, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -70,10 +65,7 @@ func TestCategorizeWorkflowFailure(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := processor.categorizeWorkflowFailure(tt.workflowName, tt.failureDetail)
-			if result != tt.expected {
-				t.Errorf("categorizeWorkflowFailure(%s, %s) = %v, want %v",
-					tt.workflowName, tt.failureDetail, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -97,9 +89,7 @@ func TestGetPriorityForType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(string(tt.feedbackType), func(t *testing.T) {
 			result := processor.getPriorityForType(tt.feedbackType)
-			if result != tt.expected {
-				t.Errorf("getPriorityForType(%v) = %d, want %d", tt.feedbackType, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -129,9 +119,7 @@ func TestIsActionableComment(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := processor.isActionableComment(tt.body)
-			if result != tt.actionable {
-				t.Errorf("isActionableComment(%s) = %v, want %v", tt.body, result, tt.actionable)
-			}
+			require.Equal(t, tt.actionable, result)
 		})
 	}
 }
@@ -154,9 +142,7 @@ func TestTruncateText(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := processor.truncateText(tt.text, tt.maxLen)
-			if result != tt.expected {
-				t.Errorf("truncateText(%s, %d) = %s, want %s", tt.text, tt.maxLen, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -190,25 +176,15 @@ func TestProcessStatusChecks(t *testing.T) {
 	items := processor.processStatusChecks(status)
 
 	// Should have 2 items (the two failures)
-	if len(items) != 2 {
-		t.Fatalf("Expected 2 feedback items, got %d", len(items))
-	}
+	require.Len(t, items, 2)
 
 	// Check first item (unit-tests failure)
-	if items[0].Type != github.FeedbackTypeTest {
-		t.Errorf("First item type = %v, want %v", items[0].Type, github.FeedbackTypeTest)
-	}
-	if items[0].Title != "Fix unit-tests failure" {
-		t.Errorf("First item title = %s, want 'Fix unit-tests failure'", items[0].Title)
-	}
+	require.Equal(t, github.FeedbackTypeTest, items[0].Type)
+	require.Equal(t, "Fix unit-tests failure", items[0].Title)
 
 	// Check second item (lint error)
-	if items[1].Type != github.FeedbackTypeLint {
-		t.Errorf("Second item type = %v, want %v", items[1].Type, github.FeedbackTypeLint)
-	}
-	if items[1].Title != "Fix lint failure" {
-		t.Errorf("Second item title = %s, want 'Fix lint failure'", items[1].Title)
-	}
+	require.Equal(t, github.FeedbackTypeLint, items[1].Type)
+	require.Equal(t, "Fix lint failure", items[1].Title)
 }
 
 func TestProcessWorkflowRuns(t *testing.T) {
@@ -252,17 +228,11 @@ func TestProcessWorkflowRuns(t *testing.T) {
 	items := processor.processWorkflowRuns(ctx, "owner/repo", status)
 
 	// Should have 1 item (the failed workflow with generic fallback)
-	if len(items) != 1 {
-		t.Fatalf("Expected 1 feedback item, got %d", len(items))
-	}
+	require.Len(t, items, 1)
 
-	if items[0].Type != github.FeedbackTypeTest {
-		t.Errorf("Item type = %v, want %v", items[0].Type, github.FeedbackTypeTest)
-	}
+	require.Equal(t, github.FeedbackTypeTest, items[0].Type)
 	// Generic fallback format: "Fix {jobName}: {stepName} in {workflowName}"
-	if items[0].Title != "Fix Unit Tests: Run tests in Test Suite" {
-		t.Errorf("Item title = %s, want 'Fix Unit Tests: Run tests in Test Suite'", items[0].Title)
-	}
+	require.Equal(t, "Fix Unit Tests: Run tests in Test Suite", items[0].Title)
 }
 
 func TestProcessReviews(t *testing.T) {
@@ -303,28 +273,16 @@ func TestProcessReviews(t *testing.T) {
 	items := processor.processReviews(status)
 
 	// Should have 2 items (CHANGES_REQUESTED and the actionable comment)
-	if len(items) != 2 {
-		t.Fatalf("Expected 2 feedback items, got %d", len(items))
-	}
+	require.Len(t, items, 2)
 
 	// Check first item (CHANGES_REQUESTED)
-	if items[0].Type != github.FeedbackTypeReview {
-		t.Errorf("First item type = %v, want %v", items[0].Type, github.FeedbackTypeReview)
-	}
-	if items[0].Title != "Address review feedback from reviewer1" {
-		t.Errorf("First item title = %s", items[0].Title)
-	}
-	if items[0].Priority != 1 {
-		t.Errorf("First item priority = %d, want 1", items[0].Priority)
-	}
+	require.Equal(t, github.FeedbackTypeReview, items[0].Type)
+	require.Equal(t, "Address review feedback from reviewer1", items[0].Title)
+	require.Equal(t, 1, items[0].Priority)
 
 	// Check second item (actionable comment)
-	if items[1].Type != github.FeedbackTypeReview {
-		t.Errorf("Second item type = %v, want %v", items[1].Type, github.FeedbackTypeReview)
-	}
-	if items[1].Priority != 2 {
-		t.Errorf("Second item priority = %d, want 2", items[1].Priority)
-	}
+	require.Equal(t, github.FeedbackTypeReview, items[1].Type)
+	require.Equal(t, 2, items[1].Priority)
 }
 
 func TestCreateGenericFailureItem(t *testing.T) {
@@ -373,9 +331,7 @@ func TestCreateGenericFailureItem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			item := processor.createGenericFailureItem(workflow, tt.job)
-			if item.Title != tt.expectedTitle {
-				t.Errorf("createGenericFailureItem().Title = %s, want %s", item.Title, tt.expectedTitle)
-			}
+			require.Equal(t, tt.expectedTitle, item.Title)
 		})
 	}
 }
@@ -422,14 +378,10 @@ func TestCategorizeComment_HumanVsBot(t *testing.T) {
 			}
 
 			feedbackType := processor.categorizeComment(comment)
-			if feedbackType != tt.expectedType {
-				t.Errorf("categorizeComment() type = %v, want %v", feedbackType, tt.expectedType)
-			}
+			require.Equal(t, tt.expectedType, feedbackType)
 
 			priority := processor.getPriorityForType(feedbackType)
-			if priority != tt.expectedPriority {
-				t.Errorf("getPriorityForType(%v) = %d, want %d", feedbackType, priority, tt.expectedPriority)
-			}
+			require.Equal(t, tt.expectedPriority, priority)
 		})
 	}
 }
@@ -487,10 +439,7 @@ func TestCategorizeComment(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := processor.categorizeComment(tt.comment)
-			if result != tt.expected {
-				t.Errorf("categorizeComment(%+v) = %v, want %v",
-					tt.comment, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -533,10 +482,7 @@ func TestExtractTitleFromComment(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := processor.extractTitleFromComment(tt.body)
-			if result != tt.expected {
-				t.Errorf("extractTitleFromComment(%s) = %s, want %s",
-					tt.body, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -568,19 +514,13 @@ func TestProcessComments(t *testing.T) {
 	items := processor.processComments(status)
 
 	// Should have 2 actionable items (security and test failure)
-	if len(items) != 2 {
-		t.Fatalf("Expected 2 feedback items, got %d", len(items))
-	}
+	require.Len(t, items, 2)
 
 	// First should be security (higher priority)
-	if items[0].Type != github.FeedbackTypeSecurity {
-		t.Errorf("First item type = %v, want %v", items[0].Type, github.FeedbackTypeSecurity)
-	}
+	require.Equal(t, github.FeedbackTypeSecurity, items[0].Type)
 
 	// Second should be test failure
-	if items[1].Type != github.FeedbackTypeTest {
-		t.Errorf("Second item type = %v, want %v", items[1].Type, github.FeedbackTypeTest)
-	}
+	require.Equal(t, github.FeedbackTypeTest, items[1].Type)
 }
 
 func TestProcessConflicts(t *testing.T) {
@@ -607,24 +547,14 @@ func TestProcessConflicts(t *testing.T) {
 
 			items := processor.processConflicts(status)
 
-			if len(items) != tt.expectItems {
-				t.Errorf("processConflicts() returned %d items, want %d", len(items), tt.expectItems)
-			}
+			require.Len(t, items, tt.expectItems)
 
 			if tt.expectItems > 0 {
 				item := items[0]
-				if item.Type != github.FeedbackTypeConflict {
-					t.Errorf("Item type = %v, want %v", item.Type, github.FeedbackTypeConflict)
-				}
-				if item.Title != "Resolve merge conflicts with main" {
-					t.Errorf("Item title = %s, want 'Resolve merge conflicts with main'", item.Title)
-				}
-				if item.Priority != 1 {
-					t.Errorf("Item priority = %d, want 1", item.Priority)
-				}
-				if item.Source.ID != "merge-conflict" {
-					t.Errorf("Item source ID = %s, want 'merge-conflict'", item.Source.ID)
-				}
+				require.Equal(t, github.FeedbackTypeConflict, item.Type)
+				require.Equal(t, "Resolve merge conflicts with main", item.Title)
+				require.Equal(t, 1, item.Priority)
+				require.Equal(t, "merge-conflict", item.Source.ID)
 			}
 		})
 	}
@@ -634,9 +564,7 @@ func TestGetPriorityForConflictType(t *testing.T) {
 	processor := &FeedbackProcessor{}
 
 	result := processor.getPriorityForType(github.FeedbackTypeConflict)
-	if result != 1 {
-		t.Errorf("getPriorityForType(FeedbackTypeConflict) = %d, want 1", result)
-	}
+	require.Equal(t, 1, result)
 }
 
 func TestNewFeedbackProcessorWithProject(t *testing.T) {
@@ -644,26 +572,16 @@ func TestNewFeedbackProcessorWithProject(t *testing.T) {
 
 	t.Run("with nil project", func(t *testing.T) {
 		processor := NewFeedbackProcessorWithProject(client, nil, "work-123")
-		if processor == nil {
-			t.Fatal("NewFeedbackProcessorWithProject returned nil")
-		}
-		if processor.proj != nil {
-			t.Error("Expected proj to be nil")
-		}
-		if processor.workID != "work-123" {
-			t.Errorf("workID = %s, want work-123", processor.workID)
-		}
+		require.NotNil(t, processor, "NewFeedbackProcessorWithProject returned nil")
+		require.Nil(t, processor.proj, "Expected proj to be nil")
+		require.Equal(t, "work-123", processor.workID)
 	})
 
 	t.Run("stores all parameters", func(t *testing.T) {
 		// Can't test with real project, but we can verify struct fields are set
 		processor := NewFeedbackProcessorWithProject(client, nil, "w-abc")
-		if processor.client != client {
-			t.Error("Expected client to be set")
-		}
-		if processor.workID != "w-abc" {
-			t.Errorf("workID = %s, want w-abc", processor.workID)
-		}
+		require.Equal(t, client, processor.client, "Expected client to be set")
+		require.Equal(t, "w-abc", processor.workID)
 	})
 }
 
@@ -672,16 +590,12 @@ func TestShouldUseClaude(t *testing.T) {
 
 	t.Run("returns false when project is nil", func(t *testing.T) {
 		processor := NewFeedbackProcessorWithProject(client, nil, "work-123")
-		if processor.shouldUseClaude() {
-			t.Error("Expected shouldUseClaude() to return false when project is nil")
-		}
+		require.False(t, processor.shouldUseClaude(), "Expected shouldUseClaude() to return false when project is nil")
 	})
 
 	t.Run("returns false with basic processor", func(t *testing.T) {
 		processor := NewFeedbackProcessor(client)
-		if processor.shouldUseClaude() {
-			t.Error("Expected shouldUseClaude() to return false for basic processor")
-		}
+		require.False(t, processor.shouldUseClaude(), "Expected shouldUseClaude() to return false for basic processor")
 	})
 }
 
@@ -733,10 +647,7 @@ func TestTruncateLogContent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := truncateLogContent(tt.logs, tt.maxBytes)
-			if result != tt.expected {
-				t.Errorf("truncateLogContent(%q, %d) = %q, want %q",
-					tt.logs, tt.maxBytes, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }

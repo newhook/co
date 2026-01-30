@@ -1,5 +1,7 @@
 package claude
 
+//go:generate moq -stub -out claude_mock.go . Runner:ClaudeRunnerMock
+
 import (
 	"context"
 	"fmt"

@@ -1,5 +1,7 @@
 package mise
 
+//go:generate moq -stub -out mise_mock.go . Operations:MiseOperationsMock
+
 import (
 	"fmt"
 	"io"

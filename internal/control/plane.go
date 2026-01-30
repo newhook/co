@@ -1,3 +1,5 @@
+//go:generate moq -stub -out control_mock_test.go -pkg control_test . OrchestratorSpawner WorkDestroyer
+
 package control
 
 import (

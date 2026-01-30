@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPostPRComment(t *testing.T) {
@@ -18,18 +20,14 @@ func TestPostPRComment(t *testing.T) {
 
 	// You need to set a real PR URL here when testing manually
 	prURL := os.Getenv("TEST_PR_URL")
-	if prURL == "" {
-		t.Fatal("TEST_PR_URL environment variable must be set for manual testing")
-	}
+	require.NotEmpty(t, prURL, "TEST_PR_URL environment variable must be set for manual testing")
 
 	client := NewClient()
 	ctx := context.Background()
 
 	// Test posting a simple comment
 	err := client.PostPRComment(ctx, prURL, "Test comment from co integration test")
-	if err != nil {
-		t.Fatalf("Failed to post PR comment: %v", err)
-	}
+	require.NoError(t, err, "Failed to post PR comment")
 
 	t.Log("Successfully posted PR comment")
 }
@@ -44,9 +42,7 @@ func TestPostReplyToComment(t *testing.T) {
 	}
 
 	prURL := os.Getenv("TEST_PR_URL")
-	if prURL == "" {
-		t.Fatal("TEST_PR_URL environment variable must be set for manual testing")
-	}
+	require.NotEmpty(t, prURL, "TEST_PR_URL environment variable must be set for manual testing")
 
 	// You need to set a real comment ID here when testing manually
 	commentID := 123456789 // Replace with actual comment ID
@@ -56,9 +52,7 @@ func TestPostReplyToComment(t *testing.T) {
 
 	// Test posting a reply to a comment
 	err := client.PostReplyToComment(ctx, prURL, commentID, "Test reply from co integration test")
-	if err != nil {
-		t.Fatalf("Failed to post reply to comment: %v", err)
-	}
+	require.NoError(t, err, "Failed to post reply to comment")
 
 	t.Log("Successfully posted reply to comment")
 }
@@ -73,9 +67,7 @@ func TestCommentIntegration(t *testing.T) {
 	}
 
 	prURL := os.Getenv("TEST_PR_URL")
-	if prURL == "" {
-		t.Fatal("TEST_PR_URL environment variable must be set for manual testing")
-	}
+	require.NotEmpty(t, prURL, "TEST_PR_URL environment variable must be set for manual testing")
 
 	client := NewClient()
 	ctx := context.Background()
@@ -90,9 +82,7 @@ func TestCommentIntegration(t *testing.T) {
 		beadID, feedbackTitle, priority)
 
 	err := client.PostPRComment(ctx, prURL, ackMessage)
-	if err != nil {
-		t.Fatalf("Failed to post acknowledgment: %v", err)
-	}
+	require.NoError(t, err, "Failed to post acknowledgment")
 
 	t.Log("Successfully posted bead acknowledgment to PR")
 }

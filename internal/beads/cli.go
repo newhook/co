@@ -1,5 +1,7 @@
 package beads
 
+//go:generate moq -stub -out beads_mock.go . CLI:BeadsCLIMock Reader:BeadsReaderMock
+
 import (
 	"context"
 )

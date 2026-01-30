@@ -1,5 +1,7 @@
 package github
 
+//go:generate moq -stub -out github_mock.go . ClientInterface:GitHubClientMock
+
 import (
 	"context"
 	"encoding/json"

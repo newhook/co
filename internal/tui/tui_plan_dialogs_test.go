@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/stretchr/testify/require"
 )
 
 // TestMultiSelectionCloseConfirmation tests the close confirmation dialog with multiple selected beads
@@ -107,13 +108,13 @@ func TestMultiSelectionCloseConfirmation(t *testing.T) {
 			// Check if the dialog shows the correct number of beads
 			if tt.expectedCount == 1 {
 				// For single bead, check title shows "Close Issue"
-				if !strings.Contains(dialogContent, "Close Issue") {
-					t.Errorf("%s: Expected 'Close Issue' in dialog for single bead", tt.description)
-				}
+				require.True(t, strings.Contains(dialogContent, "Close Issue"),
+					"%s: Expected 'Close Issue' in dialog for single bead", tt.description)
 			} else {
 				// For multiple beads, check title shows correct count
-				if tt.expectedCount > 1 && !strings.Contains(dialogContent, "Issues") {
-					t.Errorf("%s: Expected 'Issues' (plural) in dialog for multiple beads", tt.description)
+				if tt.expectedCount > 1 {
+					require.True(t, strings.Contains(dialogContent, "Issues"),
+						"%s: Expected 'Issues' (plural) in dialog for multiple beads", tt.description)
 				}
 			}
 
@@ -126,24 +127,23 @@ func TestMultiSelectionCloseConfirmation(t *testing.T) {
 						selectedCount++
 						// Only first 5 beads should be shown
 						if shownCount < 5 {
-							if !strings.Contains(dialogContent, item.ID) {
-								t.Errorf("%s: Expected bead ID '%s' to appear in dialog (one of first 5)", tt.description, item.ID)
-							}
+							require.True(t, strings.Contains(dialogContent, item.ID),
+								"%s: Expected bead ID '%s' to appear in dialog (one of first 5)", tt.description, item.ID)
 							shownCount++
 						}
 					}
 				}
 
 				// If more than 5 selected, check for ellipsis
-				if selectedCount > 5 && !strings.Contains(dialogContent, "and") && !strings.Contains(dialogContent, "more") {
-					t.Errorf("%s: Expected '... and X more' for more than 5 selected beads", tt.description)
+				if selectedCount > 5 {
+					require.True(t, strings.Contains(dialogContent, "and") || strings.Contains(dialogContent, "more"),
+						"%s: Expected '... and X more' for more than 5 selected beads", tt.description)
 				}
 			}
 
 			// Check dialog has confirmation buttons
-			if !strings.Contains(dialogContent, "[y]") || !strings.Contains(dialogContent, "[n]") {
-				t.Errorf("%s: Expected confirmation buttons [y] and [n] in dialog", tt.description)
-			}
+			require.True(t, strings.Contains(dialogContent, "[y]") && strings.Contains(dialogContent, "[n]"),
+				"%s: Expected confirmation buttons [y] and [n] in dialog", tt.description)
 		})
 	}
 }
@@ -224,14 +224,14 @@ func TestUpdateCloseBeadConfirm(t *testing.T) {
 
 			// Check if view mode changed back to normal
 			if tt.shouldCancel || tt.shouldClose {
-				if updatedModel.viewMode != ViewNormal {
-					t.Errorf("%s: Expected viewMode to be ViewNormal after action, got %v", tt.description, updatedModel.viewMode)
-				}
+				require.Equal(t, ViewNormal, updatedModel.viewMode,
+					"%s: Expected viewMode to be ViewNormal after action", tt.description)
 			}
 
 			// If close was confirmed, a command should be returned
-			if tt.shouldClose && cmd == nil {
-				t.Errorf("%s: Expected a command to be returned when confirming close", tt.description)
+			if tt.shouldClose {
+				require.NotNil(t, cmd,
+					"%s: Expected a command to be returned when confirming close", tt.description)
 			}
 		})
 	}
@@ -308,9 +308,8 @@ func TestCloseKeyHandlerWithSelection(t *testing.T) {
 
 			// Check if dialog was shown as expected
 			dialogShown := m.viewMode == ViewCloseBeadConfirm
-			if dialogShown != tt.shouldShowDialog {
-				t.Errorf("%s: Expected dialog shown=%v, got %v", tt.description, tt.shouldShowDialog, dialogShown)
-			}
+			require.Equal(t, tt.shouldShowDialog, dialogShown,
+				"%s: dialog shown state mismatch", tt.description)
 		})
 	}
 }
@@ -333,9 +332,7 @@ func TestBatchCloseFunction(t *testing.T) {
 	cmd := m.closeBeads(beadIDs)
 
 	// Verify the command is not nil
-	if cmd == nil {
-		t.Error("closeBeads should return a non-nil command")
-	}
+	require.NotNil(t, cmd, "closeBeads should return a non-nil command")
 
 	// In a real scenario, we would verify that the bd command is called with all IDs:
 	// Expected: bd close bead-1 bead-2 bead-3
@@ -404,25 +401,15 @@ func TestCloseConfirmationEdgeCases(t *testing.T) {
 			m := tt.setup()
 
 			// Test dialog rendering doesn't panic
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						t.Errorf("%s: Panic occurred: %v", tt.name, r)
-					}
-				}()
+			require.NotPanics(t, func() {
 				_ = m.renderCloseBeadConfirmContent()
-			}()
+			}, "%s: Panic occurred during dialog rendering", tt.name)
 
 			// Test update function doesn't panic when confirming
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						t.Errorf("%s: Panic on confirm: %v", tt.name, r)
-					}
-				}()
+			require.NotPanics(t, func() {
 				keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}
 				_, _ = m.updateCloseBeadConfirm(keyMsg)
-			}()
+			}, "%s: Panic on confirm", tt.name)
 		})
 	}
 }

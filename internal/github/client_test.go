@@ -3,22 +3,22 @@ package github
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewClient(t *testing.T) {
 	client := NewClient()
-	if client == nil {
-		t.Fatal("NewClient returned nil")
-	}
+	require.NotNil(t, client, "NewClient returned nil")
 }
 
 func TestParsePRURL(t *testing.T) {
 	tests := []struct {
-		name        string
-		prURL       string
-		wantNumber  string
-		wantRepo    string
-		wantErr     bool
+		name       string
+		prURL      string
+		wantNumber string
+		wantRepo   string
+		wantErr    bool
 	}{
 		{
 			name:       "Valid GitHub PR URL",
@@ -117,18 +117,14 @@ func TestParsePRURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			prNumber, repo, err := parsePRURL(tt.prURL)
 
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parsePRURL() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 
-			if prNumber != tt.wantNumber {
-				t.Errorf("parsePRURL() prNumber = %v, want %v", prNumber, tt.wantNumber)
-			}
-
-			if repo != tt.wantRepo {
-				t.Errorf("parsePRURL() repo = %v, want %v", repo, tt.wantRepo)
-			}
+			require.Equal(t, tt.wantNumber, prNumber)
+			require.Equal(t, tt.wantRepo, repo)
 		})
 	}
 }
@@ -145,12 +141,8 @@ func TestGetPRStatus(t *testing.T) {
 		status, err := client.GetPRStatus(ctx, prURL)
 
 		if err == nil {
-			if status == nil {
-				t.Error("GetPRStatus returned nil status without error")
-			}
-			if status.URL != prURL {
-				t.Errorf("Status URL = %s, want %s", status.URL, prURL)
-			}
+			require.NotNil(t, status, "GetPRStatus returned nil status without error")
+			require.Equal(t, prURL, status.URL)
 		}
 	})
 
@@ -158,9 +150,7 @@ func TestGetPRStatus(t *testing.T) {
 		prURL := "not-a-valid-url"
 		_, err := client.GetPRStatus(ctx, prURL)
 
-		if err == nil {
-			t.Error("Expected error for invalid PR URL")
-		}
+		require.Error(t, err, "Expected error for invalid PR URL")
 	})
 }
 
@@ -177,12 +167,8 @@ func TestFetchPRInfo(t *testing.T) {
 
 		if err == nil {
 			// Basic validation of the status fields
-			if status.State == "" {
-				t.Error("PR state should not be empty")
-			}
-			if status.MergeableState == "" {
-				t.Error("PR mergeable state should not be empty")
-			}
+			require.NotEmpty(t, status.State, "PR state should not be empty")
+			require.NotEmpty(t, status.MergeableState, "PR mergeable state should not be empty")
 		}
 	})
 }
@@ -200,9 +186,7 @@ func TestFetchStatusChecks(t *testing.T) {
 
 		if err == nil {
 			// Status checks might be empty, which is valid
-			if status.StatusChecks == nil {
-				t.Error("StatusChecks should be initialized even if empty")
-			}
+			require.NotNil(t, status.StatusChecks, "StatusChecks should be initialized even if empty")
 		}
 	})
 }
@@ -220,9 +204,7 @@ func TestFetchComments(t *testing.T) {
 
 		if err == nil {
 			// Comments might be empty, which is valid
-			if status.Comments == nil {
-				t.Error("Comments should be initialized even if empty")
-			}
+			require.NotNil(t, status.Comments, "Comments should be initialized even if empty")
 		}
 	})
 }
@@ -240,15 +222,11 @@ func TestFetchReviews(t *testing.T) {
 
 		if err == nil {
 			// Reviews might be empty, which is valid
-			if status.Reviews == nil {
-				t.Error("Reviews should be initialized even if empty")
-			}
+			require.NotNil(t, status.Reviews, "Reviews should be initialized even if empty")
 
 			// Check that review comments are fetched for each review
 			for _, review := range status.Reviews {
-				if review.Comments == nil {
-					t.Error("Review comments should be initialized even if empty")
-				}
+				require.NotNil(t, review.Comments, "Review comments should be initialized even if empty")
 			}
 		}
 	})
@@ -267,21 +245,15 @@ func TestFetchWorkflowRuns(t *testing.T) {
 
 		if err == nil {
 			// Workflows might be empty, which is valid
-			if status.Workflows == nil {
-				t.Error("Workflows should be initialized even if empty")
-			}
+			require.NotNil(t, status.Workflows, "Workflows should be initialized even if empty")
 
 			// Check that jobs are fetched for each workflow
 			for _, workflow := range status.Workflows {
-				if workflow.Jobs == nil {
-					t.Error("Workflow jobs should be initialized even if empty")
-				}
+				require.NotNil(t, workflow.Jobs, "Workflow jobs should be initialized even if empty")
 
 				// Check that steps are fetched for each job
 				for _, job := range workflow.Jobs {
-					if job.Steps == nil {
-						t.Error("Job steps should be initialized even if empty")
-					}
+					require.NotNil(t, job.Steps, "Job steps should be initialized even if empty")
 				}
 			}
 		}
@@ -302,18 +274,10 @@ func TestPRStatusStructure(t *testing.T) {
 		Workflows:      []WorkflowRun{},
 	}
 
-	if status.URL != "https://github.com/owner/repo/pull/123" {
-		t.Error("PRStatus URL not set correctly")
-	}
-	if status.State != "OPEN" {
-		t.Error("PRStatus State not set correctly")
-	}
-	if !status.Mergeable {
-		t.Error("PRStatus Mergeable not set correctly")
-	}
-	if status.MergeableState != "clean" {
-		t.Error("PRStatus MergeableState not set correctly")
-	}
+	require.Equal(t, "https://github.com/owner/repo/pull/123", status.URL, "PRStatus URL not set correctly")
+	require.Equal(t, "OPEN", status.State, "PRStatus State not set correctly")
+	require.True(t, status.Mergeable, "PRStatus Mergeable not set correctly")
+	require.Equal(t, "clean", status.MergeableState, "PRStatus MergeableState not set correctly")
 }
 
 func TestStatusCheckStructure(t *testing.T) {
@@ -324,18 +288,10 @@ func TestStatusCheckStructure(t *testing.T) {
 		TargetURL:   "https://travis-ci.org/owner/repo/builds/123",
 	}
 
-	if check.Context != "continuous-integration/travis-ci" {
-		t.Error("StatusCheck Context not set correctly")
-	}
-	if check.State != "SUCCESS" {
-		t.Error("StatusCheck State not set correctly")
-	}
-	if check.Description != "The Travis CI build passed" {
-		t.Error("StatusCheck Description not set correctly")
-	}
-	if check.TargetURL != "https://travis-ci.org/owner/repo/builds/123" {
-		t.Error("StatusCheck TargetURL not set correctly")
-	}
+	require.Equal(t, "continuous-integration/travis-ci", check.Context, "StatusCheck Context not set correctly")
+	require.Equal(t, "SUCCESS", check.State, "StatusCheck State not set correctly")
+	require.Equal(t, "The Travis CI build passed", check.Description, "StatusCheck Description not set correctly")
+	require.Equal(t, "https://travis-ci.org/owner/repo/builds/123", check.TargetURL, "StatusCheck TargetURL not set correctly")
 }
 
 func TestWorkflowRunStructure(t *testing.T) {
@@ -363,21 +319,11 @@ func TestWorkflowRunStructure(t *testing.T) {
 		},
 	}
 
-	if workflow.ID != 123456 {
-		t.Error("WorkflowRun ID not set correctly")
-	}
-	if workflow.Name != "CI Pipeline" {
-		t.Error("WorkflowRun Name not set correctly")
-	}
-	if len(workflow.Jobs) != 1 {
-		t.Error("WorkflowRun Jobs not set correctly")
-	}
-	if len(workflow.Jobs[0].Steps) != 1 {
-		t.Error("Job Steps not set correctly")
-	}
-	if workflow.Jobs[0].Steps[0].Number != 3 {
-		t.Error("Step Number not set correctly")
-	}
+	require.Equal(t, int64(123456), workflow.ID, "WorkflowRun ID not set correctly")
+	require.Equal(t, "CI Pipeline", workflow.Name, "WorkflowRun Name not set correctly")
+	require.Len(t, workflow.Jobs, 1, "WorkflowRun Jobs not set correctly")
+	require.Len(t, workflow.Jobs[0].Steps, 1, "Job Steps not set correctly")
+	require.Equal(t, 3, workflow.Jobs[0].Steps[0].Number, "Step Number not set correctly")
 }
 
 func TestReviewStructure(t *testing.T) {
@@ -397,22 +343,10 @@ func TestReviewStructure(t *testing.T) {
 		},
 	}
 
-	if review.ID != 999 {
-		t.Error("Review ID not set correctly")
-	}
-	if review.State != "APPROVED" {
-		t.Error("Review State not set correctly")
-	}
-	if review.Body != "LGTM!" {
-		t.Error("Review Body not set correctly")
-	}
-	if review.Author != "reviewer1" {
-		t.Error("Review Author not set correctly")
-	}
-	if len(review.Comments) != 1 {
-		t.Error("Review Comments not set correctly")
-	}
-	if review.Comments[0].Line != 42 {
-		t.Error("ReviewComment Line not set correctly")
-	}
+	require.Equal(t, 999, review.ID, "Review ID not set correctly")
+	require.Equal(t, "APPROVED", review.State, "Review State not set correctly")
+	require.Equal(t, "LGTM!", review.Body, "Review Body not set correctly")
+	require.Equal(t, "reviewer1", review.Author, "Review Author not set correctly")
+	require.Len(t, review.Comments, 1, "Review Comments not set correctly")
+	require.Equal(t, 42, review.Comments[0].Line, "ReviewComment Line not set correctly")
 }

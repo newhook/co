@@ -1,7 +1,10 @@
 package linear
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMapStatus(t *testing.T) {
@@ -45,9 +48,7 @@ func TestMapStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := MapStatus(tt.state)
-			if got != tt.want {
-				t.Errorf("MapStatus() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -93,9 +94,7 @@ func TestMapPriority(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := MapPriority(tt.priority)
-			if got != tt.want {
-				t.Errorf("MapPriority() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -164,9 +163,7 @@ func TestMapType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := MapType(tt.issue)
-			if got != tt.want {
-				t.Errorf("MapType() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -188,36 +185,16 @@ func TestMapIssueToBeadCreate(t *testing.T) {
 
 	opts := MapIssueToBeadCreate(issue)
 
-	if opts.Title != "Fix authentication bug" {
-		t.Errorf("Title = %v, want %v", opts.Title, "Fix authentication bug")
-	}
-	if opts.Type != "bug" {
-		t.Errorf("Type = %v, want %v", opts.Type, "bug")
-	}
-	if opts.Priority != "P1" {
-		t.Errorf("Priority = %v, want %v", opts.Priority, "P1")
-	}
-	if opts.Status != "in_progress" {
-		t.Errorf("Status = %v, want %v", opts.Status, "in_progress")
-	}
-	if opts.Assignee != "john@example.com" {
-		t.Errorf("Assignee = %v, want %v", opts.Assignee, "john@example.com")
-	}
-	if len(opts.Labels) != 2 {
-		t.Errorf("Labels count = %v, want %v", len(opts.Labels), 2)
-	}
-	if opts.Metadata["linear_id"] != "ENG-123" {
-		t.Errorf("Metadata linear_id = %v, want %v", opts.Metadata["linear_id"], "ENG-123")
-	}
-	if opts.Metadata["linear_url"] != "https://linear.app/team/issue/ENG-123" {
-		t.Errorf("Metadata linear_url = %v, want %v", opts.Metadata["linear_url"], "https://linear.app/team/issue/ENG-123")
-	}
-	if opts.Metadata["linear_project"] != "Q1 Features" {
-		t.Errorf("Metadata linear_project = %v, want %v", opts.Metadata["linear_project"], "Q1 Features")
-	}
-	if opts.Metadata["linear_estimate"] != "3.5" {
-		t.Errorf("Metadata linear_estimate = %v, want %v", opts.Metadata["linear_estimate"], "3.5")
-	}
+	require.Equal(t, "Fix authentication bug", opts.Title)
+	require.Equal(t, "bug", opts.Type)
+	require.Equal(t, "P1", opts.Priority)
+	require.Equal(t, "in_progress", opts.Status)
+	require.Equal(t, "john@example.com", opts.Assignee)
+	require.Len(t, opts.Labels, 2)
+	require.Equal(t, "ENG-123", opts.Metadata["linear_id"])
+	require.Equal(t, "https://linear.app/team/issue/ENG-123", opts.Metadata["linear_url"])
+	require.Equal(t, "Q1 Features", opts.Metadata["linear_project"])
+	require.Equal(t, "3.5", opts.Metadata["linear_estimate"])
 }
 
 func TestFormatBeadDescription(t *testing.T) {
@@ -236,38 +213,11 @@ func TestFormatBeadDescription(t *testing.T) {
 	desc := FormatBeadDescription(issue)
 
 	// Check that it contains key elements
-	if !contains(desc, "Original description") {
-		t.Error("Description should contain original description")
-	}
-	if !contains(desc, "ENG-456") {
-		t.Error("Description should contain Linear ID")
-	}
-	if !contains(desc, "https://linear.app/team/issue/ENG-456") {
-		t.Error("Description should contain URL")
-	}
-	if !contains(desc, "In Progress") {
-		t.Error("Description should contain state name")
-	}
-	if !contains(desc, "Backend") {
-		t.Error("Description should contain project name")
-	}
-	if !contains(desc, "2.0") {
-		t.Error("Description should contain estimate")
-	}
-	if !contains(desc, "Jane Smith") {
-		t.Error("Description should contain assignee name")
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && s != substr && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsInMiddle(s, substr)))
-}
-
-func containsInMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	require.True(t, strings.Contains(desc, "Original description"), "Description should contain original description")
+	require.True(t, strings.Contains(desc, "ENG-456"), "Description should contain Linear ID")
+	require.True(t, strings.Contains(desc, "https://linear.app/team/issue/ENG-456"), "Description should contain URL")
+	require.True(t, strings.Contains(desc, "In Progress"), "Description should contain state name")
+	require.True(t, strings.Contains(desc, "Backend"), "Description should contain project name")
+	require.True(t, strings.Contains(desc, "2.0"), "Description should contain estimate")
+	require.True(t, strings.Contains(desc, "Jane Smith"), "Description should contain assignee name")
 }

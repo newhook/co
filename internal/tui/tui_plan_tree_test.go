@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestBuildBeadTree_EpicHierarchy tests handling of epic (parent-child) relationships
@@ -16,18 +18,14 @@ func TestBuildBeadTree_EpicHierarchy(t *testing.T) {
 	result := buildBeadTree(context.Background(), items, nil)
 
 	// Verify epic is root and tasks are children
-	if len(result) != 3 {
-		t.Fatalf("expected 3 items, got %d", len(result))
-	}
+	require.Len(t, result, 3)
 
-	if result[0].ID != "epic-1" || result[0].treeDepth != 0 {
-		t.Errorf("expected epic-1 at root level, got %s at depth %d", result[0].ID, result[0].treeDepth)
-	}
+	require.Equal(t, "epic-1", result[0].ID)
+	require.Equal(t, 0, result[0].treeDepth, "expected epic-1 at root level")
 
 	// Both tasks should be at depth 1
-	if result[1].treeDepth != 1 || result[2].treeDepth != 1 {
-		t.Errorf("expected tasks at depth 1, got depths %d and %d", result[1].treeDepth, result[2].treeDepth)
-	}
+	require.Equal(t, 1, result[1].treeDepth, "expected task at depth 1")
+	require.Equal(t, 1, result[2].treeDepth, "expected task at depth 1")
 }
 
 // TestBuildBeadTree_BlocksDependencies tests handling of "blocks" type dependencies
@@ -39,17 +37,12 @@ func TestBuildBeadTree_BlocksDependencies(t *testing.T) {
 
 	result := buildBeadTree(context.Background(), items, nil)
 
-	if len(result) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(result))
-	}
+	require.Len(t, result, 2)
 
 	// Blocker should be root, blocked should be child
-	if result[0].ID != "blocker" {
-		t.Errorf("expected blocker first, got %s", result[0].ID)
-	}
-	if result[1].ID != "blocked" || result[1].treeDepth != 1 {
-		t.Errorf("expected blocked at depth 1, got %s at depth %d", result[1].ID, result[1].treeDepth)
-	}
+	require.Equal(t, "blocker", result[0].ID)
+	require.Equal(t, "blocked", result[1].ID)
+	require.Equal(t, 1, result[1].treeDepth, "expected blocked at depth 1")
 }
 
 // TestBuildBeadTree_ClosedParentVisibility tests filtering of closed parents
@@ -62,9 +55,7 @@ func TestBuildBeadTree_ClosedParentVisibility(t *testing.T) {
 	result := buildBeadTree(context.Background(), items, nil)
 
 	// Both parent and child should be visible since parent has visible child
-	if len(result) != 2 {
-		t.Errorf("expected both parent and child visible, got %d items", len(result))
-	}
+	require.Len(t, result, 2, "expected both parent and child visible")
 }
 
 // TestBuildBeadTree_ClosedParentNoVisibleChildren tests filtering out closed parents without visible children
@@ -76,9 +67,7 @@ func TestBuildBeadTree_ClosedParentNoVisibleChildren(t *testing.T) {
 	result := buildBeadTree(context.Background(), items, nil)
 
 	// Parent should be filtered out since it has no visible children
-	if len(result) != 0 {
-		t.Errorf("expected closed parent without children to be filtered out, got %d items", len(result))
-	}
+	require.Empty(t, result, "expected closed parent without children to be filtered out")
 }
 
 // TestBuildBeadTree_MultiLevelNesting tests deep hierarchy
@@ -92,16 +81,12 @@ func TestBuildBeadTree_MultiLevelNesting(t *testing.T) {
 
 	result := buildBeadTree(context.Background(), items, nil)
 
-	if len(result) != 4 {
-		t.Fatalf("expected 4 items, got %d", len(result))
-	}
+	require.Len(t, result, 4)
 
 	// Verify each level has correct depth
 	expectedDepths := []int{0, 1, 2, 3}
 	for i, item := range result {
-		if item.treeDepth != expectedDepths[i] {
-			t.Errorf("item %s expected depth %d, got %d", item.ID, expectedDepths[i], item.treeDepth)
-		}
+		require.Equal(t, expectedDepths[i], item.treeDepth, "item %s has wrong depth", item.ID)
 	}
 }
 
@@ -116,9 +101,7 @@ func TestBuildBeadTree_MultipleRoots(t *testing.T) {
 
 	result := buildBeadTree(context.Background(), items, nil)
 
-	if len(result) != 4 {
-		t.Fatalf("expected 4 items, got %d", len(result))
-	}
+	require.Len(t, result, 4)
 
 	// Count roots (depth 0)
 	rootCount := 0
@@ -128,9 +111,7 @@ func TestBuildBeadTree_MultipleRoots(t *testing.T) {
 		}
 	}
 
-	if rootCount != 2 {
-		t.Errorf("expected 2 roots, got %d", rootCount)
-	}
+	require.Equal(t, 2, rootCount, "expected 2 roots")
 }
 
 // TestBuildBeadTree_MixedTypes tests handling of different dependency types together
@@ -144,9 +125,7 @@ func TestBuildBeadTree_MixedTypes(t *testing.T) {
 
 	result := buildBeadTree(context.Background(), items, nil)
 
-	if len(result) != 4 {
-		t.Fatalf("expected 4 items, got %d", len(result))
-	}
+	require.Len(t, result, 4)
 
 	// Verify mixed types are handled correctly
 	rootTypes := make(map[string]bool)
@@ -156,9 +135,7 @@ func TestBuildBeadTree_MixedTypes(t *testing.T) {
 		}
 	}
 
-	if len(rootTypes) < 2 {
-		t.Errorf("expected multiple types at root level")
-	}
+	require.GreaterOrEqual(t, len(rootTypes), 2, "expected multiple types at root level")
 }
 
 // TestBuildBeadTree_CircularDependencies tests handling of circular dependency detection
@@ -173,9 +150,7 @@ func TestBuildBeadTree_CircularDependencies(t *testing.T) {
 	result := buildBeadTree(context.Background(), items, nil)
 
 	// Should still produce all 3 items
-	if len(result) != 3 {
-		t.Fatalf("expected 3 items despite circular dependency, got %d", len(result))
-	}
+	require.Len(t, result, 3, "expected 3 items despite circular dependency")
 }
 
 // TestBuildBeadTree_EmptyInput tests handling of empty input
@@ -183,9 +158,7 @@ func TestBuildBeadTree_EmptyInput(t *testing.T) {
 	items := []beadItem{}
 	result := buildBeadTree(context.Background(), items, nil)
 
-	if len(result) != 0 {
-		t.Errorf("expected empty result for empty input, got %d items", len(result))
-	}
+	require.Empty(t, result, "expected empty result for empty input")
 }
 
 // TestBuildBeadTree_WithNilClient tests that the function works with nil client
@@ -197,9 +170,7 @@ func TestBuildBeadTree_WithNilClient(t *testing.T) {
 
 	result := buildBeadTree(context.Background(), items, nil)
 
-	if len(result) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(result))
-	}
+	require.Len(t, result, 1)
 }
 
 // TestBuildBeadTree_ParentChildRelationship tests that parent-child relationships are preserved
@@ -213,7 +184,5 @@ func TestBuildBeadTree_ParentChildRelationship(t *testing.T) {
 	result := buildBeadTree(context.Background(), items, nil)
 
 	// Both parent and child should be visible
-	if len(result) != 2 {
-		t.Errorf("expected parent to be visible with open child, got %d items", len(result))
-	}
+	require.Len(t, result, 2, "expected parent to be visible with open child")
 }

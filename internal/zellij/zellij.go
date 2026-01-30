@@ -2,6 +2,8 @@
 // It abstracts session, tab, and pane management operations into a type-safe API.
 package zellij
 
+//go:generate moq -stub -out zellij_mock.go . SessionManager Session
+
 import (
 	"bytes"
 	"context"

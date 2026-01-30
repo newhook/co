@@ -3,7 +3,9 @@ package project
 import (
 	"testing"
 	"time"
+
 	"github.com/BurntSushi/toml"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGeneratedConfigIsValidTOML(t *testing.T) {
@@ -22,20 +24,15 @@ func TestGeneratedConfigIsValidTOML(t *testing.T) {
 
 	// Try to parse the generated content as valid TOML
 	var parsed map[string]interface{}
-	if _, err := toml.Decode(content, &parsed); err != nil {
-		t.Errorf("Generated config is not valid TOML: %v\n\nContent:\n%s", err, content)
-	}
+	_, err := toml.Decode(content, &parsed)
+	require.NoError(t, err, "Generated config is not valid TOML:\n%s", content)
 
 	// Verify key fields are present
 	project := parsed["project"].(map[string]interface{})
-	if project["name"] != "test-project" {
-		t.Errorf("Expected project.name to be 'test-project', got %v", project["name"])
-	}
+	require.Equal(t, "test-project", project["name"])
 
 	repo := parsed["repo"].(map[string]interface{})
-	if repo["type"] != "github" {
-		t.Errorf("Expected repo.type to be 'github', got %v", repo["type"])
-	}
+	require.Equal(t, "github", repo["type"])
 }
 
 func TestGeneratedConfigRoundTrip(t *testing.T) {
@@ -55,26 +52,15 @@ func TestGeneratedConfigRoundTrip(t *testing.T) {
 
 	// Parse back into a Config struct
 	var loaded Config
-	if _, err := toml.Decode(content, &loaded); err != nil {
-		t.Fatalf("Failed to decode generated config: %v", err)
-	}
+	_, err := toml.Decode(content, &loaded)
+	require.NoError(t, err)
 
 	// Verify fields match
-	if loaded.Project.Name != original.Project.Name {
-		t.Errorf("Project.Name: expected %q, got %q", original.Project.Name, loaded.Project.Name)
-	}
-	if !loaded.Project.CreatedAt.Equal(original.Project.CreatedAt) {
-		t.Errorf("Project.CreatedAt: expected %v, got %v", original.Project.CreatedAt, loaded.Project.CreatedAt)
-	}
-	if loaded.Repo.Type != original.Repo.Type {
-		t.Errorf("Repo.Type: expected %q, got %q", original.Repo.Type, loaded.Repo.Type)
-	}
-	if loaded.Repo.Source != original.Repo.Source {
-		t.Errorf("Repo.Source: expected %q, got %q", original.Repo.Source, loaded.Repo.Source)
-	}
-	if loaded.Repo.Path != original.Repo.Path {
-		t.Errorf("Repo.Path: expected %q, got %q", original.Repo.Path, loaded.Repo.Path)
-	}
+	require.Equal(t, original.Project.Name, loaded.Project.Name)
+	require.True(t, loaded.Project.CreatedAt.Equal(original.Project.CreatedAt))
+	require.Equal(t, original.Repo.Type, loaded.Repo.Type)
+	require.Equal(t, original.Repo.Source, loaded.Repo.Source)
+	require.Equal(t, original.Repo.Path, loaded.Repo.Path)
 }
 
 func TestGeneratedConfigWithSpecialCharacters(t *testing.T) {
@@ -95,17 +81,12 @@ func TestGeneratedConfigWithSpecialCharacters(t *testing.T) {
 
 	// This should parse successfully even with special characters
 	var parsed Config
-	if _, err := toml.Decode(content, &parsed); err != nil {
-		t.Errorf("Failed to parse config with special characters: %v\n\nContent:\n%s", err, content)
-	}
+	_, err := toml.Decode(content, &parsed)
+	require.NoError(t, err, "Failed to parse config with special characters:\n%s", content)
 
 	// Verify values
-	if parsed.Project.Name != cfg.Project.Name {
-		t.Errorf("Project.Name: expected %q, got %q", cfg.Project.Name, parsed.Project.Name)
-	}
-	if parsed.Repo.Source != cfg.Repo.Source {
-		t.Errorf("Repo.Source: expected %q, got %q", cfg.Repo.Source, parsed.Repo.Source)
-	}
+	require.Equal(t, cfg.Project.Name, parsed.Project.Name)
+	require.Equal(t, cfg.Repo.Source, parsed.Repo.Source)
 }
 
 func TestShouldSkipPermissionsDefault(t *testing.T) {
@@ -115,13 +96,10 @@ func TestShouldSkipPermissionsDefault(t *testing.T) {
   name = "test"
 `
 	var cfg Config
-	if _, err := toml.Decode(tomlContent, &cfg); err != nil {
-		t.Fatalf("Failed to decode: %v", err)
-	}
+	_, err := toml.Decode(tomlContent, &cfg)
+	require.NoError(t, err)
 
-	if !cfg.Claude.ShouldSkipPermissions() {
-		t.Error("Expected ShouldSkipPermissions() to return true by default, got false")
-	}
+	require.True(t, cfg.Claude.ShouldSkipPermissions(), "Expected ShouldSkipPermissions() to return true by default")
 }
 
 func TestShouldSkipPermissionsExplicitFalse(t *testing.T) {
@@ -134,13 +112,10 @@ func TestShouldSkipPermissionsExplicitFalse(t *testing.T) {
   skip_permissions = false
 `
 	var cfg Config
-	if _, err := toml.Decode(tomlContent, &cfg); err != nil {
-		t.Fatalf("Failed to decode: %v", err)
-	}
+	_, err := toml.Decode(tomlContent, &cfg)
+	require.NoError(t, err)
 
-	if cfg.Claude.ShouldSkipPermissions() {
-		t.Error("Expected ShouldSkipPermissions() to return false when explicitly set, got true")
-	}
+	require.False(t, cfg.Claude.ShouldSkipPermissions(), "Expected ShouldSkipPermissions() to return false when explicitly set")
 }
 
 func TestGeneratedConfigWithUTF8(t *testing.T) {
@@ -161,14 +136,11 @@ func TestGeneratedConfigWithUTF8(t *testing.T) {
 
 	// This should parse successfully
 	var parsed Config
-	if _, err := toml.Decode(content, &parsed); err != nil {
-		t.Errorf("Failed to parse config with UTF-8: %v", err)
-	}
+	_, err := toml.Decode(content, &parsed)
+	require.NoError(t, err, "Failed to parse config with UTF-8")
 
 	// Verify values
-	if parsed.Project.Name != cfg.Project.Name {
-		t.Errorf("Project.Name: expected %q, got %q", cfg.Project.Name, parsed.Project.Name)
-	}
+	require.Equal(t, cfg.Project.Name, parsed.Project.Name)
 }
 
 func TestLogParserConfig_ShouldUseClaude(t *testing.T) {
@@ -202,9 +174,7 @@ func TestLogParserConfig_ShouldUseClaude(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := tt.config.ShouldUseClaude()
-			if result != tt.expected {
-				t.Errorf("ShouldUseClaude() = %v, want %v", result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -240,19 +210,17 @@ func TestLogParserConfig_GetModel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := tt.config.GetModel()
-			if result != tt.expected {
-				t.Errorf("GetModel() = %q, want %q", result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
 
 func TestLogParserConfigFromTOML(t *testing.T) {
 	tests := []struct {
-		name              string
-		tomlContent       string
-		wantUseClaude     bool
-		wantModel         string
+		name          string
+		tomlContent   string
+		wantUseClaude bool
+		wantModel     string
 	}{
 		{
 			name: "Not specified defaults",
@@ -306,17 +274,11 @@ use_claude = true
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var cfg Config
-			if _, err := toml.Decode(tt.tomlContent, &cfg); err != nil {
-				t.Fatalf("Failed to decode TOML: %v", err)
-			}
+			_, err := toml.Decode(tt.tomlContent, &cfg)
+			require.NoError(t, err)
 
-			if cfg.LogParser.ShouldUseClaude() != tt.wantUseClaude {
-				t.Errorf("ShouldUseClaude() = %v, want %v", cfg.LogParser.ShouldUseClaude(), tt.wantUseClaude)
-			}
-
-			if cfg.LogParser.GetModel() != tt.wantModel {
-				t.Errorf("GetModel() = %q, want %q", cfg.LogParser.GetModel(), tt.wantModel)
-			}
+			require.Equal(t, tt.wantUseClaude, cfg.LogParser.ShouldUseClaude())
+			require.Equal(t, tt.wantModel, cfg.LogParser.GetModel())
 		})
 	}
 }

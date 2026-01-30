@@ -6,6 +6,7 @@ go = "1.25"
 "aqua:golangci/golangci-lint" = "v2.8.0"
 "aqua:evilmartians/lefthook" = "latest"
 "aqua:mikefarah/yq" = "latest"
+"go:github.com/matryer/moq" = "latest"
 
 [env]
 GOPATH = "{{env.HOME}}/go"
@@ -25,3 +26,7 @@ run = "sqlc generate"
 [tasks.lint]
 description = "Run golangci-lint"
 run = "golangci-lint run ./..."
+
+[tasks.generate]
+description = "Run go generate for all packages"
+run = "go generate ./..."

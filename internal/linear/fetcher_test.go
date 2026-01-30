@@ -2,24 +2,11 @@ package linear
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// MockClient is a mock implementation of the Linear client for testing
-type MockClient struct {
-	GetIssueFunc func(ctx context.Context, issueID string) (*Issue, error)
-}
-
-func (m *MockClient) GetIssue(ctx context.Context, issueID string) (*Issue, error) {
-	if m.GetIssueFunc != nil {
-		return m.GetIssueFunc(ctx, issueID)
-	}
-	return nil, errors.New("not implemented")
-}
 
 func TestFetcherErrorHandling(t *testing.T) {
 	ctx := context.Background()
