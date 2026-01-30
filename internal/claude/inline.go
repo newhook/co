@@ -1,6 +1,6 @@
 package claude
 
-//go:generate moq -stub -out ../testutil/claude_mock.go -pkg testutil . Runner:ClaudeRunnerMock
+//go:generate moq -stub -out claude_mock.go . Runner:ClaudeRunnerMock
 
 import (
 	"context"

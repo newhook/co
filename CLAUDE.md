@@ -151,14 +151,14 @@ This runs `go generate ./...` to regenerate all mocks.
 
 1. Add a `//go:generate` directive to the interface file:
    ```go
-   //go:generate moq -out ../testutil/mock_interface.go -pkg testutil . InterfaceName
+   //go:generate moq -stub -out mypkg_mock.go . InterfaceName:InterfaceNameMock
    ```
 
 2. Run `mise run generate` to create the mock
 
 3. Use the mock in tests:
    ```go
-   mock := &testutil.InterfaceNameMock{
+   mock := &mypkg.InterfaceNameMock{
        MethodNameFunc: func(ctx context.Context, arg string) error {
            return nil
        },
@@ -167,26 +167,25 @@ This runs `go generate ./...` to regenerate all mocks.
 
 ### Available Mocks
 
-Mocks are generated for interfaces in:
-- `internal/git/` - Git CLI operations
-- `internal/worktree/` - Git worktree operations
-- `internal/mise/` - Mise tool operations
-- `internal/zellij/` - Zellij session management
-- `internal/beads/` - Beads CLI and reader interfaces
-- `internal/github/` - GitHub API client
-- `internal/claude/` - Claude runner
-- `internal/process/` - Process lister/killer
-- `internal/task/` - Complexity estimator
-- `internal/linear/` - Linear API client
-- `internal/beads/cachemanager/` - Cache manager
-- `internal/feedback/` - PR feedback processor
-- `internal/control/` - Orchestrator spawner, work destroyer (test-local mocks to avoid import cycle)
+Mocks are generated in their respective package directories:
+- `internal/git/git_mock.go` - Git CLI operations (`GitOperationsMock`)
+- `internal/worktree/worktree_mock.go` - Git worktree operations (`WorktreeOperationsMock`)
+- `internal/mise/mise_mock.go` - Mise tool operations (`MiseOperationsMock`)
+- `internal/zellij/zellij_mock.go` - Zellij session management (`SessionManagerMock`, `SessionMock`)
+- `internal/beads/beads_mock.go` - Beads CLI and reader interfaces (`BeadsCLIMock`, `BeadsReaderMock`)
+- `internal/github/github_mock.go` - GitHub API client (`GitHubClientMock`)
+- `internal/claude/claude_mock.go` - Claude runner (`ClaudeRunnerMock`)
+- `internal/process/process_mock.go` - Process lister/killer (`ProcessListerMock`, `ProcessKillerMock`)
+- `internal/task/task_mock.go` - Complexity estimator (`ComplexityEstimatorMock`)
+- `internal/linear/linear_mock.go` - Linear API client (`LinearClientMock`)
+- `internal/feedback/feedback_mock.go` - PR feedback processor (`FeedbackProcessorMock`)
+- `internal/control/control_mock_test.go` - Orchestrator spawner, work destroyer (test-local mocks to avoid import cycle)
 
 ### Testing Best Practices
 
 **Configuring mock behavior per-test:**
 ```go
-mock := &testutil.GitOperationsMock{
+mock := &git.GitOperationsMock{
     BranchExistsFunc: func(ctx context.Context, repoPath, branchName string) bool {
         return branchName == "main"  // Returns true only for "main"
     },
@@ -195,7 +194,7 @@ mock := &testutil.GitOperationsMock{
 
 **Tracking and verifying calls:**
 ```go
-mock := &testutil.GitOperationsMock{
+mock := &git.GitOperationsMock{
     FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
         return nil
     },
@@ -217,7 +216,7 @@ if calls[0].PrNumber != 123 {
 
 **Nil functions return zero values:**
 ```go
-mock := &testutil.GitOperationsMock{}  // No functions set
+mock := &git.GitOperationsMock{}  // No functions set
 
 // Returns false (zero value for bool) when BranchExistsFunc is nil
 mock.BranchExists(ctx, "/repo", "any")  // returns false
@@ -229,7 +228,7 @@ branches, err := mock.ListBranches(ctx, "/repo")  // branches=nil, err=nil
 **Compile-time interface verification:**
 ```go
 // Ensure mock implements the interface at compile time
-var _ git.Operations = (*testutil.GitOperationsMock)(nil)
+var _ git.Operations = (*git.GitOperationsMock)(nil)
 ```
 
 ## Database Migrations

@@ -4,14 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/newhook/co/internal/testutil"
 	"github.com/newhook/co/internal/worktree"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMockImplementsInterface(t *testing.T) {
 	// Compile-time check that WorktreeOperationsMock implements Operations
-	var _ worktree.Operations = (*testutil.WorktreeOperationsMock)(nil)
+	var _ worktree.Operations = (*worktree.WorktreeOperationsMock)(nil)
 }
 
 // TestWorktreeOperationsMock verifies the mock works correctly with function fields.
@@ -23,7 +22,7 @@ func TestWorktreeOperationsMock(t *testing.T) {
 			{Path: "/main", HEAD: "abc123", Branch: "main"},
 			{Path: "/feature", HEAD: "def456", Branch: "feature"},
 		}
-		mock := &testutil.WorktreeOperationsMock{
+		mock := &worktree.WorktreeOperationsMock{
 			ListFunc: func(ctx context.Context, repoPath string) ([]worktree.Worktree, error) {
 				return expectedWorktrees, nil
 			},
@@ -35,7 +34,7 @@ func TestWorktreeOperationsMock(t *testing.T) {
 	})
 
 	t.Run("ExistsPath returns configured value", func(t *testing.T) {
-		mock := &testutil.WorktreeOperationsMock{
+		mock := &worktree.WorktreeOperationsMock{
 			ExistsPathFunc: func(worktreePath string) bool {
 				return worktreePath == "/existing/path"
 			},
@@ -50,7 +49,7 @@ func TestWorktreeOperationsMock(t *testing.T) {
 	})
 
 	t.Run("Create tracks call arguments", func(t *testing.T) {
-		mock := &testutil.WorktreeOperationsMock{
+		mock := &worktree.WorktreeOperationsMock{
 			CreateFunc: func(ctx context.Context, repoPath, worktreePath, branch, baseBranch string) error {
 				return nil
 			},
@@ -67,7 +66,7 @@ func TestWorktreeOperationsMock(t *testing.T) {
 	})
 
 	t.Run("CreateFromExisting tracks call arguments", func(t *testing.T) {
-		mock := &testutil.WorktreeOperationsMock{
+		mock := &worktree.WorktreeOperationsMock{
 			CreateFromExistingFunc: func(ctx context.Context, repoPath, worktreePath, branch string) error {
 				return nil
 			},
@@ -81,7 +80,7 @@ func TestWorktreeOperationsMock(t *testing.T) {
 	})
 
 	t.Run("RemoveForce tracks call arguments", func(t *testing.T) {
-		mock := &testutil.WorktreeOperationsMock{
+		mock := &worktree.WorktreeOperationsMock{
 			RemoveForceFunc: func(ctx context.Context, repoPath, worktreePath string) error {
 				return nil
 			},
@@ -95,7 +94,7 @@ func TestWorktreeOperationsMock(t *testing.T) {
 	})
 
 	t.Run("nil function returns zero value", func(t *testing.T) {
-		mock := &testutil.WorktreeOperationsMock{}
+		mock := &worktree.WorktreeOperationsMock{}
 
 		// Without setting function, mock returns zero values
 		require.False(t, mock.ExistsPath("/any"), "expected false when ExistsPathFunc is nil")

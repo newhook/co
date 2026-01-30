@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/github"
-	"github.com/newhook/co/internal/testutil"
+	"github.com/newhook/co/internal/worktree"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewPRImporter(t *testing.T) {
-	client := &testutil.GitHubClientMock{}
+	client := &github.GitHubClientMock{}
 	importer := NewPRImporter(client)
 
 	require.NotNil(t, importer, "NewPRImporter returned nil")
@@ -23,9 +24,9 @@ func TestNewPRImporter(t *testing.T) {
 }
 
 func TestNewPRImporterWithOps(t *testing.T) {
-	client := &testutil.GitHubClientMock{}
-	gitOps := &testutil.GitOperationsMock{}
-	worktreeOps := &testutil.WorktreeOperationsMock{}
+	client := &github.GitHubClientMock{}
+	gitOps := &git.GitOperationsMock{}
+	worktreeOps := &worktree.WorktreeOperationsMock{}
 
 	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
 
@@ -46,14 +47,14 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 		BaseRefName: "main",
 	}
 
-	client := &testutil.GitHubClientMock{
+	client := &github.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
 
 	fetchPRRefCalled := false
-	gitOps := &testutil.GitOperationsMock{
+	gitOps := &git.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 			fetchPRRefCalled = true
 			require.Equal(t, 123, prNumber)
@@ -63,7 +64,7 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 	}
 
 	createFromExistingCalled := false
-	worktreeOps := &testutil.WorktreeOperationsMock{
+	worktreeOps := &worktree.WorktreeOperationsMock{
 		CreateFromExistingFunc: func(ctx context.Context, repoPath, worktreePath, branch string) error {
 			createFromExistingCalled = true
 			require.Equal(t, "feature-branch", branch)
@@ -94,20 +95,20 @@ func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 		BaseRefName: "main",
 	}
 
-	client := &testutil.GitHubClientMock{
+	client := &github.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
 
-	gitOps := &testutil.GitOperationsMock{
+	gitOps := &git.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 			require.Equal(t, "custom-branch", localBranch)
 			return nil
 		},
 	}
 
-	worktreeOps := &testutil.WorktreeOperationsMock{
+	worktreeOps := &worktree.WorktreeOperationsMock{
 		CreateFromExistingFunc: func(ctx context.Context, repoPath, worktreePath, branch string) error {
 			require.Equal(t, "custom-branch", branch)
 			return nil
@@ -124,14 +125,14 @@ func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 func TestSetupWorktreeFromPR_MetadataError(t *testing.T) {
 	ctx := context.Background()
 
-	client := &testutil.GitHubClientMock{
+	client := &github.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return nil, errors.New("API error")
 		},
 	}
 
-	gitOps := &testutil.GitOperationsMock{}
-	worktreeOps := &testutil.WorktreeOperationsMock{}
+	gitOps := &git.GitOperationsMock{}
+	worktreeOps := &worktree.WorktreeOperationsMock{}
 
 	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
 
@@ -149,19 +150,19 @@ func TestSetupWorktreeFromPR_FetchPRRefError(t *testing.T) {
 		HeadRefName: "feature-branch",
 	}
 
-	client := &testutil.GitHubClientMock{
+	client := &github.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
 
-	gitOps := &testutil.GitOperationsMock{
+	gitOps := &git.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 			return errors.New("fetch failed")
 		},
 	}
 
-	worktreeOps := &testutil.WorktreeOperationsMock{}
+	worktreeOps := &worktree.WorktreeOperationsMock{}
 
 	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
 
@@ -180,19 +181,19 @@ func TestSetupWorktreeFromPR_WorktreeCreateError(t *testing.T) {
 		HeadRefName: "feature-branch",
 	}
 
-	client := &testutil.GitHubClientMock{
+	client := &github.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
 
-	gitOps := &testutil.GitOperationsMock{
+	gitOps := &git.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 			return nil
 		},
 	}
 
-	worktreeOps := &testutil.WorktreeOperationsMock{
+	worktreeOps := &worktree.WorktreeOperationsMock{
 		CreateFromExistingFunc: func(ctx context.Context, repoPath, worktreePath, branch string) error {
 			return errors.New("worktree create failed")
 		},
@@ -215,7 +216,7 @@ func TestFetchPRMetadata(t *testing.T) {
 		Title:  "Test PR",
 	}
 
-	client := &testutil.GitHubClientMock{
+	client := &github.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			require.Equal(t, "456", prURLOrNumber)
 			require.Equal(t, "owner/repo", repo)

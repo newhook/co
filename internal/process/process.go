@@ -1,7 +1,7 @@
 // Package process provides cross-platform process detection utilities.
 package process
 
-//go:generate moq -stub -out ../testutil/process_mock.go -pkg testutil . ProcessLister ProcessKiller
+//go:generate moq -stub -out process_mock.go . ProcessLister ProcessKiller
 
 import (
 	"context"

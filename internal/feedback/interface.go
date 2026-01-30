@@ -1,4 +1,4 @@
-//go:generate moq -stub -out ../testutil/feedback_mock.go -pkg testutil . Processor:FeedbackProcessorMock
+//go:generate moq -stub -out feedback_mock.go . Processor:FeedbackProcessorMock
 
 package feedback
 

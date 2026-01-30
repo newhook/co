@@ -9,9 +9,11 @@ import (
 
 	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/feedback"
+	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
-	"github.com/newhook/co/internal/testutil"
+	"github.com/newhook/co/internal/worktree"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,19 +53,19 @@ func setupTestProject(t *testing.T) (*project.Project, func()) {
 // testMocks holds all mocked dependencies for ControlPlane tests.
 type testMocks struct {
 	CP        *control.ControlPlane
-	Git       *testutil.GitOperationsMock
-	Worktree  *testutil.WorktreeOperationsMock
-	Feedback  *testutil.FeedbackProcessorMock
+	Git       *git.GitOperationsMock
+	Worktree  *worktree.WorktreeOperationsMock
+	Feedback  *feedback.FeedbackProcessorMock
 	Spawner   *OrchestratorSpawnerMock
 	Destroyer *WorkDestroyerMock
 }
 
 // setupControlPlane creates a ControlPlane with all mocked dependencies.
 func setupControlPlane() *testMocks {
-	gitMock := &testutil.GitOperationsMock{}
-	wtMock := &testutil.WorktreeOperationsMock{}
-	miseMock := &testutil.MiseOperationsMock{}
-	feedbackMock := &testutil.FeedbackProcessorMock{}
+	gitMock := &git.GitOperationsMock{}
+	wtMock := &worktree.WorktreeOperationsMock{}
+	miseMock := &mise.MiseOperationsMock{}
+	feedbackMock := &feedback.FeedbackProcessorMock{}
 	spawnerMock := &OrchestratorSpawnerMock{}
 	destroyerMock := &WorkDestroyerMock{}
 

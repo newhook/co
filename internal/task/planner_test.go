@@ -6,7 +6,6 @@ import (
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/task"
-	"github.com/newhook/co/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -100,7 +99,7 @@ func TestTopologicalSortDetectsCycle(t *testing.T) {
 func TestPlanSimple(t *testing.T) {
 	ctx := context.Background()
 	scores := map[string]int{"a": 3, "b": 3, "c": 3}
-	estimator := &testutil.ComplexityEstimatorMock{
+	estimator := &task.ComplexityEstimatorMock{
 		EstimateFunc: func(ctx context.Context, bead beads.Bead) (int, int, error) {
 			score := scores[bead.ID]
 			if score == 0 {
@@ -130,7 +129,7 @@ func TestPlanSimple(t *testing.T) {
 func TestPlanSplitByBudget(t *testing.T) {
 	ctx := context.Background()
 	scores := map[string]int{"a": 5, "b": 5, "c": 5}
-	estimator := &testutil.ComplexityEstimatorMock{
+	estimator := &task.ComplexityEstimatorMock{
 		EstimateFunc: func(ctx context.Context, bead beads.Bead) (int, int, error) {
 			score := scores[bead.ID]
 			if score == 0 {
@@ -166,7 +165,7 @@ func TestPlanSplitByBudget(t *testing.T) {
 func TestPlanRespectsDependencies(t *testing.T) {
 	ctx := context.Background()
 	scores := map[string]int{"a": 3, "b": 3}
-	estimator := &testutil.ComplexityEstimatorMock{
+	estimator := &task.ComplexityEstimatorMock{
 		EstimateFunc: func(ctx context.Context, bead beads.Bead) (int, int, error) {
 			score := scores[bead.ID]
 			if score == 0 {
@@ -204,7 +203,7 @@ func TestPlanRespectsDependencies(t *testing.T) {
 
 func TestPlanEmpty(t *testing.T) {
 	ctx := context.Background()
-	estimator := &testutil.ComplexityEstimatorMock{}
+	estimator := &task.ComplexityEstimatorMock{}
 	planner := task.NewDefaultPlanner(estimator)
 
 	dependencies := map[string][]beads.Dependency{}
@@ -219,7 +218,7 @@ func TestPlanFirstFitDecreasing(t *testing.T) {
 	ctx := context.Background()
 	// Larger beads are assigned first (by token estimate)
 	scores := map[string]int{"small": 2, "medium": 4, "large": 6}
-	estimator := &testutil.ComplexityEstimatorMock{
+	estimator := &task.ComplexityEstimatorMock{
 		EstimateFunc: func(ctx context.Context, bead beads.Bead) (int, int, error) {
 			score := scores[bead.ID]
 			if score == 0 {
@@ -250,7 +249,7 @@ func TestPlanChainDependencySplitAcrossTasks(t *testing.T) {
 	ctx := context.Background()
 	// Small budget to force each bead into separate task
 	scores := map[string]int{"a": 5, "b": 5, "c": 5}
-	estimator := &testutil.ComplexityEstimatorMock{
+	estimator := &task.ComplexityEstimatorMock{
 		EstimateFunc: func(ctx context.Context, bead beads.Bead) (int, int, error) {
 			score := scores[bead.ID]
 			if score == 0 {
@@ -294,7 +293,7 @@ func TestPlanChainDependencySplitAcrossTasks(t *testing.T) {
 func TestPlanDiamondDependencySplitAcrossTasks(t *testing.T) {
 	ctx := context.Background()
 	scores := map[string]int{"a": 5, "b": 5, "c": 5, "d": 5}
-	estimator := &testutil.ComplexityEstimatorMock{
+	estimator := &task.ComplexityEstimatorMock{
 		EstimateFunc: func(ctx context.Context, bead beads.Bead) (int, int, error) {
 			score := scores[bead.ID]
 			if score == 0 {
@@ -344,7 +343,7 @@ func TestPlanDiamondDependencySplitAcrossTasks(t *testing.T) {
 func TestPlanSameTaskDependenciesNoSelfDep(t *testing.T) {
 	ctx := context.Background()
 	scores := map[string]int{"a": 2, "b": 2}
-	estimator := &testutil.ComplexityEstimatorMock{
+	estimator := &task.ComplexityEstimatorMock{
 		EstimateFunc: func(ctx context.Context, bead beads.Bead) (int, int, error) {
 			score := scores[bead.ID]
 			if score == 0 {

@@ -8,47 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// LinearClientMock is a mock implementation of ClientInterface for testing.
-// This uses the function-field pattern consistent with moq-generated mocks.
-// Note: Cannot use testutil.LinearClientMock due to import cycle, so this is hand-written.
-type LinearClientMock struct {
-	GetIssueFunc         func(ctx context.Context, issueIDOrURL string) (*Issue, error)
-	SearchIssuesFunc     func(ctx context.Context, searchQuery string, filters map[string]any) ([]*Issue, error)
-	ListIssuesFunc       func(ctx context.Context, filters map[string]any) ([]*Issue, error)
-	GetIssueCommentsFunc func(ctx context.Context, issueID string) ([]Comment, error)
-}
-
-// Compile-time check that LinearClientMock implements ClientInterface.
-var _ ClientInterface = (*LinearClientMock)(nil)
-
-func (m *LinearClientMock) GetIssue(ctx context.Context, issueIDOrURL string) (*Issue, error) {
-	if m.GetIssueFunc != nil {
-		return m.GetIssueFunc(ctx, issueIDOrURL)
-	}
-	return nil, nil
-}
-
-func (m *LinearClientMock) SearchIssues(ctx context.Context, searchQuery string, filters map[string]any) ([]*Issue, error) {
-	if m.SearchIssuesFunc != nil {
-		return m.SearchIssuesFunc(ctx, searchQuery, filters)
-	}
-	return nil, nil
-}
-
-func (m *LinearClientMock) ListIssues(ctx context.Context, filters map[string]any) ([]*Issue, error) {
-	if m.ListIssuesFunc != nil {
-		return m.ListIssuesFunc(ctx, filters)
-	}
-	return nil, nil
-}
-
-func (m *LinearClientMock) GetIssueComments(ctx context.Context, issueID string) ([]Comment, error) {
-	if m.GetIssueCommentsFunc != nil {
-		return m.GetIssueCommentsFunc(ctx, issueID)
-	}
-	return nil, nil
-}
-
 func TestFetcherErrorHandling(t *testing.T) {
 	ctx := context.Background()
 

@@ -1,6 +1,6 @@
 package github
 
-//go:generate moq -stub -out ../testutil/github_mock.go -pkg testutil . ClientInterface:GitHubClientMock
+//go:generate moq -stub -out github_mock.go . ClientInterface:GitHubClientMock
 
 import (
 	"context"

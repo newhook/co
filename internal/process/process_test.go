@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/newhook/co/internal/process"
-	"github.com/newhook/co/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,7 +59,7 @@ func TestIsProcessRunningWith(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lister := &testutil.ProcessListerMock{
+			lister := &process.ProcessListerMock{
 				GetProcessListFunc: func(ctx context.Context) ([]string, error) {
 					return tt.processes, nil
 				},
@@ -80,7 +79,7 @@ func TestIsProcessRunningWith(t *testing.T) {
 
 func TestIsProcessRunningWith_ListerError(t *testing.T) {
 	ctx := context.Background()
-	lister := &testutil.ProcessListerMock{
+	lister := &process.ProcessListerMock{
 		GetProcessListFunc: func(ctx context.Context) ([]string, error) {
 			return nil, errors.New("ps command failed")
 		},
@@ -135,13 +134,13 @@ func TestKillProcessWith(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lister := &testutil.ProcessListerMock{
+			lister := &process.ProcessListerMock{
 				GetProcessListFunc: func(ctx context.Context) ([]string, error) {
 					return tt.processes, nil
 				},
 			}
 			var killedPatterns []string
-			killer := &testutil.ProcessKillerMock{
+			killer := &process.ProcessKillerMock{
 				KillByPatternFunc: func(ctx context.Context, pattern string) error {
 					killedPatterns = append(killedPatterns, pattern)
 					return tt.killerErr
@@ -167,12 +166,12 @@ func TestKillProcessWith(t *testing.T) {
 
 func TestKillProcessWith_ListerError(t *testing.T) {
 	ctx := context.Background()
-	lister := &testutil.ProcessListerMock{
+	lister := &process.ProcessListerMock{
 		GetProcessListFunc: func(ctx context.Context) ([]string, error) {
 			return nil, errors.New("ps command failed")
 		},
 	}
-	killer := &testutil.ProcessKillerMock{}
+	killer := &process.ProcessKillerMock{}
 
 	err := process.KillProcessWith(ctx, "myapp", lister, killer)
 	require.Error(t, err)

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/newhook/co/internal/git"
-	"github.com/newhook/co/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +15,7 @@ func TestNewOperations(t *testing.T) {
 
 func TestOperationsInterface(t *testing.T) {
 	// Compile-time check that GitOperationsMock implements git.Operations
-	var _ git.Operations = (*testutil.GitOperationsMock)(nil)
+	var _ git.Operations = (*git.GitOperationsMock)(nil)
 }
 
 // TestGitOperationsMock verifies the mock works correctly with function fields.
@@ -24,7 +23,7 @@ func TestGitOperationsMock(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("BranchExists returns configured value", func(t *testing.T) {
-		mock := &testutil.GitOperationsMock{
+		mock := &git.GitOperationsMock{
 			BranchExistsFunc: func(ctx context.Context, repoPath, branchName string) bool {
 				return branchName == "main"
 			},
@@ -39,7 +38,7 @@ func TestGitOperationsMock(t *testing.T) {
 	})
 
 	t.Run("ValidateExistingBranch returns configured values", func(t *testing.T) {
-		mock := &testutil.GitOperationsMock{
+		mock := &git.GitOperationsMock{
 			ValidateExistingBranchFunc: func(ctx context.Context, repoPath, branchName string) (bool, bool, error) {
 				if branchName == "main" {
 					return true, true, nil // exists locally and remotely
@@ -69,7 +68,7 @@ func TestGitOperationsMock(t *testing.T) {
 
 	t.Run("ListBranches returns configured branches", func(t *testing.T) {
 		expectedBranches := []string{"feature-1", "feature-2", "develop"}
-		mock := &testutil.GitOperationsMock{
+		mock := &git.GitOperationsMock{
 			ListBranchesFunc: func(ctx context.Context, repoPath string) ([]string, error) {
 				return expectedBranches, nil
 			},
@@ -81,7 +80,7 @@ func TestGitOperationsMock(t *testing.T) {
 	})
 
 	t.Run("FetchPRRef tracks call arguments", func(t *testing.T) {
-		mock := &testutil.GitOperationsMock{
+		mock := &git.GitOperationsMock{
 			FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 				return nil
 			},
@@ -97,7 +96,7 @@ func TestGitOperationsMock(t *testing.T) {
 	})
 
 	t.Run("PushSetUpstream tracks call arguments", func(t *testing.T) {
-		mock := &testutil.GitOperationsMock{
+		mock := &git.GitOperationsMock{
 			PushSetUpstreamFunc: func(ctx context.Context, branch, dir string) error {
 				return nil
 			},
@@ -112,7 +111,7 @@ func TestGitOperationsMock(t *testing.T) {
 	})
 
 	t.Run("Pull and Clone track calls", func(t *testing.T) {
-		mock := &testutil.GitOperationsMock{
+		mock := &git.GitOperationsMock{
 			PullFunc: func(ctx context.Context, dir string) error {
 				return nil
 			},
@@ -129,7 +128,7 @@ func TestGitOperationsMock(t *testing.T) {
 	})
 
 	t.Run("nil function returns zero value", func(t *testing.T) {
-		mock := &testutil.GitOperationsMock{}
+		mock := &git.GitOperationsMock{}
 
 		// Without setting function, mock returns zero values
 		require.False(t, mock.BranchExists(ctx, "/repo", "any"), "expected false when BranchExistsFunc is nil")

@@ -1,6 +1,6 @@
 package worktree
 
-//go:generate moq -stub -out ../testutil/worktree_mock.go -pkg testutil . Operations:WorktreeOperationsMock
+//go:generate moq -stub -out worktree_mock.go . Operations:WorktreeOperationsMock
 
 import (
 	"bufio"

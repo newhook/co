@@ -7,19 +7,18 @@ import (
 	"testing"
 
 	"github.com/newhook/co/internal/mise"
-	"github.com/newhook/co/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMockImplementsInterface(t *testing.T) {
 	// Compile-time check that MiseOperationsMock implements Operations
-	var _ mise.Operations = (*testutil.MiseOperationsMock)(nil)
+	var _ mise.Operations = (*mise.MiseOperationsMock)(nil)
 }
 
 // TestMiseOperationsMock verifies the mock works correctly with function fields.
 func TestMiseOperationsMock(t *testing.T) {
 	t.Run("IsManaged returns configured value", func(t *testing.T) {
-		mock := &testutil.MiseOperationsMock{
+		mock := &mise.MiseOperationsMock{
 			IsManagedFunc: func() bool {
 				return true
 			},
@@ -33,7 +32,7 @@ func TestMiseOperationsMock(t *testing.T) {
 	})
 
 	t.Run("HasTask returns configured value based on task name", func(t *testing.T) {
-		mock := &testutil.MiseOperationsMock{
+		mock := &mise.MiseOperationsMock{
 			HasTaskFunc: func(taskName string) bool {
 				return taskName == "setup" || taskName == "build"
 			},
@@ -50,7 +49,7 @@ func TestMiseOperationsMock(t *testing.T) {
 	})
 
 	t.Run("Trust and Install track calls", func(t *testing.T) {
-		mock := &testutil.MiseOperationsMock{
+		mock := &mise.MiseOperationsMock{
 			TrustFunc: func() error {
 				return nil
 			},
@@ -67,7 +66,7 @@ func TestMiseOperationsMock(t *testing.T) {
 	})
 
 	t.Run("RunTask tracks task name", func(t *testing.T) {
-		mock := &testutil.MiseOperationsMock{
+		mock := &mise.MiseOperationsMock{
 			RunTaskFunc: func(taskName string) error {
 				if taskName == "failing-task" {
 					return errors.New("task failed")
@@ -84,7 +83,7 @@ func TestMiseOperationsMock(t *testing.T) {
 	})
 
 	t.Run("Exec tracks command and args", func(t *testing.T) {
-		mock := &testutil.MiseOperationsMock{
+		mock := &mise.MiseOperationsMock{
 			ExecFunc: func(command string, args ...string) ([]byte, error) {
 				return []byte("output"), nil
 			},
@@ -101,7 +100,7 @@ func TestMiseOperationsMock(t *testing.T) {
 	})
 
 	t.Run("Initialize tracks calls", func(t *testing.T) {
-		mock := &testutil.MiseOperationsMock{
+		mock := &mise.MiseOperationsMock{
 			InitializeFunc: func() error {
 				return nil
 			},
@@ -114,7 +113,7 @@ func TestMiseOperationsMock(t *testing.T) {
 
 	t.Run("InitializeWithOutput tracks writer", func(t *testing.T) {
 		var buf bytes.Buffer
-		mock := &testutil.MiseOperationsMock{
+		mock := &mise.MiseOperationsMock{
 			InitializeWithOutputFunc: func(w io.Writer) error {
 				return nil
 			},
@@ -127,7 +126,7 @@ func TestMiseOperationsMock(t *testing.T) {
 	})
 
 	t.Run("nil function returns zero value", func(t *testing.T) {
-		mock := &testutil.MiseOperationsMock{}
+		mock := &mise.MiseOperationsMock{}
 
 		// Without setting function, mock returns zero values
 		require.False(t, mock.IsManaged(), "expected false when IsManagedFunc is nil")
