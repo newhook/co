@@ -113,6 +113,26 @@ type DB interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
+// Generator is the interface for name generation operations.
+//
+//go:generate moq -stub -out names_mock.go . Generator:GeneratorMock
+type Generator interface {
+	GetNextAvailableName(ctx context.Context, db DB) (string, error)
+}
+
+// DefaultGenerator is the default implementation of the Generator interface.
+type DefaultGenerator struct{}
+
+// NewGenerator creates a new DefaultGenerator.
+func NewGenerator() Generator {
+	return &DefaultGenerator{}
+}
+
+// GetNextAvailableName implements Generator.
+func (g *DefaultGenerator) GetNextAvailableName(ctx context.Context, db DB) (string, error) {
+	return GetNextAvailableName(ctx, db)
+}
+
 // GenerateName creates a random name by combining an adjective and a noun.
 // Format: "adjective_noun" (e.g., "brave_einstein", "clever_curie")
 func GenerateName() string {
