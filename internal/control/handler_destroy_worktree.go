@@ -9,7 +9,7 @@ import (
 	"github.com/newhook/co/internal/project"
 )
 
-// HandleDestroyWorktreeTask handles a scheduled worktree destruction task.
+// HandleDestroyWorktreeTask handles a scheduled worktree destruction task
 func (cp *ControlPlane) HandleDestroyWorktreeTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
 	workID := task.WorkID
 
@@ -28,7 +28,7 @@ func (cp *ControlPlane) HandleDestroyWorktreeTask(ctx context.Context, proj *pro
 		return nil
 	}
 
-	// Delegate to the work destroyer
+	// Delegate to the shared DestroyWork function
 	if err := cp.WorkDestroyer.DestroyWork(ctx, proj, workID, io.Discard); err != nil {
 		return err
 	}

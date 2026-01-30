@@ -13,7 +13,7 @@ import (
 	"github.com/newhook/co/internal/project"
 )
 
-// HandleCreateWorktreeTask handles a scheduled worktree creation task.
+// HandleCreateWorktreeTask handles a scheduled worktree creation task
 func (cp *ControlPlane) HandleCreateWorktreeTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
 	workID := task.WorkID
 	branchName := task.Metadata["branch"]
@@ -33,11 +33,11 @@ func (cp *ControlPlane) HandleCreateWorktreeTask(ctx context.Context, proj *proj
 		"attempt", task.AttemptCount+1)
 
 	// Get work details
-	workRecord, err := proj.DB.GetWork(ctx, workID)
+	work, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
 		return fmt.Errorf("failed to get work: %w", err)
 	}
-	if workRecord == nil {
+	if work == nil {
 		// Work was deleted - nothing to do
 		logging.Info("Work not found, task will be marked completed", "work_id", workID)
 		return nil
@@ -52,9 +52,9 @@ func (cp *ControlPlane) HandleCreateWorktreeTask(ctx context.Context, proj *proj
 	}
 
 	// If worktree path is already set and exists, skip creation
-	if workRecord.WorktreePath != "" {
+	if work.WorktreePath != "" {
 		// Worktree already created - just need to ensure git push
-		logging.Info("Worktree already exists, skipping creation", "work_id", workID, "path", workRecord.WorktreePath)
+		logging.Info("Worktree already exists, skipping creation", "work_id", workID, "path", work.WorktreePath)
 	} else {
 		// Create the worktree
 		workDir := filepath.Join(proj.Root, workID)
@@ -105,12 +105,12 @@ func (cp *ControlPlane) HandleCreateWorktreeTask(ctx context.Context, proj *proj
 	}
 
 	// Attempt git push (skip for existing branches that already exist on remote)
-	workRecord, _ = proj.DB.GetWork(ctx, workID) // Refresh work
-	if workRecord != nil && workRecord.WorktreePath != "" {
+	work, _ = proj.DB.GetWork(ctx, workID) // Refresh work
+	if work != nil && work.WorktreePath != "" {
 		if useExisting && branchExistsOnRemote {
 			logging.Info("Skipping git push - branch already exists on remote", "branch", branchName)
 		} else {
-			if err := cp.Git.PushSetUpstream(ctx, branchName, workRecord.WorktreePath); err != nil {
+			if err := cp.Git.PushSetUpstream(ctx, branchName, work.WorktreePath); err != nil {
 				return fmt.Errorf("git push failed: %w", err)
 			}
 		}

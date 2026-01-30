@@ -11,19 +11,20 @@ import (
 )
 
 // HandlePRFeedbackTask handles a scheduled PR feedback check.
+// Returns nil on success, error on failure (caller handles retry/completion).
 func (cp *ControlPlane) HandlePRFeedbackTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
 	workID := task.WorkID
 	logging.Debug("Starting PR feedback check task", "task_id", task.ID, "work_id", workID)
 
 	// Get work details
-	workRecord, err := proj.DB.GetWork(ctx, workID)
-	if err != nil || workRecord == nil || workRecord.PRURL == "" {
-		logging.Debug("No PR URL for work, not rescheduling", "work_id", workID, "has_pr", workRecord != nil && workRecord.PRURL != "")
+	work, err := proj.DB.GetWork(ctx, workID)
+	if err != nil || work == nil || work.PRURL == "" {
+		logging.Debug("No PR URL for work, not rescheduling", "work_id", workID, "has_pr", work != nil && work.PRURL != "")
 		// Don't reschedule - scheduling happens when PR is created
 		return nil
 	}
 
-	logging.Debug("Checking PR feedback", "pr_url", workRecord.PRURL, "work_id", workID)
+	logging.Debug("Checking PR feedback", "pr_url", work.PRURL, "work_id", workID)
 
 	// Process PR feedback - creates beads but doesn't add them to work
 	createdCount, err := cp.FeedbackProcessor.ProcessPRFeedback(ctx, proj, proj.DB, workID)

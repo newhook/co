@@ -10,6 +10,7 @@ import (
 )
 
 // HandleGitPushTask handles a scheduled git push task with retry support.
+// Returns nil on success, error on failure (caller handles retry/completion).
 func (cp *ControlPlane) HandleGitPushTask(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error {
 	workID := task.WorkID
 	// Get branch and directory from metadata
@@ -18,12 +19,12 @@ func (cp *ControlPlane) HandleGitPushTask(ctx context.Context, proj *project.Pro
 
 	if branch == "" {
 		// Try to get from work
-		workRecord, err := proj.DB.GetWork(ctx, workID)
-		if err != nil || workRecord == nil {
+		work, err := proj.DB.GetWork(ctx, workID)
+		if err != nil || work == nil {
 			return fmt.Errorf("failed to get work for git push: work not found")
 		}
-		branch = workRecord.BranchName
-		dir = workRecord.WorktreePath
+		branch = work.BranchName
+		dir = work.WorktreePath
 	}
 
 	if branch == "" || dir == "" {
