@@ -7,8 +7,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/linear"
+	"github.com/newhook/co/internal/work"
 )
 
 // refreshData creates a tea.Cmd that refreshes bead data
@@ -410,6 +413,88 @@ func (m *planModel) importLinearIssue(issueIDsInput string) tea.Cmd {
 			errorCount:   errorCount,
 			skipReasons:  skipReasons,
 			errors:       errors,
+		}
+	}
+}
+
+// prImportCompleteMsg indicates a PR import completed
+type prImportCompleteMsg struct {
+	workID     string
+	prMetadata *github.PRMetadata
+	err        error
+}
+
+// prImportPreviewMsg indicates a PR preview was fetched
+type prImportPreviewMsg struct {
+	metadata *github.PRMetadata
+	err      error
+}
+
+// previewPR fetches PR metadata for preview
+func (m *planModel) previewPR(prURL string) tea.Cmd {
+	return func() tea.Msg {
+		ghClient := github.NewClient()
+		importer := work.NewPRImporter(ghClient)
+
+		metadata, err := importer.FetchPRMetadata(m.ctx, prURL, "")
+		if err != nil {
+			return prImportPreviewMsg{err: fmt.Errorf("failed to fetch PR: %w", err)}
+		}
+
+		return prImportPreviewMsg{metadata: metadata}
+	}
+}
+
+// importPR imports a PR into a work unit asynchronously via the control plane.
+func (m *planModel) importPR(prURL string) tea.Cmd {
+	return func() tea.Msg {
+		ghClient := github.NewClient()
+		importer := work.NewPRImporter(ghClient)
+
+		// Fetch PR metadata first
+		metadata, err := importer.FetchPRMetadata(m.ctx, prURL, "")
+		if err != nil {
+			return prImportCompleteMsg{err: fmt.Errorf("failed to fetch PR: %w", err)}
+		}
+
+		// Use the PR's branch name
+		branchName := metadata.HeadRefName
+
+		// Create bead from PR metadata (required for work to function)
+		// This is done in the TUI because we need the bead ID before scheduling
+		var rootIssueID string
+		beadResult, err := importer.CreateBeadFromPR(m.ctx, metadata, &work.CreateBeadOptions{
+			BeadsDir:     m.proj.BeadsPath(),
+			SkipIfExists: true,
+		})
+		if err != nil {
+			return prImportCompleteMsg{err: fmt.Errorf("failed to create bead: %w", err)}
+		}
+		rootIssueID = beadResult.BeadID
+
+		// Schedule the PR import via the control plane
+		result, err := work.ImportPRAsync(m.ctx, m.proj, work.ImportPRAsyncOptions{
+			PRURL:       prURL,
+			BranchName:  branchName,
+			RootIssueID: rootIssueID,
+		})
+		if err != nil {
+			return prImportCompleteMsg{err: fmt.Errorf("failed to schedule PR import: %w", err)}
+		}
+
+		// Ensure control plane is running to process the import task
+		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+			// Non-fatal: task was scheduled but control plane might need manual start
+			return prImportCompleteMsg{
+				workID:     result.WorkID,
+				prMetadata: metadata,
+				err:        fmt.Errorf("import scheduled but control plane failed: %w", err),
+			}
+		}
+
+		return prImportCompleteMsg{
+			workID:     result.WorkID,
+			prMetadata: metadata,
 		}
 	}
 }

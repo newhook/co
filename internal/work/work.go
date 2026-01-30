@@ -150,6 +150,7 @@ type CreateWorkAsyncOptions struct {
 	RootIssueID       string
 	Auto              bool
 	UseExistingBranch bool
+	BeadIDs           []string // Beads to add to the work (added immediately, not by control plane)
 }
 
 // CreateWorkAsyncWithOptions creates a work unit asynchronously with the given options.
@@ -189,6 +190,14 @@ func CreateWorkAsyncWithOptions(ctx context.Context, proj *project.Project, opts
 		return nil, fmt.Errorf("failed to create work record: %w", err)
 	}
 
+	// Add beads to work_beads (done immediately, not by control plane)
+	if len(opts.BeadIDs) > 0 {
+		if err := AddBeadsToWorkInternal(ctx, proj, workID, opts.BeadIDs); err != nil {
+			_ = proj.DB.DeleteWork(ctx, workID)
+			return nil, fmt.Errorf("failed to add beads to work: %w", err)
+		}
+	}
+
 	// Schedule the worktree creation task for the control plane
 	autoStr := "false"
 	if opts.Auto {
@@ -217,6 +226,72 @@ func CreateWorkAsyncWithOptions(ctx context.Context, proj *project.Project, opts
 		WorkerName:  workerName,
 		BranchName:  branchName,
 		BaseBranch:  baseBranch,
+		RootIssueID: opts.RootIssueID,
+	}, nil
+}
+
+// ImportPRAsyncOptions contains options for importing a PR asynchronously.
+type ImportPRAsyncOptions struct {
+	PRURL       string
+	BranchName  string
+	RootIssueID string
+}
+
+// ImportPRAsyncResult contains the result of scheduling a PR import.
+type ImportPRAsyncResult struct {
+	WorkID      string
+	WorkerName  string
+	BranchName  string
+	RootIssueID string
+}
+
+// ImportPRAsync imports a PR asynchronously by scheduling a control plane task.
+// This creates the work record and schedules the import task - the actual
+// worktree setup happens in the control plane.
+func ImportPRAsync(ctx context.Context, proj *project.Project, opts ImportPRAsyncOptions) (*ImportPRAsyncResult, error) {
+	baseBranch := proj.Config.Repo.GetBaseBranch()
+
+	// Generate work ID
+	workID, err := proj.DB.GenerateWorkID(ctx, opts.BranchName, proj.Config.Project.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate work ID: %w", err)
+	}
+
+	// Get a human-readable name for this worker
+	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
+	if err != nil {
+		workerName = "" // Non-fatal
+	}
+
+	// Create work record in DB (without worktree path - control plane will set it)
+	if err := proj.DB.CreateWork(ctx, workID, workerName, "", opts.BranchName, baseBranch, opts.RootIssueID, false); err != nil {
+		return nil, fmt.Errorf("failed to create work record: %w", err)
+	}
+
+	// Add root issue to work_beads immediately (before control plane runs)
+	if opts.RootIssueID != "" {
+		if err := AddBeadsToWorkInternal(ctx, proj, workID, []string{opts.RootIssueID}); err != nil {
+			_ = proj.DB.DeleteWork(ctx, workID)
+			return nil, fmt.Errorf("failed to add bead to work: %w", err)
+		}
+	}
+
+	// Schedule the PR import task for the control plane
+	err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeImportPR, time.Now(), map[string]string{
+		"pr_url":      opts.PRURL,
+		"branch":      opts.BranchName,
+		"worker_name": workerName,
+	}, fmt.Sprintf("import-pr-%s", workID), db.DefaultMaxAttempts)
+	if err != nil {
+		// Work record created but task scheduling failed - cleanup
+		_ = proj.DB.DeleteWork(ctx, workID)
+		return nil, fmt.Errorf("failed to schedule PR import: %w", err)
+	}
+
+	return &ImportPRAsyncResult{
+		WorkID:      workID,
+		WorkerName:  workerName,
+		BranchName:  opts.BranchName,
 		RootIssueID: opts.RootIssueID,
 	}, nil
 }

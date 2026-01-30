@@ -12,12 +12,8 @@ import (
 	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
-	"github.com/newhook/co/internal/mise"
-	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
-	cosignal "github.com/newhook/co/internal/signal"
 	"github.com/newhook/co/internal/work"
-	"github.com/newhook/co/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -214,7 +210,6 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 
 	mainRepoPath := proj.MainRepoPath()
 	gitOps := git.NewOperations()
-	wtOps := worktree.NewOperations()
 	beadID := args[0]
 
 	// Expand the bead (handles epics and transitive deps)
@@ -245,7 +240,6 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	// Determine branch name
 	var branchName string
 	var useExistingBranch bool
-	var branchExistsOnRemote bool
 
 	if flagFromBranch != "" {
 		// Use an existing branch
@@ -260,7 +254,6 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		if !existsLocal && !existsRemote {
 			return fmt.Errorf("branch %s does not exist locally or on remote", branchName)
 		}
-		branchExistsOnRemote = existsRemote
 	} else if flagBranchName != "" {
 		// Use provided branch name
 		branchName = flagBranchName
@@ -281,101 +274,25 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Generate work ID
-	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
+	// Create work asynchronously (control plane handles worktree creation, git push, orchestrator spawn)
+	result, err := work.CreateWorkAsyncWithOptions(ctx, proj, work.CreateWorkAsyncOptions{
+		BranchName:        branchName,
+		BaseBranch:        baseBranch,
+		RootIssueID:       beadID,
+		Auto:              flagAutoRun,
+		UseExistingBranch: useExistingBranch,
+		BeadIDs:           expandedIssueIDs,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to generate work ID: %w", err)
-	}
-	fmt.Printf("Work ID: %s\n", workID)
-
-	// Block signals during critical worktree creation
-	cosignal.BlockSignals()
-	defer cosignal.UnblockSignals()
-
-	// Create work subdirectory
-	workDir := filepath.Join(proj.Root, workID)
-	if err := os.Mkdir(workDir, 0755); err != nil {
-		return fmt.Errorf("failed to create work directory: %w", err)
+		return fmt.Errorf("failed to create work: %w", err)
 	}
 
-	// Create git worktree inside work directory
-	worktreePath := filepath.Join(workDir, "tree")
-
-	if useExistingBranch {
-		// For existing branches, fetch the branch first
-		if err := gitOps.FetchBranch(ctx, mainRepoPath, branchName); err != nil {
-			// Ignore fetch errors - branch might only exist locally
-			fmt.Printf("Note: Could not fetch branch %s from origin (may only exist locally)\n", branchName)
-		}
-
-		// Create worktree from existing branch
-		if err := wtOps.CreateFromExisting(ctx, mainRepoPath, worktreePath, branchName); err != nil {
-			os.RemoveAll(workDir)
-			return err
-		}
-
-		// Only push if branch doesn't exist on remote yet
-		if !branchExistsOnRemote {
-			if err := gitOps.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
-				_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-				os.RemoveAll(workDir)
-				return err
-			}
-		}
-	} else {
-		// Fetch latest from origin for the base branch
-		if err := gitOps.FetchBranch(ctx, mainRepoPath, baseBranch); err != nil {
-			os.RemoveAll(workDir)
-			return fmt.Errorf("failed to fetch base branch: %w", err)
-		}
-
-		// Create worktree with new branch based on origin/<baseBranch>
-		if err := wtOps.Create(ctx, mainRepoPath, worktreePath, branchName, "origin/"+baseBranch); err != nil {
-			os.RemoveAll(workDir)
-			return err
-		}
-
-		// Push branch and set upstream
-		if err := gitOps.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
-			_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-			os.RemoveAll(workDir)
-			return err
-		}
+	fmt.Printf("\nCreated work: %s\n", result.WorkID)
+	if result.WorkerName != "" {
+		fmt.Printf("Worker: %s\n", result.WorkerName)
 	}
-
-	// Initialize mise in worktree if needed
-	if err := mise.Initialize(worktreePath); err != nil {
-		fmt.Printf("Warning: mise initialization failed: %v\n", err)
-	}
-
-	// Get a human-readable name for this worker
-	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
-	if err != nil {
-		fmt.Printf("Warning: failed to get worker name: %v\n", err)
-	}
-
-	// Create work record in database with the root issue ID (the original bead that was expanded)
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, beadID, flagAutoRun); err != nil {
-		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to create work record: %w", err)
-	}
-
-	// Add beads to work_beads
-	if err := work.AddBeadsToWorkInternal(ctx, proj, workID, expandedIssueIDs); err != nil {
-		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-		os.RemoveAll(workDir)
-		return fmt.Errorf("failed to add beads to work: %w", err)
-	}
-
-	fmt.Printf("\nCreated work: %s\n", workID)
-	if workerName != "" {
-		fmt.Printf("Worker: %s\n", workerName)
-	}
-	fmt.Printf("Directory: %s\n", workDir)
-	fmt.Printf("Worktree: %s\n", worktreePath)
-	fmt.Printf("Branch: %s\n", branchName)
-	fmt.Printf("Base Branch: %s\n", baseBranch)
+	fmt.Printf("Branch: %s\n", result.BranchName)
+	fmt.Printf("Base Branch: %s\n", result.BaseBranch)
 
 	// Display beads
 	fmt.Printf("\nBeads (%d):\n", len(groupIssues))
@@ -392,45 +309,17 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		printSessionCreatedNotification(sessionResult.SessionName)
 	}
 
-	// If --auto, run the full automated workflow
-	if flagAutoRun {
-		fmt.Println("\nRunning automated workflow...")
-		result, err := work.RunWorkAuto(ctx, proj, workID, os.Stdout)
-		if err != nil {
-			return fmt.Errorf("failed to run automated workflow: %w", err)
-		}
-		if result.OrchestratorSpawned {
-			fmt.Println("Orchestrator spawned in zellij tab.")
-		}
-		// Ensure control plane is running (handles scheduled tasks like PR feedback polling)
-		// Note: InitializeSession spawns control plane for new sessions, but we call
-		// EnsureControlPlane for existing sessions that might have a dead control plane
-		if err := control.EnsureControlPlane(ctx, proj); err != nil {
-			fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
-		}
-		fmt.Println("Switch to the zellij session to monitor progress.")
-		return nil
-	}
-
-	// Spawn the orchestrator for this work
-	fmt.Println("\nSpawning orchestrator...")
-	if err := claude.SpawnWorkOrchestrator(ctx, workID, proj.Config.Project.Name, worktreePath, workerName, os.Stdout); err != nil {
-		fmt.Printf("Warning: failed to spawn orchestrator: %v\n", err)
-		fmt.Println("You can start it manually with: co run")
-	} else {
-		fmt.Println("Orchestrator is running in zellij tab.")
-	}
-
-	// Ensure control plane is running (handles scheduled tasks like PR feedback polling)
-	// Note: InitializeSession spawns control plane for new sessions, but we call
-	// EnsureControlPlane for existing sessions that might have a dead control plane
+	// Ensure control plane is running (handles worktree creation, orchestrator spawning, etc.)
 	if err := control.EnsureControlPlane(ctx, proj); err != nil {
 		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
 	}
 
-	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("  cd %s\n", workID)
-	fmt.Printf("  co run               # Execute tasks\n")
+	if flagAutoRun {
+		fmt.Println("\nAutomated workflow will start once the control plane creates the worktree.")
+	}
+
+	fmt.Printf("\nThe control plane will create the worktree and start the orchestrator.\n")
+	fmt.Printf("Switch to the zellij session to monitor progress.\n")
 
 	return nil
 }

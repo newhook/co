@@ -63,6 +63,7 @@ type planModel struct {
 	workDetails       *WorkDetailsPanel
 	workTabsBar       *WorkTabsBar
 	linearImportPanel *LinearImportPanel
+	prImportPanel     *PRImportPanel
 	beadFormPanel     *BeadFormPanel
 	createWorkPanel   *CreateWorkPanel
 
@@ -206,6 +207,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	m.workDetails = NewWorkDetailsPanel()
 	m.workTabsBar = NewWorkTabsBar()
 	m.linearImportPanel = NewLinearImportPanel()
+	m.prImportPanel = NewPRImportPanel()
 	m.beadFormPanel = NewBeadFormPanel()
 	m.createWorkPanel = NewCreateWorkPanel()
 
@@ -828,6 +830,30 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusIsError = false
 		return m, nil
 
+	case prImportPreviewMsg:
+		m.prImportPanel.SetPreviewing(false)
+		m.prImportPanel.SetPreviewResult(msg.metadata, msg.err)
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Preview failed: %v", msg.err)
+			m.statusIsError = true
+		} else {
+			m.statusMessage = fmt.Sprintf("PR #%d: %s", msg.metadata.Number, msg.metadata.Title)
+			m.statusIsError = false
+		}
+		return m, nil
+
+	case prImportCompleteMsg:
+		m.prImportPanel.SetImporting(false)
+		m.viewMode = ViewNormal
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("PR import failed: %v", msg.err)
+			m.statusIsError = true
+		} else {
+			m.statusMessage = fmt.Sprintf("Imported PR into work %s", msg.workID)
+			m.statusIsError = false
+		}
+		return m, tea.Batch(m.refreshData(), m.loadWorkTiles(), clearStatusAfter(7*time.Second))
+
 	case statusClearMsg:
 		m.statusMessage = ""
 		m.statusIsError = false
@@ -1074,6 +1100,33 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.viewMode = ViewNormal
 				m.linearImportPanel.SetImporting(true)
 				return m, m.importLinearIssue(result.IssueIDs)
+			}
+			return m, cmd
+		}
+
+		return m, cmd
+	case ViewPRImportInline:
+		// Delegate to PR import panel and handle returned action
+		cmd, action := m.prImportPanel.Update(msg)
+
+		switch action {
+		case PRImportActionCancel:
+			m.viewMode = ViewNormal
+			return m, cmd
+
+		case PRImportActionPreview:
+			result := m.prImportPanel.GetResult()
+			if result.PRURL != "" {
+				m.prImportPanel.SetPreviewing(true)
+				return m, m.previewPR(result.PRURL)
+			}
+			return m, cmd
+
+		case PRImportActionSubmit:
+			result := m.prImportPanel.GetResult()
+			if result.PRURL != "" {
+				m.prImportPanel.SetImporting(true)
+				return m, m.importPR(result.PRURL)
 			}
 			return m, cmd
 		}
@@ -1458,6 +1511,12 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.linearImportPanel.Reset()
 		return m, m.linearImportPanel.Init()
 
+	case "I":
+		// Import GitHub PR inline
+		m.viewMode = ViewPRImportInline
+		m.prImportPanel.Reset()
+		return m, m.prImportPanel.Init()
+
 	case "A":
 		// Add selected issue(s) to the focused work
 		if m.focusedWorkID == "" {
@@ -1607,6 +1666,11 @@ func (m *planModel) syncPanels() {
 	m.linearImportPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewLinearImportInline)
 	m.linearImportPanel.SetHoveredButton(m.hoveredDialogButton)
 
+	// Sync PR import panel
+	m.prImportPanel.SetSize(detailsWidth, m.height)
+	m.prImportPanel.SetFocus(m.activePanel == PanelRight && m.viewMode == ViewPRImportInline)
+	m.prImportPanel.SetHoveredButton(m.hoveredDialogButton)
+
 	// Sync bead form panel
 	m.beadFormPanel.SetSize(detailsWidth, m.height)
 	m.beadFormPanel.SetFocus(m.activePanel == PanelRight)
@@ -1639,6 +1703,9 @@ func (m *planModel) View() string {
 		return m.renderWithDialog(m.renderDestroyConfirmContent())
 	case ViewLinearImportInline:
 		// Inline import mode - render normal view with import form in details area
+		// Fall through to normal rendering
+	case ViewPRImportInline:
+		// Inline PR import mode - render normal view with import form in details area
 		// Fall through to normal rendering
 	case ViewHelp:
 		return m.renderHelp()

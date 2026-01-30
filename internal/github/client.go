@@ -18,6 +18,8 @@ import (
 type ClientInterface interface {
 	// GetPRStatus fetches comprehensive PR status information.
 	GetPRStatus(ctx context.Context, prURL string) (*PRStatus, error)
+	// GetPRMetadata fetches metadata for a PR suitable for import.
+	GetPRMetadata(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error)
 	// PostPRComment posts a comment on a PR issue.
 	PostPRComment(ctx context.Context, prURL string, body string) error
 	// PostReplyToComment posts a reply to a specific comment on a PR.
@@ -123,6 +125,26 @@ type Step struct {
 	Number     int    `json:"number"`
 }
 
+// PRMetadata contains comprehensive PR metadata for import operations.
+type PRMetadata struct {
+	Number      int       `json:"number"`
+	URL         string    `json:"url"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	State       string    `json:"state"`       // OPEN, CLOSED, MERGED
+	HeadRefName string    `json:"headRefName"` // Branch name
+	BaseRefName string    `json:"baseRefName"` // Target branch (e.g., main)
+	HeadRefOid  string    `json:"headRefOid"`  // Head commit SHA
+	Author      string    `json:"author"`
+	Labels      []string  `json:"labels"`
+	IsDraft     bool      `json:"isDraft"`
+	Merged      bool      `json:"merged"`
+	MergedAt    time.Time `json:"mergedAt,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	Repo        string    `json:"repo"` // owner/repo format
+}
+
 // GetPRStatus fetches comprehensive PR status information.
 func (c *Client) GetPRStatus(ctx context.Context, prURL string) (*PRStatus, error) {
 	logging.Info("fetching PR status", "prURL", prURL)
@@ -180,6 +202,112 @@ func (c *Client) GetPRStatus(ctx context.Context, prURL string) (*PRStatus, erro
 		"numWorkflows", len(status.Workflows))
 
 	return status, nil
+}
+
+// GetPRMetadata fetches comprehensive PR metadata for import operations.
+// prURLOrNumber can be a full PR URL or just the PR number.
+// If prURLOrNumber is a URL, repo is ignored.
+// If prURLOrNumber is a number, repo must be provided in owner/repo format.
+func (c *Client) GetPRMetadata(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error) {
+	logging.Info("fetching PR metadata", "prURLOrNumber", prURLOrNumber, "repo", repo)
+
+	var prNumber, repoName string
+	var err error
+
+	// Check if it's a URL or a number
+	if strings.HasPrefix(prURLOrNumber, "https://") || strings.HasPrefix(prURLOrNumber, "http://") {
+		prNumber, repoName, err = parsePRURL(prURLOrNumber)
+		if err != nil {
+			logging.Error("invalid PR URL", "error", err, "prURL", prURLOrNumber)
+			return nil, fmt.Errorf("invalid PR URL: %w", err)
+		}
+	} else {
+		// Assume it's a PR number
+		prNumber = prURLOrNumber
+		repoName = repo
+		if repoName == "" {
+			return nil, fmt.Errorf("repo must be provided when using PR number instead of URL")
+		}
+	}
+
+	logging.Debug("parsed PR reference", "prNumber", prNumber, "repo", repoName)
+
+	// Fetch PR metadata using gh CLI
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber,
+		"--repo", repoName,
+		"--json", "number,url,title,body,state,headRefName,baseRefName,headRefOid,author,labels,isDraft,mergedAt,createdAt,updatedAt")
+
+	output, err := cmd.Output()
+	if err != nil {
+		logging.Error("gh pr view failed", "error", err, "repo", repoName, "prNumber", prNumber)
+		return nil, fmt.Errorf("failed to fetch PR metadata: %w", err)
+	}
+
+	logging.Debug("gh pr view response", "output", string(output))
+
+	var prInfo struct {
+		Number      int    `json:"number"`
+		URL         string `json:"url"`
+		Title       string `json:"title"`
+		Body        string `json:"body"`
+		State       string `json:"state"`
+		HeadRefName string `json:"headRefName"`
+		BaseRefName string `json:"baseRefName"`
+		HeadRefOid  string `json:"headRefOid"`
+		Author      struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		Labels []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+		IsDraft   bool       `json:"isDraft"`
+		MergedAt  *time.Time `json:"mergedAt"`
+		CreatedAt time.Time  `json:"createdAt"`
+		UpdatedAt time.Time  `json:"updatedAt"`
+	}
+
+	if err := json.Unmarshal(output, &prInfo); err != nil {
+		logging.Error("failed to parse PR metadata", "error", err, "output", string(output))
+		return nil, fmt.Errorf("failed to parse PR metadata: %w", err)
+	}
+
+	metadata := &PRMetadata{
+		Number:      prInfo.Number,
+		URL:         prInfo.URL,
+		Title:       prInfo.Title,
+		Body:        prInfo.Body,
+		State:       prInfo.State,
+		HeadRefName: prInfo.HeadRefName,
+		BaseRefName: prInfo.BaseRefName,
+		HeadRefOid:  prInfo.HeadRefOid,
+		Author:      prInfo.Author.Login,
+		IsDraft:     prInfo.IsDraft,
+		CreatedAt:   prInfo.CreatedAt,
+		UpdatedAt:   prInfo.UpdatedAt,
+		Repo:        repoName,
+	}
+
+	// Extract label names
+	for _, label := range prInfo.Labels {
+		metadata.Labels = append(metadata.Labels, label.Name)
+	}
+
+	// Determine merged status
+	if prInfo.MergedAt != nil {
+		metadata.Merged = true
+		metadata.MergedAt = *prInfo.MergedAt
+	}
+
+	logging.Info("successfully fetched PR metadata",
+		"prNumber", metadata.Number,
+		"title", metadata.Title,
+		"state", metadata.State,
+		"branch", metadata.HeadRefName,
+		"baseBranch", metadata.BaseRefName,
+		"author", metadata.Author,
+		"labels", len(metadata.Labels))
+
+	return metadata, nil
 }
 
 // fetchPRInfo fetches basic PR information.
