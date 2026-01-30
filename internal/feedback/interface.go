@@ -28,5 +28,5 @@ func NewProcessor() Processor {
 
 // ProcessPRFeedback implements Processor.ProcessPRFeedback.
 func (p *DefaultProcessor) ProcessPRFeedback(ctx context.Context, proj *project.Project, database *db.DB, workID string) (int, error) {
-	return ProcessPRFeedbackQuiet(ctx, proj, database, workID)
+	return processPRFeedbackQuiet(ctx, proj, database, workID)
 }
