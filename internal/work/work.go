@@ -21,37 +21,9 @@ type AddBeadsToWorkResult struct {
 	BeadsAdded int
 }
 
-// AddBeadsToWorkInternal adds beads to work_beads table.
-// This is an internal helper without validation.
-//
-// Deprecated: Use WorkService.AddBeadsInternal instead. This wrapper exists for backward compatibility.
-func AddBeadsToWorkInternal(ctx context.Context, proj *project.Project, workID string, beadIDs []string) error {
-	svc := NewWorkService(proj)
-	return svc.AddBeadsInternal(ctx, workID, beadIDs)
-}
-
-// AddBeadsToWork adds beads to an existing work.
-// This is the core logic for adding beads that can be called from both the CLI and TUI.
-// Each bead is added as its own group (no grouping).
-//
-// Deprecated: Use WorkService.AddBeads instead. This wrapper exists for backward compatibility.
-func AddBeadsToWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) (*AddBeadsToWorkResult, error) {
-	svc := NewWorkService(proj)
-	return svc.AddBeads(ctx, workID, beadIDs)
-}
-
 // RemoveBeadsResult contains the result of removing beads from a work.
 type RemoveBeadsResult struct {
 	BeadsRemoved int
-}
-
-// RemoveBeadsFromWork removes beads from an existing work.
-// Beads that are already assigned to a task cannot be removed.
-//
-// Deprecated: Use WorkService.RemoveBeads instead. This wrapper exists for backward compatibility.
-func RemoveBeadsFromWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) (*RemoveBeadsResult, error) {
-	svc := NewWorkService(proj)
-	return svc.RemoveBeads(ctx, workID, beadIDs)
 }
 
 // CreateWorkAsyncResult contains the result of creating a work unit asynchronously.
@@ -63,18 +35,6 @@ type CreateWorkAsyncResult struct {
 	RootIssueID string
 }
 
-// CreateWorkAsync creates a work unit asynchronously by scheduling tasks.
-// This is the async work creation for the control plane architecture:
-// 1. Creates work record in DB (without worktree path)
-// 2. Schedules TaskTypeCreateWorktree task for the control plane
-// The control plane will handle worktree creation, git push, and orchestrator spawning.
-//
-// Deprecated: Use WorkService.CreateWorkAsync instead. This wrapper exists for backward compatibility.
-func CreateWorkAsync(ctx context.Context, proj *project.Project, branchName, baseBranch, rootIssueID string, auto bool) (*CreateWorkAsyncResult, error) {
-	svc := NewWorkService(proj)
-	return svc.CreateWorkAsync(ctx, branchName, baseBranch, rootIssueID, auto)
-}
-
 // CreateWorkAsyncOptions contains options for creating a work unit asynchronously.
 type CreateWorkAsyncOptions struct {
 	BranchName        string
@@ -83,15 +43,6 @@ type CreateWorkAsyncOptions struct {
 	Auto              bool
 	UseExistingBranch bool
 	BeadIDs           []string // Beads to add to the work (added immediately, not by control plane)
-}
-
-// CreateWorkAsyncWithOptions creates a work unit asynchronously with the given options.
-// This is similar to CreateWorkAsync but supports additional options like using an existing branch.
-//
-// Deprecated: Use WorkService.CreateWorkAsyncWithOptions instead. This wrapper exists for backward compatibility.
-func CreateWorkAsyncWithOptions(ctx context.Context, proj *project.Project, opts CreateWorkAsyncOptions) (*CreateWorkAsyncResult, error) {
-	svc := NewWorkService(proj)
-	return svc.CreateWorkAsyncWithOptions(ctx, opts)
 }
 
 // ImportPRAsyncOptions contains options for importing a PR asynchronously.
@@ -134,7 +85,7 @@ func ImportPRAsync(ctx context.Context, proj *project.Project, opts ImportPRAsyn
 
 	// Add root issue to work_beads immediately (before control plane runs)
 	if opts.RootIssueID != "" {
-		if err := AddBeadsToWorkInternal(ctx, proj, workID, []string{opts.RootIssueID}); err != nil {
+		if err := proj.DB.AddWorkBeads(ctx, workID, []string{opts.RootIssueID}); err != nil {
 			_ = proj.DB.DeleteWork(ctx, workID)
 			return nil, fmt.Errorf("failed to add bead to work: %w", err)
 		}
