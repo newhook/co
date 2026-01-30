@@ -29,27 +29,6 @@ type watcherEventMsg beadswatcher.WatcherEvent
 // trackingWatcherEventMsg wraps tracking watcher events for tea.Msg
 type trackingWatcherEventMsg trackingwatcher.WatcherEvent
 
-// ButtonRegion represents a clickable button's position in the terminal.
-// This struct is used to track the exact screen coordinates of interactive
-// buttons during rendering, enabling accurate mouse click detection.
-//
-// The tracking lifecycle works as follows:
-// 1. Button regions are cleared at the start of each render cycle (m.dialogButtons = nil)
-// 2. During rendering, button positions are calculated and stored as they're drawn
-// 3. Mouse events check against these stored positions to determine which button was clicked
-// 4. Positions are relative to the panel/dialog content area, not absolute screen coordinates
-//
-// This approach ensures button detection remains accurate even when:
-// - Terminal size changes
-// - Content scrolls
-// - Button text changes (e.g., selected state adds "► " prefix)
-type ButtonRegion struct {
-	ID     string // Button identifier (e.g., "execute", "auto", "cancel")
-	Y      int    // Y coordinate (row) relative to the content area
-	StartX int    // Starting X coordinate (column) inclusive
-	EndX   int    // Ending X coordinate (column) inclusive
-}
-
 // planModel is the Plan Mode model focused on issue/bead management
 type planModel struct {
 	ctx         context.Context
@@ -119,14 +98,6 @@ type planModel struct {
 	hoveredWorkItem     int       // index of hovered work detail item, -1 if none
 	hoveredDialogButton string    // which dialog button is hovered ("ok", "cancel")
 	hoveredTabID        string    // which work tab is hovered
-
-	// Button position tracking for robust click detection
-	// This slice stores the positions of all clickable buttons in the current dialog.
-	// It is cleared at the start of each render cycle to ensure accuracy, then
-	// populated during rendering as buttons are drawn to the screen. Mouse click
-	// detection uses these stored positions to determine which button was clicked.
-	// See ButtonRegion struct for details on the tracking lifecycle.
-	dialogButtons []ButtonRegion // Tracked button positions for current dialog
 
 	// Database watcher for cache invalidation
 	beadsWatcher    *beadswatcher.Watcher
@@ -366,7 +337,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check if hovering over tabs bar
 			if tabsBarHeight > 0 && msg.Y < tabsBarHeight {
-				m.hoveredTabID = m.workTabsBar.DetectHoveredTab(msg.X)
+				m.hoveredTabID = m.workTabsBar.DetectHoveredTab(msg)
 				m.workTabsBar.SetHoveredTabID(m.hoveredTabID)
 				m.hoveredButton = ""
 				m.hoveredIssue = -1
@@ -380,35 +351,31 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workTabsBar.SetHoveredTabID("")
 
 			if msg.Y == statusBarY {
-				m.hoveredButton = m.detectCommandsBarButton(msg.X)
+				m.hoveredButton = m.detectCommandsBarButton(msg)
 				m.hoveredIssue = -1
 				m.hoveredWorkItem = -1
 				m.hoveredDialogButton = ""
 			} else {
 				m.hoveredButton = ""
 				// Detect hover over dialog buttons if in form mode
-				m.hoveredDialogButton = m.detectDialogButton(msg.X, msg.Y)
+				m.hoveredDialogButton = m.detectDialogButton(msg)
 				if m.hoveredDialogButton != "" {
 					m.hoveredIssue = -1
 					m.hoveredWorkItem = -1
 				} else if m.focusedWorkID != "" {
 					// Focused work mode: work details panel at top, issues panel at bottom
-					// Account for tabs bar at the top
-					workPanelHeight := m.calculateWorkPanelHeightForEvents() + 2 // +2 for border
-					workPanelEndY := tabsBarHeight + workPanelHeight
-					if msg.Y < workPanelEndY {
-						// Mouse is in work details area - adjust Y for tabs bar
+					// Mouse could be in work details or issues - detect with bubblezone
+					m.hoveredWorkItem = m.workDetails.DetectHoveredItem(msg)
+					if m.hoveredWorkItem >= 0 {
 						m.hoveredIssue = -1
-						m.hoveredWorkItem = m.workDetails.DetectHoveredItem(msg.X, msg.Y-tabsBarHeight)
 					} else {
-						// Mouse is in issues area - detect issues with offset
-						m.hoveredWorkItem = -1
-						m.hoveredIssue = m.detectHoveredIssueWithOffset(msg.Y, workPanelEndY)
+						// Check issues panel
+						m.hoveredIssue = m.detectHoveredIssueWithOffset(msg)
 					}
 				} else {
 					// Normal mode - detect hover over issue lines
 					m.hoveredWorkItem = -1
-					m.hoveredIssue = m.detectHoveredIssue(msg.Y)
+					m.hoveredIssue = m.detectHoveredIssue(msg)
 				}
 			}
 			return m, nil
@@ -428,7 +395,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Set focus to work tabs panel when clicking on it
 				m.activePanel = PanelWorkTabs
 
-				clickedWorkID := m.workTabsBar.HandleClick(msg.X)
+				clickedWorkID := m.workTabsBar.HandleClick(msg)
 				if clickedWorkID != "" {
 					// Focus the clicked work
 					if m.focusedWorkID == clickedWorkID {
@@ -464,7 +431,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if msg.Y == statusBarY {
-				clickedButton := m.detectCommandsBarButton(msg.X)
+				clickedButton := m.detectCommandsBarButton(msg)
 				// Trigger the corresponding action by simulating a key press
 				switch clickedButton {
 				case "n":
@@ -484,7 +451,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			} else {
 				// Check if clicking on dialog buttons
-				clickedDialogButton := m.detectDialogButton(msg.X, msg.Y)
+				clickedDialogButton := m.detectDialogButton(msg)
 				if clickedDialogButton == "ok" {
 					// Handle different dialog types
 					if m.viewMode == ViewLinearImportInline {
@@ -556,12 +523,11 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Handle panel clicking in focused work mode
 				if m.focusedWorkID != "" {
-					clickedPanel := m.detectClickedPanel(msg.X, msg.Y)
+					clickedPanel := m.detectClickedPanel(msg)
 					switch clickedPanel {
 					case "work-left":
-						// Check if clicking on a task or root issue
-						// Adjust Y for tabs bar (same as hover detection)
-						clickedItem := m.workDetails.DetectClickedItem(msg.X, msg.Y-tabsBarHeight)
+						// Check if clicking on a task or root issue using bubblezone
+						clickedItem := m.workDetails.DetectClickedItem(msg)
 						if clickedItem >= 0 {
 							m.workDetails.SetSelectedIndex(clickedItem)
 							m.activePanel = PanelWorkDetails
@@ -575,7 +541,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					case "issues-left":
 						// Check if clicking on an issue
-						clickedIssue := m.detectHoveredIssue(msg.Y)
+						clickedIssue := m.detectHoveredIssue(msg)
 						if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
 							m.beadsCursor = clickedIssue
 						}
@@ -587,7 +553,7 @@ func (m *planModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				} else {
 					// Normal mode - just check for issue clicks
-					clickedIssue := m.detectHoveredIssue(msg.Y)
+					clickedIssue := m.detectHoveredIssue(msg)
 					if clickedIssue >= 0 && clickedIssue < len(m.beadItems) {
 						m.beadsCursor = clickedIssue
 						m.activePanel = PanelLeft

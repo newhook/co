@@ -5,8 +5,10 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	zone "github.com/lrstanley/bubblezone"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/progress"
 )
@@ -27,6 +29,9 @@ type WorkOverviewPanel struct {
 	selectedIndex       int  // 0 = root issue, 1+ = tasks, N+ = unassigned beads
 	hoveredIndex        int  // -1 = none, 0 = root issue, 1+ = tasks/unassigned beads
 	orchestratorHealthy bool // Whether the orchestrator process is running
+
+	// Zone prefix for unique zone IDs
+	zonePrefix string
 }
 
 // NewWorkOverviewPanel creates a new WorkOverviewPanel
@@ -35,6 +40,7 @@ func NewWorkOverviewPanel() *WorkOverviewPanel {
 		width:        40,
 		height:       20,
 		hoveredIndex: -1, // No item hovered initially
+		zonePrefix:   zone.NewPrefix(),
 	}
 }
 
@@ -356,21 +362,29 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 	// Layout: index 0 = root issue, 1..n = tasks, n+1..m = unassigned beads
 	tasksEndIdx := 1 + len(p.focusedWork.Tasks)
 	for i := startIdx; i < endIdx; i++ {
+		var itemLine string
+		var zoneID string
 		if i == 0 {
 			// Root issue
-			p.renderRootIssueLine(&content, contentWidth)
+			itemLine = p.renderRootIssueLine(contentWidth)
+			zoneID = p.zonePrefix + "root"
 		} else if i < tasksEndIdx {
 			// Task (index i-1 in tasks array)
 			taskIdx := i - 1
 			if taskIdx < len(p.focusedWork.Tasks) {
-				p.renderTaskLine(&content, taskIdx, contentWidth)
+				itemLine = p.renderTaskLine(taskIdx, contentWidth)
+				zoneID = p.zonePrefix + "task-" + p.focusedWork.Tasks[taskIdx].Task.ID
 			}
 		} else {
 			// Unassigned bead (index i - tasksEndIdx in unassignedBeads array)
 			unassignedIdx := i - tasksEndIdx
 			if unassignedIdx < len(p.focusedWork.UnassignedBeads) {
-				p.renderUnassignedBeadLine(&content, unassignedIdx, contentWidth)
+				itemLine = p.renderUnassignedBeadLine(unassignedIdx, contentWidth)
+				zoneID = p.zonePrefix + "bead-" + p.focusedWork.UnassignedBeads[unassignedIdx].ID
 			}
+		}
+		if zoneID != "" && itemLine != "" {
+			content.WriteString(zone.Mark(zoneID, itemLine))
 		}
 	}
 
@@ -383,8 +397,9 @@ func (p *WorkOverviewPanel) Render(panelHeight, panelWidth int) string {
 	return content.String()
 }
 
-// renderRootIssueLine renders the root issue line
-func (p *WorkOverviewPanel) renderRootIssueLine(content *strings.Builder, panelWidth int) {
+// renderRootIssueLine renders the root issue line and returns it
+func (p *WorkOverviewPanel) renderRootIssueLine(panelWidth int) string {
+	var content strings.Builder
 	isSelected := p.selectedIndex == 0
 	isHovered := p.hoveredIndex == 0
 
@@ -437,10 +452,12 @@ func (p *WorkOverviewPanel) renderRootIssueLine(content *strings.Builder, panelW
 		content.WriteString(tuiDimStyle.Render(textPortion))
 	}
 	content.WriteString("\n")
+	return content.String()
 }
 
-// renderTaskLine renders a task line
-func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int, _ int) {
+// renderTaskLine renders a task line and returns it
+func (p *WorkOverviewPanel) renderTaskLine(taskIdx int, _ int) string {
+	var content strings.Builder
 	task := p.focusedWork.Tasks[taskIdx]
 	itemIndex := taskIdx + 1 // +1 because 0 is root issue
 
@@ -506,14 +523,16 @@ func (p *WorkOverviewPanel) renderTaskLine(content *strings.Builder, taskIdx int
 		content.WriteString(tuiDimStyle.Render(fmt.Sprintf("%s [%s]", task.Task.ID, taskType)))
 	}
 	content.WriteString("\n")
+	return content.String()
 }
 
-// renderUnassignedBeadLine renders an unassigned bead line
-func (p *WorkOverviewPanel) renderUnassignedBeadLine(content *strings.Builder, beadIdx, panelWidth int) {
+// renderUnassignedBeadLine renders an unassigned bead line and returns it
+func (p *WorkOverviewPanel) renderUnassignedBeadLine(beadIdx, panelWidth int) string {
 	if beadIdx >= len(p.focusedWork.UnassignedBeads) {
-		return
+		return ""
 	}
 
+	var content strings.Builder
 	bead := p.focusedWork.UnassignedBeads[beadIdx]
 	tasksEndIdx := 1 + len(p.focusedWork.Tasks)
 	itemIdx := tasksEndIdx + beadIdx
@@ -551,77 +570,41 @@ func (p *WorkOverviewPanel) renderUnassignedBeadLine(content *strings.Builder, b
 		content.WriteString(tuiDimStyle.Render(textPortion))
 	}
 	content.WriteString("\n")
+	return content.String()
 }
 
-// DetectClickedItem determines which item was clicked and returns its index
-func (p *WorkOverviewPanel) DetectClickedItem(x, y, totalPanelHeight int) int {
+// DetectClickedItem determines which item was clicked using bubblezone and returns its index
+func (p *WorkOverviewPanel) DetectClickedItem(msg tea.MouseMsg) int {
 	if p.focusedWork == nil {
 		return -1
 	}
 
-	// Check if click is within left panel bounds (where items are displayed)
-	if x > p.width+2 {
-		return -1
+	// Check root issue zone
+	if zone.Get(p.zonePrefix + "root").InBounds(msg) {
+		return 0
 	}
 
-	// Check if y is within panel height
-	if y >= totalPanelHeight {
-		return -1
-	}
-
-	// Calculate header lines - this matches Render logic
-	// Header: work header (1) + branch (1) + progress (1) + separator (1) = 4
-	// Plus orchestrator line (1) if work is processing or has active tasks
-	headerLines := 4
-	hasActiveTask := false
-	for _, task := range p.focusedWork.Tasks {
-		if task.Task.Status == db.StatusProcessing {
-			hasActiveTask = true
-			break
+	// Check task zones
+	for i, task := range p.focusedWork.Tasks {
+		if zone.Get(p.zonePrefix + "task-" + task.Task.ID).InBounds(msg) {
+			return i + 1 // +1 because 0 is root issue
 		}
 	}
-	if p.focusedWork.Work.Status == db.StatusProcessing || hasActiveTask {
-		headerLines = 5
-	}
 
-	// Layout in work panel:
-	// Y=0: Top border
-	// Y=1: Panel title "Work"
-	// Y=2+: Header lines (work header, branch, progress, [orchestrator], separator)
-	// Y=2+headerLines: First item
-	firstItemY := 2 + headerLines
-
-	// Calculate available lines (same logic as Render)
-	contentHeight := totalPanelHeight - 2 // excludes border
-	availableContentLines := max(contentHeight-3, 1)
-	availableLines := max(availableContentLines-headerLines, 1)
-
-	if y < firstItemY || y >= firstItemY+availableLines {
-		return -1
-	}
-
-	// Total items: root issue + tasks + unassigned beads
-	totalItems := 1 + len(p.focusedWork.Tasks) + len(p.focusedWork.UnassignedBeads)
-
-	// Calculate scroll window (same as Render)
-	startIdx := 0
-	if p.selectedIndex >= availableLines && availableLines > 0 {
-		startIdx = max(0, p.selectedIndex-availableLines/2)
-	}
-
-	lineIndex := y - firstItemY
-	itemIndex := startIdx + lineIndex
-
-	if itemIndex >= 0 && itemIndex < totalItems {
-		return itemIndex
+	// Check unassigned bead zones
+	tasksEndIdx := 1 + len(p.focusedWork.Tasks)
+	for i, bead := range p.focusedWork.UnassignedBeads {
+		if zone.Get(p.zonePrefix + "bead-" + bead.ID).InBounds(msg) {
+			return tasksEndIdx + i
+		}
 	}
 
 	return -1
 }
 
-// DetectHoveredItem determines which item is at the given Y position for hover detection.
+// DetectHoveredItem determines which item is at the mouse position for hover detection.
 // Returns the absolute index (0 = root, 1+ = tasks, N+ = unassigned beads), or -1 if not over an item.
-func (p *WorkOverviewPanel) DetectHoveredItem(x, y, totalPanelHeight int) int {
+func (p *WorkOverviewPanel) DetectHoveredItem(msg tea.MouseMsg) int {
 	// Reuse click detection logic since hover uses the same boundaries
-	return p.DetectClickedItem(x, y, totalPanelHeight)
+	return p.DetectClickedItem(msg)
 }

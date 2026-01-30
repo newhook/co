@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/newhook/co/internal/logging"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 // renderFocusedWorkSplitView renders the split view when a work is focused
@@ -98,81 +98,16 @@ func (m *planModel) renderTwoColumnLayout() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, rightPanel)
 }
 
-// detectCommandsBarButton determines which button is at the given X position in the commands bar
-func (m *planModel) detectCommandsBarButton(x int) string {
+// detectCommandsBarButton determines which button is at the mouse position in the commands bar
+func (m *planModel) detectCommandsBarButton(msg tea.MouseMsg) string {
 	// Delegate to the status bar panel
-	return m.statusBar.DetectButton(x)
+	return m.statusBar.DetectButton(msg)
 }
 
-// detectHoveredIssue determines which issue is at the given Y position
+// detectHoveredIssue determines which issue is at the mouse position using bubblezone
 // Returns the absolute index in m.beadItems, or -1 if not over an issue
-func (m *planModel) detectHoveredIssue(y int) int {
-	// Check if mouse X is within the issues panel
-	// Calculate column widths (same as renderTwoColumnLayout)
-	totalContentWidth := m.width - 4 // -4 for outer margins
-	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
-
-	// Check if mouse is in the issues panel (left side)
-	// Be generous with the boundary - include the entire panel width plus some margin
-	maxIssueX := issuesWidth + 2 // Include panel width and padding
-	if m.mouseX > maxIssueX {
-		return -1
-	}
-
-	// Account for tabs bar at the top
-	tabsBarHeight := m.workTabsBar.Height()
-
-	// Calculate the Y offset for the issues panel based on focused work mode
-	issuesPanelStartY := tabsBarHeight
-	var contentHeight int
-	if m.focusedWorkID != "" {
-		// In focused work mode, the issues panel is below the work panel
-		// Use calculateWorkPanelHeightForEvents since this is event handling (original m.height)
-		totalHeight := m.height - 1 - tabsBarHeight              // -1 for status bar, - tabs bar
-		workPanelHeight := m.calculateWorkPanelHeightForEvents() + 2 // +2 for border
-		issuesPanelStartY = tabsBarHeight + workPanelHeight
-		contentHeight = totalHeight - workPanelHeight
-	} else {
-		contentHeight = m.height - 1 - tabsBarHeight // -1 for status bar
-	}
-
-	// Layout within panel content:
-	// Y=issuesPanelStartY+0: Top border
-	// Y=issuesPanelStartY+1: "Issues" title
-	// Y=issuesPanelStartY+2: filter info line
-	// Y=issuesPanelStartY+3: first visible issue
-	// Y=issuesPanelStartY+4: second visible issue, etc.
-
-	// First issue line starts at issuesPanelStartY + 3
-	firstIssueY := issuesPanelStartY + 3
-
-	if y < firstIssueY {
-		return -1 // Not over an issue
-	}
-
-	if len(m.beadItems) == 0 {
-		return -1
-	}
-
-	// Calculate visible window (same logic as renderIssuesList)
-	issuesContentLines := contentHeight - 3      // -3 for border (2) + title (1)
-	visibleItems := max(issuesContentLines-1, 1) // -1 for filter line
-
-	start := 0
-	if m.beadsCursor >= visibleItems {
-		start = m.beadsCursor - visibleItems + 1
-	}
-	end := min(start+visibleItems, len(m.beadItems))
-
-	// Calculate which issue line was clicked
-	lineIndex := y - firstIssueY
-	absoluteIndex := start + lineIndex
-
-	if absoluteIndex >= 0 && absoluteIndex < end && absoluteIndex < len(m.beadItems) {
-		return absoluteIndex
-	}
-
-	return -1
+func (m *planModel) detectHoveredIssue(msg tea.MouseMsg) int {
+	return m.issuesPanel.DetectHoveredIssue(msg)
 }
 
 // calculateWorkPanelHeight returns the height of the work details panel content.
@@ -209,62 +144,19 @@ func (m *planModel) calculateWorkPanelHeightForEvents() int {
 }
 
 // detectHoveredIssueWithOffset detects issue hover when content is offset by work panel
-func (m *planModel) detectHoveredIssueWithOffset(y int, offsetHeight int) int {
-	// Check if mouse X is within the issues panel
-	totalContentWidth := m.width - 4
-	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
-
-	maxIssueX := issuesWidth + 2
-	if m.mouseX > maxIssueX {
-		return -1
-	}
-
-	// Calculate the adjusted Y position relative to the content below work panel
-	// The content starts at offsetHeight
-	adjustedY := y - offsetHeight
-
-	// Layout within panel content (same as detectHoveredIssue):
-	// Y=0: Top border
-	// Y=1: "Issues" title
-	// Y=2: filter info line
-	// Y=3: first visible issue
-	const firstIssueY = 3
-
-	if adjustedY < firstIssueY {
-		return -1
-	}
-
-	if len(m.beadItems) == 0 {
-		return -1
-	}
-
-	// Calculate content height (reduced by work panel)
-	contentHeight := m.height - offsetHeight - 1 // -1 for status bar
-	issuesContentLines := contentHeight - 3
-	visibleItems := max(issuesContentLines-1, 1)
-
-	start := 0
-	if m.beadsCursor >= visibleItems {
-		start = m.beadsCursor - visibleItems + 1
-	}
-	end := min(start+visibleItems, len(m.beadItems))
-
-	lineIndex := adjustedY - firstIssueY
-	absoluteIndex := start + lineIndex
-
-	if absoluteIndex >= 0 && absoluteIndex < end && absoluteIndex < len(m.beadItems) {
-		return absoluteIndex
-	}
-
-	return -1
+// With bubblezone, this is the same as detectHoveredIssue since zones handle coordinates
+func (m *planModel) detectHoveredIssueWithOffset(msg tea.MouseMsg) int {
+	return m.issuesPanel.DetectHoveredIssue(msg)
 }
 
 // detectClickedPanel determines which panel was clicked in the focused work view
 // Returns "work-left", "work-right", "issues-left", "issues-right", or "" if not in a panel
-func (m *planModel) detectClickedPanel(x, y int) string {
+func (m *planModel) detectClickedPanel(msg tea.MouseMsg) string {
 	if m.focusedWorkID == "" {
 		return ""
 	}
+
+	x, y := msg.X, msg.Y
 
 	// Calculate panel boundaries using calculateWorkPanelHeightForEvents (event handling context)
 	tabsBarHeight := m.workTabsBar.Height()
@@ -302,159 +194,24 @@ func (m *planModel) detectClickedPanel(x, y int) string {
 	return ""
 }
 
-// detectDialogButton determines which dialog button is at the given position.
-// This is the mouse click detection component of the button tracking system.
-//
-// For ViewCreateWork mode, it uses the button positions tracked during rendering:
-// 1. Calculates the mouse position relative to the details panel content area
-// 2. Iterates through m.dialogButtons to find a matching region
-// 3. Checks if the click coordinates fall within any button's boundaries
-// 4. Returns the button ID if found, or "" if no button matches
-//
-// For other dialog modes, it calculates button positions based on the form structure.
-// Returns "ok", "cancel", "execute", "auto", or "" if not over a button.
-func (m *planModel) detectDialogButton(x, y int) string {
-	// Dialog buttons only visible in form modes, Linear import mode, and work creation mode
+// detectDialogButton determines which dialog button is at the mouse position using bubblezone.
+// Returns "ok", "cancel", "execute", "auto", "import", or "" if not over a button.
+func (m *planModel) detectDialogButton(msg tea.MouseMsg) string {
+	// Dialog buttons only visible in form modes, Linear import mode, PR import mode, and work creation mode
 	if m.viewMode != ViewCreateBead && m.viewMode != ViewCreateBeadInline &&
 		m.viewMode != ViewAddChildBead && m.viewMode != ViewEditBead &&
-		m.viewMode != ViewLinearImportInline && m.viewMode != ViewCreateWork {
+		m.viewMode != ViewLinearImportInline && m.viewMode != ViewPRImportInline && m.viewMode != ViewCreateWork {
 		return ""
 	}
 
-	// Calculate the details panel boundaries
-	totalContentWidth := m.width - 4
-	issuesWidth := int(float64(totalContentWidth) * m.columnRatio)
-
-	// Details panel starts after issues panel
-	detailsPanelStart := issuesWidth + 2 // +2 for left margin
-
-	// Check if mouse is in the details panel
-	if x < detailsPanelStart {
-		return ""
+	// Check zones for each possible button
+	buttons := []string{"ok", "cancel", "execute", "auto", "import"}
+	for _, btn := range buttons {
+		if zone.Get("dialog-" + btn).InBounds(msg) {
+			return btn
+		}
 	}
-
-	// Calculate the Y offset for the details panel based on tabs bar and focused work mode
-	tabsBarHeight := m.workTabsBar.Height()
-	detailsPanelStartY := tabsBarHeight
-	if m.focusedWorkID != "" {
-		// In focused work mode, the details panel is below the work panel
-		// Use calculateWorkPanelHeightForEvents since this is event handling (original m.height)
-		workPanelHeight := m.calculateWorkPanelHeightForEvents() + 2 // +2 for border
-		detailsPanelStartY = tabsBarHeight + workPanelHeight
-	}
-
-	// Handle ViewCreateWork using tracked button positions from the CreateWorkPanel
-	if m.viewMode == ViewCreateWork {
-		// Use the button positions tracked during rendering.
-		// This is the core of the mouse click detection system for dialog buttons.
-		// The positions stored are relative to the details panel content area,
-		// so we need to translate the absolute mouse coordinates.
-		buttonAreaX := x - detailsPanelStart
-
-		// Get button positions from the CreateWorkPanel
-		dialogButtons := m.createWorkPanel.GetDialogButtons()
-
-		// Check each tracked button region to see if the click falls within it
-		for _, button := range dialogButtons {
-			// The Y position stored in button.Y is the line number within the content area.
-			// The content starts at row 2 of the details panel (after border and title).
-			// Add detailsPanelStartY to account for tabs bar and work panel (if focused).
-			absoluteY := detailsPanelStartY + button.Y + 2
-
-			// Check if the mouse click coordinates match this button's region.
-			// StartX and EndX are inclusive boundaries.
-			if y == absoluteY && buttonAreaX >= button.StartX && buttonAreaX <= button.EndX {
-				return button.ID
-			}
-		}
-		return ""
-	} else if m.viewMode == ViewLinearImportInline {
-		// The Linear import form structure:
-		// - Header line "Import from Linear (Bulk)"
-		// - Blank line
-		// - Issue IDs label
-		// - Textarea (height 4)
-		// - Blank line
-		// - Create Dependencies checkbox
-		// - Update Existing checkbox
-		// - Dry Run checkbox
-		// - Blank line
-		// - Max Depth line
-		// - Blank line
-		// - Button row
-		formStartY := 2
-		linesBeforeButtons := 1 // header
-		linesBeforeButtons += 1 // blank line
-		linesBeforeButtons += 1 // issue IDs label
-		linesBeforeButtons += 4 // textarea (height 4)
-		linesBeforeButtons += 1 // blank line
-		linesBeforeButtons += 1 // create deps checkbox
-		linesBeforeButtons += 1 // update checkbox
-		linesBeforeButtons += 1 // dry run checkbox
-		linesBeforeButtons += 1 // blank line
-		linesBeforeButtons += 1 // max depth
-		linesBeforeButtons += 1 // blank line
-		// Add detailsPanelStartY to account for tabs bar and work panel (if focused)
-		buttonRowY := detailsPanelStartY + formStartY + linesBeforeButtons
-
-		if y != buttonRowY {
-			return ""
-		}
-
-		// Check X position for buttons
-		// "  Ok  " (6 chars) + "  " (2 chars) + "Cancel" (6 chars)
-		buttonAreaX := x - detailsPanelStart - 2 // -2 for panel border and padding
-
-		if buttonAreaX >= 0 && buttonAreaX < 6 {
-			return "ok"
-		}
-		if buttonAreaX >= 8 && buttonAreaX < 14 {
-			return "cancel"
-		}
-		return ""
-	} else {
-		// Use tracked button positions from BeadFormPanel
-		// This handles dynamic textarea height correctly
-		dialogButtons := m.beadFormPanel.GetDialogButtons()
-
-		// Calculate X position relative to panel content area
-		buttonAreaX := x - detailsPanelStart - 2 // -2 for panel border and padding
-
-		// Debug logging
-		logging.Debug("detectDialogButton bead form",
-			"x", x, "y", y,
-			"detailsPanelStart", detailsPanelStart,
-			"detailsPanelStartY", detailsPanelStartY,
-			"buttonAreaX", buttonAreaX,
-			"tabsBarHeight", tabsBarHeight,
-			"focusedWorkID", m.focusedWorkID,
-			"m.height", m.height,
-			"numButtons", len(dialogButtons))
-
-		// Check each tracked button region
-		for _, button := range dialogButtons {
-			// The Y position stored in button.Y is the line number within the content area.
-			// The content starts at row 2 of the details panel (after border and title).
-			// Add detailsPanelStartY to account for tabs bar and work panel (if focused).
-			absoluteY := detailsPanelStartY + button.Y + 2
-
-			logging.Debug("detectDialogButton checking button",
-				"buttonID", button.ID,
-				"button.Y", button.Y,
-				"absoluteY", absoluteY,
-				"y", y,
-				"button.StartX", button.StartX,
-				"button.EndX", button.EndX,
-				"buttonAreaX", buttonAreaX,
-				"yMatch", y == absoluteY,
-				"xMatch", buttonAreaX >= button.StartX && buttonAreaX <= button.EndX)
-
-			if y == absoluteY && buttonAreaX >= button.StartX && buttonAreaX <= button.EndX {
-				return button.ID
-			}
-		}
-		return ""
-	}
+	return ""
 }
 
 func (m *planModel) renderWithDialog(dialog string) string {

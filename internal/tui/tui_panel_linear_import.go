@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 // LinearImportAction represents an action result from the panel
@@ -325,7 +326,7 @@ func (p *LinearImportPanel) Render() string {
 		cancelLabel = styleButtonWithHover("Cancel", p.hoveredButton == "cancel")
 	}
 
-	content.WriteString(okLabel + "  " + cancelLabel + focusHint)
+	content.WriteString(zone.Mark("dialog-ok", okLabel) + "  " + zone.Mark("dialog-cancel", cancelLabel) + focusHint)
 	content.WriteString("\n")
 
 	if p.importing {

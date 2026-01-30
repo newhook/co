@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 // StatusBarContext indicates which panel the status bar should show commands for
@@ -38,6 +39,9 @@ type StatusBar struct {
 	// Mouse state
 	hoveredButton string
 
+	// Zone prefix for unique zone IDs
+	zonePrefix string
+
 	// Data providers (set by coordinator)
 	getBeadItems            func() []beadItem
 	getBeadsCursor          func() int
@@ -54,8 +58,9 @@ func NewStatusBar() *StatusBar {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 
 	return &StatusBar{
-		width:   80,
-		spinner: s,
+		width:      80,
+		spinner:    s,
+		zonePrefix: zone.NewPrefix(),
 	}
 }
 
@@ -224,16 +229,16 @@ func (s *StatusBar) renderIssuesCommands() (string, string) {
 		}
 	}
 
-	// Commands on the left with hover effects
-	nButton := styleButtonWithHover("[n]New", s.hoveredButton == "n")
-	eButton := styleButtonWithHover("[e]Edit", s.hoveredButton == "e")
-	aButton := styleButtonWithHover("[a]Child", s.hoveredButton == "a")
-	xButton := styleButtonWithHover("[x]Close", s.hoveredButton == "x")
-	wButton := styleButtonWithHover("[w]Work", s.hoveredButton == "w")
-	AButton := styleButtonWithHover("[A]dd", s.hoveredButton == "A")
-	iButton := styleButtonWithHover("[i]Import", s.hoveredButton == "i")
-	pButton := styleButtonWithHover(pAction, s.hoveredButton == "p")
-	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
+	// Commands on the left with hover effects - wrap each with zone.Mark
+	nButton := zone.Mark(s.zonePrefix+"n", styleButtonWithHover("[n]New", s.hoveredButton == "n"))
+	eButton := zone.Mark(s.zonePrefix+"e", styleButtonWithHover("[e]Edit", s.hoveredButton == "e"))
+	aButton := zone.Mark(s.zonePrefix+"a", styleButtonWithHover("[a]Child", s.hoveredButton == "a"))
+	xButton := zone.Mark(s.zonePrefix+"x", styleButtonWithHover("[x]Close", s.hoveredButton == "x"))
+	wButton := zone.Mark(s.zonePrefix+"w", styleButtonWithHover("[w]Work", s.hoveredButton == "w"))
+	AButton := zone.Mark(s.zonePrefix+"A", styleButtonWithHover("[A]dd", s.hoveredButton == "A"))
+	iButton := zone.Mark(s.zonePrefix+"i", styleButtonWithHover("[i]Import", s.hoveredButton == "i"))
+	pButton := zone.Mark(s.zonePrefix+"p", styleButtonWithHover(pAction, s.hoveredButton == "p"))
+	helpButton := zone.Mark(s.zonePrefix+"?", styleButtonWithHover("[?]Help", s.hoveredButton == "?"))
 
 	commands := nButton + " " + eButton + " " + aButton + " " + xButton + " " + wButton + " " + AButton + " " + iButton + " " + pButton + " " + helpButton
 	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work [A]dd [i]Import %s [?]Help", pAction)
@@ -243,24 +248,24 @@ func (s *StatusBar) renderIssuesCommands() (string, string) {
 
 // renderWorkDetailCommands returns commands for the work detail panel
 func (s *StatusBar) renderWorkDetailCommands() (string, string) {
-	// Work detail specific commands
-	tButton := styleButtonWithHover("[t]erminal", s.hoveredButton == "t")
-	cButton := styleButtonWithHover("[c]laude", s.hoveredButton == "c")
-	rButton := styleButtonWithHover("[r]un", s.hoveredButton == "r")
-	oButton := styleButtonWithHover("[o]rch", s.hoveredButton == "o")
-	vButton := styleButtonWithHover("[v]review", s.hoveredButton == "v")
-	pButton := styleButtonWithHover("[p]r", s.hoveredButton == "p")
-	fButton := styleButtonWithHover("[f]eedback", s.hoveredButton == "f")
-	dButton := styleButtonWithHover("[d]estroy", s.hoveredButton == "d")
-	escButton := styleButtonWithHover("[Esc]Deselect", s.hoveredButton == "esc")
-	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
+	// Work detail specific commands - wrap each with zone.Mark
+	tButton := zone.Mark(s.zonePrefix+"t", styleButtonWithHover("[t]erminal", s.hoveredButton == "t"))
+	cButton := zone.Mark(s.zonePrefix+"c", styleButtonWithHover("[c]laude", s.hoveredButton == "c"))
+	rButton := zone.Mark(s.zonePrefix+"r", styleButtonWithHover("[r]un", s.hoveredButton == "r"))
+	oButton := zone.Mark(s.zonePrefix+"o", styleButtonWithHover("[o]rch", s.hoveredButton == "o"))
+	vButton := zone.Mark(s.zonePrefix+"v", styleButtonWithHover("[v]review", s.hoveredButton == "v"))
+	pButton := zone.Mark(s.zonePrefix+"p", styleButtonWithHover("[p]r", s.hoveredButton == "p"))
+	fButton := zone.Mark(s.zonePrefix+"f", styleButtonWithHover("[f]eedback", s.hoveredButton == "f"))
+	dButton := zone.Mark(s.zonePrefix+"d", styleButtonWithHover("[d]estroy", s.hoveredButton == "d"))
+	escButton := zone.Mark(s.zonePrefix+"esc", styleButtonWithHover("[Esc]Deselect", s.hoveredButton == "esc"))
+	helpButton := zone.Mark(s.zonePrefix+"?", styleButtonWithHover("[?]Help", s.hoveredButton == "?"))
 
 	// Check if a failed task is selected to conditionally show reset button
 	showReset := s.isFailedTaskSelected != nil && s.isFailedTaskSelected()
 
 	var commands, commandsPlain string
 	if showReset {
-		xButton := styleButtonWithHover("[x]Reset", s.hoveredButton == "x")
+		xButton := zone.Mark(s.zonePrefix+"x", styleButtonWithHover("[x]Reset", s.hoveredButton == "x"))
 		commands = tButton + " " + cButton + " " + rButton + " " + oButton + " " + vButton + " " + pButton + " " + fButton + " " + xButton + " " + dButton + " " + escButton + " " + helpButton
 		commandsPlain = "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [x]Reset [d]estroy [Esc]Deselect [?]Help"
 	} else {
@@ -271,140 +276,35 @@ func (s *StatusBar) renderWorkDetailCommands() (string, string) {
 	return commands, commandsPlain
 }
 
-// DetectButton determines which button is at the given X position
-func (s *StatusBar) DetectButton(x int) string {
-	// Account for the status bar's left padding (tuiStatusBarStyle has Padding(0, 1))
-	if x < 1 {
-		return ""
-	}
-	x = x - 1
-
+// DetectButton determines which button is at the mouse position using bubblezone
+func (s *StatusBar) DetectButton(msg tea.MouseMsg) string {
 	switch s.context {
 	case StatusBarContextWorkDetail:
-		return s.detectWorkDetailButton(x)
+		return s.detectWorkDetailButton(msg)
 	default:
-		return s.detectIssuesButton(x)
+		return s.detectIssuesButton(msg)
 	}
 }
 
-// detectIssuesButton detects button clicks for the issues panel
-func (s *StatusBar) detectIssuesButton(x int) string {
-	// Get the plain text version of the commands
-	pAction := "[p]Plan"
-	if s.getBeadItems != nil && s.getBeadsCursor != nil && s.getActiveSessions != nil {
-		beadItems := s.getBeadItems()
-		cursor := s.getBeadsCursor()
-		activeSessions := s.getActiveSessions()
-		if len(beadItems) > 0 && cursor < len(beadItems) {
-			beadID := beadItems[cursor].ID
-			if activeSessions[beadID] {
-				pAction = "[p]Resume"
-			}
+// detectIssuesButton detects button clicks for the issues panel using bubblezone
+func (s *StatusBar) detectIssuesButton(msg tea.MouseMsg) string {
+	buttons := []string{"n", "e", "a", "x", "w", "A", "i", "p", "?"}
+	for _, btn := range buttons {
+		if zone.Get(s.zonePrefix + btn).InBounds(msg) {
+			return btn
 		}
 	}
-	commandsPlain := fmt.Sprintf("[n]New [e]Edit [a]Child [x]Close [w]Work [A]dd [i]Import %s [?]Help", pAction)
-
-	// Find positions of each button
-	nIdx := strings.Index(commandsPlain, "[n]New")
-	eIdx := strings.Index(commandsPlain, "[e]Edit")
-	aIdx := strings.Index(commandsPlain, "[a]Child")
-	xIdx := strings.Index(commandsPlain, "[x]Close")
-	wIdx := strings.Index(commandsPlain, "[w]Work")
-	AIdx := strings.Index(commandsPlain, "[A]dd")
-	iIdx := strings.Index(commandsPlain, "[i]Import")
-	pIdx := strings.Index(commandsPlain, pAction)
-	helpIdx := strings.Index(commandsPlain, "[?]Help")
-
-	// Check if mouse is over any button
-	if nIdx >= 0 && x >= nIdx && x < nIdx+len("[n]New") {
-		return "n"
-	}
-	if eIdx >= 0 && x >= eIdx && x < eIdx+len("[e]Edit") {
-		return "e"
-	}
-	if aIdx >= 0 && x >= aIdx && x < aIdx+len("[a]Child") {
-		return "a"
-	}
-	if xIdx >= 0 && x >= xIdx && x < xIdx+len("[x]Close") {
-		return "x"
-	}
-	if wIdx >= 0 && x >= wIdx && x < wIdx+len("[w]Work") {
-		return "w"
-	}
-	if AIdx >= 0 && x >= AIdx && x < AIdx+len("[A]dd") {
-		return "A"
-	}
-	if iIdx >= 0 && x >= iIdx && x < iIdx+len("[i]Import") {
-		return "i"
-	}
-	if pIdx >= 0 && x >= pIdx && x < pIdx+len(pAction) {
-		return "p"
-	}
-	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
-		return "?"
-	}
-
 	return ""
 }
 
-// detectWorkDetailButton detects button clicks for the work detail panel
-func (s *StatusBar) detectWorkDetailButton(x int) string {
-	// Check if a failed task is selected to use the correct command layout
-	showReset := s.isFailedTaskSelected != nil && s.isFailedTaskSelected()
-
-	var commandsPlain string
-	if showReset {
-		commandsPlain = "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [x]Reset [d]estroy [Esc]Deselect [?]Help"
-	} else {
-		commandsPlain = "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [d]estroy [Esc]Deselect [?]Help"
+// detectWorkDetailButton detects button clicks for the work detail panel using bubblezone
+func (s *StatusBar) detectWorkDetailButton(msg tea.MouseMsg) string {
+	buttons := []string{"t", "c", "r", "o", "v", "p", "f", "x", "d", "esc", "?"}
+	for _, btn := range buttons {
+		if zone.Get(s.zonePrefix + btn).InBounds(msg) {
+			return btn
+		}
 	}
-
-	tIdx := strings.Index(commandsPlain, "[t]erminal")
-	cIdx := strings.Index(commandsPlain, "[c]laude")
-	rIdx := strings.Index(commandsPlain, "[r]un")
-	oIdx := strings.Index(commandsPlain, "[o]rch")
-	vIdx := strings.Index(commandsPlain, "[v]review")
-	pIdx := strings.Index(commandsPlain, "[p]r")
-	fIdx := strings.Index(commandsPlain, "[f]eedback")
-	xIdx := strings.Index(commandsPlain, "[x]Reset")
-	dIdx := strings.Index(commandsPlain, "[d]estroy")
-	escIdx := strings.Index(commandsPlain, "[Esc]Deselect")
-	helpIdx := strings.Index(commandsPlain, "[?]Help")
-
-	if tIdx >= 0 && x >= tIdx && x < tIdx+len("[t]erminal") {
-		return "t"
-	}
-	if cIdx >= 0 && x >= cIdx && x < cIdx+len("[c]laude") {
-		return "c"
-	}
-	if rIdx >= 0 && x >= rIdx && x < rIdx+len("[r]un") {
-		return "r"
-	}
-	if oIdx >= 0 && x >= oIdx && x < oIdx+len("[o]rch") {
-		return "o"
-	}
-	if vIdx >= 0 && x >= vIdx && x < vIdx+len("[v]review") {
-		return "v"
-	}
-	if pIdx >= 0 && x >= pIdx && x < pIdx+len("[p]r") {
-		return "p"
-	}
-	if fIdx >= 0 && x >= fIdx && x < fIdx+len("[f]eedback") {
-		return "f"
-	}
-	if xIdx >= 0 && x >= xIdx && x < xIdx+len("[x]Reset") {
-		return "x"
-	}
-	if dIdx >= 0 && x >= dIdx && x < dIdx+len("[d]estroy") {
-		return "d"
-	}
-	if escIdx >= 0 && x >= escIdx && x < escIdx+len("[Esc]Deselect") {
-		return "esc"
-	}
-	if helpIdx >= 0 && x >= helpIdx && x < helpIdx+len("[?]Help") {
-		return "?"
-	}
-
 	return ""
 }
 
