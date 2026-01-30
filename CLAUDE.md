@@ -179,6 +179,8 @@ Mocks are generated for interfaces in:
 - `internal/task/` - Complexity estimator
 - `internal/linear/` - Linear API client
 - `internal/beads/cachemanager/` - Cache manager
+- `internal/feedback/` - PR feedback processor
+- `internal/control/` - Orchestrator spawner, work destroyer (test-local mocks to avoid import cycle)
 
 ### Testing Best Practices
 

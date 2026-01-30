@@ -1,3 +1,5 @@
+//go:generate moq -stub -out ../testutil/feedback_mock.go -pkg testutil . Processor:FeedbackProcessorMock
+
 package feedback
 
 import (
