@@ -73,8 +73,8 @@ func PlanWorkTasks(ctx context.Context, proj *project.Project, workID string, au
 // After the estimate task completes, handlePostEstimation creates implement tasks.
 // Progress messages are written to w. Pass io.Discard to suppress output.
 //
-// Deprecated: Use WorkService.createEstimateTaskFromWorkBeads instead. This wrapper exists for backward compatibility.
+// Deprecated: Use WorkService.CreateEstimateTaskFromWorkBeads instead. This wrapper exists for backward compatibility.
 func CreateEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project, workID, _ string, w io.Writer) error {
 	svc := NewWorkService(proj)
-	return svc.createEstimateTaskFromWorkBeads(ctx, workID, w)
+	return svc.CreateEstimateTaskFromWorkBeads(ctx, workID, w)
 }

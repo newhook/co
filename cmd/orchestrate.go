@@ -87,8 +87,8 @@ func runOrchestrate(cmd *cobra.Command, args []string) error {
 			fmt.Println("\nSetting up automated workflow...")
 
 			// Create estimate task from unassigned theWork beads (post-estimation will create implement tasks)
-			mainRepoPath := proj.MainRepoPath()
-			err := work.CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, os.Stdout)
+			workSvc := work.NewWorkService(proj)
+			err := workSvc.CreateEstimateTaskFromWorkBeads(ctx, workID, os.Stdout)
 			if err != nil {
 				return fmt.Errorf("failed to create estimate task: %w", err)
 			}

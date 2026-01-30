@@ -24,10 +24,10 @@ type AddBeadsToWorkResult struct {
 // AddBeadsToWorkInternal adds beads to work_beads table.
 // This is an internal helper without validation.
 //
-// Deprecated: Use WorkService.addBeadsInternal instead. This wrapper exists for backward compatibility.
+// Deprecated: Use WorkService.AddBeadsInternal instead. This wrapper exists for backward compatibility.
 func AddBeadsToWorkInternal(ctx context.Context, proj *project.Project, workID string, beadIDs []string) error {
 	svc := NewWorkService(proj)
-	return svc.addBeadsInternal(ctx, workID, beadIDs)
+	return svc.AddBeadsInternal(ctx, workID, beadIDs)
 }
 
 // AddBeadsToWork adds beads to an existing work.

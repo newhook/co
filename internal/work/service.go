@@ -188,7 +188,7 @@ func (s *WorkService) CreateWorkAsyncWithOptions(ctx context.Context, opts Creat
 
 	// Add beads to work_beads (done immediately, not by control plane)
 	if len(opts.BeadIDs) > 0 {
-		if err := s.addBeadsInternal(ctx, workID, opts.BeadIDs); err != nil {
+		if err := s.AddBeadsInternal(ctx, workID, opts.BeadIDs); err != nil {
 			_ = s.DB.DeleteWork(ctx, workID)
 			return nil, fmt.Errorf("failed to add beads to work: %w", err)
 		}
@@ -226,8 +226,8 @@ func (s *WorkService) CreateWorkAsyncWithOptions(ctx context.Context, opts Creat
 	}, nil
 }
 
-// addBeadsInternal adds beads to work_beads table without validation.
-func (s *WorkService) addBeadsInternal(ctx context.Context, workID string, beadIDs []string) error {
+// AddBeadsInternal adds beads to work_beads table without validation.
+func (s *WorkService) AddBeadsInternal(ctx context.Context, workID string, beadIDs []string) error {
 	if len(beadIDs) == 0 {
 		return nil
 	}
@@ -396,7 +396,7 @@ func (s *WorkService) RunWorkAuto(ctx context.Context, workID string, w io.Write
 	}
 
 	// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
-	err = s.createEstimateTaskFromWorkBeads(ctx, workID, w)
+	err = s.CreateEstimateTaskFromWorkBeads(ctx, workID, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create estimate task: %w", err)
 	}
@@ -439,10 +439,10 @@ func (s *WorkService) PlanWorkTasks(ctx context.Context, workID string, autoGrou
 	}, nil
 }
 
-// createEstimateTaskFromWorkBeads creates an estimate task from unassigned work beads.
+// CreateEstimateTaskFromWorkBeads creates an estimate task from unassigned work beads.
 // This is used in --auto mode where the full automated workflow includes estimation.
 // After the estimate task completes, handlePostEstimation creates implement tasks.
-func (s *WorkService) createEstimateTaskFromWorkBeads(ctx context.Context, workID string, w io.Writer) error {
+func (s *WorkService) CreateEstimateTaskFromWorkBeads(ctx context.Context, workID string, w io.Writer) error {
 	// Get unassigned beads
 	unassigned, err := s.DB.GetUnassignedWorkBeads(ctx, workID)
 	if err != nil {
