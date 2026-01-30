@@ -417,3 +417,23 @@ func (m *planModel) checkPRFeedback() tea.Cmd {
 		return workCommandMsg{action: "PR feedback check triggered", workID: workID}
 	}
 }
+
+// resetSelectedTask resets a failed task to pending status
+func (m *planModel) resetSelectedTask() tea.Cmd {
+	taskID := m.workDetails.GetSelectedTaskID()
+	if taskID == "" {
+		return nil
+	}
+	workID := m.focusedWorkID
+	return func() tea.Msg {
+		// Reset task status to pending
+		if err := m.proj.DB.ResetTaskStatus(m.ctx, taskID); err != nil {
+			return workCommandMsg{action: "Reset task", workID: workID, err: err}
+		}
+		// Reset all bead statuses for this task
+		if err := m.proj.DB.ResetTaskBeadStatuses(m.ctx, taskID); err != nil {
+			return workCommandMsg{action: "Reset task", workID: workID, err: err}
+		}
+		return workCommandMsg{action: "Reset task " + taskID, workID: workID}
+	}
+}

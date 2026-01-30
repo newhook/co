@@ -22,6 +22,7 @@ const (
 	WorkDetailActionCheckFeedback                        // Check PR feedback (f)
 	WorkDetailActionDestroy                              // Destroy work (d)
 	WorkDetailActionAddChildIssue                        // Add child issue to root issue (a)
+	WorkDetailActionResetTask                            // Reset failed task (x)
 )
 
 // WorkDetailsPanel is a coordinator that manages the work detail sub-panels.
@@ -228,6 +229,11 @@ func (p *WorkDetailsPanel) IsTaskSelected() bool {
 	return p.overviewPanel.IsTaskSelected()
 }
 
+// IsSelectedTaskFailed returns true if the selected task has failed status
+func (p *WorkDetailsPanel) IsSelectedTaskFailed() bool {
+	return p.overviewPanel.IsSelectedTaskFailed()
+}
+
 // SetSelectedTaskID sets selection to the task with given ID
 func (p *WorkDetailsPanel) SetSelectedTaskID(id string) {
 	p.overviewPanel.SetSelectedTaskID(id)
@@ -379,6 +385,12 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 				return cmd, WorkDetailActionAddChildIssue
 			}
 			return cmd, WorkDetailActionNone
+		case "x":
+			// Reset failed task - only when a failed task is selected
+			if p.IsTaskSelected() && p.IsSelectedTaskFailed() {
+				return cmd, WorkDetailActionResetTask
+			}
+			return cmd, WorkDetailActionNone
 		default:
 			return cmd, WorkDetailActionNone
 		}
@@ -414,6 +426,11 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 		// Add child issue - only when there's a focused work with root issue
 		if p.focusedWork != nil && p.focusedWork.Work.RootIssueID != "" {
 			return nil, WorkDetailActionAddChildIssue
+		}
+	case "x":
+		// Reset failed task - only when a failed task is selected
+		if p.IsTaskSelected() && p.IsSelectedTaskFailed() {
+			return nil, WorkDetailActionResetTask
 		}
 	}
 

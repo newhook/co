@@ -223,6 +223,11 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 		func() string { return m.textInput.View() },
 	)
 
+	// Set up the failed task selected provider for work detail context
+	m.statusBar.SetFailedTaskSelectedProvider(func() bool {
+		return m.workDetails.IsSelectedTaskFailed()
+	})
+
 	return m
 }
 
@@ -1244,6 +1249,8 @@ func (m *planModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.beadFormPanel.Init()
 			}
 			return m, nil
+		case WorkDetailActionResetTask:
+			return m, m.resetSelectedTask()
 		}
 		// WorkDetailActionNone - fall through to normal handling
 	}

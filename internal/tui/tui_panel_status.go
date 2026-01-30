@@ -39,11 +39,12 @@ type StatusBar struct {
 	hoveredButton string
 
 	// Data providers (set by coordinator)
-	getBeadItems       func() []beadItem
-	getBeadsCursor     func() int
-	getActiveSessions  func() map[string]bool
-	getViewMode        func() ViewMode
-	getTextInput       func() string
+	getBeadItems            func() []beadItem
+	getBeadsCursor          func() int
+	getActiveSessions       func() map[string]bool
+	getViewMode             func() ViewMode
+	getTextInput            func() string
+	isFailedTaskSelected    func() bool
 }
 
 // NewStatusBar creates a new StatusBar panel
@@ -76,6 +77,11 @@ func (s *StatusBar) SetDataProviders(
 	s.getActiveSessions = getActiveSessions
 	s.getViewMode = getViewMode
 	s.getTextInput = getTextInput
+}
+
+// SetFailedTaskSelectedProvider sets the provider for checking if a failed task is selected
+func (s *StatusBar) SetFailedTaskSelectedProvider(isFailedTaskSelected func() bool) {
+	s.isFailedTaskSelected = isFailedTaskSelected
 }
 
 // SetStatus updates the status message
@@ -249,8 +255,18 @@ func (s *StatusBar) renderWorkDetailCommands() (string, string) {
 	escButton := styleButtonWithHover("[Esc]Deselect", s.hoveredButton == "esc")
 	helpButton := styleButtonWithHover("[?]Help", s.hoveredButton == "?")
 
-	commands := tButton + " " + cButton + " " + rButton + " " + oButton + " " + vButton + " " + pButton + " " + fButton + " " + dButton + " " + escButton + " " + helpButton
-	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [d]estroy [Esc]Deselect [?]Help"
+	// Check if a failed task is selected to conditionally show reset button
+	showReset := s.isFailedTaskSelected != nil && s.isFailedTaskSelected()
+
+	var commands, commandsPlain string
+	if showReset {
+		xButton := styleButtonWithHover("[x]Reset", s.hoveredButton == "x")
+		commands = tButton + " " + cButton + " " + rButton + " " + oButton + " " + vButton + " " + pButton + " " + fButton + " " + xButton + " " + dButton + " " + escButton + " " + helpButton
+		commandsPlain = "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [x]Reset [d]estroy [Esc]Deselect [?]Help"
+	} else {
+		commands = tButton + " " + cButton + " " + rButton + " " + oButton + " " + vButton + " " + pButton + " " + fButton + " " + dButton + " " + escButton + " " + helpButton
+		commandsPlain = "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [d]estroy [Esc]Deselect [?]Help"
+	}
 
 	return commands, commandsPlain
 }
@@ -333,7 +349,15 @@ func (s *StatusBar) detectIssuesButton(x int) string {
 
 // detectWorkDetailButton detects button clicks for the work detail panel
 func (s *StatusBar) detectWorkDetailButton(x int) string {
-	commandsPlain := "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [d]estroy [Esc]Deselect [?]Help"
+	// Check if a failed task is selected to use the correct command layout
+	showReset := s.isFailedTaskSelected != nil && s.isFailedTaskSelected()
+
+	var commandsPlain string
+	if showReset {
+		commandsPlain = "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [x]Reset [d]estroy [Esc]Deselect [?]Help"
+	} else {
+		commandsPlain = "[t]erminal [c]laude [r]un [o]rch [v]review [p]r [f]eedback [d]estroy [Esc]Deselect [?]Help"
+	}
 
 	tIdx := strings.Index(commandsPlain, "[t]erminal")
 	cIdx := strings.Index(commandsPlain, "[c]laude")
@@ -342,6 +366,7 @@ func (s *StatusBar) detectWorkDetailButton(x int) string {
 	vIdx := strings.Index(commandsPlain, "[v]review")
 	pIdx := strings.Index(commandsPlain, "[p]r")
 	fIdx := strings.Index(commandsPlain, "[f]eedback")
+	xIdx := strings.Index(commandsPlain, "[x]Reset")
 	dIdx := strings.Index(commandsPlain, "[d]estroy")
 	escIdx := strings.Index(commandsPlain, "[Esc]Deselect")
 	helpIdx := strings.Index(commandsPlain, "[?]Help")
@@ -366,6 +391,9 @@ func (s *StatusBar) detectWorkDetailButton(x int) string {
 	}
 	if fIdx >= 0 && x >= fIdx && x < fIdx+len("[f]eedback") {
 		return "f"
+	}
+	if xIdx >= 0 && x >= xIdx && x < xIdx+len("[x]Reset") {
+		return "x"
 	}
 	if dIdx >= 0 && x >= dIdx && x < dIdx+len("[d]estroy") {
 		return "d"

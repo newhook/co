@@ -151,9 +151,25 @@ func (p *WorkOverviewPanel) GetSelectedBeadIDs() []string {
 	return nil
 }
 
-// IsTaskSelected returns true if a task is currently selected (vs root issue)
+// IsTaskSelected returns true if a task is currently selected (vs root issue or unassigned bead)
 func (p *WorkOverviewPanel) IsTaskSelected() bool {
-	return p.selectedIndex > 0
+	if p.selectedIndex == 0 || p.focusedWork == nil {
+		return false
+	}
+	taskIdx := p.selectedIndex - 1
+	return taskIdx >= 0 && taskIdx < len(p.focusedWork.Tasks)
+}
+
+// IsSelectedTaskFailed returns true if the selected task has failed status
+func (p *WorkOverviewPanel) IsSelectedTaskFailed() bool {
+	if !p.IsTaskSelected() {
+		return false
+	}
+	taskIdx := p.selectedIndex - 1
+	if taskIdx >= 0 && taskIdx < len(p.focusedWork.Tasks) {
+		return p.focusedWork.Tasks[taskIdx].Task.Status == db.StatusFailed
+	}
+	return false
 }
 
 // SetSelectedTaskID sets selection to the task with given ID
