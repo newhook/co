@@ -5,8 +5,10 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 // IssuesPanel renders the issues list with filtering, tree structure, and selection.
@@ -30,6 +32,9 @@ type IssuesPanel struct {
 
 	// Work context
 	focusedWorkID string
+
+	// Zone prefix for unique zone IDs
+	zonePrefix string
 }
 
 // NewIssuesPanel creates a new IssuesPanel
@@ -41,6 +46,7 @@ func NewIssuesPanel() *IssuesPanel {
 		activeSessions: make(map[string]bool),
 		newBeads:       make(map[string]time.Time),
 		hoveredIssue:   -1,
+		zonePrefix:     zone.NewPrefix(),
 	}
 }
 
@@ -137,7 +143,9 @@ func (p *IssuesPanel) Render(visibleLines int) string {
 		end := min(start+visibleItems, len(p.beadItems))
 
 		for i := start; i < end; i++ {
-			content.WriteString(p.renderBeadLine(i, p.beadItems[i]))
+			// Mark each issue line with a zone for click/hover detection
+			line := p.renderBeadLine(i, p.beadItems[i])
+			content.WriteString(zone.Mark(p.zonePrefix+p.beadItems[i].ID, line))
 			if i < end-1 {
 				content.WriteString("\n")
 			}
@@ -423,56 +431,13 @@ func (p *IssuesPanel) renderBeadLine(i int, bead beadItem) string {
 	return line
 }
 
-// DetectHoveredIssue determines which issue is at the given Y position
+// DetectHoveredIssue determines which issue is at the mouse position using bubblezone
 // Returns the absolute index in beadItems, or -1 if not over an issue
-func (p *IssuesPanel) DetectHoveredIssue(y, mouseX, screenHeight int, focusedWorkHeight int) int {
-	// Check if mouse X is within the issues panel
-	maxIssueX := p.width + 5 // Include panel width, separator, and padding
-	if mouseX > maxIssueX {
-		return -1
+func (p *IssuesPanel) DetectHoveredIssue(msg tea.MouseMsg) int {
+	for i, bead := range p.beadItems {
+		if zone.Get(p.zonePrefix + bead.ID).InBounds(msg) {
+			return i
+		}
 	}
-
-	// Calculate the Y offset based on focused work mode
-	issuesPanelStartY := focusedWorkHeight
-	var contentHeight int
-	if focusedWorkHeight > 0 {
-		contentHeight = screenHeight - focusedWorkHeight - 1
-	} else {
-		contentHeight = screenHeight - 1
-	}
-
-	// Layout within panel content:
-	// Y=issuesPanelStartY+0: Top border
-	// Y=issuesPanelStartY+1: "Issues" title
-	// Y=issuesPanelStartY+2: filter info line
-	// Y=issuesPanelStartY+3: first visible issue
-	firstIssueY := issuesPanelStartY + 3
-
-	if y < firstIssueY {
-		return -1
-	}
-
-	if len(p.beadItems) == 0 {
-		return -1
-	}
-
-	// Calculate visible window
-	issuesContentLines := contentHeight - 3
-	visibleItems := max(issuesContentLines-1, 1)
-
-	start := 0
-	if p.cursor >= visibleItems {
-		start = p.cursor - visibleItems + 1
-	}
-	end := min(start+visibleItems, len(p.beadItems))
-
-	// Calculate which issue line was clicked
-	lineIndex := y - firstIssueY
-	absoluteIndex := start + lineIndex
-
-	if absoluteIndex >= 0 && absoluteIndex < end && absoluteIndex < len(p.beadItems) {
-		return absoluteIndex
-	}
-
 	return -1
 }

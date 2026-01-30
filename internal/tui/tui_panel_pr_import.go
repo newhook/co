@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 	"github.com/newhook/co/internal/github"
 )
 
@@ -269,7 +270,7 @@ func (p *PRImportPanel) Render() string {
 		cancelLabel = styleButtonWithHover("Cancel", p.hoveredButton == "cancel")
 	}
 
-	content.WriteString(importLabel + "  " + cancelLabel + focusHint)
+	content.WriteString(zone.Mark("dialog-import", importLabel) + "  " + zone.Mark("dialog-cancel", cancelLabel) + focusHint)
 	content.WriteString("\n")
 
 	if p.importing {

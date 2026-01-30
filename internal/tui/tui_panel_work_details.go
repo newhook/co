@@ -438,16 +438,16 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 }
 
 // DetectClickedItem determines which item was clicked and returns its index
-func (p *WorkDetailsPanel) DetectClickedItem(x, y int) int {
-	return p.overviewPanel.DetectClickedItem(x, y, p.height)
+func (p *WorkDetailsPanel) DetectClickedItem(msg tea.MouseMsg) int {
+	return p.overviewPanel.DetectClickedItem(msg)
 }
 
 // DetectClickedTask returns the task ID if a task was clicked, empty string otherwise
-func (p *WorkDetailsPanel) DetectClickedTask(x, y int) string {
+func (p *WorkDetailsPanel) DetectClickedTask(msg tea.MouseMsg) string {
 	if p.focusedWork == nil {
 		return ""
 	}
-	itemIndex := p.DetectClickedItem(x, y)
+	itemIndex := p.DetectClickedItem(msg)
 	if itemIndex <= 0 {
 		return "" // -1 = no click, 0 = root issue
 	}
@@ -458,8 +458,8 @@ func (p *WorkDetailsPanel) DetectClickedTask(x, y int) string {
 	return ""
 }
 
-// DetectHoveredItem determines which item is at the given Y position for hover detection.
+// DetectHoveredItem determines which item is at the mouse position for hover detection.
 // Returns the absolute index (0 = root, 1+ = tasks, N+ = unassigned beads), or -1 if not over an item.
-func (p *WorkDetailsPanel) DetectHoveredItem(x, y int) int {
-	return p.overviewPanel.DetectHoveredItem(x, y, p.height)
+func (p *WorkDetailsPanel) DetectHoveredItem(msg tea.MouseMsg) int {
+	return p.overviewPanel.DetectHoveredItem(msg)
 }

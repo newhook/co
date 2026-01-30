@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 // CreateWorkAction represents an action result from the panel
@@ -52,9 +53,6 @@ type CreateWorkPanel struct {
 
 	// Mouse state
 	hoveredButton string
-
-	// Button position tracking
-	dialogButtons []ButtonRegion
 }
 
 // NewCreateWorkPanel creates a new CreateWorkPanel
@@ -297,29 +295,18 @@ func (p *CreateWorkPanel) SetHoveredButton(button string) {
 	p.hoveredButton = button
 }
 
-// GetDialogButtons returns tracked button positions for click detection
-func (p *CreateWorkPanel) GetDialogButtons() []ButtonRegion {
-	return p.dialogButtons
-}
-
 // Render returns the work creation form content
 func (p *CreateWorkPanel) Render() string {
 	var content strings.Builder
 
-	// Clear previous button positions
-	p.dialogButtons = nil
-	currentLine := 0
-
 	// Panel header
 	content.WriteString(tuiSuccessStyle.Render("Create Work"))
 	content.WriteString("\n\n")
-	currentLine += 2
 
 	// Show bead info
 	beadInfo := fmt.Sprintf("Creating work from issue: %s", issueIDStyle.Render(p.beadID))
 	content.WriteString(beadInfo)
 	content.WriteString("\n\n")
-	currentLine += 2
 
 	// Mode toggle
 	var modeLabel string
@@ -330,7 +317,6 @@ func (p *CreateWorkPanel) Render() string {
 	}
 	content.WriteString(modeLabel)
 	content.WriteString("\n")
-	currentLine++
 
 	// Mode options
 	newBranchStyle := tuiDimStyle
@@ -342,7 +328,6 @@ func (p *CreateWorkPanel) Render() string {
 	}
 	content.WriteString("  " + newBranchStyle.Render("[New branch]") + "  " + existingBranchStyle.Render("[Existing branch]"))
 	content.WriteString("\n\n")
-	currentLine += 2
 
 	// Branch input or selector based on mode
 	if p.useExistingBranch {
@@ -355,13 +340,11 @@ func (p *CreateWorkPanel) Render() string {
 		}
 		content.WriteString(branchLabel)
 		content.WriteString("\n")
-		currentLine++
 
 		// Show filter if active
 		if p.branchFilter != "" {
 			content.WriteString(tuiDimStyle.Render("Filter: ") + p.branchFilter + tuiDimStyle.Render("_"))
 			content.WriteString("\n")
-			currentLine++
 		}
 
 		// Show branches
@@ -372,7 +355,6 @@ func (p *CreateWorkPanel) Render() string {
 				content.WriteString(tuiDimStyle.Render("  (no matching branches)"))
 			}
 			content.WriteString("\n")
-			currentLine++
 		} else {
 			// Determine visible range
 			endIdx := p.branchScrollOffset + p.maxVisibleBranches
@@ -384,7 +366,6 @@ func (p *CreateWorkPanel) Render() string {
 			if p.branchScrollOffset > 0 {
 				content.WriteString(tuiDimStyle.Render("  ↑ (more above)"))
 				content.WriteString("\n")
-				currentLine++
 			}
 
 			for i := p.branchScrollOffset; i < endIdx; i++ {
@@ -406,18 +387,15 @@ func (p *CreateWorkPanel) Render() string {
 				}
 				content.WriteString(prefix + style.Render(displayBranch))
 				content.WriteString("\n")
-				currentLine++
 			}
 
 			// Show scroll indicator if needed
 			if endIdx < len(p.filteredBranches) {
 				content.WriteString(tuiDimStyle.Render("  ↓ (more below)"))
 				content.WriteString("\n")
-				currentLine++
 			}
 		}
 		content.WriteString("\n")
-		currentLine++
 	} else {
 		// New branch name input
 		var branchLabel string
@@ -428,15 +406,12 @@ func (p *CreateWorkPanel) Render() string {
 		}
 		content.WriteString(branchLabel)
 		content.WriteString("\n")
-		currentLine++
 		content.WriteString(p.branchInput.View())
 		content.WriteString("\n\n")
-		currentLine += 2
 	}
 
 	// Action buttons
 	content.WriteString("Actions:\n")
-	currentLine++
 
 	// Execute button
 	executeStyle := tuiDimStyle
@@ -448,15 +423,8 @@ func (p *CreateWorkPanel) Render() string {
 		executeStyle = tuiSuccessStyle
 	}
 	executeButtonText := executePrefix + "Execute"
-	p.dialogButtons = append(p.dialogButtons, ButtonRegion{
-		ID:     "execute",
-		Y:      currentLine,
-		StartX: 2,
-		EndX:   2 + len(executeButtonText),
-	})
-	content.WriteString("  " + executeStyle.Render(executeButtonText))
+	content.WriteString("  " + zone.Mark("dialog-execute", executeStyle.Render(executeButtonText)))
 	content.WriteString(" - Create work and spawn orchestrator\n")
-	currentLine++
 
 	// Auto button
 	autoStyle := tuiDimStyle
@@ -468,15 +436,8 @@ func (p *CreateWorkPanel) Render() string {
 		autoStyle = tuiSuccessStyle
 	}
 	autoButtonText := autoPrefix + "Auto"
-	p.dialogButtons = append(p.dialogButtons, ButtonRegion{
-		ID:     "auto",
-		Y:      currentLine,
-		StartX: 2,
-		EndX:   2 + len(autoButtonText),
-	})
-	content.WriteString("  " + autoStyle.Render(autoButtonText))
+	content.WriteString("  " + zone.Mark("dialog-auto", autoStyle.Render(autoButtonText)))
 	content.WriteString(" - Create work with automated workflow\n")
-	currentLine++
 
 	// Cancel button
 	cancelStyle := tuiDimStyle
@@ -488,13 +449,7 @@ func (p *CreateWorkPanel) Render() string {
 		cancelStyle = tuiSuccessStyle
 	}
 	cancelButtonText := cancelPrefix + "Cancel"
-	p.dialogButtons = append(p.dialogButtons, ButtonRegion{
-		ID:     "cancel",
-		Y:      currentLine,
-		StartX: 2,
-		EndX:   2 + len(cancelButtonText),
-	})
-	content.WriteString("  " + cancelStyle.Render(cancelButtonText))
+	content.WriteString("  " + zone.Mark("dialog-cancel", cancelStyle.Render(cancelButtonText)))
 	content.WriteString(" - Cancel work creation\n")
 
 	// Navigation help

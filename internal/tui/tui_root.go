@@ -7,8 +7,15 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 	"github.com/newhook/co/internal/project"
 )
+
+// Bubblezone setup: NewGlobal() initializes the global zone manager.
+// Child components use zone.NewPrefix() for unique IDs; zone.Scan() is called only here at the root.
+func init() {
+	zone.NewGlobal()
+}
 
 // rootModel is the top-level TUI model
 type rootModel struct {
@@ -137,9 +144,9 @@ func (m rootModel) View() string {
 		return ""
 	}
 
-	// Render plan model content directly
+	// Render plan model content directly and wrap with zone.Scan
 	if m.planModel != nil {
-		return m.planModel.View()
+		return zone.Scan(m.planModel.View())
 	}
 
 	return ""

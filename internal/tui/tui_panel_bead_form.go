@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 	"github.com/newhook/co/internal/beads"
 )
 
@@ -73,9 +74,6 @@ type BeadFormPanel struct {
 
 	// Mouse state
 	hoveredButton string
-
-	// Button position tracking
-	dialogButtons []ButtonRegion
 }
 
 // NewBeadFormPanel creates a new BeadFormPanel
@@ -406,18 +404,9 @@ func (p *BeadFormPanel) SetHoveredButton(button string) {
 	p.hoveredButton = button
 }
 
-// GetDialogButtons returns the tracked button positions for mouse click detection
-func (p *BeadFormPanel) GetDialogButtons() []ButtonRegion {
-	return p.dialogButtons
-}
-
 // Render returns the bead form content
 func (p *BeadFormPanel) Render(visibleLines int) string {
 	var content strings.Builder
-
-	// Clear previous button positions and track current line
-	p.dialogButtons = nil
-	currentLine := 0
 
 	// Adapt input widths to available space
 	inputWidth := p.width - 4
@@ -514,61 +503,35 @@ func (p *BeadFormPanel) Render(visibleLines int) string {
 
 	content.WriteString(tuiLabelStyle.Render(header))
 	content.WriteString("\n")
-	currentLine++
 
 	// Render form fields
 	content.WriteString("\n")
-	currentLine++
 	content.WriteString(titleLabel)
 	content.WriteString("\n")
-	currentLine++
 	content.WriteString(p.titleInput.View())
 	content.WriteString("\n\n")
-	currentLine += 2
 	content.WriteString(typeLabel + " " + typeDisplay)
 	content.WriteString("\n")
-	currentLine++
 	content.WriteString(priorityLabel + " " + priorityDisplay)
 	content.WriteString("\n")
-	currentLine++
 
 	// Show status field only in edit mode
 	if p.mode == BeadFormModeEdit {
 		content.WriteString(statusLabel + " " + statusDisplay)
 		content.WriteString("\n")
-		currentLine++
 	}
 
 	content.WriteString("\n")
-	currentLine++
 	content.WriteString(descLabel)
 	content.WriteString("\n")
-	currentLine++
 	content.WriteString(p.descTextarea.View())
 	content.WriteString("\n\n")
-	currentLine += descHeight + 1
 
-	// Render Ok and Cancel buttons and track their positions
+	// Render Ok and Cancel buttons with zone markers for click detection
 	okFocused := p.focusIdx == okIdx
 	cancelFocused := p.focusIdx == cancelIdx
-	okButton := styleButtonWithHover("  Ok  ", p.hoveredButton == "ok" || okFocused)
-	cancelButton := styleButtonWithHover("Cancel", p.hoveredButton == "cancel" || cancelFocused)
-
-	// Track button positions for mouse click detection
-	// Ok button: "  Ok  " is 6 chars at position 0
-	p.dialogButtons = append(p.dialogButtons, ButtonRegion{
-		ID:     "ok",
-		Y:      currentLine,
-		StartX: 0,
-		EndX:   5,
-	})
-	// Cancel button: "Cancel" is 6 chars at position 8 (after "  Ok  " + "  ")
-	p.dialogButtons = append(p.dialogButtons, ButtonRegion{
-		ID:     "cancel",
-		Y:      currentLine,
-		StartX: 8,
-		EndX:   13,
-	})
+	okButton := zone.Mark("dialog-ok", styleButtonWithHover("  Ok  ", p.hoveredButton == "ok" || okFocused))
+	cancelButton := zone.Mark("dialog-cancel", styleButtonWithHover("Cancel", p.hoveredButton == "cancel" || cancelFocused))
 
 	content.WriteString(okButton + "  " + cancelButton)
 	content.WriteString("\n")

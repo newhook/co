@@ -4,8 +4,10 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	zone "github.com/lrstanley/bubblezone"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/progress"
 )
@@ -41,15 +43,8 @@ type WorkTabsBar struct {
 	// Spinner for running works
 	spinner spinner.Model
 
-	// Tab positions for click detection
-	tabRegions []tabRegion
-}
-
-// tabRegion represents a clickable tab's position
-type tabRegion struct {
-	workID string
-	startX int
-	endX   int
+	// Zone prefix for unique zone IDs
+	zonePrefix string
 }
 
 // NewWorkTabsBar creates a new WorkTabsBar
@@ -60,9 +55,9 @@ func NewWorkTabsBar() *WorkTabsBar {
 
 	return &WorkTabsBar{
 		width:              80,
-		tabRegions:         []tabRegion{},
 		spinner:            s,
 		orchestratorHealth: make(map[string]bool),
+		zonePrefix:         zone.NewPrefix(),
 	}
 }
 
@@ -148,9 +143,6 @@ func (b *WorkTabsBar) getWorkState(work *progress.WorkProgress) WorkState {
 
 // Render renders the tab bar with zellij-like styling
 func (b *WorkTabsBar) Render() string {
-	// Clear tab regions for fresh tracking
-	b.tabRegions = nil
-
 	// Colors
 	barBg := lipgloss.Color("235")      // Dark background
 	ribbonBg := lipgloss.Color("29")    // Teal for ribbon
@@ -164,7 +156,6 @@ func (b *WorkTabsBar) Render() string {
 	triangle := "\ue0b0" // U+E0B0 - right-pointing solid triangle
 
 	var content string
-	currentX := 0
 
 	// Ribbon as simple box (no triangles)
 	// Show focus indicator when work tabs panel is active
@@ -178,12 +169,10 @@ func (b *WorkTabsBar) Render() string {
 		Background(ribbonBg)
 
 	content += ribbonStyle.Render(ribbonText)
-	currentX += lipgloss.Width(ribbonText)
 
 	// Space before tabs
 	spaceStyle := lipgloss.NewStyle().Background(barBg)
 	content += spaceStyle.Render(" ")
-	currentX++
 
 	for i, work := range b.workTiles {
 		if work == nil {
@@ -204,14 +193,14 @@ func (b *WorkTabsBar) Render() string {
 			tabFg = inactiveFg
 		}
 
-		regionStart := currentX
+		// Build the entire tab content
+		var tabBuilder string
 
 		// Left triangle for tab: dark arrow on tab background
 		tabLeftStyle := lipgloss.NewStyle().
 			Foreground(barBg).
 			Background(tabBg)
-		content += tabLeftStyle.Render(triangle)
-		currentX++
+		tabBuilder += tabLeftStyle.Render(triangle)
 
 		// Status icon
 		var icon string
@@ -246,15 +235,14 @@ func (b *WorkTabsBar) Render() string {
 		tabStyle := lipgloss.NewStyle().
 			Foreground(tabFg).
 			Background(tabBg)
-		content += tabStyle.Render(tabContent)
+		tabBuilder += tabStyle.Render(tabContent)
 
 		// Add pending work indicator (orange warning for feedback or unassigned beads)
 		if work.FeedbackCount > 0 || work.UnassignedBeadCount > 0 {
 			badgeStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("214")). // Orange for pending work
 				Background(tabBg)
-			content += badgeStyle.Render(" \uf071") // nf-fa-exclamation_triangle
-			currentX += 2
+			tabBuilder += badgeStyle.Render(" \uf071") // nf-fa-exclamation_triangle
 		}
 
 		// Add unseen PR changes indicator (colored dot)
@@ -262,32 +250,24 @@ func (b *WorkTabsBar) Render() string {
 			badgeStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("81")). // Cyan dot for new changes
 				Background(tabBg)
-			content += badgeStyle.Render(" ●")
-			currentX += 2
+			tabBuilder += badgeStyle.Render(" ●")
 		}
 
 		// Trailing space
-		content += tabStyle.Render(" ")
-		currentX += lipgloss.Width(tabContent)
+		tabBuilder += tabStyle.Render(" ")
 
 		// Right chevron for tab
 		tabRightStyle := lipgloss.NewStyle().
 			Foreground(tabBg).
 			Background(barBg)
-		content += tabRightStyle.Render(triangle)
-		currentX++
+		tabBuilder += tabRightStyle.Render(triangle)
 
-		// Track region for click detection (endX is exclusive)
-		b.tabRegions = append(b.tabRegions, tabRegion{
-			workID: work.Work.ID,
-			startX: regionStart,
-			endX:   currentX - 1,
-		})
+		// Mark the entire tab with a zone for click/hover detection
+		content += zone.Mark(b.zonePrefix+work.Work.ID, tabBuilder)
 
 		// Space between tabs (except last)
 		if i < len(b.workTiles)-1 {
 			content += spaceStyle.Render(" ")
-			currentX++
 		}
 	}
 
@@ -299,17 +279,20 @@ func (b *WorkTabsBar) Render() string {
 	return barStyle.Render(content)
 }
 
-// DetectHoveredTab returns the work ID of the tab at the given X position
-func (b *WorkTabsBar) DetectHoveredTab(x int) string {
-	for _, region := range b.tabRegions {
-		if x >= region.startX && x <= region.endX {
-			return region.workID
+// DetectHoveredTab returns the work ID of the tab under the mouse using bubblezone
+func (b *WorkTabsBar) DetectHoveredTab(msg tea.MouseMsg) string {
+	for _, work := range b.workTiles {
+		if work == nil {
+			continue
+		}
+		if zone.Get(b.zonePrefix + work.Work.ID).InBounds(msg) {
+			return work.Work.ID
 		}
 	}
 	return ""
 }
 
 // HandleClick handles a mouse click and returns the clicked work ID (if any)
-func (b *WorkTabsBar) HandleClick(x int) string {
-	return b.DetectHoveredTab(x)
+func (b *WorkTabsBar) HandleClick(msg tea.MouseMsg) string {
+	return b.DetectHoveredTab(msg)
 }
