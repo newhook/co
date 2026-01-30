@@ -1,6 +1,10 @@
 package work
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/newhook/co/internal/beads"
@@ -82,4 +86,57 @@ func NewWorkServiceWithDeps(deps WorkServiceDeps) *WorkService {
 		ProjectRoot:         deps.ProjectRoot,
 		MainRepoPath:        deps.MainRepoPath,
 	}
+}
+
+// DestroyWork destroys a work unit and all its resources.
+// This is the core work destruction logic that can be called from both the CLI and TUI.
+// It does not perform interactive confirmation - that should be handled by the caller.
+// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+func (s *WorkService) DestroyWork(ctx context.Context, workID string, w io.Writer) error {
+	// Get work to verify it exists
+	work, err := s.DB.GetWork(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Close the root issue if it exists
+	if work.RootIssueID != "" {
+		fmt.Fprintf(w, "Closing root issue %s...\n", work.RootIssueID)
+		if err := s.BeadsCLI.Close(ctx, work.RootIssueID); err != nil {
+			// Warn but continue - issue might already be closed or deleted
+			fmt.Fprintf(w, "Warning: failed to close root issue %s: %v\n", work.RootIssueID, err)
+		}
+	}
+
+	// Terminate any running zellij tabs (orchestrator, task, console, and claude tabs) for this work
+	// Only if configured to do so (defaults to true)
+	if s.Config.Zellij.ShouldKillTabsOnDestroy() {
+		if err := s.OrchestratorManager.TerminateWorkTabs(ctx, workID, s.Config.Project.Name, w); err != nil {
+			// Warn but continue - tab termination is non-fatal
+			fmt.Fprintf(w, "Warning: failed to terminate work tabs: %v\n", err)
+		}
+	}
+
+	// Remove git worktree if it exists
+	if work.WorktreePath != "" {
+		if err := s.Worktree.RemoveForce(ctx, s.MainRepoPath, work.WorktreePath); err != nil {
+			fmt.Fprintf(w, "Warning: failed to remove worktree: %v\n", err)
+		}
+	}
+
+	// Remove work directory
+	workDir := filepath.Join(s.ProjectRoot, workID)
+	if err := os.RemoveAll(workDir); err != nil {
+		fmt.Fprintf(w, "Warning: failed to remove work directory %s: %v\n", workDir, err)
+	}
+
+	// Delete work from database (also deletes associated tasks and relationships)
+	if err := s.DB.DeleteWork(ctx, workID); err != nil {
+		return fmt.Errorf("failed to delete work from database: %w", err)
+	}
+
+	return nil
 }
