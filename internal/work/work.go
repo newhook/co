@@ -11,7 +11,6 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/worktree"
@@ -86,63 +85,11 @@ type CreateWorkAsyncResult struct {
 // 1. Creates work record in DB (without worktree path)
 // 2. Schedules TaskTypeCreateWorktree task for the control plane
 // The control plane will handle worktree creation, git push, and orchestrator spawning.
+//
+// Deprecated: Use WorkService.CreateWorkAsync instead. This wrapper exists for backward compatibility.
 func CreateWorkAsync(ctx context.Context, proj *project.Project, branchName, baseBranch, rootIssueID string, auto bool) (*CreateWorkAsyncResult, error) {
-	if baseBranch == "" {
-		baseBranch = proj.Config.Repo.GetBaseBranch()
-	}
-
-	mainRepoPath := proj.MainRepoPath()
-	gitOps := git.NewOperations()
-
-	// Ensure unique branch name
-	var err error
-	branchName, err = EnsureUniqueBranchName(ctx, gitOps, mainRepoPath, branchName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
-	}
-
-	// Generate work ID
-	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate work ID: %w", err)
-	}
-
-	// Get a human-readable name for this worker
-	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
-	if err != nil {
-		workerName = "" // Non-fatal
-	}
-
-	// Create work record in DB (without worktree path - control plane will set it)
-	if err := proj.DB.CreateWork(ctx, workID, workerName, "", branchName, baseBranch, rootIssueID, auto); err != nil {
-		return nil, fmt.Errorf("failed to create work record: %w", err)
-	}
-
-	// Schedule the worktree creation task for the control plane
-	autoStr := "false"
-	if auto {
-		autoStr = "true"
-	}
-	err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeCreateWorktree, time.Now(), map[string]string{
-		"branch":        branchName,
-		"base_branch":   baseBranch,
-		"root_issue_id": rootIssueID,
-		"worker_name":   workerName,
-		"auto":          autoStr,
-	}, fmt.Sprintf("create-worktree-%s", workID), db.DefaultMaxAttempts)
-	if err != nil {
-		// Work record created but task scheduling failed - cleanup
-		_ = proj.DB.DeleteWork(ctx, workID)
-		return nil, fmt.Errorf("failed to schedule worktree creation: %w", err)
-	}
-
-	return &CreateWorkAsyncResult{
-		WorkID:      workID,
-		WorkerName:  workerName,
-		BranchName:  branchName,
-		BaseBranch:  baseBranch,
-		RootIssueID: rootIssueID,
-	}, nil
+	svc := NewWorkService(proj)
+	return svc.CreateWorkAsync(ctx, branchName, baseBranch, rootIssueID, auto)
 }
 
 // CreateWorkAsyncOptions contains options for creating a work unit asynchronously.
@@ -157,80 +104,11 @@ type CreateWorkAsyncOptions struct {
 
 // CreateWorkAsyncWithOptions creates a work unit asynchronously with the given options.
 // This is similar to CreateWorkAsync but supports additional options like using an existing branch.
+//
+// Deprecated: Use WorkService.CreateWorkAsyncWithOptions instead. This wrapper exists for backward compatibility.
 func CreateWorkAsyncWithOptions(ctx context.Context, proj *project.Project, opts CreateWorkAsyncOptions) (*CreateWorkAsyncResult, error) {
-	baseBranch := opts.BaseBranch
-	if baseBranch == "" {
-		baseBranch = proj.Config.Repo.GetBaseBranch()
-	}
-
-	mainRepoPath := proj.MainRepoPath()
-	gitOps := git.NewOperations()
-	branchName := opts.BranchName
-
-	// For new branches, ensure unique name; for existing branches, use as-is
-	if !opts.UseExistingBranch {
-		var err error
-		branchName, err = EnsureUniqueBranchName(ctx, gitOps, mainRepoPath, branchName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find unique branch name: %w", err)
-		}
-	}
-
-	// Generate work ID
-	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate work ID: %w", err)
-	}
-
-	// Get a human-readable name for this worker
-	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
-	if err != nil {
-		workerName = "" // Non-fatal
-	}
-
-	// Create work record in DB (without worktree path - control plane will set it)
-	if err := proj.DB.CreateWork(ctx, workID, workerName, "", branchName, baseBranch, opts.RootIssueID, opts.Auto); err != nil {
-		return nil, fmt.Errorf("failed to create work record: %w", err)
-	}
-
-	// Add beads to work_beads (done immediately, not by control plane)
-	if len(opts.BeadIDs) > 0 {
-		if err := AddBeadsToWorkInternal(ctx, proj, workID, opts.BeadIDs); err != nil {
-			_ = proj.DB.DeleteWork(ctx, workID)
-			return nil, fmt.Errorf("failed to add beads to work: %w", err)
-		}
-	}
-
-	// Schedule the worktree creation task for the control plane
-	autoStr := "false"
-	if opts.Auto {
-		autoStr = "true"
-	}
-	useExistingStr := "false"
-	if opts.UseExistingBranch {
-		useExistingStr = "true"
-	}
-	err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeCreateWorktree, time.Now(), map[string]string{
-		"branch":        branchName,
-		"base_branch":   baseBranch,
-		"root_issue_id": opts.RootIssueID,
-		"worker_name":   workerName,
-		"auto":          autoStr,
-		"use_existing":  useExistingStr,
-	}, fmt.Sprintf("create-worktree-%s", workID), db.DefaultMaxAttempts)
-	if err != nil {
-		// Work record created but task scheduling failed - cleanup
-		_ = proj.DB.DeleteWork(ctx, workID)
-		return nil, fmt.Errorf("failed to schedule worktree creation: %w", err)
-	}
-
-	return &CreateWorkAsyncResult{
-		WorkID:      workID,
-		WorkerName:  workerName,
-		BranchName:  branchName,
-		BaseBranch:  baseBranch,
-		RootIssueID: opts.RootIssueID,
-	}, nil
+	svc := NewWorkService(proj)
+	return svc.CreateWorkAsyncWithOptions(ctx, opts)
 }
 
 // ImportPRAsyncOptions contains options for importing a PR asynchronously.
