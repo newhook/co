@@ -13,8 +13,15 @@ import (
 	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
 )
 
-// RunControlPlaneLoop runs the main control plane event loop
+// RunControlPlaneLoop runs the main control plane event loop with default dependencies.
 func RunControlPlaneLoop(ctx context.Context, proj *project.Project, procManager *procmon.Manager) error {
+	cp := NewControlPlane()
+	return RunControlPlaneLoopWithControlPlane(ctx, proj, procManager, cp)
+}
+
+// RunControlPlaneLoopWithControlPlane runs the main control plane event loop with provided dependencies.
+// This allows testing with mock dependencies.
+func RunControlPlaneLoopWithControlPlane(ctx context.Context, proj *project.Project, procManager *procmon.Manager, cp *ControlPlane) error {
 	// Initialize tracking database watcher
 	trackingDBPath := filepath.Join(proj.Root, ".co", "tracking.db")
 	watcher, err := trackingwatcher.New(trackingwatcher.DefaultConfig(trackingDBPath))
@@ -59,13 +66,13 @@ func RunControlPlaneLoop(ctx context.Context, proj *project.Project, procManager
 			// Handle database change event
 			if event.Payload.Type == trackingwatcher.DBChanged {
 				logging.Debug("Database changed, checking scheduled tasks")
-				ProcessAllDueTasks(ctx, proj)
+				ProcessAllDueTasksWithControlPlane(ctx, proj, cp)
 			}
 
 		case <-checkTimer.C:
 			// Periodic check as a safety net
 			logging.Debug("Control plane periodic check")
-			ProcessAllDueTasks(ctx, proj)
+			ProcessAllDueTasksWithControlPlane(ctx, proj, cp)
 			checkTimer.Reset(checkInterval)
 
 		case <-cleanupTimer.C:
@@ -82,21 +89,17 @@ func RunControlPlaneLoop(ctx context.Context, proj *project.Project, procManager
 // TaskHandler is the signature for all scheduled task handlers.
 type TaskHandler func(ctx context.Context, proj *project.Project, task *db.ScheduledTask) error
 
-// taskHandlers maps task types to their handler functions.
-var taskHandlers = map[string]TaskHandler{
-	db.TaskTypeCreateWorktree:      HandleCreateWorktreeTask,
-	db.TaskTypeImportPR:            HandleImportPRTask,
-	db.TaskTypeSpawnOrchestrator:   HandleSpawnOrchestratorTask,
-	db.TaskTypePRFeedback:          HandlePRFeedbackTask,
-	db.TaskTypeCommentResolution:   HandleCommentResolutionTask,
-	db.TaskTypeGitPush:             HandleGitPushTask,
-	db.TaskTypeGitHubComment:       HandleGitHubCommentTask,
-	db.TaskTypeGitHubResolveThread: HandleGitHubResolveThreadTask,
-	db.TaskTypeDestroyWorktree:     HandleDestroyWorktreeTask,
+// ProcessAllDueTasks checks for and executes any scheduled tasks that are due across all works.
+// This uses the default ControlPlane with production dependencies.
+func ProcessAllDueTasks(ctx context.Context, proj *project.Project) {
+	cp := NewControlPlane()
+	ProcessAllDueTasksWithControlPlane(ctx, proj, cp)
 }
 
-// ProcessAllDueTasks checks for and executes any scheduled tasks that are due across all works
-func ProcessAllDueTasks(ctx context.Context, proj *project.Project) {
+// ProcessAllDueTasksWithControlPlane checks for and executes any scheduled tasks with provided dependencies.
+func ProcessAllDueTasksWithControlPlane(ctx context.Context, proj *project.Project, cp *ControlPlane) {
+	taskHandlers := cp.GetTaskHandlers()
+
 	// Get the next due task globally (not work-specific)
 	for {
 		task, err := proj.DB.GetNextScheduledTask(ctx)
