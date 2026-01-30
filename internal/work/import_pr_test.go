@@ -7,183 +7,11 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/github"
-	"github.com/newhook/co/internal/worktree"
+	"github.com/newhook/co/internal/testutil"
 )
 
-// MockClientInterface implements github.ClientInterface for testing.
-type MockClientInterface struct {
-	GetPRStatusFunc         func(ctx context.Context, prURL string) (*github.PRStatus, error)
-	GetPRMetadataFunc       func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error)
-	PostPRCommentFunc       func(ctx context.Context, prURL string, body string) error
-	PostReplyToCommentFunc  func(ctx context.Context, prURL string, commentID int, body string) error
-	PostReviewReplyFunc     func(ctx context.Context, prURL string, reviewCommentID int, body string) error
-	ResolveReviewThreadFunc func(ctx context.Context, prURL string, commentID int) error
-	GetJobLogsFunc          func(ctx context.Context, repo string, jobID int64) (string, error)
-}
-
-func (m *MockClientInterface) GetPRStatus(ctx context.Context, prURL string) (*github.PRStatus, error) {
-	if m.GetPRStatusFunc != nil {
-		return m.GetPRStatusFunc(ctx, prURL)
-	}
-	return nil, errors.New("GetPRStatus not implemented")
-}
-
-func (m *MockClientInterface) GetPRMetadata(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
-	if m.GetPRMetadataFunc != nil {
-		return m.GetPRMetadataFunc(ctx, prURLOrNumber, repo)
-	}
-	return nil, errors.New("GetPRMetadata not implemented")
-}
-
-func (m *MockClientInterface) PostPRComment(ctx context.Context, prURL string, body string) error {
-	if m.PostPRCommentFunc != nil {
-		return m.PostPRCommentFunc(ctx, prURL, body)
-	}
-	return errors.New("PostPRComment not implemented")
-}
-
-func (m *MockClientInterface) PostReplyToComment(ctx context.Context, prURL string, commentID int, body string) error {
-	if m.PostReplyToCommentFunc != nil {
-		return m.PostReplyToCommentFunc(ctx, prURL, commentID, body)
-	}
-	return errors.New("PostReplyToComment not implemented")
-}
-
-func (m *MockClientInterface) PostReviewReply(ctx context.Context, prURL string, reviewCommentID int, body string) error {
-	if m.PostReviewReplyFunc != nil {
-		return m.PostReviewReplyFunc(ctx, prURL, reviewCommentID, body)
-	}
-	return errors.New("PostReviewReply not implemented")
-}
-
-func (m *MockClientInterface) ResolveReviewThread(ctx context.Context, prURL string, commentID int) error {
-	if m.ResolveReviewThreadFunc != nil {
-		return m.ResolveReviewThreadFunc(ctx, prURL, commentID)
-	}
-	return errors.New("ResolveReviewThread not implemented")
-}
-
-func (m *MockClientInterface) GetJobLogs(ctx context.Context, repo string, jobID int64) (string, error) {
-	if m.GetJobLogsFunc != nil {
-		return m.GetJobLogsFunc(ctx, repo, jobID)
-	}
-	return "", errors.New("GetJobLogs not implemented")
-}
-
-// MockGitOperations implements git.Operations for testing.
-type MockGitOperations struct {
-	PushSetUpstreamFunc        func(ctx context.Context, branch, dir string) error
-	PullFunc                   func(ctx context.Context, dir string) error
-	CloneFunc                  func(ctx context.Context, source, dest string) error
-	FetchBranchFunc            func(ctx context.Context, repoPath, branch string) error
-	FetchPRRefFunc             func(ctx context.Context, repoPath string, prNumber int, localBranch string) error
-	BranchExistsFunc           func(ctx context.Context, repoPath, branchName string) bool
-	ValidateExistingBranchFunc func(ctx context.Context, repoPath, branchName string) (bool, bool, error)
-	ListBranchesFunc           func(ctx context.Context, repoPath string) ([]string, error)
-}
-
-func (m *MockGitOperations) PushSetUpstream(ctx context.Context, branch, dir string) error {
-	if m.PushSetUpstreamFunc != nil {
-		return m.PushSetUpstreamFunc(ctx, branch, dir)
-	}
-	return nil
-}
-
-func (m *MockGitOperations) Pull(ctx context.Context, dir string) error {
-	if m.PullFunc != nil {
-		return m.PullFunc(ctx, dir)
-	}
-	return nil
-}
-
-func (m *MockGitOperations) Clone(ctx context.Context, source, dest string) error {
-	if m.CloneFunc != nil {
-		return m.CloneFunc(ctx, source, dest)
-	}
-	return nil
-}
-
-func (m *MockGitOperations) FetchBranch(ctx context.Context, repoPath, branch string) error {
-	if m.FetchBranchFunc != nil {
-		return m.FetchBranchFunc(ctx, repoPath, branch)
-	}
-	return nil
-}
-
-func (m *MockGitOperations) FetchPRRef(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
-	if m.FetchPRRefFunc != nil {
-		return m.FetchPRRefFunc(ctx, repoPath, prNumber, localBranch)
-	}
-	return nil
-}
-
-func (m *MockGitOperations) BranchExists(ctx context.Context, repoPath, branchName string) bool {
-	if m.BranchExistsFunc != nil {
-		return m.BranchExistsFunc(ctx, repoPath, branchName)
-	}
-	return false
-}
-
-func (m *MockGitOperations) ValidateExistingBranch(ctx context.Context, repoPath, branchName string) (bool, bool, error) {
-	if m.ValidateExistingBranchFunc != nil {
-		return m.ValidateExistingBranchFunc(ctx, repoPath, branchName)
-	}
-	return false, false, nil
-}
-
-func (m *MockGitOperations) ListBranches(ctx context.Context, repoPath string) ([]string, error) {
-	if m.ListBranchesFunc != nil {
-		return m.ListBranchesFunc(ctx, repoPath)
-	}
-	return nil, nil
-}
-
-// MockWorktreeOperations implements worktree.Operations for testing.
-type MockWorktreeOperations struct {
-	CreateFunc             func(ctx context.Context, repoPath, worktreePath, branch, baseBranch string) error
-	CreateFromExistingFunc func(ctx context.Context, repoPath, worktreePath, branch string) error
-	RemoveForceFunc        func(ctx context.Context, repoPath, worktreePath string) error
-	ListFunc               func(ctx context.Context, repoPath string) ([]worktree.Worktree, error)
-	ExistsPathFunc         func(worktreePath string) bool
-}
-
-func (m *MockWorktreeOperations) Create(ctx context.Context, repoPath, worktreePath, branch, baseBranch string) error {
-	if m.CreateFunc != nil {
-		return m.CreateFunc(ctx, repoPath, worktreePath, branch, baseBranch)
-	}
-	return nil
-}
-
-func (m *MockWorktreeOperations) CreateFromExisting(ctx context.Context, repoPath, worktreePath, branch string) error {
-	if m.CreateFromExistingFunc != nil {
-		return m.CreateFromExistingFunc(ctx, repoPath, worktreePath, branch)
-	}
-	return nil
-}
-
-func (m *MockWorktreeOperations) RemoveForce(ctx context.Context, repoPath, worktreePath string) error {
-	if m.RemoveForceFunc != nil {
-		return m.RemoveForceFunc(ctx, repoPath, worktreePath)
-	}
-	return nil
-}
-
-func (m *MockWorktreeOperations) List(ctx context.Context, repoPath string) ([]worktree.Worktree, error) {
-	if m.ListFunc != nil {
-		return m.ListFunc(ctx, repoPath)
-	}
-	return nil, nil
-}
-
-func (m *MockWorktreeOperations) ExistsPath(worktreePath string) bool {
-	if m.ExistsPathFunc != nil {
-		return m.ExistsPathFunc(worktreePath)
-	}
-	return false
-}
-
 func TestNewPRImporter(t *testing.T) {
-	client := &MockClientInterface{}
+	client := &testutil.GitHubClientMock{}
 	importer := NewPRImporter(client)
 
 	if importer == nil {
@@ -201,9 +29,9 @@ func TestNewPRImporter(t *testing.T) {
 }
 
 func TestNewPRImporterWithOps(t *testing.T) {
-	client := &MockClientInterface{}
-	gitOps := &MockGitOperations{}
-	worktreeOps := &MockWorktreeOperations{}
+	client := &testutil.GitHubClientMock{}
+	gitOps := &testutil.GitOperationsMock{}
+	worktreeOps := &testutil.WorktreeOperationsMock{}
 
 	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
 
@@ -232,14 +60,14 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 		BaseRefName: "main",
 	}
 
-	client := &MockClientInterface{
+	client := &testutil.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
 
 	fetchPRRefCalled := false
-	gitOps := &MockGitOperations{
+	gitOps := &testutil.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 			fetchPRRefCalled = true
 			if prNumber != 123 {
@@ -253,7 +81,7 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 	}
 
 	createFromExistingCalled := false
-	worktreeOps := &MockWorktreeOperations{
+	worktreeOps := &testutil.WorktreeOperationsMock{
 		CreateFromExistingFunc: func(ctx context.Context, repoPath, worktreePath, branch string) error {
 			createFromExistingCalled = true
 			if branch != "feature-branch" {
@@ -302,13 +130,13 @@ func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 		BaseRefName: "main",
 	}
 
-	client := &MockClientInterface{
+	client := &testutil.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
 
-	gitOps := &MockGitOperations{
+	gitOps := &testutil.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 			if localBranch != "custom-branch" {
 				t.Errorf("expected branch 'custom-branch', got %s", localBranch)
@@ -317,7 +145,7 @@ func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 		},
 	}
 
-	worktreeOps := &MockWorktreeOperations{
+	worktreeOps := &testutil.WorktreeOperationsMock{
 		CreateFromExistingFunc: func(ctx context.Context, repoPath, worktreePath, branch string) error {
 			if branch != "custom-branch" {
 				t.Errorf("expected branch 'custom-branch', got %s", branch)
@@ -338,14 +166,14 @@ func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 func TestSetupWorktreeFromPR_MetadataError(t *testing.T) {
 	ctx := context.Background()
 
-	client := &MockClientInterface{
+	client := &testutil.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return nil, errors.New("API error")
 		},
 	}
 
-	gitOps := &MockGitOperations{}
-	worktreeOps := &MockWorktreeOperations{}
+	gitOps := &testutil.GitOperationsMock{}
+	worktreeOps := &testutil.WorktreeOperationsMock{}
 
 	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
 
@@ -368,19 +196,19 @@ func TestSetupWorktreeFromPR_FetchPRRefError(t *testing.T) {
 		HeadRefName: "feature-branch",
 	}
 
-	client := &MockClientInterface{
+	client := &testutil.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
 
-	gitOps := &MockGitOperations{
+	gitOps := &testutil.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 			return errors.New("fetch failed")
 		},
 	}
 
-	worktreeOps := &MockWorktreeOperations{}
+	worktreeOps := &testutil.WorktreeOperationsMock{}
 
 	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
 
@@ -404,19 +232,19 @@ func TestSetupWorktreeFromPR_WorktreeCreateError(t *testing.T) {
 		HeadRefName: "feature-branch",
 	}
 
-	client := &MockClientInterface{
+	client := &testutil.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
 
-	gitOps := &MockGitOperations{
+	gitOps := &testutil.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 			return nil
 		},
 	}
 
-	worktreeOps := &MockWorktreeOperations{
+	worktreeOps := &testutil.WorktreeOperationsMock{
 		CreateFromExistingFunc: func(ctx context.Context, repoPath, worktreePath, branch string) error {
 			return errors.New("worktree create failed")
 		},
@@ -444,7 +272,7 @@ func TestFetchPRMetadata(t *testing.T) {
 		Title:  "Test PR",
 	}
 
-	client := &MockClientInterface{
+	client := &testutil.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			if prURLOrNumber != "456" {
 				t.Errorf("expected prURLOrNumber '456', got %s", prURLOrNumber)
