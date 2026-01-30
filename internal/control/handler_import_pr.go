@@ -58,8 +58,8 @@ func HandleImportPRTask(ctx context.Context, proj *project.Project, task *db.Sch
 		return fmt.Errorf("failed to create work directory: %w", err)
 	}
 
-	// Set up worktree from PR using the GitHub importer
-	importer := github.NewPRImporter(github.NewClient())
+	// Set up worktree from PR using the PR importer
+	importer := work.NewPRImporter(github.NewClient())
 	_, worktreePath, err := importer.SetupWorktreeFromPR(ctx, mainRepoPath, prURL, "", workDir, branchName)
 	if err != nil {
 		_ = os.RemoveAll(workDir)

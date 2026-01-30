@@ -1,4 +1,4 @@
-package github
+package work
 
 import (
 	"context"
@@ -6,28 +6,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/worktree"
 )
 
-// MockClientInterface implements ClientInterface for testing.
+// MockClientInterface implements github.ClientInterface for testing.
 type MockClientInterface struct {
-	GetPRStatusFunc        func(ctx context.Context, prURL string) (*PRStatus, error)
-	GetPRMetadataFunc      func(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error)
-	PostPRCommentFunc      func(ctx context.Context, prURL string, body string) error
-	PostReplyToCommentFunc func(ctx context.Context, prURL string, commentID int, body string) error
-	PostReviewReplyFunc    func(ctx context.Context, prURL string, reviewCommentID int, body string) error
+	GetPRStatusFunc         func(ctx context.Context, prURL string) (*github.PRStatus, error)
+	GetPRMetadataFunc       func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error)
+	PostPRCommentFunc       func(ctx context.Context, prURL string, body string) error
+	PostReplyToCommentFunc  func(ctx context.Context, prURL string, commentID int, body string) error
+	PostReviewReplyFunc     func(ctx context.Context, prURL string, reviewCommentID int, body string) error
 	ResolveReviewThreadFunc func(ctx context.Context, prURL string, commentID int) error
-	GetJobLogsFunc         func(ctx context.Context, repo string, jobID int64) (string, error)
+	GetJobLogsFunc          func(ctx context.Context, repo string, jobID int64) (string, error)
 }
 
-func (m *MockClientInterface) GetPRStatus(ctx context.Context, prURL string) (*PRStatus, error) {
+func (m *MockClientInterface) GetPRStatus(ctx context.Context, prURL string) (*github.PRStatus, error) {
 	if m.GetPRStatusFunc != nil {
 		return m.GetPRStatusFunc(ctx, prURL)
 	}
 	return nil, errors.New("GetPRStatus not implemented")
 }
 
-func (m *MockClientInterface) GetPRMetadata(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error) {
+func (m *MockClientInterface) GetPRMetadata(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 	if m.GetPRMetadataFunc != nil {
 		return m.GetPRMetadataFunc(ctx, prURLOrNumber, repo)
 	}
@@ -223,7 +224,7 @@ func TestNewPRImporterWithOps(t *testing.T) {
 func TestSetupWorktreeFromPR_Success(t *testing.T) {
 	ctx := context.Background()
 
-	metadata := &PRMetadata{
+	metadata := &github.PRMetadata{
 		Number:      123,
 		URL:         "https://github.com/owner/repo/pull/123",
 		Title:       "Test PR",
@@ -232,7 +233,7 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 	}
 
 	client := &MockClientInterface{
-		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error) {
+		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
@@ -293,7 +294,7 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 	ctx := context.Background()
 
-	metadata := &PRMetadata{
+	metadata := &github.PRMetadata{
 		Number:      123,
 		URL:         "https://github.com/owner/repo/pull/123",
 		Title:       "Test PR",
@@ -302,7 +303,7 @@ func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 	}
 
 	client := &MockClientInterface{
-		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error) {
+		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
@@ -338,7 +339,7 @@ func TestSetupWorktreeFromPR_MetadataError(t *testing.T) {
 	ctx := context.Background()
 
 	client := &MockClientInterface{
-		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error) {
+		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return nil, errors.New("API error")
 		},
 	}
@@ -362,13 +363,13 @@ func TestSetupWorktreeFromPR_MetadataError(t *testing.T) {
 func TestSetupWorktreeFromPR_FetchPRRefError(t *testing.T) {
 	ctx := context.Background()
 
-	metadata := &PRMetadata{
+	metadata := &github.PRMetadata{
 		Number:      123,
 		HeadRefName: "feature-branch",
 	}
 
 	client := &MockClientInterface{
-		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error) {
+		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
@@ -398,13 +399,13 @@ func TestSetupWorktreeFromPR_FetchPRRefError(t *testing.T) {
 func TestSetupWorktreeFromPR_WorktreeCreateError(t *testing.T) {
 	ctx := context.Background()
 
-	metadata := &PRMetadata{
+	metadata := &github.PRMetadata{
 		Number:      123,
 		HeadRefName: "feature-branch",
 	}
 
 	client := &MockClientInterface{
-		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error) {
+		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			return metadata, nil
 		},
 	}
@@ -438,13 +439,13 @@ func TestSetupWorktreeFromPR_WorktreeCreateError(t *testing.T) {
 func TestFetchPRMetadata(t *testing.T) {
 	ctx := context.Background()
 
-	expectedMetadata := &PRMetadata{
+	expectedMetadata := &github.PRMetadata{
 		Number: 456,
 		Title:  "Test PR",
 	}
 
 	client := &MockClientInterface{
-		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*PRMetadata, error) {
+		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
 			if prURLOrNumber != "456" {
 				t.Errorf("expected prURLOrNumber '456', got %s", prURLOrNumber)
 			}
@@ -469,7 +470,7 @@ func TestFetchPRMetadata(t *testing.T) {
 }
 
 func TestMapPRToBeadCreate(t *testing.T) {
-	pr := &PRMetadata{
+	pr := &github.PRMetadata{
 		Number:      123,
 		URL:         "https://github.com/owner/repo/pull/123",
 		Title:       "Add new feature",
@@ -482,42 +483,42 @@ func TestMapPRToBeadCreate(t *testing.T) {
 		Repo:        "owner/repo",
 	}
 
-	opts := MapPRToBeadCreate(pr)
+	opts := mapPRToBeadCreate(pr)
 
-	if opts.Title != "Add new feature" {
-		t.Errorf("expected title 'Add new feature', got %s", opts.Title)
+	if opts.title != "Add new feature" {
+		t.Errorf("expected title 'Add new feature', got %s", opts.title)
 	}
 
-	if opts.Description != "This PR adds a new feature" {
-		t.Errorf("expected description 'This PR adds a new feature', got %s", opts.Description)
+	if opts.description != "This PR adds a new feature" {
+		t.Errorf("expected description 'This PR adds a new feature', got %s", opts.description)
 	}
 
 	// Should detect feature type from labels
-	if opts.Type != "feature" {
-		t.Errorf("expected type 'feature', got %s", opts.Type)
+	if opts.issueType != "feature" {
+		t.Errorf("expected type 'feature', got %s", opts.issueType)
 	}
 
 	// Should have default P2 priority
-	if opts.Priority != "P2" {
-		t.Errorf("expected priority 'P2', got %s", opts.Priority)
+	if opts.priority != "P2" {
+		t.Errorf("expected priority 'P2', got %s", opts.priority)
 	}
 
 	// Labels should be passed through
-	if len(opts.Labels) != 2 {
-		t.Errorf("expected 2 labels, got %d", len(opts.Labels))
+	if len(opts.labels) != 2 {
+		t.Errorf("expected 2 labels, got %d", len(opts.labels))
 	}
 
 	// Metadata should contain PR info
-	if opts.Metadata["pr_url"] != "https://github.com/owner/repo/pull/123" {
+	if opts.metadata["pr_url"] != "https://github.com/owner/repo/pull/123" {
 		t.Error("pr_url metadata not set correctly")
 	}
-	if opts.Metadata["pr_number"] != "123" {
+	if opts.metadata["pr_number"] != "123" {
 		t.Error("pr_number metadata not set correctly")
 	}
-	if opts.Metadata["pr_branch"] != "feature-branch" {
+	if opts.metadata["pr_branch"] != "feature-branch" {
 		t.Error("pr_branch metadata not set correctly")
 	}
-	if opts.Metadata["pr_author"] != "testuser" {
+	if opts.metadata["pr_author"] != "testuser" {
 		t.Error("pr_author metadata not set correctly")
 	}
 }
@@ -525,12 +526,12 @@ func TestMapPRToBeadCreate(t *testing.T) {
 func TestMapPRType(t *testing.T) {
 	tests := []struct {
 		name     string
-		pr       *PRMetadata
+		pr       *github.PRMetadata
 		expected string
 	}{
 		{
 			name: "Bug from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Title:  "Some change",
 				Labels: []string{"bug"},
 			},
@@ -538,7 +539,7 @@ func TestMapPRType(t *testing.T) {
 		},
 		{
 			name: "Bug from fix label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Title:  "Some change",
 				Labels: []string{"bugfix"},
 			},
@@ -546,7 +547,7 @@ func TestMapPRType(t *testing.T) {
 		},
 		{
 			name: "Feature from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Title:  "Some change",
 				Labels: []string{"feature"},
 			},
@@ -554,7 +555,7 @@ func TestMapPRType(t *testing.T) {
 		},
 		{
 			name: "Feature from enhancement label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Title:  "Some change",
 				Labels: []string{"enhancement"},
 			},
@@ -562,7 +563,7 @@ func TestMapPRType(t *testing.T) {
 		},
 		{
 			name: "Bug from title",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Title:  "Fix broken login",
 				Labels: []string{},
 			},
@@ -570,7 +571,7 @@ func TestMapPRType(t *testing.T) {
 		},
 		{
 			name: "Feature from title with feat",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Title:  "feat: Add new button",
 				Labels: []string{},
 			},
@@ -578,7 +579,7 @@ func TestMapPRType(t *testing.T) {
 		},
 		{
 			name: "Feature from title with add",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Title:  "Add user authentication",
 				Labels: []string{},
 			},
@@ -586,7 +587,7 @@ func TestMapPRType(t *testing.T) {
 		},
 		{
 			name: "Default to task",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Title:  "Update documentation",
 				Labels: []string{},
 			},
@@ -594,7 +595,7 @@ func TestMapPRType(t *testing.T) {
 		},
 		{
 			name: "Label takes precedence over title",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Title:  "Fix: Add new feature", // Title suggests bug
 				Labels: []string{"feature"},    // Label says feature
 			},
@@ -615,89 +616,89 @@ func TestMapPRType(t *testing.T) {
 func TestMapPRPriority(t *testing.T) {
 	tests := []struct {
 		name     string
-		pr       *PRMetadata
+		pr       *github.PRMetadata
 		expected string
 	}{
 		{
 			name: "Critical from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"critical"},
 			},
 			expected: "P0",
 		},
 		{
 			name: "Urgent from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"urgent"},
 			},
 			expected: "P0",
 		},
 		{
 			name: "P0 from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"p0"},
 			},
 			expected: "P0",
 		},
 		{
 			name: "High priority from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"high-priority"},
 			},
 			expected: "P1",
 		},
 		{
 			name: "P1 from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"priority-p1"},
 			},
 			expected: "P1",
 		},
 		{
 			name: "Medium priority from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"medium"},
 			},
 			expected: "P2",
 		},
 		{
 			name: "P2 from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"p2"},
 			},
 			expected: "P2",
 		},
 		{
 			name: "Low priority from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"low"},
 			},
 			expected: "P3",
 		},
 		{
 			name: "P3 from label",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"p3"},
 			},
 			expected: "P3",
 		},
 		{
 			name: "Default to P2",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"documentation"},
 			},
 			expected: "P2",
 		},
 		{
 			name: "Empty labels default to P2",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{},
 			},
 			expected: "P2",
 		},
 		{
 			name: "First matching priority wins",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Labels: []string{"low", "critical"}, // critical comes second but matches first in loop
 			},
 			expected: "P3", // low is checked before critical in the loop order
@@ -717,12 +718,12 @@ func TestMapPRPriority(t *testing.T) {
 func TestMapPRStatus(t *testing.T) {
 	tests := []struct {
 		name     string
-		pr       *PRMetadata
+		pr       *github.PRMetadata
 		expected string
 	}{
 		{
 			name: "Merged PR",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				State:  "MERGED",
 				Merged: true,
 			},
@@ -730,7 +731,7 @@ func TestMapPRStatus(t *testing.T) {
 		},
 		{
 			name: "Open draft PR",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				State:   "OPEN",
 				IsDraft: true,
 				Merged:  false,
@@ -739,7 +740,7 @@ func TestMapPRStatus(t *testing.T) {
 		},
 		{
 			name: "Open PR not draft",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				State:   "OPEN",
 				IsDraft: false,
 				Merged:  false,
@@ -748,7 +749,7 @@ func TestMapPRStatus(t *testing.T) {
 		},
 		{
 			name: "Closed PR",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				State:  "CLOSED",
 				Merged: false,
 			},
@@ -756,7 +757,7 @@ func TestMapPRStatus(t *testing.T) {
 		},
 		{
 			name: "Merged state",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				State:  "MERGED",
 				Merged: false, // Even if Merged is false, MERGED state maps to closed
 			},
@@ -764,7 +765,7 @@ func TestMapPRStatus(t *testing.T) {
 		},
 		{
 			name: "Unknown state defaults to open",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				State:  "UNKNOWN",
 				Merged: false,
 			},
@@ -787,12 +788,12 @@ func TestFormatBeadDescription(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		pr       *PRMetadata
+		pr       *github.PRMetadata
 		contains []string
 	}{
 		{
 			name: "Basic PR",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Number:      123,
 				URL:         "https://github.com/owner/repo/pull/123",
 				Body:        "Original description",
@@ -813,7 +814,7 @@ func TestFormatBeadDescription(t *testing.T) {
 		},
 		{
 			name: "Draft PR",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Number:      456,
 				URL:         "https://github.com/owner/repo/pull/456",
 				HeadRefName: "draft-branch",
@@ -828,7 +829,7 @@ func TestFormatBeadDescription(t *testing.T) {
 		},
 		{
 			name: "Merged PR",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Number:      789,
 				URL:         "https://github.com/owner/repo/pull/789",
 				HeadRefName: "merged-branch",
@@ -844,7 +845,7 @@ func TestFormatBeadDescription(t *testing.T) {
 		},
 		{
 			name: "PR with labels",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Number:      101,
 				URL:         "https://github.com/owner/repo/pull/101",
 				HeadRefName: "labeled-branch",
@@ -859,7 +860,7 @@ func TestFormatBeadDescription(t *testing.T) {
 		},
 		{
 			name: "Empty body",
-			pr: &PRMetadata{
+			pr: &github.PRMetadata{
 				Number:      200,
 				URL:         "https://github.com/owner/repo/pull/200",
 				Body:        "",
@@ -877,7 +878,7 @@ func TestFormatBeadDescription(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FormatBeadDescription(tt.pr)
+			result := formatBeadDescription(tt.pr)
 
 			for _, expected := range tt.contains {
 				if !containsString(result, expected) {
@@ -898,11 +899,11 @@ func TestParsePriority(t *testing.T) {
 		{"P2", 2},
 		{"P3", 3},
 		{"P4", 4},
-		{"p0", 2}, // lowercase doesn't match, defaults to 2
-		{"", 2},   // empty defaults to 2
-		{"P5", 2}, // unknown P-level defaults to 2
+		{"p0", 2},       // lowercase doesn't match, defaults to 2
+		{"", 2},         // empty defaults to 2
+		{"P5", 2},       // unknown P-level defaults to 2
 		{"invalid", 2},
-		{"P", 2},      // just P defaults to 2
+		{"P", 2},        // just P defaults to 2
 		{"Priority1", 2}, // doesn't start with P followed by digit
 	}
 
@@ -968,101 +969,6 @@ func TestCreateBeadResult(t *testing.T) {
 	}
 	if skipResult.SkipReason == "" {
 		t.Error("SkipReason should be set for skipped bead")
-	}
-}
-
-func TestPRMetadataStructure(t *testing.T) {
-	now := time.Now()
-	metadata := &PRMetadata{
-		Number:      123,
-		URL:         "https://github.com/owner/repo/pull/123",
-		Title:       "Test PR",
-		Body:        "Description",
-		State:       "OPEN",
-		HeadRefName: "feature",
-		BaseRefName: "main",
-		HeadRefOid:  "abc123",
-		Author:      "testuser",
-		Labels:      []string{"bug", "urgent"},
-		IsDraft:     false,
-		Merged:      false,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		Repo:        "owner/repo",
-	}
-
-	if metadata.Number != 123 {
-		t.Error("Number not set correctly")
-	}
-	if metadata.URL != "https://github.com/owner/repo/pull/123" {
-		t.Error("URL not set correctly")
-	}
-	if metadata.Title != "Test PR" {
-		t.Error("Title not set correctly")
-	}
-	if metadata.Body != "Description" {
-		t.Error("Body not set correctly")
-	}
-	if metadata.State != "OPEN" {
-		t.Error("State not set correctly")
-	}
-	if metadata.HeadRefName != "feature" {
-		t.Error("HeadRefName not set correctly")
-	}
-	if metadata.BaseRefName != "main" {
-		t.Error("BaseRefName not set correctly")
-	}
-	if metadata.HeadRefOid != "abc123" {
-		t.Error("HeadRefOid not set correctly")
-	}
-	if metadata.Author != "testuser" {
-		t.Error("Author not set correctly")
-	}
-	if len(metadata.Labels) != 2 {
-		t.Error("Labels not set correctly")
-	}
-	if metadata.IsDraft {
-		t.Error("IsDraft should be false")
-	}
-	if metadata.Merged {
-		t.Error("Merged should be false")
-	}
-	if metadata.Repo != "owner/repo" {
-		t.Error("Repo not set correctly")
-	}
-}
-
-func TestBeadCreateOptionsStructure(t *testing.T) {
-	opts := &BeadCreateOptions{
-		Title:       "Test Title",
-		Description: "Test Description",
-		Type:        "feature",
-		Priority:    "P1",
-		Status:      "open",
-		Labels:      []string{"label1", "label2"},
-		Metadata:    map[string]string{"key": "value"},
-	}
-
-	if opts.Title != "Test Title" {
-		t.Error("Title not set correctly")
-	}
-	if opts.Description != "Test Description" {
-		t.Error("Description not set correctly")
-	}
-	if opts.Type != "feature" {
-		t.Error("Type not set correctly")
-	}
-	if opts.Priority != "P1" {
-		t.Error("Priority not set correctly")
-	}
-	if opts.Status != "open" {
-		t.Error("Status not set correctly")
-	}
-	if len(opts.Labels) != 2 {
-		t.Error("Labels not set correctly")
-	}
-	if opts.Metadata["key"] != "value" {
-		t.Error("Metadata not set correctly")
 	}
 }
 

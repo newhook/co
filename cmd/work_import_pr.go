@@ -55,7 +55,7 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 
 	// Create GitHub client and PR importer
 	ghClient := github.NewClient()
-	importer := github.NewPRImporter(ghClient)
+	importer := work.NewPRImporter(ghClient)
 
 	// Fetch PR metadata first
 	fmt.Printf("Fetching PR metadata from %s...\n", prURL)
@@ -130,7 +130,7 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 	// Create a bead from PR metadata (required for work to function)
 	fmt.Printf("Creating bead from PR metadata...\n")
 	var rootIssueID string
-	beadResult, err := importer.CreateBeadFromPR(ctx, metadata, &github.CreateBeadOptions{
+	beadResult, err := importer.CreateBeadFromPR(ctx, metadata, &work.CreateBeadOptions{
 		BeadsDir:     proj.BeadsPath(),
 		SkipIfExists: true,
 	})

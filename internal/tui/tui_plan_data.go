@@ -434,7 +434,7 @@ type prImportPreviewMsg struct {
 func (m *planModel) previewPR(prURL string) tea.Cmd {
 	return func() tea.Msg {
 		ghClient := github.NewClient()
-		importer := github.NewPRImporter(ghClient)
+		importer := work.NewPRImporter(ghClient)
 
 		metadata, err := importer.FetchPRMetadata(m.ctx, prURL, "")
 		if err != nil {
@@ -449,7 +449,7 @@ func (m *planModel) previewPR(prURL string) tea.Cmd {
 func (m *planModel) importPR(prURL string) tea.Cmd {
 	return func() tea.Msg {
 		ghClient := github.NewClient()
-		importer := github.NewPRImporter(ghClient)
+		importer := work.NewPRImporter(ghClient)
 
 		// Fetch PR metadata first
 		metadata, err := importer.FetchPRMetadata(m.ctx, prURL, "")
@@ -463,7 +463,7 @@ func (m *planModel) importPR(prURL string) tea.Cmd {
 		// Create bead from PR metadata (required for work to function)
 		// This is done in the TUI because we need the bead ID before scheduling
 		var rootIssueID string
-		beadResult, err := importer.CreateBeadFromPR(m.ctx, metadata, &github.CreateBeadOptions{
+		beadResult, err := importer.CreateBeadFromPR(m.ctx, metadata, &work.CreateBeadOptions{
 			BeadsDir:     m.proj.BeadsPath(),
 			SkipIfExists: true,
 		})
