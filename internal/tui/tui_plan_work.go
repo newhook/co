@@ -100,29 +100,21 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 			logging.Warn("executeCreateWork InitializeSession failed", "error", err)
 		}
 
-		// Create work asynchronously (DB operations only, schedules tasks for control plane)
+		// Create work asynchronously using WorkService (DB operations only, schedules tasks for control plane)
 		opts := work.CreateWorkAsyncOptions{
 			BranchName:        branchName,
 			BaseBranch:        m.proj.Config.Repo.GetBaseBranch(),
 			RootIssueID:       beadID,
 			Auto:              auto,
 			UseExistingBranch: useExistingBranch,
+			BeadIDs:           allIssueIDs, // Pass beads directly to CreateWorkAsyncWithOptions
 		}
-		result, err := work.CreateWorkAsyncWithOptions(m.ctx, m.proj, opts)
+		result, err := m.workService.CreateWorkAsyncWithOptions(m.ctx, opts)
 		if err != nil {
 			logging.Error("executeCreateWork CreateWorkWithBranch failed", "beadID", beadID, "error", err)
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
 		}
 		logging.Debug("executeCreateWork CreateWorkWithBranch succeeded", "workID", result.WorkID)
-
-		// Add beads to the work
-		logging.Debug("executeCreateWork adding beads to work", "workID", result.WorkID, "beadCount", len(allIssueIDs))
-		if err := work.AddBeadsToWorkInternal(m.ctx, m.proj, result.WorkID, allIssueIDs); err != nil {
-			logging.Error("executeCreateWork addBeadsToWork failed", "workID", result.WorkID, "error", err)
-			// Work was created but beads couldn't be added - don't fail completely
-			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but failed to add beads: %w", err)}
-		}
-		logging.Debug("executeCreateWork beads added successfully", "workID", result.WorkID)
 
 		// Ensure control plane is running to process the worktree creation task
 		// Note: InitializeSession spawns control plane for new sessions, but we call
@@ -146,8 +138,8 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 
 func (m *planModel) addBeadsToWork(beadIDs []string, workID string) tea.Cmd {
 	return func() tea.Msg {
-		// Use internal function instead of CLI
-		_, err := work.AddBeadsToWork(m.ctx, m.proj, workID, beadIDs)
+		// Use WorkService to add beads
+		_, err := m.workService.AddBeads(m.ctx, workID, beadIDs)
 		if err != nil {
 			beadIDsStr := strings.Join(beadIDs, ", ")
 			return beadAddedToWorkMsg{beadID: beadIDsStr, workID: workID, err: fmt.Errorf("failed to add issues to work: %w", err)}
@@ -215,13 +207,13 @@ func (m *planModel) runFocusedWork(autoGroup bool) tea.Cmd {
 	return func() tea.Msg {
 		if autoGroup {
 			// Use auto mode - creates estimate task and lets orchestrator handle grouping
-			_, err := work.RunWorkAuto(m.ctx, m.proj, workID, io.Discard)
+			_, err := m.workService.RunWorkAuto(m.ctx, workID, io.Discard)
 			if err != nil {
 				return workCommandMsg{action: "Run work", workID: workID, err: err}
 			}
 		} else {
 			// Use direct mode - creates one task per bead
-			_, err := work.RunWork(m.ctx, m.proj, workID, false, io.Discard)
+			_, err := m.workService.RunWork(m.ctx, workID, false, io.Discard)
 			if err != nil {
 				return workCommandMsg{action: "Run work", workID: workID, err: err}
 			}
