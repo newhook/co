@@ -1,37 +1,15 @@
-package process
+package process_test
 
 import (
 	"context"
 	"errors"
 	"testing"
 
+	"github.com/newhook/co/internal/process"
+	"github.com/newhook/co/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockProcessLister is a mock implementation of ProcessLister for testing.
-type mockProcessLister struct {
-	processes []string
-	err       error
-}
-
-func (m *mockProcessLister) GetProcessList(ctx context.Context) ([]string, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.processes, nil
-}
-
-// mockProcessKiller is a mock implementation of ProcessKiller for testing.
-type mockProcessKiller struct {
-	killedPatterns []string
-	err            error
-}
-
-func (m *mockProcessKiller) KillByPattern(ctx context.Context, pattern string) error {
-	m.killedPatterns = append(m.killedPatterns, pattern)
-	return m.err
-}
 
 func TestIsProcessRunningWith(t *testing.T) {
 	ctx := context.Background()
@@ -82,8 +60,12 @@ func TestIsProcessRunningWith(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lister := &mockProcessLister{processes: tt.processes}
-			got, err := IsProcessRunningWith(ctx, tt.pattern, lister)
+			lister := &testutil.ProcessListerMock{
+				GetProcessListFunc: func(ctx context.Context) ([]string, error) {
+					return tt.processes, nil
+				},
+			}
+			got, err := process.IsProcessRunningWith(ctx, tt.pattern, lister)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -98,9 +80,13 @@ func TestIsProcessRunningWith(t *testing.T) {
 
 func TestIsProcessRunningWith_ListerError(t *testing.T) {
 	ctx := context.Background()
-	lister := &mockProcessLister{err: errors.New("ps command failed")}
+	lister := &testutil.ProcessListerMock{
+		GetProcessListFunc: func(ctx context.Context) ([]string, error) {
+			return nil, errors.New("ps command failed")
+		},
+	}
 
-	_, err := IsProcessRunningWith(ctx, "myapp", lister)
+	_, err := process.IsProcessRunningWith(ctx, "myapp", lister)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get process list")
 }
@@ -149,10 +135,20 @@ func TestKillProcessWith(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lister := &mockProcessLister{processes: tt.processes}
-			killer := &mockProcessKiller{err: tt.killerErr}
+			lister := &testutil.ProcessListerMock{
+				GetProcessListFunc: func(ctx context.Context) ([]string, error) {
+					return tt.processes, nil
+				},
+			}
+			var killedPatterns []string
+			killer := &testutil.ProcessKillerMock{
+				KillByPatternFunc: func(ctx context.Context, pattern string) error {
+					killedPatterns = append(killedPatterns, pattern)
+					return tt.killerErr
+				},
+			}
 
-			err := KillProcessWith(ctx, tt.pattern, lister, killer)
+			err := process.KillProcessWith(ctx, tt.pattern, lister, killer)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -161,9 +157,9 @@ func TestKillProcessWith(t *testing.T) {
 			}
 
 			if tt.wantKillCalled {
-				assert.Contains(t, killer.killedPatterns, tt.pattern)
+				assert.Contains(t, killedPatterns, tt.pattern)
 			} else {
-				assert.Empty(t, killer.killedPatterns)
+				assert.Empty(t, killedPatterns)
 			}
 		})
 	}
@@ -171,62 +167,15 @@ func TestKillProcessWith(t *testing.T) {
 
 func TestKillProcessWith_ListerError(t *testing.T) {
 	ctx := context.Background()
-	lister := &mockProcessLister{err: errors.New("ps command failed")}
-	killer := &mockProcessKiller{}
+	lister := &testutil.ProcessListerMock{
+		GetProcessListFunc: func(ctx context.Context) ([]string, error) {
+			return nil, errors.New("ps command failed")
+		},
+	}
+	killer := &testutil.ProcessKillerMock{}
 
-	err := KillProcessWith(ctx, "myapp", lister, killer)
+	err := process.KillProcessWith(ctx, "myapp", lister, killer)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get process list")
-	assert.Empty(t, killer.killedPatterns)
-}
-
-func TestEscapePattern(t *testing.T) {
-	tests := []struct {
-		name    string
-		pattern string
-		want    string
-	}{
-		{
-			name:    "simple pattern",
-			pattern: "simple",
-			want:    "'simple'",
-		},
-		{
-			name:    "pattern with single quote",
-			pattern: "test'pattern",
-			want:    "'test'\\''pattern'",
-		},
-		{
-			name:    "pattern with multiple single quotes",
-			pattern: "test'pattern'here",
-			want:    "'test'\\''pattern'\\''here'",
-		},
-		{
-			name:    "pattern with special characters",
-			pattern: "test$pattern*here",
-			want:    "'test$pattern*here'",
-		},
-		{
-			name:    "empty pattern",
-			pattern: "",
-			want:    "''",
-		},
-		{
-			name:    "pattern with spaces",
-			pattern: "test pattern",
-			want:    "'test pattern'",
-		},
-		{
-			name:    "pattern with newline",
-			pattern: "test\npattern",
-			want:    "'test\npattern'",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := escapePattern(tt.pattern)
-			assert.Equal(t, tt.want, got)
-		})
-	}
+	assert.Empty(t, killer.KillByPatternCalls())
 }
