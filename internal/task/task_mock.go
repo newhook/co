@@ -85,3 +85,91 @@ func (mock *ComplexityEstimatorMock) EstimateCalls() []struct {
 	mock.lockEstimate.RUnlock()
 	return calls
 }
+
+// Ensure, that PlannerMock does implement Planner.
+// If this is not the case, regenerate this file with moq.
+var _ Planner = &PlannerMock{}
+
+// PlannerMock is a mock implementation of Planner.
+//
+//	func TestSomethingThatUsesPlanner(t *testing.T) {
+//
+//		// make and configure a mocked Planner
+//		mockedPlanner := &PlannerMock{
+//			PlanFunc: func(ctx context.Context, beadList []beads.Bead, dependencies map[string][]beads.Dependency, budget int) ([]Task, error) {
+//				panic("mock out the Plan method")
+//			},
+//		}
+//
+//		// use mockedPlanner in code that requires Planner
+//		// and then make assertions.
+//
+//	}
+type PlannerMock struct {
+	// PlanFunc mocks the Plan method.
+	PlanFunc func(ctx context.Context, beadList []beads.Bead, dependencies map[string][]beads.Dependency, budget int) ([]Task, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Plan holds details about calls to the Plan method.
+		Plan []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// BeadList is the beadList argument value.
+			BeadList []beads.Bead
+			// Dependencies is the dependencies argument value.
+			Dependencies map[string][]beads.Dependency
+			// Budget is the budget argument value.
+			Budget int
+		}
+	}
+	lockPlan sync.RWMutex
+}
+
+// Plan calls PlanFunc.
+func (mock *PlannerMock) Plan(ctx context.Context, beadList []beads.Bead, dependencies map[string][]beads.Dependency, budget int) ([]Task, error) {
+	callInfo := struct {
+		Ctx          context.Context
+		BeadList     []beads.Bead
+		Dependencies map[string][]beads.Dependency
+		Budget       int
+	}{
+		Ctx:          ctx,
+		BeadList:     beadList,
+		Dependencies: dependencies,
+		Budget:       budget,
+	}
+	mock.lockPlan.Lock()
+	mock.calls.Plan = append(mock.calls.Plan, callInfo)
+	mock.lockPlan.Unlock()
+	if mock.PlanFunc == nil {
+		var (
+			tasksOut []Task
+			errOut   error
+		)
+		return tasksOut, errOut
+	}
+	return mock.PlanFunc(ctx, beadList, dependencies, budget)
+}
+
+// PlanCalls gets all the calls that were made to Plan.
+// Check the length with:
+//
+//	len(mockedPlanner.PlanCalls())
+func (mock *PlannerMock) PlanCalls() []struct {
+	Ctx          context.Context
+	BeadList     []beads.Bead
+	Dependencies map[string][]beads.Dependency
+	Budget       int
+} {
+	var calls []struct {
+		Ctx          context.Context
+		BeadList     []beads.Bead
+		Dependencies map[string][]beads.Dependency
+		Budget       int
+	}
+	mock.lockPlan.RLock()
+	calls = mock.calls.Plan
+	mock.lockPlan.RUnlock()
+	return calls
+}

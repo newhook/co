@@ -825,3 +825,23 @@ func (db *DB) GetWorksWithPRs(ctx context.Context) ([]*Work, error) {
 	}
 	return result, nil
 }
+
+// AddBeadToWork associates a bead with a work.
+// The bead is added at the next available position.
+func (db *DB) AddBeadToWork(ctx context.Context, workID, beadID string) error {
+	// Get the current max position
+	maxPos, err := db.queries.GetMaxWorkBeadPosition(ctx, workID)
+	if err != nil {
+		return fmt.Errorf("failed to get max position for work %s: %w", workID, err)
+	}
+
+	err = db.queries.AddWorkBead(ctx, sqlc.AddWorkBeadParams{
+		WorkID:   workID,
+		BeadID:   beadID,
+		Position: maxPos + 1,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to add bead %s to work %s: %w", beadID, workID, err)
+	}
+	return nil
+}
