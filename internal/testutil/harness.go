@@ -4,6 +4,7 @@ package testutil
 import (
 	"context"
 	"io"
+	"strconv"
 	"testing"
 
 	"github.com/newhook/co/internal/beads"
@@ -353,11 +354,17 @@ func (h *TestHarness) SetBeadDependency(beadID, dependsOnID string) {
 // CreateWork creates a work record in the database with the given ID and branch.
 // Returns the created work.
 func (h *TestHarness) CreateWork(workID, branch string) *db.Work {
+	return h.CreateWorkWithRootIssue(workID, branch, "")
+}
+
+// CreateWorkWithRootIssue creates a work record with an optional root issue ID.
+// Returns the created work.
+func (h *TestHarness) CreateWorkWithRootIssue(workID, branch, rootIssueID string) *db.Work {
 	h.T.Helper()
 	ctx := context.Background()
 
 	err := h.DB.CreateWork(ctx, workID, "Test Work: "+workID,
-		"/test/project/"+workID+"/tree", branch, "main", "", false)
+		"/test/project/"+workID+"/tree", branch, "main", rootIssueID, false)
 	require.NoError(h.T, err, "failed to create work")
 
 	work, err := h.DB.GetWork(ctx, workID)
@@ -464,4 +471,106 @@ func (h *TestHarness) MockBranchExists(branchName string, local, remote bool) {
 		}
 		return false, false, nil
 	}
+}
+
+// =============================================================================
+// Review Loop Fixtures
+// =============================================================================
+
+// CreateReviewTask creates a review task in the database using GetNextTaskNumber.
+// Review tasks have no beads associated with them directly.
+// If taskID is empty, generates a new task ID using the atomic counter.
+// Returns the created task with its actual ID.
+func (h *TestHarness) CreateReviewTask(taskID, workID string) *db.Task {
+	h.T.Helper()
+	ctx := context.Background()
+
+	// If no taskID provided, generate one using the atomic counter
+	if taskID == "" {
+		taskNum, err := h.DB.GetNextTaskNumber(ctx, workID)
+		require.NoError(h.T, err, "failed to get next task number")
+		taskID = workID + "." + itoaHarness(taskNum)
+	} else {
+		// If explicit taskID provided, we still need to advance the counter
+		// to avoid conflicts with later GetNextTaskNumber calls
+		_, _ = h.DB.GetNextTaskNumber(ctx, workID)
+	}
+
+	err := h.DB.CreateTask(ctx, taskID, "review", nil, 0, workID)
+	require.NoError(h.T, err, "failed to create review task")
+
+	task, err := h.DB.GetTask(ctx, taskID)
+	require.NoError(h.T, err, "failed to get created review task")
+	return task
+}
+
+// itoaHarness converts an int to a string for task IDs
+func itoaHarness(n int) string {
+	return strconv.Itoa(n)
+}
+
+// AddReviewIssues adds beads that simulate issues created by a review task.
+// These beads are added as children of the specified parent bead.
+func (h *TestHarness) AddReviewIssues(parentID string, issues []beads.Bead) {
+	for _, issue := range issues {
+		// Add the issue to the bead store
+		h.beadStore[issue.ID] = &beads.Bead{
+			ID:          issue.ID,
+			Title:       issue.Title,
+			Status:      issue.Status,
+			Type:        "task",
+			Priority:    2,
+			ExternalRef: issue.ExternalRef,
+		}
+
+		// Add parent-child dependency
+		h.beadDeps[issue.ID] = append(h.beadDeps[issue.ID], beads.Dependency{
+			IssueID:     issue.ID,
+			DependsOnID: parentID,
+			Type:        "parent-child",
+			Status:      h.beadStore[parentID].Status,
+			Title:       h.beadStore[parentID].Title,
+		})
+	}
+}
+
+// SimulateReviewCompletion simulates completing a review task and checking for issues.
+// Returns true if there are beads to fix (issues created by the review).
+func (h *TestHarness) SimulateReviewCompletion(reviewTaskID, workID string, reviewIssues []beads.Bead) bool {
+	h.T.Helper()
+	ctx := context.Background()
+
+	// Complete the review task
+	err := h.DB.CompleteTask(ctx, reviewTaskID, "")
+	require.NoError(h.T, err, "failed to complete review task")
+
+	// Check if there are issues to fix
+	// In the real code, this filters beads by ExternalRef matching "review-{taskID}"
+	expectedExternalRef := "review-" + reviewTaskID
+	var beadsToFix []beads.Bead
+
+	for _, issue := range reviewIssues {
+		if issue.ExternalRef == expectedExternalRef && beads.IsWorkableStatus(issue.Status) {
+			beadsToFix = append(beadsToFix, issue)
+		}
+	}
+
+	return len(beadsToFix) > 0
+}
+
+// CountReviewIterations counts the number of completed review tasks for a work.
+func (h *TestHarness) CountReviewIterations(workID string) int {
+	h.T.Helper()
+	ctx := context.Background()
+
+	tasks, err := h.DB.GetWorkTasks(ctx, workID)
+	require.NoError(h.T, err, "failed to get work tasks")
+
+	count := 0
+	for _, task := range tasks {
+		if task.TaskType == "review" && task.Status == db.StatusCompleted {
+			count++
+		}
+	}
+	return count
 }
