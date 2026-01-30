@@ -1,5 +1,7 @@
 package task
 
+//go:generate moq -stub -out ../testutil/task_mock.go -pkg testutil . ComplexityEstimator
+
 import (
 	"context"
 

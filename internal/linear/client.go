@@ -1,5 +1,7 @@
 package linear
 
+//go:generate moq -stub -out ../testutil/linear_mock.go -pkg testutil . ClientInterface:LinearClientMock
+
 import (
 	"bytes"
 	"context"

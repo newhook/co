@@ -1,5 +1,7 @@
 package mise
 
+//go:generate moq -stub -out ../testutil/mise_mock.go -pkg testutil . Operations:MiseOperationsMock
+
 import (
 	"fmt"
 	"io"

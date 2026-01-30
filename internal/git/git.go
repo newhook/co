@@ -1,5 +1,7 @@
 package git
 
+//go:generate moq -stub -out ../testutil/git_mock.go -pkg testutil . Operations:GitOperationsMock
+
 import (
 	"context"
 	"fmt"
