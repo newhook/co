@@ -2,18 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/newhook/co/internal/control"
-	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/github"
-	"github.com/newhook/co/internal/mise"
-	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
-	cosignal "github.com/newhook/co/internal/signal"
 	"github.com/newhook/co/internal/work"
-	"github.com/newhook/co/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +50,7 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 	ghClient := github.NewClient()
 	importer := work.NewPRImporter(ghClient)
 
-	// Fetch PR metadata first
+	// Fetch PR metadata first (user needs to see PR info)
 	fmt.Printf("Fetching PR metadata from %s...\n", prURL)
 	metadata, err := importer.FetchPRMetadata(ctx, prURL, "")
 	if err != nil {
@@ -80,63 +73,13 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 		branchName = metadata.HeadRefName
 	}
 
-	// Generate work ID
-	workID, err := proj.DB.GenerateWorkID(ctx, branchName, proj.Config.Project.Name)
-	if err != nil {
-		return fmt.Errorf("failed to generate work ID: %w", err)
-	}
-	fmt.Printf("\nWork ID: %s\n", workID)
-
-	// Block signals during critical worktree creation
-	cosignal.BlockSignals()
-	defer cosignal.UnblockSignals()
-
-	// Create work subdirectory
-	workDir := filepath.Join(proj.Root, workID)
-	if err := os.Mkdir(workDir, 0750); err != nil {
-		return fmt.Errorf("failed to create work directory: %w", err)
-	}
-
-	mainRepoPath := proj.MainRepoPath()
-	gitOps := git.NewOperations()
-	wtOps := worktree.NewOperations()
-
-	// Set up worktree from PR
-	fmt.Printf("Setting up worktree from PR branch...\n")
-	_, worktreePath, err := importer.SetupWorktreeFromPR(ctx, mainRepoPath, prURL, "", workDir, branchName)
-	if err != nil {
-		_ = os.RemoveAll(workDir)
-		return fmt.Errorf("failed to set up worktree: %w", err)
-	}
-
-	// Set up upstream tracking
-	if err := gitOps.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
-		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-		_ = os.RemoveAll(workDir)
-		return fmt.Errorf("failed to set upstream: %w", err)
-	}
-
-	// Initialize mise in worktree if needed
-	if err := mise.Initialize(worktreePath); err != nil {
-		fmt.Printf("Warning: mise initialization failed: %v\n", err)
-	}
-
-	// Get a human-readable name for this worker
-	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
-	if err != nil {
-		fmt.Printf("Warning: failed to get worker name: %v\n", err)
-	}
-
-	// Create a bead from PR metadata (required for work to function)
-	fmt.Printf("Creating bead from PR metadata...\n")
-	var rootIssueID string
+	// Create a bead from PR metadata (user needs feedback on bead creation)
+	fmt.Printf("\nCreating bead from PR metadata...\n")
 	beadResult, err := importer.CreateBeadFromPR(ctx, metadata, &work.CreateBeadOptions{
 		BeadsDir:     proj.BeadsPath(),
 		SkipIfExists: true,
 	})
 	if err != nil {
-		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to create bead: %w", err)
 	}
 	if beadResult.Created {
@@ -144,41 +87,26 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Printf("Bead already exists: %s (%s)\n", beadResult.BeadID, beadResult.SkipReason)
 	}
-	rootIssueID = beadResult.BeadID
+	rootIssueID := beadResult.BeadID
 
-	// Get base branch from project config
-	baseBranch := proj.Config.Repo.GetBaseBranch()
-
-	// Create work record in database (auto=false, user can run manually)
-	if err := proj.DB.CreateWork(ctx, workID, workerName, worktreePath, branchName, baseBranch, rootIssueID, false); err != nil {
-		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
-		_ = os.RemoveAll(workDir)
-		return fmt.Errorf("failed to create work record: %w", err)
+	// Schedule PR import via control plane (handles worktree, git, mise)
+	fmt.Printf("\nScheduling PR import...\n")
+	result, err := work.ImportPRAsync(ctx, proj, work.ImportPRAsyncOptions{
+		PRURL:       prURL,
+		BranchName:  branchName,
+		RootIssueID: rootIssueID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to schedule PR import: %w", err)
 	}
 
-	// Set PR URL on the work and schedule feedback polling
-	prFeedbackInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
-	commentResolutionInterval := proj.Config.Scheduler.GetCommentResolutionInterval()
-	if err := proj.DB.SetWorkPRURLAndScheduleFeedback(ctx, workID, prURL, prFeedbackInterval, commentResolutionInterval); err != nil {
-		fmt.Printf("Warning: failed to set PR URL on work: %v\n", err)
+	fmt.Printf("\nCreated work: %s\n", result.WorkID)
+	if result.WorkerName != "" {
+		fmt.Printf("Worker: %s\n", result.WorkerName)
 	}
-
-	// Add bead to work_beads if created
-	if rootIssueID != "" {
-		if err := work.AddBeadsToWorkInternal(ctx, proj, workID, []string{rootIssueID}); err != nil {
-			fmt.Printf("Warning: failed to add bead to work: %v\n", err)
-		}
-	}
-
-	fmt.Printf("\nImported PR into work: %s\n", workID)
-	if workerName != "" {
-		fmt.Printf("Worker: %s\n", workerName)
-	}
-	fmt.Printf("Directory: %s\n", workDir)
-	fmt.Printf("Worktree: %s\n", worktreePath)
-	fmt.Printf("Branch: %s\n", branchName)
-	fmt.Printf("Base Branch: %s\n", baseBranch)
+	fmt.Printf("Branch: %s\n", result.BranchName)
 	fmt.Printf("PR URL: %s\n", prURL)
+	fmt.Printf("\nWorktree setup is in progress via control plane.\n")
 
 	// Initialize zellij session and spawn control plane if new session
 	sessionResult, err := control.InitializeSession(ctx, proj)
@@ -189,9 +117,14 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 		printSessionCreatedNotification(sessionResult.SessionName)
 	}
 
+	// Ensure control plane is running to process the import task
+	if err := control.EnsureControlPlane(ctx, proj); err != nil {
+		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
+	}
+
 	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("  cd %s\n", workID)
-	fmt.Printf("  co run               # Execute tasks\n")
+	fmt.Printf("  cd %s\n", result.WorkID)
+	fmt.Printf("  co run               # Execute tasks (after worktree is ready)\n")
 
 	return nil
 }
