@@ -47,6 +47,7 @@ go test ./...
 - `internal/worktree/` - Git worktree operations
 - `internal/logging/` - Structured logging using slog
 - `internal/procmon/` - Database-backed process monitoring with heartbeats
+- `internal/testutil/` - Shared test utilities and moq-generated mocks
 
 ## External Dependencies
 
@@ -118,6 +119,53 @@ tail -f .co/debug.log
 # Pretty-print JSON logs
 cat .co/debug.log | jq .
 ```
+
+## Mock Generation
+
+The project uses [moq](https://github.com/matryer/moq) for generating test mocks. Mocks are stored in `internal/testutil/` and use the function-field pattern for easy customization per-test.
+
+### Regenerating Mocks
+
+After modifying interfaces or adding new `//go:generate` directives:
+
+```bash
+mise run generate
+```
+
+This runs `go generate ./...` to regenerate all mocks.
+
+### Adding a New Mock
+
+1. Add a `//go:generate` directive to the interface file:
+   ```go
+   //go:generate moq -out ../testutil/mock_interface.go -pkg testutil . InterfaceName
+   ```
+
+2. Run `mise run generate` to create the mock
+
+3. Use the mock in tests:
+   ```go
+   mock := &testutil.InterfaceNameMock{
+       MethodNameFunc: func(ctx context.Context, arg string) error {
+           return nil
+       },
+   }
+   ```
+
+### Available Mocks
+
+Mocks are generated for interfaces in:
+- `internal/git/` - Git CLI operations
+- `internal/worktree/` - Git worktree operations
+- `internal/mise/` - Mise tool operations
+- `internal/zellij/` - Zellij session management
+- `internal/beads/` - Beads CLI and reader interfaces
+- `internal/github/` - GitHub API client
+- `internal/claude/` - Claude runner
+- `internal/process/` - Process lister/killer
+- `internal/task/` - Complexity estimator
+- `internal/linear/` - Linear API client
+- `internal/beads/cachemanager/` - Cache manager
 
 ## Database Migrations
 
