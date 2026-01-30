@@ -11,6 +11,7 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/worktree"
@@ -91,10 +92,11 @@ func CreateWorkAsync(ctx context.Context, proj *project.Project, branchName, bas
 	}
 
 	mainRepoPath := proj.MainRepoPath()
+	gitOps := git.NewOperations()
 
 	// Ensure unique branch name
 	var err error
-	branchName, err = EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
+	branchName, err = EnsureUniqueBranchName(ctx, gitOps, mainRepoPath, branchName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
 	}
@@ -162,12 +164,13 @@ func CreateWorkAsyncWithOptions(ctx context.Context, proj *project.Project, opts
 	}
 
 	mainRepoPath := proj.MainRepoPath()
+	gitOps := git.NewOperations()
 	branchName := opts.BranchName
 
 	// For new branches, ensure unique name; for existing branches, use as-is
 	if !opts.UseExistingBranch {
 		var err error
-		branchName, err = EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
+		branchName, err = EnsureUniqueBranchName(ctx, gitOps, mainRepoPath, branchName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find unique branch name: %w", err)
 		}

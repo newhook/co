@@ -94,9 +94,8 @@ func GenerateBranchNameFromIssues(issues []*beads.Bead) string {
 
 // EnsureUniqueBranchName checks if a branch already exists and appends a suffix if needed.
 // Returns a unique branch name that doesn't conflict with existing branches.
-func EnsureUniqueBranchName(ctx context.Context, repoPath, baseName string) (string, error) {
-	gitOps := git.NewOperations()
-
+// The gitOps parameter allows dependency injection for testing.
+func EnsureUniqueBranchName(ctx context.Context, gitOps git.Operations, repoPath, baseName string) (string, error) {
 	// Check if the base name is available
 	if !gitOps.BranchExists(ctx, repoPath, baseName) {
 		return baseName, nil

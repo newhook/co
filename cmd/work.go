@@ -260,7 +260,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	} else {
 		// Generate branch name from issue titles
 		branchName = work.GenerateBranchNameFromIssues(groupIssues)
-		branchName, err = work.EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
+		branchName, err = work.EnsureUniqueBranchName(ctx, gitOps, mainRepoPath, branchName)
 		if err != nil {
 			return fmt.Errorf("failed to find unique branch name: %w", err)
 		}
