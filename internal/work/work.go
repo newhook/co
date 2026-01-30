@@ -23,52 +23,30 @@ type AddBeadsToWorkResult struct {
 
 // AddBeadsToWorkInternal adds beads to work_beads table.
 // This is an internal helper without validation.
+//
+// Deprecated: Use WorkService.addBeadsInternal instead. This wrapper exists for backward compatibility.
 func AddBeadsToWorkInternal(ctx context.Context, proj *project.Project, workID string, beadIDs []string) error {
-	if len(beadIDs) == 0 {
-		return nil
-	}
-	if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs); err != nil {
-		return fmt.Errorf("failed to add beads: %w", err)
-	}
-	return nil
+	svc := NewWorkService(proj)
+	return svc.addBeadsInternal(ctx, workID, beadIDs)
 }
 
 // AddBeadsToWork adds beads to an existing work.
 // This is the core logic for adding beads that can be called from both the CLI and TUI.
 // Each bead is added as its own group (no grouping).
+//
+// Deprecated: Use WorkService.AddBeads instead. This wrapper exists for backward compatibility.
 func AddBeadsToWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) (*AddBeadsToWorkResult, error) {
-	if len(beadIDs) == 0 {
-		return nil, fmt.Errorf("no beads specified")
-	}
+	svc := NewWorkService(proj)
+	return svc.AddBeads(ctx, workID, beadIDs)
+}
 
-	// Verify work exists
-	work, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get work: %w", err)
-	}
-	if work == nil {
-		return nil, fmt.Errorf("work %s not found", workID)
-	}
-
-	// Check if any bead is already in a task
-	for _, beadID := range beadIDs {
-		inTask, err := proj.DB.IsBeadInTask(ctx, workID, beadID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check bead %s: %w", beadID, err)
-		}
-		if inTask {
-			return nil, fmt.Errorf("bead %s is already assigned to a task", beadID)
-		}
-	}
-
-	// Add beads to work
-	if err := proj.DB.AddWorkBeads(ctx, workID, beadIDs); err != nil {
-		return nil, fmt.Errorf("failed to add beads: %w", err)
-	}
-
-	return &AddBeadsToWorkResult{
-		BeadsAdded: len(beadIDs),
-	}, nil
+// RemoveBeadsFromWork removes beads from an existing work.
+// Beads that are already assigned to a task cannot be removed.
+//
+// Deprecated: Use WorkService.RemoveBeads instead. This wrapper exists for backward compatibility.
+func RemoveBeadsFromWork(ctx context.Context, proj *project.Project, workID string, beadIDs []string) (*RemoveBeadsResult, error) {
+	svc := NewWorkService(proj)
+	return svc.RemoveBeads(ctx, workID, beadIDs)
 }
 
 // CreateWorkAsyncResult contains the result of creating a work unit asynchronously.

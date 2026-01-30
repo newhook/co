@@ -237,6 +237,88 @@ func (s *WorkService) addBeadsInternal(ctx context.Context, workID string, beadI
 	return nil
 }
 
+// AddBeads adds beads to an existing work.
+// This is the core logic for adding beads that can be called from both the CLI and TUI.
+// Each bead is added as its own group (no grouping).
+func (s *WorkService) AddBeads(ctx context.Context, workID string, beadIDs []string) (*AddBeadsToWorkResult, error) {
+	if len(beadIDs) == 0 {
+		return nil, fmt.Errorf("no beads specified")
+	}
+
+	// Verify work exists
+	work, err := s.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	// Check if any bead is already in a task
+	for _, beadID := range beadIDs {
+		inTask, err := s.DB.IsBeadInTask(ctx, workID, beadID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check bead %s: %w", beadID, err)
+		}
+		if inTask {
+			return nil, fmt.Errorf("bead %s is already assigned to a task", beadID)
+		}
+	}
+
+	// Add beads to work
+	if err := s.DB.AddWorkBeads(ctx, workID, beadIDs); err != nil {
+		return nil, fmt.Errorf("failed to add beads: %w", err)
+	}
+
+	return &AddBeadsToWorkResult{
+		BeadsAdded: len(beadIDs),
+	}, nil
+}
+
+// RemoveBeadsResult contains the result of removing beads from a work.
+type RemoveBeadsResult struct {
+	BeadsRemoved int
+}
+
+// RemoveBeads removes beads from an existing work.
+// Beads that are already assigned to a task cannot be removed.
+func (s *WorkService) RemoveBeads(ctx context.Context, workID string, beadIDs []string) (*RemoveBeadsResult, error) {
+	if len(beadIDs) == 0 {
+		return nil, fmt.Errorf("no beads specified")
+	}
+
+	// Verify work exists
+	work, err := s.DB.GetWork(ctx, workID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get work: %w", err)
+	}
+	if work == nil {
+		return nil, fmt.Errorf("work %s not found", workID)
+	}
+
+	// Check if any bead is assigned to a task and remove those that aren't
+	removed := 0
+	for _, beadID := range beadIDs {
+		inTask, err := s.DB.IsBeadInTask(ctx, workID, beadID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check bead %s: %w", beadID, err)
+		}
+		if inTask {
+			return nil, fmt.Errorf("bead %s is assigned to a task and cannot be removed", beadID)
+		}
+
+		// Remove the bead
+		if err := s.DB.RemoveWorkBead(ctx, workID, beadID); err != nil {
+			return nil, fmt.Errorf("failed to remove bead %s: %w", beadID, err)
+		}
+		removed++
+	}
+
+	return &RemoveBeadsResult{
+		BeadsRemoved: removed,
+	}, nil
+}
+
 // RunWorkOptions contains options for running work.
 type RunWorkOptions struct {
 	UsePlan       bool
