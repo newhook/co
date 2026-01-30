@@ -19,6 +19,7 @@ import (
 	"github.com/newhook/co/internal/progress"
 	"github.com/newhook/co/internal/project"
 	trackingwatcher "github.com/newhook/co/internal/tracking/watcher"
+	"github.com/newhook/co/internal/work"
 	"github.com/newhook/co/internal/zellij"
 )
 
@@ -51,10 +52,11 @@ type ButtonRegion struct {
 
 // planModel is the Plan Mode model focused on issue/bead management
 type planModel struct {
-	ctx    context.Context
-	proj   *project.Project
-	width  int
-	height int
+	ctx         context.Context
+	proj        *project.Project
+	workService *work.WorkService // Shared WorkService for all work operations
+	width       int
+	height      int
 
 	// Panels (self-contained rendering components)
 	statusBar         *StatusBar
@@ -178,6 +180,7 @@ func newPlanModel(ctx context.Context, proj *project.Project) *planModel {
 	m := &planModel{
 		ctx:                    ctx,
 		proj:                   proj,
+		workService:            work.NewWorkService(proj),
 		width:                  80,
 		height:                 24,
 		activePanel:            PanelLeft,

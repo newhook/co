@@ -99,7 +99,8 @@ func HandleImportPRTask(ctx context.Context, proj *project.Project, task *db.Sch
 				}
 			}
 			if !beadExists {
-				if err := work.AddBeadsToWorkInternal(ctx, proj, workID, []string{workRecord.RootIssueID}); err != nil {
+				workSvc := work.NewWorkService(proj)
+				if err := workSvc.AddBeadsInternal(ctx, workID, []string{workRecord.RootIssueID}); err != nil {
 					logging.Warn("failed to add bead to work", "error", err, "bead_id", workRecord.RootIssueID)
 				}
 			}

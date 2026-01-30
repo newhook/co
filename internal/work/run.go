@@ -6,10 +6,7 @@ import (
 	"io"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/claude"
-	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
-	"github.com/newhook/co/internal/worktree"
 )
 
 // RunWorkResult contains the result of running work.
@@ -19,19 +16,36 @@ type RunWorkResult struct {
 	OrchestratorSpawned bool
 }
 
+// RunWorkAutoResult contains the result of running work in auto mode.
+type RunWorkAutoResult struct {
+	WorkID              string
+	EstimateTaskCreated bool
+	OrchestratorSpawned bool
+}
+
+// PlanWorkTasksResult contains the result of planning work tasks.
+type PlanWorkTasksResult struct {
+	TasksCreated int
+}
+
+// RunWorkOptions contains options for running work.
+type RunWorkOptions struct {
+	UsePlan       bool
+	ForceEstimate bool
+}
+
 // RunWork creates tasks from unassigned beads and ensures an orchestrator is running.
 // This is the core logic used by both the CLI `co run` command and the TUI.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func RunWork(ctx context.Context, proj *project.Project, workID string, usePlan bool, w io.Writer) (*RunWorkResult, error) {
-	return RunWorkWithOptions(ctx, proj, workID, usePlan, false, w)
+func (s *WorkService) RunWork(ctx context.Context, workID string, usePlan bool, w io.Writer) (*RunWorkResult, error) {
+	return s.RunWorkWithOptions(ctx, workID, RunWorkOptions{UsePlan: usePlan}, w)
 }
 
 // RunWorkWithOptions creates tasks from unassigned beads and ensures an orchestrator is running.
-// If forceEstimate is true, re-estimates complexity even if cached values exist.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func RunWorkWithOptions(ctx context.Context, proj *project.Project, workID string, usePlan bool, forceEstimate bool, w io.Writer) (*RunWorkResult, error) {
+func (s *WorkService) RunWorkWithOptions(ctx context.Context, workID string, opts RunWorkOptions, w io.Writer) (*RunWorkResult, error) {
 	// Get work details to verify it exists
-	work, err := proj.DB.GetWork(ctx, workID)
+	work, err := s.DB.GetWork(ctx, workID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get work: %w", err)
 	}
@@ -44,20 +58,18 @@ func RunWorkWithOptions(ctx context.Context, proj *project.Project, workID strin
 		return nil, fmt.Errorf("work %s has no worktree path configured", work.ID)
 	}
 
-	if !worktree.NewOperations().ExistsPath(work.WorktreePath) {
+	if !s.Worktree.ExistsPath(work.WorktreePath) {
 		return nil, fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
 	}
 
-	mainRepoPath := proj.MainRepoPath()
-
 	// Create tasks from unassigned work beads
-	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, usePlan, forceEstimate, w)
+	tasksCreated, err := s.createTasksFromWorkBeads(ctx, workID, opts.UsePlan, opts.ForceEstimate, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tasks: %w", err)
 	}
 
 	// Ensure orchestrator is running
-	spawned, err := claude.EnsureWorkOrchestrator(ctx, proj.DB, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, w)
+	spawned, err := s.OrchestratorManager.EnsureWorkOrchestrator(ctx, workID, s.Config.Project.Name, work.WorktreePath, work.Name, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure orchestrator: %w", err)
 	}
@@ -69,20 +81,13 @@ func RunWorkWithOptions(ctx context.Context, proj *project.Project, workID strin
 	}, nil
 }
 
-// RunWorkAutoResult contains the result of running work in auto mode.
-type RunWorkAutoResult struct {
-	WorkID              string
-	EstimateTaskCreated bool
-	OrchestratorSpawned bool
-}
-
 // RunWorkAuto creates an estimate task and spawns the orchestrator for automated workflow.
 // This mirrors the 'co run --auto' behavior: create estimate task, let orchestrator handle
 // estimation and create implement tasks afterward.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func RunWorkAuto(ctx context.Context, proj *project.Project, workID string, w io.Writer) (*RunWorkAutoResult, error) {
+func (s *WorkService) RunWorkAuto(ctx context.Context, workID string, w io.Writer) (*RunWorkAutoResult, error) {
 	// Get work details to verify it exists
-	work, err := proj.DB.GetWork(ctx, workID)
+	work, err := s.DB.GetWork(ctx, workID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get work: %w", err)
 	}
@@ -95,20 +100,18 @@ func RunWorkAuto(ctx context.Context, proj *project.Project, workID string, w io
 		return nil, fmt.Errorf("work %s has no worktree path configured", work.ID)
 	}
 
-	if !worktree.NewOperations().ExistsPath(work.WorktreePath) {
+	if !s.Worktree.ExistsPath(work.WorktreePath) {
 		return nil, fmt.Errorf("work %s worktree does not exist at %s", work.ID, work.WorktreePath)
 	}
 
-	mainRepoPath := proj.MainRepoPath()
-
 	// Create estimate task from unassigned work beads (post-estimation will create implement tasks)
-	err = CreateEstimateTaskFromWorkBeads(ctx, proj, workID, mainRepoPath, w)
+	err = s.CreateEstimateTaskFromWorkBeads(ctx, workID, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create estimate task: %w", err)
 	}
 
 	// Ensure orchestrator is running
-	spawned, err := claude.EnsureWorkOrchestrator(ctx, proj.DB, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, w)
+	spawned, err := s.OrchestratorManager.EnsureWorkOrchestrator(ctx, workID, s.Config.Project.Name, work.WorktreePath, work.Name, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure orchestrator: %w", err)
 	}
@@ -120,18 +123,13 @@ func RunWorkAuto(ctx context.Context, proj *project.Project, workID string, w io
 	}, nil
 }
 
-// PlanWorkTasksResult contains the result of planning work tasks.
-type PlanWorkTasksResult struct {
-	TasksCreated int
-}
-
 // PlanWorkTasks creates tasks from unassigned beads in a work unit without spawning an orchestrator.
 // If autoGroup is true, uses LLM complexity estimation to group beads into tasks.
 // Otherwise, uses existing group assignments from work_beads (one task per bead or group).
 // Progress messages are written to w. Pass io.Discard to suppress output.
-func PlanWorkTasks(ctx context.Context, proj *project.Project, workID string, autoGroup bool, w io.Writer) (*PlanWorkTasksResult, error) {
+func (s *WorkService) PlanWorkTasks(ctx context.Context, workID string, autoGroup bool, w io.Writer) (*PlanWorkTasksResult, error) {
 	// Get work details to verify it exists
-	work, err := proj.DB.GetWork(ctx, workID)
+	work, err := s.DB.GetWork(ctx, workID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get work: %w", err)
 	}
@@ -139,10 +137,8 @@ func PlanWorkTasks(ctx context.Context, proj *project.Project, workID string, au
 		return nil, fmt.Errorf("work %s not found", workID)
 	}
 
-	mainRepoPath := proj.MainRepoPath()
-
 	// Create tasks from unassigned work beads
-	tasksCreated, err := createTasksFromWorkBeads(ctx, proj, workID, mainRepoPath, autoGroup, false, w)
+	tasksCreated, err := s.createTasksFromWorkBeads(ctx, workID, autoGroup, false, w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tasks: %w", err)
 	}
@@ -155,10 +151,9 @@ func PlanWorkTasks(ctx context.Context, proj *project.Project, workID string, au
 // CreateEstimateTaskFromWorkBeads creates an estimate task from unassigned work beads.
 // This is used in --auto mode where the full automated workflow includes estimation.
 // After the estimate task completes, handlePostEstimation creates implement tasks.
-// Progress messages are written to w. Pass io.Discard to suppress output.
-func CreateEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project, workID, _ string, w io.Writer) error {
+func (s *WorkService) CreateEstimateTaskFromWorkBeads(ctx context.Context, workID string, w io.Writer) error {
 	// Get unassigned beads
-	unassigned, err := proj.DB.GetUnassignedWorkBeads(ctx, workID)
+	unassigned, err := s.DB.GetUnassignedWorkBeads(ctx, workID)
 	if err != nil {
 		return fmt.Errorf("failed to get unassigned beads: %w", err)
 	}
@@ -176,14 +171,14 @@ func CreateEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project,
 	}
 
 	// Get next task number
-	taskNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
+	taskNum, err := s.DB.GetNextTaskNumber(ctx, workID)
 	if err != nil {
 		return fmt.Errorf("failed to get next task number: %w", err)
 	}
 
 	// Create the estimate task
 	taskID := fmt.Sprintf("%s.%d", workID, taskNum)
-	if err := proj.DB.CreateTask(ctx, taskID, "estimate", beadIDs, 0, workID); err != nil {
+	if err := s.DB.CreateTask(ctx, taskID, "estimate", beadIDs, 0, workID); err != nil {
 		return fmt.Errorf("failed to create estimate task: %w", err)
 	}
 
@@ -196,10 +191,9 @@ func CreateEstimateTaskFromWorkBeads(ctx context.Context, proj *project.Project,
 // createTasksFromWorkBeads creates tasks from unassigned beads in work_beads.
 // If usePlan is true, uses LLM complexity estimation to group beads.
 // Returns the number of tasks created.
-// Progress messages are written to w. Pass io.Discard to suppress output.
-func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID, mainRepoPath string, usePlan bool, forceEstimate bool, w io.Writer) (int, error) {
+func (s *WorkService) createTasksFromWorkBeads(ctx context.Context, workID string, usePlan bool, forceEstimate bool, w io.Writer) (int, error) {
 	// Get unassigned beads
-	unassigned, err := proj.DB.GetUnassignedWorkBeads(ctx, workID)
+	unassigned, err := s.DB.GetUnassignedWorkBeads(ctx, workID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get unassigned beads: %w", err)
 	}
@@ -217,7 +211,7 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 	}
 
 	// Get all issues with dependencies in one call
-	issuesResult, err := proj.Beads.GetBeadsWithDeps(ctx, beadIDs)
+	issuesResult, err := s.BeadsReader.GetBeadsWithDeps(ctx, beadIDs)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get bead details: %w", err)
 	}
@@ -235,7 +229,7 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 	if usePlan {
 		// Use LLM complexity estimation to group beads
 		fmt.Fprintln(w, "Using LLM complexity estimation to group beads...")
-		taskGroups, err = planBeadsWithComplexity(ctx, proj, issuesResult, mainRepoPath, workID, forceEstimate)
+		taskGroups, err = s.planBeadsWithComplexity(ctx, issuesResult, workID, forceEstimate)
 		if err != nil {
 			return 0, fmt.Errorf("failed to plan beads: %w", err)
 		}
@@ -248,23 +242,23 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 
 	// Create tasks from groups
 	tasksCreated := 0
-	for _, beadIDs := range taskGroups {
-		if len(beadIDs) == 0 {
+	for _, groupBeadIDs := range taskGroups {
+		if len(groupBeadIDs) == 0 {
 			continue
 		}
 
 		// Get next task number
-		taskNum, err := proj.DB.GetNextTaskNumber(ctx, workID)
+		taskNum, err := s.DB.GetNextTaskNumber(ctx, workID)
 		if err != nil {
 			return tasksCreated, fmt.Errorf("failed to get next task number: %w", err)
 		}
 
 		taskID := fmt.Sprintf("%s.%d", workID, taskNum)
-		if err := proj.DB.CreateTask(ctx, taskID, "implement", beadIDs, 0, workID); err != nil {
+		if err := s.DB.CreateTask(ctx, taskID, "implement", groupBeadIDs, 0, workID); err != nil {
 			return tasksCreated, fmt.Errorf("failed to create task: %w", err)
 		}
 
-		fmt.Fprintf(w, "  Created task %s with %d bead(s)\n", taskID, len(beadIDs))
+		fmt.Fprintf(w, "  Created task %s with %d bead(s)\n", taskID, len(groupBeadIDs))
 		tasksCreated++
 	}
 
@@ -273,16 +267,34 @@ func createTasksFromWorkBeads(ctx context.Context, proj *project.Project, workID
 
 // planBeadsWithComplexity uses LLM complexity estimation to group beads.
 // If forceEstimate is true, re-estimates complexity even if cached values exist.
-func planBeadsWithComplexity(ctx context.Context, proj *project.Project, issuesResult *beads.BeadsWithDepsResult, mainRepoPath, workID string, forceEstimate bool) ([][]string, error) {
-	// Use the task planner with complexity estimation
-	estimator := task.NewLLMEstimator(proj.DB, mainRepoPath, proj.Config.Project.Name, workID)
-	planner := task.NewDefaultPlanner(estimator)
-
+// If s.TaskPlanner is set, uses it directly; otherwise creates a default planner.
+func (s *WorkService) planBeadsWithComplexity(ctx context.Context, issuesResult *beads.BeadsWithDepsResult, workID string, forceEstimate bool) ([][]string, error) {
 	// Convert map to slice of beads
 	beadList := make([]beads.Bead, 0, len(issuesResult.Beads))
 	for _, b := range issuesResult.Beads {
 		beadList = append(beadList, b)
 	}
+
+	// If a task planner is configured, use it directly
+	if s.TaskPlanner != nil {
+		// Plan tasks using token budget of 120K (context window is 200K, leave headroom)
+		const tokenBudget = 120000
+		planned, err := s.TaskPlanner.Plan(ctx, beadList, issuesResult.Dependencies, tokenBudget)
+		if err != nil {
+			return nil, fmt.Errorf("failed to plan tasks: %w", err)
+		}
+
+		// Convert planned tasks to bead ID groups
+		var groups [][]string
+		for _, p := range planned {
+			groups = append(groups, p.BeadIDs)
+		}
+		return groups, nil
+	}
+
+	// Fall back to creating LLM estimator and planner inline
+	estimator := task.NewLLMEstimator(s.DB, s.MainRepoPath, s.Config.Project.Name, workID)
+	planner := task.NewDefaultPlanner(estimator)
 
 	// Estimate complexity for each bead
 	result, err := estimator.EstimateBatch(ctx, beadList, forceEstimate)

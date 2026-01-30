@@ -107,6 +107,9 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Branch: %s\n", workRecord.BranchName)
 	fmt.Printf("Worktree: %s\n", workRecord.WorktreePath)
 
+	// Create WorkService for this operation
+	svc := work.NewWorkService(proj)
+
 	// Validate that work has a root issue
 	if workRecord.RootIssueID == "" {
 		return fmt.Errorf("work %s has no root issue associated. Create work with a bead ID using 'co work create <bead-id>'", workRecord.ID)
@@ -123,7 +126,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 
 	// If --auto, run full automated workflow
 	if flagRunAuto {
-		result, err := work.RunWorkAuto(ctx, proj, workID, os.Stdout)
+		result, err := svc.RunWorkAuto(ctx, workID, os.Stdout)
 		if err != nil {
 			return fmt.Errorf("failed to run automated workflow: %w", err)
 		}
@@ -140,7 +143,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run work (creates tasks and ensures orchestrator is running)
-	result, err := work.RunWorkWithOptions(ctx, proj, workID, flagRunPlan, flagForceEstimate, os.Stdout)
+	result, err := svc.RunWorkWithOptions(ctx, workID, work.RunWorkOptions{UsePlan: flagRunPlan, ForceEstimate: flagForceEstimate}, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("failed to run work: %w", err)
 	}

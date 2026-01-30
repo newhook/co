@@ -205,6 +205,9 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
+	// Create WorkService for this operation
+	svc := work.NewWorkService(proj)
+
 	// Get base branch from project config
 	baseBranch := proj.Config.Repo.GetBaseBranch()
 
@@ -260,7 +263,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	} else {
 		// Generate branch name from issue titles
 		branchName = work.GenerateBranchNameFromIssues(groupIssues)
-		branchName, err = work.EnsureUniqueBranchName(ctx, mainRepoPath, branchName)
+		branchName, err = work.EnsureUniqueBranchName(ctx, gitOps, mainRepoPath, branchName)
 		if err != nil {
 			return fmt.Errorf("failed to find unique branch name: %w", err)
 		}
@@ -275,7 +278,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create work asynchronously (control plane handles worktree creation, git push, orchestrator spawn)
-	result, err := work.CreateWorkAsyncWithOptions(ctx, proj, work.CreateWorkAsyncOptions{
+	result, err := svc.CreateWorkAsyncWithOptions(ctx, work.CreateWorkAsyncOptions{
 		BranchName:        branchName,
 		BaseBranch:        baseBranch,
 		RootIssueID:       beadID,
@@ -396,6 +399,9 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
+	// Create WorkService for this operation
+	svc := work.NewWorkService(proj)
+
 	// Get work ID
 	workID := flagAddWork
 	if workID == "" {
@@ -403,15 +409,6 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("not in a work directory and no --work specified")
 		}
-	}
-
-	// Verify work exists
-	theWork, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
-	}
-	if theWork == nil {
-		return fmt.Errorf("work %s not found", workID)
 	}
 
 	// Parse bead IDs from args
@@ -424,23 +421,13 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no beads specified")
 	}
 
-	// Check if any bead is already in a task
-	for _, beadID := range beadIDs {
-		inTask, err := proj.DB.IsBeadInTask(ctx, workID, beadID)
-		if err != nil {
-			return fmt.Errorf("failed to check bead %s: %w", beadID, err)
-		}
-		if inTask {
-			return fmt.Errorf("bead %s is already assigned to a task", beadID)
-		}
+	// Add beads to work using WorkService (handles validation internally)
+	result, err := svc.AddBeads(ctx, workID, beadIDs)
+	if err != nil {
+		return err
 	}
 
-	// Add beads to work
-	if err := work.AddBeadsToWorkInternal(ctx, proj, workID, beadIDs); err != nil {
-		return fmt.Errorf("failed to add beads: %w", err)
-	}
-
-	fmt.Printf("Added %d bead(s) to work %s\n", len(beadIDs), workID)
+	fmt.Printf("Added %d bead(s) to work %s\n", result.BeadsAdded, workID)
 	return nil
 }
 
@@ -454,50 +441,38 @@ func runWorkRemove(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
-	// Get theWork ID
+	// Create WorkService for this operation
+	svc := work.NewWorkService(proj)
+
+	// Get work ID
 	workID := flagRemoveWork
 	if workID == "" {
 		workID, err = getCurrentWork(proj)
 		if err != nil {
-			return fmt.Errorf("not in a theWork directory and no --theWork specified")
+			return fmt.Errorf("not in a work directory and no --work specified")
 		}
 	}
 
-	// Verify theWork exists
-	theWork, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get theWork: %w", err)
-	}
-	if theWork == nil {
-		return fmt.Errorf("theWork %s not found", workID)
-	}
-
-	// Remove each bead
-	removed := 0
+	// Collect and trim bead IDs
+	var beadIDs []string
 	for _, beadID := range args {
 		beadID = strings.TrimSpace(beadID)
-		if beadID == "" {
-			continue
+		if beadID != "" {
+			beadIDs = append(beadIDs, beadID)
 		}
-
-		// Check if bead is in a task
-		inTask, err := proj.DB.IsBeadInTask(ctx, workID, beadID)
-		if err != nil {
-			return fmt.Errorf("failed to check bead %s: %w", beadID, err)
-		}
-		if inTask {
-			return fmt.Errorf("bead %s is assigned to a task and cannot be removed", beadID)
-		}
-
-		// Remove the bead
-		if err := proj.DB.RemoveWorkBead(ctx, workID, beadID); err != nil {
-			fmt.Printf("Warning: failed to remove bead %s: %v\n", beadID, err)
-			continue
-		}
-		removed++
 	}
 
-	fmt.Printf("Removed %d bead(s) from theWork %s\n", removed, workID)
+	if len(beadIDs) == 0 {
+		return fmt.Errorf("no beads specified")
+	}
+
+	// Remove beads using WorkService (handles validation internally)
+	result, err := svc.RemoveBeads(ctx, workID, beadIDs)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Removed %d bead(s) from work %s\n", result.BeadsRemoved, workID)
 	return nil
 }
 
@@ -664,6 +639,9 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	}
 	defer proj.Close()
 
+	// Create WorkService for this operation
+	svc := work.NewWorkService(proj)
+
 	// Check if work has uncompleted tasks (for interactive confirmation)
 	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
 	if err != nil {
@@ -687,8 +665,8 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Destroy the work
-	if err := work.DestroyWork(ctx, proj, workID, os.Stdout); err != nil {
+	// Destroy the work using WorkService
+	if err := svc.DestroyWork(ctx, workID, os.Stdout); err != nil {
 		return err
 	}
 
