@@ -2,19 +2,17 @@ package worktree
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewOperations(t *testing.T) {
 	ops := NewOperations()
-	if ops == nil {
-		t.Fatal("NewOperations returned nil")
-	}
+	require.NotNil(t, ops, "NewOperations returned nil")
 
 	// Verify it returns a CLIOperations
 	_, ok := ops.(*CLIOperations)
-	if !ok {
-		t.Error("NewOperations should return *CLIOperations")
-	}
+	require.True(t, ok, "NewOperations should return *CLIOperations")
 }
 
 func TestCLIOperationsImplementsInterface(t *testing.T) {
@@ -104,26 +102,15 @@ branch refs/heads/feature/sub-feature/deep
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := parseWorktreeList(tt.input)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t, err)
 
-			if len(result) != len(tt.expected) {
-				t.Fatalf("expected %d worktrees, got %d", len(tt.expected), len(result))
-			}
+			require.Len(t, result, len(tt.expected))
 
 			for i, expected := range tt.expected {
-				if result[i].Path != expected.Path {
-					t.Errorf("worktree[%d] path: expected %q, got %q", i, expected.Path, result[i].Path)
-				}
-				if result[i].HEAD != expected.HEAD {
-					t.Errorf("worktree[%d] HEAD: expected %q, got %q", i, expected.HEAD, result[i].HEAD)
-				}
-				if result[i].Branch != expected.Branch {
-					t.Errorf("worktree[%d] branch: expected %q, got %q", i, expected.Branch, result[i].Branch)
-				}
+				require.Equal(t, expected.Path, result[i].Path, "worktree[%d] path mismatch", i)
+				require.Equal(t, expected.HEAD, result[i].HEAD, "worktree[%d] HEAD mismatch", i)
+				require.Equal(t, expected.Branch, result[i].Branch, "worktree[%d] branch mismatch", i)
 			}
 		})
 	}
 }
-

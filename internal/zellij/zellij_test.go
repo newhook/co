@@ -3,37 +3,25 @@ package zellij
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
 	client := New()
-	if client == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, client, "New() returned nil")
 
 	// Check default values
-	if client.TabCreateDelay != 500*time.Millisecond {
-		t.Errorf("TabCreateDelay = %v, want %v", client.TabCreateDelay, 500*time.Millisecond)
-	}
-	if client.CtrlCDelay != 500*time.Millisecond {
-		t.Errorf("CtrlCDelay = %v, want %v", client.CtrlCDelay, 500*time.Millisecond)
-	}
-	if client.CommandDelay != 100*time.Millisecond {
-		t.Errorf("CommandDelay = %v, want %v", client.CommandDelay, 100*time.Millisecond)
-	}
-	if client.SessionStartWait != 1*time.Second {
-		t.Errorf("SessionStartWait = %v, want %v", client.SessionStartWait, 1*time.Second)
-	}
+	require.Equal(t, 500*time.Millisecond, client.TabCreateDelay)
+	require.Equal(t, 500*time.Millisecond, client.CtrlCDelay)
+	require.Equal(t, 100*time.Millisecond, client.CommandDelay)
+	require.Equal(t, 1*time.Second, client.SessionStartWait)
 }
 
 func TestASCIIConstants(t *testing.T) {
 	// Verify ASCII constants are correct
-	if ASCIICtrlC != 3 {
-		t.Errorf("ASCIICtrlC = %d, want 3", ASCIICtrlC)
-	}
-	if ASCIIEnter != 13 {
-		t.Errorf("ASCIIEnter = %d, want 13", ASCIIEnter)
-	}
+	require.Equal(t, 3, ASCIICtrlC)
+	require.Equal(t, 13, ASCIIEnter)
 }
 
 func TestClientConfiguration(t *testing.T) {
@@ -45,16 +33,8 @@ func TestClientConfiguration(t *testing.T) {
 	client.CommandDelay = 50 * time.Millisecond
 	client.SessionStartWait = 2 * time.Second
 
-	if client.TabCreateDelay != 1*time.Second {
-		t.Errorf("TabCreateDelay not updated correctly")
-	}
-	if client.CtrlCDelay != 250*time.Millisecond {
-		t.Errorf("CtrlCDelay not updated correctly")
-	}
-	if client.CommandDelay != 50*time.Millisecond {
-		t.Errorf("CommandDelay not updated correctly")
-	}
-	if client.SessionStartWait != 2*time.Second {
-		t.Errorf("SessionStartWait not updated correctly")
-	}
+	require.Equal(t, 1*time.Second, client.TabCreateDelay, "TabCreateDelay not updated correctly")
+	require.Equal(t, 250*time.Millisecond, client.CtrlCDelay, "CtrlCDelay not updated correctly")
+	require.Equal(t, 50*time.Millisecond, client.CommandDelay, "CommandDelay not updated correctly")
+	require.Equal(t, 2*time.Second, client.SessionStartWait, "SessionStartWait not updated correctly")
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/newhook/co/internal/linear"
+	"github.com/stretchr/testify/require"
 )
 
 // TestLinearImportIntegration demonstrates the complete Linear import workflow
@@ -17,23 +18,16 @@ func TestLinearImportIntegration(t *testing.T) {
 
 	// Initialize the fetcher with API key and beads directory
 	apiKey := "lin_api_test_key" // In production, get from env or config
-	beadsDir := "/path/to/beads"  // In production, auto-detect or get from config
+	beadsDir := "/path/to/beads" // In production, auto-detect or get from config
 
 	fetcher, err := linear.NewFetcher(apiKey, beadsDir)
-	if err != nil {
-		t.Fatalf("Failed to create fetcher: %v", err)
-	}
+	require.NoError(t, err, "Failed to create fetcher")
 
 	// Example 1: Simple import of a single issue
 	t.Run("ImportSingleIssue", func(t *testing.T) {
 		result, err := fetcher.FetchAndImport(ctx, "ENG-123", nil)
-		if err != nil {
-			t.Fatalf("Failed to import issue: %v", err)
-		}
-
-		if !result.Success {
-			t.Fatalf("Import failed: %s", result.SkipReason)
-		}
+		require.NoError(t, err, "Failed to import issue")
+		require.True(t, result.Success, "Import failed: %s", result.SkipReason)
 
 		t.Logf("Imported Linear issue %s as bead %s", result.LinearID, result.BeadID)
 	})
@@ -48,9 +42,7 @@ func TestLinearImportIntegration(t *testing.T) {
 		}
 
 		result, err := fetcher.FetchAndImport(ctx, "ENG-456", opts)
-		if err != nil {
-			t.Fatalf("Failed to import issue: %v", err)
-		}
+		require.NoError(t, err, "Failed to import issue")
 
 		if result.SkipReason == "already imported" {
 			t.Logf("Issue already imported as bead %s", result.BeadID)
@@ -63,9 +55,7 @@ func TestLinearImportIntegration(t *testing.T) {
 	t.Run("ImportByURL", func(t *testing.T) {
 		url := "https://linear.app/company/issue/ENG-789/feature-title"
 		result, err := fetcher.FetchAndImport(ctx, url, nil)
-		if err != nil {
-			t.Fatalf("Failed to import issue: %v", err)
-		}
+		require.NoError(t, err, "Failed to import issue")
 
 		if result.Success {
 			t.Logf("Imported Linear issue from URL: %s -> bead %s", result.LinearURL, result.BeadID)
@@ -82,9 +72,7 @@ func TestLinearImportIntegration(t *testing.T) {
 		}
 
 		results, err := fetcher.FetchBatch(ctx, issues, opts)
-		if err != nil {
-			t.Fatalf("Batch import failed: %v", err)
-		}
+		require.NoError(t, err, "Batch import failed")
 
 		successCount := 0
 		for _, result := range results {
@@ -108,9 +96,7 @@ func TestLinearImportIntegration(t *testing.T) {
 		}
 
 		result, err := fetcher.FetchAndImport(ctx, "ENG-123", opts)
-		if err != nil {
-			t.Fatalf("Failed to update issue: %v", err)
-		}
+		require.NoError(t, err, "Failed to update issue")
 
 		if result.SkipReason == "updated existing bead" {
 			t.Logf("Updated existing bead %s with latest data from Linear", result.BeadID)
@@ -128,9 +114,7 @@ func TestLinearImportIntegration(t *testing.T) {
 		}
 
 		result, err := fetcher.FetchAndImport(ctx, "ENG-999", opts)
-		if err != nil {
-			t.Fatalf("Failed to import: %v", err)
-		}
+		require.NoError(t, err, "Failed to import")
 
 		if result.SkipReason != "" {
 			t.Logf("Skipped: %s", result.SkipReason)
@@ -146,9 +130,7 @@ func TestLinearImportIntegration(t *testing.T) {
 		}
 
 		result, err := fetcher.FetchAndImport(ctx, "ENG-777", opts)
-		if err != nil {
-			t.Fatalf("Failed dry run: %v", err)
-		}
+		require.NoError(t, err, "Failed dry run")
 
 		if result.SkipReason == "dry run" {
 			t.Logf("Dry run successful - would import Linear issue %s", result.LinearID)
@@ -165,9 +147,7 @@ func TestLinearImportErrorHandling(t *testing.T) {
 	// Example: Invalid API key
 	t.Run("InvalidAPIKey", func(t *testing.T) {
 		_, err := linear.NewFetcher("invalid_key", "/path/to/beads")
-		if err == nil {
-			t.Fatal("Expected error for invalid API key")
-		}
+		require.Error(t, err, "Expected error for invalid API key")
 		t.Logf("Got expected error: %v", err)
 	})
 
@@ -175,9 +155,7 @@ func TestLinearImportErrorHandling(t *testing.T) {
 	t.Run("InvalidIssueID", func(t *testing.T) {
 		fetcher, _ := linear.NewFetcher("valid_key", "/path/to/beads")
 		result, err := fetcher.FetchAndImport(ctx, "INVALID-999", nil)
-		if err == nil && result.Success {
-			t.Fatal("Expected error for invalid issue ID")
-		}
+		require.True(t, err != nil || !result.Success, "Expected error for invalid issue ID")
 		if result.Error != nil {
 			t.Logf("Got expected error: %v", result.Error)
 		}

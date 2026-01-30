@@ -3,29 +3,23 @@ package work
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewPRImporter(t *testing.T) {
 	client := &testutil.GitHubClientMock{}
 	importer := NewPRImporter(client)
 
-	if importer == nil {
-		t.Fatal("NewPRImporter returned nil")
-	}
-	if importer.client != client {
-		t.Error("client not set correctly")
-	}
-	if importer.gitOps == nil {
-		t.Error("gitOps should be initialized")
-	}
-	if importer.worktreeOps == nil {
-		t.Error("worktreeOps should be initialized")
-	}
+	require.NotNil(t, importer, "NewPRImporter returned nil")
+	require.Equal(t, client, importer.client, "client not set correctly")
+	require.NotNil(t, importer.gitOps, "gitOps should be initialized")
+	require.NotNil(t, importer.worktreeOps, "worktreeOps should be initialized")
 }
 
 func TestNewPRImporterWithOps(t *testing.T) {
@@ -35,18 +29,10 @@ func TestNewPRImporterWithOps(t *testing.T) {
 
 	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
 
-	if importer == nil {
-		t.Fatal("NewPRImporterWithOps returned nil")
-	}
-	if importer.client != client {
-		t.Error("client not set correctly")
-	}
-	if importer.gitOps == nil {
-		t.Error("gitOps should be set")
-	}
-	if importer.worktreeOps == nil {
-		t.Error("worktreeOps should be set")
-	}
+	require.NotNil(t, importer, "NewPRImporterWithOps returned nil")
+	require.Equal(t, client, importer.client, "client not set correctly")
+	require.NotNil(t, importer.gitOps, "gitOps should be set")
+	require.NotNil(t, importer.worktreeOps, "worktreeOps should be set")
 }
 
 func TestSetupWorktreeFromPR_Success(t *testing.T) {
@@ -70,12 +56,8 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 	gitOps := &testutil.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
 			fetchPRRefCalled = true
-			if prNumber != 123 {
-				t.Errorf("expected PR number 123, got %d", prNumber)
-			}
-			if localBranch != "feature-branch" {
-				t.Errorf("expected branch 'feature-branch', got %s", localBranch)
-			}
+			require.Equal(t, 123, prNumber)
+			require.Equal(t, "feature-branch", localBranch)
 			return nil
 		},
 	}
@@ -84,12 +66,8 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 	worktreeOps := &testutil.WorktreeOperationsMock{
 		CreateFromExistingFunc: func(ctx context.Context, repoPath, worktreePath, branch string) error {
 			createFromExistingCalled = true
-			if branch != "feature-branch" {
-				t.Errorf("expected branch 'feature-branch', got %s", branch)
-			}
-			if worktreePath != "/work/dir/tree" {
-				t.Errorf("expected worktreePath '/work/dir/tree', got %s", worktreePath)
-			}
+			require.Equal(t, "feature-branch", branch)
+			require.Equal(t, "/work/dir/tree", worktreePath)
 			return nil
 		},
 	}
@@ -98,25 +76,11 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 
 	resultMetadata, worktreePath, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !fetchPRRefCalled {
-		t.Error("FetchPRRef was not called")
-	}
-
-	if !createFromExistingCalled {
-		t.Error("CreateFromExisting was not called")
-	}
-
-	if resultMetadata.Number != 123 {
-		t.Errorf("expected PR number 123, got %d", resultMetadata.Number)
-	}
-
-	if worktreePath != "/work/dir/tree" {
-		t.Errorf("expected worktreePath '/work/dir/tree', got %s", worktreePath)
-	}
+	require.NoError(t, err)
+	require.True(t, fetchPRRefCalled, "FetchPRRef was not called")
+	require.True(t, createFromExistingCalled, "CreateFromExisting was not called")
+	require.Equal(t, 123, resultMetadata.Number)
+	require.Equal(t, "/work/dir/tree", worktreePath)
 }
 
 func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
@@ -138,18 +102,14 @@ func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 
 	gitOps := &testutil.GitOperationsMock{
 		FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
-			if localBranch != "custom-branch" {
-				t.Errorf("expected branch 'custom-branch', got %s", localBranch)
-			}
+			require.Equal(t, "custom-branch", localBranch)
 			return nil
 		},
 	}
 
 	worktreeOps := &testutil.WorktreeOperationsMock{
 		CreateFromExistingFunc: func(ctx context.Context, repoPath, worktreePath, branch string) error {
-			if branch != "custom-branch" {
-				t.Errorf("expected branch 'custom-branch', got %s", branch)
-			}
+			require.Equal(t, "custom-branch", branch)
 			return nil
 		},
 	}
@@ -158,9 +118,7 @@ func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 
 	_, _, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "custom-branch")
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestSetupWorktreeFromPR_MetadataError(t *testing.T) {
@@ -179,13 +137,8 @@ func TestSetupWorktreeFromPR_MetadataError(t *testing.T) {
 
 	_, _, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
 
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-
-	if !errors.Is(err, errors.New("API error")) && err.Error() != "failed to get PR metadata: API error" {
-		t.Errorf("unexpected error message: %v", err)
-	}
+	require.Error(t, err)
+	require.Equal(t, "failed to get PR metadata: API error", err.Error())
 }
 
 func TestSetupWorktreeFromPR_FetchPRRefError(t *testing.T) {
@@ -214,14 +167,9 @@ func TestSetupWorktreeFromPR_FetchPRRefError(t *testing.T) {
 
 	resultMetadata, _, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
 
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-
+	require.Error(t, err)
 	// Metadata should still be returned on fetch failure
-	if resultMetadata == nil {
-		t.Error("metadata should be returned even on fetch failure")
-	}
+	require.NotNil(t, resultMetadata, "metadata should be returned even on fetch failure")
 }
 
 func TestSetupWorktreeFromPR_WorktreeCreateError(t *testing.T) {
@@ -254,14 +202,9 @@ func TestSetupWorktreeFromPR_WorktreeCreateError(t *testing.T) {
 
 	resultMetadata, _, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
 
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-
+	require.Error(t, err)
 	// Metadata should still be returned on worktree create failure
-	if resultMetadata == nil {
-		t.Error("metadata should be returned even on worktree create failure")
-	}
+	require.NotNil(t, resultMetadata, "metadata should be returned even on worktree create failure")
 }
 
 func TestFetchPRMetadata(t *testing.T) {
@@ -274,12 +217,8 @@ func TestFetchPRMetadata(t *testing.T) {
 
 	client := &testutil.GitHubClientMock{
 		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
-			if prURLOrNumber != "456" {
-				t.Errorf("expected prURLOrNumber '456', got %s", prURLOrNumber)
-			}
-			if repo != "owner/repo" {
-				t.Errorf("expected repo 'owner/repo', got %s", repo)
-			}
+			require.Equal(t, "456", prURLOrNumber)
+			require.Equal(t, "owner/repo", repo)
 			return expectedMetadata, nil
 		},
 	}
@@ -288,13 +227,8 @@ func TestFetchPRMetadata(t *testing.T) {
 
 	metadata, err := importer.FetchPRMetadata(ctx, "456", "owner/repo")
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if metadata.Number != 456 {
-		t.Errorf("expected PR number 456, got %d", metadata.Number)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 456, metadata.Number)
 }
 
 func TestMapPRToBeadCreate(t *testing.T) {
@@ -313,42 +247,23 @@ func TestMapPRToBeadCreate(t *testing.T) {
 
 	opts := mapPRToBeadCreate(pr)
 
-	if opts.title != "Add new feature" {
-		t.Errorf("expected title 'Add new feature', got %s", opts.title)
-	}
-
-	if opts.description != "This PR adds a new feature" {
-		t.Errorf("expected description 'This PR adds a new feature', got %s", opts.description)
-	}
+	require.Equal(t, "Add new feature", opts.title)
+	require.Equal(t, "This PR adds a new feature", opts.description)
 
 	// Should detect feature type from labels
-	if opts.issueType != "feature" {
-		t.Errorf("expected type 'feature', got %s", opts.issueType)
-	}
+	require.Equal(t, "feature", opts.issueType)
 
 	// Should have default P2 priority
-	if opts.priority != "P2" {
-		t.Errorf("expected priority 'P2', got %s", opts.priority)
-	}
+	require.Equal(t, "P2", opts.priority)
 
 	// Labels should be passed through
-	if len(opts.labels) != 2 {
-		t.Errorf("expected 2 labels, got %d", len(opts.labels))
-	}
+	require.Len(t, opts.labels, 2)
 
 	// Metadata should contain PR info
-	if opts.metadata["pr_url"] != "https://github.com/owner/repo/pull/123" {
-		t.Error("pr_url metadata not set correctly")
-	}
-	if opts.metadata["pr_number"] != "123" {
-		t.Error("pr_number metadata not set correctly")
-	}
-	if opts.metadata["pr_branch"] != "feature-branch" {
-		t.Error("pr_branch metadata not set correctly")
-	}
-	if opts.metadata["pr_author"] != "testuser" {
-		t.Error("pr_author metadata not set correctly")
-	}
+	require.Equal(t, "https://github.com/owner/repo/pull/123", opts.metadata["pr_url"])
+	require.Equal(t, "123", opts.metadata["pr_number"])
+	require.Equal(t, "feature-branch", opts.metadata["pr_branch"])
+	require.Equal(t, "testuser", opts.metadata["pr_author"])
 }
 
 func TestMapPRType(t *testing.T) {
@@ -434,9 +349,7 @@ func TestMapPRType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := mapPRType(tt.pr)
-			if result != tt.expected {
-				t.Errorf("expected %s, got %s", tt.expected, result)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -536,9 +449,7 @@ func TestMapPRPriority(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := mapPRPriority(tt.pr)
-			if result != tt.expected {
-				t.Errorf("expected %s, got %s", tt.expected, result)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -604,9 +515,7 @@ func TestMapPRStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := mapPRStatus(tt.pr)
-			if result != tt.expected {
-				t.Errorf("expected %s, got %s", tt.expected, result)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -709,9 +618,8 @@ func TestFormatBeadDescription(t *testing.T) {
 			result := formatBeadDescription(tt.pr)
 
 			for _, expected := range tt.contains {
-				if !containsString(result, expected) {
-					t.Errorf("expected description to contain %q, got:\n%s", expected, result)
-				}
+				require.True(t, strings.Contains(result, expected),
+					"expected description to contain %q, got:\n%s", expected, result)
 			}
 		})
 	}
@@ -738,9 +646,7 @@ func TestParsePriority(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := parsePriority(tt.input)
-			if result != tt.expected {
-				t.Errorf("parsePriority(%q) = %d, expected %d", tt.input, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -754,21 +660,11 @@ func TestCreateBeadOptions(t *testing.T) {
 		OverridePriority: "P1",
 	}
 
-	if opts.BeadsDir != "/path/to/beads" {
-		t.Error("BeadsDir not set correctly")
-	}
-	if !opts.SkipIfExists {
-		t.Error("SkipIfExists not set correctly")
-	}
-	if opts.OverrideTitle != "Custom Title" {
-		t.Error("OverrideTitle not set correctly")
-	}
-	if opts.OverrideType != "bug" {
-		t.Error("OverrideType not set correctly")
-	}
-	if opts.OverridePriority != "P1" {
-		t.Error("OverridePriority not set correctly")
-	}
+	require.Equal(t, "/path/to/beads", opts.BeadsDir)
+	require.True(t, opts.SkipIfExists)
+	require.Equal(t, "Custom Title", opts.OverrideTitle)
+	require.Equal(t, "bug", opts.OverrideType)
+	require.Equal(t, "P1", opts.OverridePriority)
 }
 
 func TestCreateBeadResult(t *testing.T) {
@@ -778,12 +674,8 @@ func TestCreateBeadResult(t *testing.T) {
 		SkipReason: "",
 	}
 
-	if result.BeadID != "bead-123" {
-		t.Error("BeadID not set correctly")
-	}
-	if !result.Created {
-		t.Error("Created not set correctly")
-	}
+	require.Equal(t, "bead-123", result.BeadID)
+	require.True(t, result.Created)
 
 	// Test skip result
 	skipResult := &CreateBeadResult{
@@ -792,24 +684,7 @@ func TestCreateBeadResult(t *testing.T) {
 		SkipReason: "bead already exists for this PR",
 	}
 
-	if skipResult.Created {
-		t.Error("Created should be false for skipped bead")
-	}
-	if skipResult.SkipReason == "" {
-		t.Error("SkipReason should be set for skipped bead")
-	}
+	require.False(t, skipResult.Created, "Created should be false for skipped bead")
+	require.NotEmpty(t, skipResult.SkipReason, "SkipReason should be set for skipped bead")
 }
 
-// containsString checks if s contains substr.
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

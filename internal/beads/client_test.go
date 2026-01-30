@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/beads/cachemanager"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCacheManagerMock verifies the mock works correctly with function fields.
@@ -32,21 +33,14 @@ func TestCacheManagerMock(t *testing.T) {
 
 		// Cache hit
 		result, found := mock.Get(ctx, "bead-1")
-		if !found {
-			t.Error("expected cache hit")
-		}
-		if result == nil || result.Beads["bead-1"].Title != "Test Bead" {
-			t.Error("expected cached result")
-		}
+		require.True(t, found, "expected cache hit")
+		require.NotNil(t, result)
+		require.Equal(t, "Test Bead", result.Beads["bead-1"].Title)
 
 		// Cache miss
 		result, found = mock.Get(ctx, "bead-2")
-		if found {
-			t.Error("expected cache miss")
-		}
-		if result != nil {
-			t.Error("expected nil result on miss")
-		}
+		require.False(t, found, "expected cache miss")
+		require.Nil(t, result, "expected nil result on miss")
 	})
 
 	t.Run("Set stores value in cache", func(t *testing.T) {
@@ -70,15 +64,9 @@ func TestCacheManagerMock(t *testing.T) {
 
 		mock.Set(ctx, "test-key", testResult, 5*time.Minute)
 
-		if storedKey != "test-key" {
-			t.Errorf("expected key 'test-key', got %s", storedKey)
-		}
-		if storedValue != testResult {
-			t.Error("expected stored value to match")
-		}
-		if storedTTL != 5*time.Minute {
-			t.Errorf("expected TTL 5m, got %v", storedTTL)
-		}
+		require.Equal(t, "test-key", storedKey)
+		require.Equal(t, testResult, storedValue)
+		require.Equal(t, 5*time.Minute, storedTTL)
 	})
 
 	t.Run("Flush clears cache", func(t *testing.T) {
@@ -91,33 +79,23 @@ func TestCacheManagerMock(t *testing.T) {
 		}
 
 		err := mock.Flush(ctx)
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-		if !flushCalled {
-			t.Error("expected Flush to be called")
-		}
+		require.NoError(t, err)
+		require.True(t, flushCalled, "expected Flush to be called")
 	})
 
 	t.Run("nil function returns zero value", func(t *testing.T) {
 		mock := &cachemanager.CacheManagerMock[string, *BeadsWithDepsResult]{}
 
 		result, found := mock.Get(ctx, "any")
-		if found {
-			t.Error("expected false when GetFunc is nil")
-		}
-		if result != nil {
-			t.Error("expected nil result when GetFunc is nil")
-		}
+		require.False(t, found, "expected false when GetFunc is nil")
+		require.Nil(t, result, "expected nil result when GetFunc is nil")
 
 		// Set with nil func should not panic
 		mock.Set(ctx, "key", nil, time.Minute)
 
 		// Flush with nil func should return nil
 		err := mock.Flush(ctx)
-		if err != nil {
-			t.Errorf("expected nil error, got %v", err)
-		}
+		require.NoError(t, err)
 	})
 }
 
@@ -164,9 +142,7 @@ func TestClientCacheIntegration(t *testing.T) {
 
 		// FlushCache with nil cache should not panic and return nil
 		err := client.FlushCache(ctx)
-		if err != nil {
-			t.Errorf("expected nil error for nil cache, got %v", err)
-		}
+		require.NoError(t, err)
 	})
 }
 
@@ -186,21 +162,11 @@ func TestBeadsWithDepsResult(t *testing.T) {
 		}
 
 		beadWithDeps := result.GetBead("bead-1")
-		if beadWithDeps == nil {
-			t.Fatal("expected non-nil BeadWithDeps")
-		}
-		if beadWithDeps.ID != "bead-1" {
-			t.Errorf("expected ID 'bead-1', got %s", beadWithDeps.ID)
-		}
-		if beadWithDeps.Title != "Test Bead" {
-			t.Errorf("expected Title 'Test Bead', got %s", beadWithDeps.Title)
-		}
-		if len(beadWithDeps.Dependencies) != 1 {
-			t.Errorf("expected 1 dependency, got %d", len(beadWithDeps.Dependencies))
-		}
-		if len(beadWithDeps.Dependents) != 1 {
-			t.Errorf("expected 1 dependent, got %d", len(beadWithDeps.Dependents))
-		}
+		require.NotNil(t, beadWithDeps)
+		require.Equal(t, "bead-1", beadWithDeps.ID)
+		require.Equal(t, "Test Bead", beadWithDeps.Title)
+		require.Len(t, beadWithDeps.Dependencies, 1)
+		require.Len(t, beadWithDeps.Dependents, 1)
 	})
 
 	t.Run("GetBead returns nil for non-existing bead", func(t *testing.T) {
@@ -211,9 +177,7 @@ func TestBeadsWithDepsResult(t *testing.T) {
 		}
 
 		beadWithDeps := result.GetBead("nonexistent")
-		if beadWithDeps != nil {
-			t.Error("expected nil for non-existing bead")
-		}
+		require.Nil(t, beadWithDeps, "expected nil for non-existing bead")
 	})
 }
 
@@ -221,16 +185,8 @@ func TestBeadsWithDepsResult(t *testing.T) {
 func TestDefaultClientConfig(t *testing.T) {
 	cfg := DefaultClientConfig("/path/to/db")
 
-	if cfg.DBPath != "/path/to/db" {
-		t.Errorf("expected DBPath '/path/to/db', got %s", cfg.DBPath)
-	}
-	if !cfg.CacheEnabled {
-		t.Error("expected CacheEnabled to be true by default")
-	}
-	if cfg.CacheExpiration != 10*time.Minute {
-		t.Errorf("expected CacheExpiration 10m, got %v", cfg.CacheExpiration)
-	}
-	if cfg.CacheCleanupTime != 30*time.Minute {
-		t.Errorf("expected CacheCleanupTime 30m, got %v", cfg.CacheCleanupTime)
-	}
+	require.Equal(t, "/path/to/db", cfg.DBPath)
+	require.True(t, cfg.CacheEnabled, "expected CacheEnabled to be true by default")
+	require.Equal(t, 10*time.Minute, cfg.CacheExpiration)
+	require.Equal(t, 30*time.Minute, cfg.CacheCleanupTime)
 }

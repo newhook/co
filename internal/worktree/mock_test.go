@@ -6,6 +6,7 @@ import (
 
 	"github.com/newhook/co/internal/testutil"
 	"github.com/newhook/co/internal/worktree"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMockImplementsInterface(t *testing.T) {
@@ -29,12 +30,8 @@ func TestWorktreeOperationsMock(t *testing.T) {
 		}
 
 		worktrees, err := mock.List(ctx, "/repo")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(worktrees) != len(expectedWorktrees) {
-			t.Errorf("expected %d worktrees, got %d", len(expectedWorktrees), len(worktrees))
-		}
+		require.NoError(t, err)
+		require.Len(t, worktrees, len(expectedWorktrees))
 	})
 
 	t.Run("ExistsPath returns configured value", func(t *testing.T) {
@@ -44,18 +41,12 @@ func TestWorktreeOperationsMock(t *testing.T) {
 			},
 		}
 
-		if !mock.ExistsPath("/existing/path") {
-			t.Error("expected ExistsPath to return true for existing path")
-		}
-		if mock.ExistsPath("/nonexistent/path") {
-			t.Error("expected ExistsPath to return false for nonexistent path")
-		}
+		require.True(t, mock.ExistsPath("/existing/path"), "expected ExistsPath to return true for existing path")
+		require.False(t, mock.ExistsPath("/nonexistent/path"), "expected ExistsPath to return false for nonexistent path")
 
 		// Verify calls are tracked
 		calls := mock.ExistsPathCalls()
-		if len(calls) != 2 {
-			t.Errorf("expected 2 calls, got %d", len(calls))
-		}
+		require.Len(t, calls, 2)
 	})
 
 	t.Run("Create tracks call arguments", func(t *testing.T) {
@@ -68,21 +59,11 @@ func TestWorktreeOperationsMock(t *testing.T) {
 		_ = mock.Create(ctx, "/repo", "/worktree/path", "feature-branch", "main")
 
 		calls := mock.CreateCalls()
-		if len(calls) != 1 {
-			t.Fatalf("expected 1 call, got %d", len(calls))
-		}
-		if calls[0].RepoPath != "/repo" {
-			t.Errorf("expected repoPath '/repo', got %s", calls[0].RepoPath)
-		}
-		if calls[0].WorktreePath != "/worktree/path" {
-			t.Errorf("expected worktreePath '/worktree/path', got %s", calls[0].WorktreePath)
-		}
-		if calls[0].Branch != "feature-branch" {
-			t.Errorf("expected branch 'feature-branch', got %s", calls[0].Branch)
-		}
-		if calls[0].BaseBranch != "main" {
-			t.Errorf("expected baseBranch 'main', got %s", calls[0].BaseBranch)
-		}
+		require.Len(t, calls, 1)
+		require.Equal(t, "/repo", calls[0].RepoPath)
+		require.Equal(t, "/worktree/path", calls[0].WorktreePath)
+		require.Equal(t, "feature-branch", calls[0].Branch)
+		require.Equal(t, "main", calls[0].BaseBranch)
 	})
 
 	t.Run("CreateFromExisting tracks call arguments", func(t *testing.T) {
@@ -95,12 +76,8 @@ func TestWorktreeOperationsMock(t *testing.T) {
 		_ = mock.CreateFromExisting(ctx, "/repo", "/worktree/path", "existing-branch")
 
 		calls := mock.CreateFromExistingCalls()
-		if len(calls) != 1 {
-			t.Fatalf("expected 1 call, got %d", len(calls))
-		}
-		if calls[0].Branch != "existing-branch" {
-			t.Errorf("expected branch 'existing-branch', got %s", calls[0].Branch)
-		}
+		require.Len(t, calls, 1)
+		require.Equal(t, "existing-branch", calls[0].Branch)
 	})
 
 	t.Run("RemoveForce tracks call arguments", func(t *testing.T) {
@@ -113,25 +90,18 @@ func TestWorktreeOperationsMock(t *testing.T) {
 		_ = mock.RemoveForce(ctx, "/repo", "/worktree/to/remove")
 
 		calls := mock.RemoveForceCalls()
-		if len(calls) != 1 {
-			t.Fatalf("expected 1 call, got %d", len(calls))
-		}
-		if calls[0].WorktreePath != "/worktree/to/remove" {
-			t.Errorf("expected worktreePath '/worktree/to/remove', got %s", calls[0].WorktreePath)
-		}
+		require.Len(t, calls, 1)
+		require.Equal(t, "/worktree/to/remove", calls[0].WorktreePath)
 	})
 
 	t.Run("nil function returns zero value", func(t *testing.T) {
 		mock := &testutil.WorktreeOperationsMock{}
 
 		// Without setting function, mock returns zero values
-		if mock.ExistsPath("/any") {
-			t.Error("expected false when ExistsPathFunc is nil")
-		}
+		require.False(t, mock.ExistsPath("/any"), "expected false when ExistsPathFunc is nil")
 
 		worktrees, err := mock.List(ctx, "/repo")
-		if err != nil || worktrees != nil {
-			t.Error("expected nil worktrees and nil error when ListFunc is nil")
-		}
+		require.NoError(t, err)
+		require.Nil(t, worktrees, "expected nil worktrees when ListFunc is nil")
 	})
 }

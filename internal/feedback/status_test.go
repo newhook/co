@@ -6,6 +6,7 @@ import (
 
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/github"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractCIStatus(t *testing.T) {
@@ -111,9 +112,7 @@ func TestExtractCIStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := extractCIStatus(tt.status)
-			if result != tt.expected {
-				t.Errorf("extractCIStatus() = %q, want %q", result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -235,22 +234,18 @@ func TestExtractApprovalStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			status, approvers := extractApprovalStatus(tt.status)
-			if status != tt.expectedStatus {
-				t.Errorf("extractApprovalStatus() status = %q, want %q", status, tt.expectedStatus)
-			}
+			require.Equal(t, tt.expectedStatus, status)
 
 			// Check approvers (order may vary)
-			if len(approvers) != len(tt.expectedApprovers) {
-				t.Errorf("extractApprovalStatus() approvers count = %d, want %d", len(approvers), len(tt.expectedApprovers))
-			} else {
+			require.Len(t, approvers, len(tt.expectedApprovers))
+
+			if len(approvers) > 0 {
 				approverSet := make(map[string]bool)
 				for _, a := range approvers {
 					approverSet[a] = true
 				}
 				for _, expected := range tt.expectedApprovers {
-					if !approverSet[expected] {
-						t.Errorf("extractApprovalStatus() missing approver %q", expected)
-					}
+					require.True(t, approverSet[expected], "missing approver %q", expected)
 				}
 			}
 		})
@@ -322,15 +317,9 @@ func TestExtractStatusFromPRStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			info := ExtractStatusFromPRStatus(tt.status)
 
-			if info.CIStatus != tt.expectedCI {
-				t.Errorf("CIStatus = %q, want %q", info.CIStatus, tt.expectedCI)
-			}
-			if info.ApprovalStatus != tt.expectedApproval {
-				t.Errorf("ApprovalStatus = %q, want %q", info.ApprovalStatus, tt.expectedApproval)
-			}
-			if len(info.Approvers) != len(tt.expectedApprovers) {
-				t.Errorf("Approvers count = %d, want %d", len(info.Approvers), len(tt.expectedApprovers))
-			}
+			require.Equal(t, tt.expectedCI, info.CIStatus)
+			require.Equal(t, tt.expectedApproval, info.ApprovalStatus)
+			require.Len(t, info.Approvers, len(tt.expectedApprovers))
 		})
 	}
 }

@@ -3,6 +3,8 @@ package claude
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildLogAnalysisPrompt(t *testing.T) {
@@ -100,15 +102,11 @@ func TestBuildLogAnalysisPrompt(t *testing.T) {
 			result := BuildLogAnalysisPrompt(tt.params)
 
 			for _, want := range tt.wantContains {
-				if !strings.Contains(result, want) {
-					t.Errorf("BuildLogAnalysisPrompt() missing expected content: %q\n\nGot:\n%s", want, result)
-				}
+				require.Contains(t, result, want, "BuildLogAnalysisPrompt() missing expected content")
 			}
 
 			for _, notWant := range tt.wantNotContain {
-				if strings.Contains(result, notWant) {
-					t.Errorf("BuildLogAnalysisPrompt() contains unexpected content: %q\n\nGot:\n%s", notWant, result)
-				}
+				require.NotContains(t, result, notWant, "BuildLogAnalysisPrompt() contains unexpected content")
 			}
 		})
 	}
@@ -126,27 +124,13 @@ func TestLogAnalysisParams(t *testing.T) {
 		LogContent:   "content",
 	}
 
-	if params.TaskID != "task-1" {
-		t.Errorf("TaskID = %s, want task-1", params.TaskID)
-	}
-	if params.WorkID != "work-1" {
-		t.Errorf("WorkID = %s, want work-1", params.WorkID)
-	}
-	if params.BranchName != "main" {
-		t.Errorf("BranchName = %s, want main", params.BranchName)
-	}
-	if params.RootIssueID != "issue-1" {
-		t.Errorf("RootIssueID = %s, want issue-1", params.RootIssueID)
-	}
-	if params.WorkflowName != "workflow-1" {
-		t.Errorf("WorkflowName = %s, want workflow-1", params.WorkflowName)
-	}
-	if params.JobName != "job-1" {
-		t.Errorf("JobName = %s, want job-1", params.JobName)
-	}
-	if params.LogContent != "content" {
-		t.Errorf("LogContent = %s, want content", params.LogContent)
-	}
+	require.Equal(t, "task-1", params.TaskID)
+	require.Equal(t, "work-1", params.WorkID)
+	require.Equal(t, "main", params.BranchName)
+	require.Equal(t, "issue-1", params.RootIssueID)
+	require.Equal(t, "workflow-1", params.WorkflowName)
+	require.Equal(t, "job-1", params.JobName)
+	require.Equal(t, "content", params.LogContent)
 }
 
 func TestBuildLogAnalysisPromptPriorityGuidelines(t *testing.T) {
@@ -171,9 +155,7 @@ func TestBuildLogAnalysisPromptPriorityGuidelines(t *testing.T) {
 	}
 
 	for _, p := range priorities {
-		if !strings.Contains(result, p) {
-			t.Errorf("BuildLogAnalysisPrompt() missing priority guideline: %s", p)
-		}
+		require.True(t, strings.Contains(result, p), "BuildLogAnalysisPrompt() missing priority guideline: %s", p)
 	}
 }
 
@@ -191,17 +173,11 @@ func TestBuildLogAnalysisPromptBdCreateCommand(t *testing.T) {
 	result := BuildLogAnalysisPrompt(params)
 
 	// Check that bd create command format is included
-	if !strings.Contains(result, "bd create") {
-		t.Error("BuildLogAnalysisPrompt() missing bd create command")
-	}
+	require.Contains(t, result, "bd create", "BuildLogAnalysisPrompt() missing bd create command")
 
 	// Check that it includes type options
-	if !strings.Contains(result, "--type") {
-		t.Error("BuildLogAnalysisPrompt() missing --type flag")
-	}
+	require.Contains(t, result, "--type", "BuildLogAnalysisPrompt() missing --type flag")
 
 	// Check that it includes priority option
-	if !strings.Contains(result, "--priority") {
-		t.Error("BuildLogAnalysisPrompt() missing --priority flag")
-	}
+	require.Contains(t, result, "--priority", "BuildLogAnalysisPrompt() missing --priority flag")
 }

@@ -2,6 +2,8 @@ package linear
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseIssueIDOrURL(t *testing.T) {
@@ -66,13 +68,14 @@ func TestParseIssueIDOrURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ParseIssueIDOrURL(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseIssueIDOrURL() error = %v, wantErr %v", err, tt.wantErr)
-				return
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if got != tt.want {
-				t.Errorf("ParseIssueIDOrURL() = %v, want %v", got, tt.want)
-			}
+
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -98,12 +101,12 @@ func TestNewClient(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client, err := NewClient(tt.apiKey)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewClient() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr && client == nil {
-				t.Error("NewClient() returned nil client without error")
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, client, "NewClient() returned nil client without error")
 			}
 		})
 	}
