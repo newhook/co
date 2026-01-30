@@ -1,6 +1,6 @@
 package task
 
-//go:generate moq -stub -out task_mock.go . ComplexityEstimator
+//go:generate moq -stub -out task_mock.go . ComplexityEstimator Planner:PlannerMock
 
 import (
 	"context"
