@@ -11,6 +11,8 @@ import (
 	"github.com/newhook/co/internal/project"
 )
 
+// Bubblezone setup: NewGlobal() initializes the global zone manager.
+// Child components use zone.NewPrefix() for unique IDs; zone.Scan() is called only here at the root.
 func init() {
 	zone.NewGlobal()
 }

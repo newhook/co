@@ -196,6 +196,9 @@ func (m *planModel) detectClickedPanel(msg tea.MouseMsg) string {
 
 // detectDialogButton determines which dialog button is at the mouse position using bubblezone.
 // Returns "ok", "cancel", "execute", "auto", "import", or "" if not over a button.
+//
+// Dialog buttons use fixed zone IDs (e.g., "dialog-ok") without a prefix since only one dialog
+// is visible at a time. If multiple simultaneous dialogs are needed, add zone.NewPrefix().
 func (m *planModel) detectDialogButton(msg tea.MouseMsg) string {
 	// Dialog buttons only visible in form modes, Linear import mode, PR import mode, and work creation mode
 	if m.viewMode != ViewCreateBead && m.viewMode != ViewCreateBeadInline &&
