@@ -124,6 +124,19 @@ cat .co/debug.log | jq .
 
 The project uses [moq](https://github.com/matryer/moq) for generating test mocks. Mocks are stored in `internal/testutil/` and use the function-field pattern for easy customization per-test.
 
+### Installing moq
+
+moq is installed automatically via mise:
+
+```bash
+mise install  # Installs all tools including moq
+```
+
+The tool is defined in `mise.toml`:
+```toml
+"go:github.com/matryer/moq" = "latest"
+```
+
 ### Regenerating Mocks
 
 After modifying interfaces or adding new `//go:generate` directives:
@@ -166,6 +179,56 @@ Mocks are generated for interfaces in:
 - `internal/task/` - Complexity estimator
 - `internal/linear/` - Linear API client
 - `internal/beads/cachemanager/` - Cache manager
+
+### Testing Best Practices
+
+**Configuring mock behavior per-test:**
+```go
+mock := &testutil.GitOperationsMock{
+    BranchExistsFunc: func(ctx context.Context, repoPath, branchName string) bool {
+        return branchName == "main"  // Returns true only for "main"
+    },
+}
+```
+
+**Tracking and verifying calls:**
+```go
+mock := &testutil.GitOperationsMock{
+    FetchPRRefFunc: func(ctx context.Context, repoPath string, prNumber int, localBranch string) error {
+        return nil
+    },
+}
+
+_ = mock.FetchPRRef(ctx, "/repo", 123, "pr-123")
+
+// Verify call count
+calls := mock.FetchPRRefCalls()
+if len(calls) != 1 {
+    t.Errorf("expected 1 call, got %d", len(calls))
+}
+
+// Verify call arguments
+if calls[0].PrNumber != 123 {
+    t.Errorf("expected prNumber 123, got %d", calls[0].PrNumber)
+}
+```
+
+**Nil functions return zero values:**
+```go
+mock := &testutil.GitOperationsMock{}  // No functions set
+
+// Returns false (zero value for bool) when BranchExistsFunc is nil
+mock.BranchExists(ctx, "/repo", "any")  // returns false
+
+// Returns nil, nil when ListBranchesFunc is nil
+branches, err := mock.ListBranches(ctx, "/repo")  // branches=nil, err=nil
+```
+
+**Compile-time interface verification:**
+```go
+// Ensure mock implements the interface at compile time
+var _ git.Operations = (*testutil.GitOperationsMock)(nil)
+```
 
 ## Database Migrations
 
