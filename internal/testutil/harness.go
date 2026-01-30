@@ -115,7 +115,9 @@ func NewTestHarness(t *testing.T) *TestHarness {
 // Should be called with defer after NewTestHarness.
 func (h *TestHarness) Cleanup() {
 	if h.DB != nil {
-		h.DB.Close()
+		if err := h.DB.Close(); err != nil {
+			h.T.Logf("warning: failed to close database: %v", err)
+		}
 	}
 }
 
