@@ -99,51 +99,17 @@ func TestCacheManagerMock(t *testing.T) {
 	})
 }
 
-// TestCacheKeyGeneration tests that cache keys are generated consistently.
-func TestCacheKeyGeneration(t *testing.T) {
-	t.Run("same IDs different order produce same key", func(t *testing.T) {
-		// The GetBeadsWithDeps function sorts IDs before creating the cache key
-		// This test documents that behavior
+// TestFlushCacheWithNilCache tests that FlushCache handles a nil cache gracefully.
+func TestFlushCacheWithNilCache(t *testing.T) {
+	ctx := context.Background()
+	client := &Client{
+		cache:        nil,
+		cacheEnabled: false,
+	}
 
-		// Example: IDs {"bead-c", "bead-a", "bead-b"} and {"bead-a", "bead-b", "bead-c"}
-		// Both should sort to produce key "bead-a,bead-b,bead-c"
-
-		// This documents the expected behavior without accessing private functions
-		// The actual implementation uses sort.Strings and strings.Join
-	})
-}
-
-// TestClientCacheIntegration documents the expected caching behavior.
-// Note: Full integration tests require a database, which is tested separately.
-func TestClientCacheIntegration(t *testing.T) {
-	t.Run("GetBeadsWithDeps caching behavior", func(t *testing.T) {
-		// Document expected behavior:
-		// 1. Empty beadIDs returns empty result without cache check
-		// 2. Cache is checked before database query
-		// 3. On cache miss, database is queried and result is cached
-		// 4. Cache key is sorted bead IDs joined by comma
-
-		// This documents the contract for GetBeadsWithDeps caching:
-		// - cacheEnabled must be true
-		// - cache must be non-nil
-		// - Results are keyed by sorted, comma-joined bead IDs
-	})
-
-	t.Run("FlushCache behavior", func(t *testing.T) {
-		// Document expected behavior:
-		// - FlushCache delegates to cache.Flush
-		// - Returns nil if cache is nil
-
-		ctx := context.Background()
-		client := &Client{
-			cache:        nil,
-			cacheEnabled: false,
-		}
-
-		// FlushCache with nil cache should not panic and return nil
-		err := client.FlushCache(ctx)
-		require.NoError(t, err)
-	})
+	// FlushCache with nil cache should not panic and return nil
+	err := client.FlushCache(ctx)
+	require.NoError(t, err)
 }
 
 // TestBeadsWithDepsResult tests the result helper methods.
