@@ -808,3 +808,164 @@ func TestProcessAllDueTasks(t *testing.T) {
 		control.ProcessAllDueTasks(ctx, proj)
 	})
 }
+
+func TestHandleCommentResolutionTask(t *testing.T) {
+	ctx := context.Background()
+	proj, cleanup := setupTestProject(t)
+	defer cleanup()
+
+	t.Run("skips when work has no PR URL", func(t *testing.T) {
+		// Create work without PR URL
+		createTestWork(ctx, t, proj.DB, "w-no-pr-comment", "no-pr-branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-no-pr-comment")
+
+		task := &db.ScheduledTask{
+			ID:       "comment-task-1",
+			WorkID:   "w-no-pr-comment",
+			TaskType: db.TaskTypeCommentResolution,
+		}
+
+		// Should succeed without doing anything (no PR URL)
+		err := control.HandleCommentResolutionTask(ctx, proj, task)
+		require.NoError(t, err)
+	})
+
+	t.Run("skips when work does not exist", func(t *testing.T) {
+		task := &db.ScheduledTask{
+			ID:       "comment-task-2",
+			WorkID:   "nonexistent-work",
+			TaskType: db.TaskTypeCommentResolution,
+		}
+
+		// Should succeed without doing anything (work not found)
+		err := control.HandleCommentResolutionTask(ctx, proj, task)
+		require.NoError(t, err)
+	})
+}
+
+func TestHandleGitHubCommentTask(t *testing.T) {
+	ctx := context.Background()
+	proj, cleanup := setupTestProject(t)
+	defer cleanup()
+
+	t.Run("returns error when pr_url missing", func(t *testing.T) {
+		createTestWork(ctx, t, proj.DB, "w-gh-comment", "branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-gh-comment")
+
+		task := &db.ScheduledTask{
+			ID:       "gh-comment-task-1",
+			WorkID:   "w-gh-comment",
+			TaskType: db.TaskTypeGitHubComment,
+			Metadata: map[string]string{
+				"body": "test comment",
+				// Missing pr_url
+			},
+		}
+
+		err := control.HandleGitHubCommentTask(ctx, proj, task)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing pr_url or body")
+	})
+
+	t.Run("returns error when body missing", func(t *testing.T) {
+		createTestWork(ctx, t, proj.DB, "w-gh-comment-2", "branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-gh-comment-2")
+
+		task := &db.ScheduledTask{
+			ID:       "gh-comment-task-2",
+			WorkID:   "w-gh-comment-2",
+			TaskType: db.TaskTypeGitHubComment,
+			Metadata: map[string]string{
+				"pr_url": "https://github.com/org/repo/pull/123",
+				// Missing body
+			},
+		}
+
+		err := control.HandleGitHubCommentTask(ctx, proj, task)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing pr_url or body")
+	})
+
+	t.Run("returns error when reply_to_id is invalid", func(t *testing.T) {
+		createTestWork(ctx, t, proj.DB, "w-gh-comment-3", "branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-gh-comment-3")
+
+		task := &db.ScheduledTask{
+			ID:       "gh-comment-task-3",
+			WorkID:   "w-gh-comment-3",
+			TaskType: db.TaskTypeGitHubComment,
+			Metadata: map[string]string{
+				"pr_url":      "https://github.com/org/repo/pull/123",
+				"body":        "test comment",
+				"reply_to_id": "not-a-number",
+			},
+		}
+
+		err := control.HandleGitHubCommentTask(ctx, proj, task)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid reply_to_id")
+	})
+}
+
+func TestHandleGitHubResolveThreadTask(t *testing.T) {
+	ctx := context.Background()
+	proj, cleanup := setupTestProject(t)
+	defer cleanup()
+
+	t.Run("returns error when pr_url missing", func(t *testing.T) {
+		createTestWork(ctx, t, proj.DB, "w-resolve-1", "branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-resolve-1")
+
+		task := &db.ScheduledTask{
+			ID:       "resolve-task-1",
+			WorkID:   "w-resolve-1",
+			TaskType: db.TaskTypeGitHubResolveThread,
+			Metadata: map[string]string{
+				"comment_id": "123",
+				// Missing pr_url
+			},
+		}
+
+		err := control.HandleGitHubResolveThreadTask(ctx, proj, task)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing pr_url or comment_id")
+	})
+
+	t.Run("returns error when comment_id missing", func(t *testing.T) {
+		createTestWork(ctx, t, proj.DB, "w-resolve-2", "branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-resolve-2")
+
+		task := &db.ScheduledTask{
+			ID:       "resolve-task-2",
+			WorkID:   "w-resolve-2",
+			TaskType: db.TaskTypeGitHubResolveThread,
+			Metadata: map[string]string{
+				"pr_url": "https://github.com/org/repo/pull/123",
+				// Missing comment_id
+			},
+		}
+
+		err := control.HandleGitHubResolveThreadTask(ctx, proj, task)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing pr_url or comment_id")
+	})
+
+	t.Run("returns error when comment_id is invalid", func(t *testing.T) {
+		createTestWork(ctx, t, proj.DB, "w-resolve-3", "branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-resolve-3")
+
+		task := &db.ScheduledTask{
+			ID:       "resolve-task-3",
+			WorkID:   "w-resolve-3",
+			TaskType: db.TaskTypeGitHubResolveThread,
+			Metadata: map[string]string{
+				"pr_url":     "https://github.com/org/repo/pull/123",
+				"comment_id": "not-a-number",
+			},
+		}
+
+		err := control.HandleGitHubResolveThreadTask(ctx, proj, task)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid comment_id")
+	})
+}
