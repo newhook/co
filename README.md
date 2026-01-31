@@ -1,6 +1,6 @@
 # Claude Orchestrator (co)
 
-A Go CLI tool that orchestrates Claude Code to process issues, creating PRs for each.
+Orchestrate Claude Code to process issues and create PRs. Includes a TUI for interactive management and CLI for scripting.
 
 ## Philosophy
 
