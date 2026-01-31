@@ -53,6 +53,8 @@ go test ./...
 
 Uses CLI tools: `bd`, `claude`, `gh`, `git`, `mise` (optional), `zellij`
 
+**Important**: The beads (`bd`) version in `mise.toml` must stay aligned with the version in `internal/mise/template/mise.tmpl`. Co queries the beads database directly via sqlc and expects specific schema columns. Version mismatches cause errors like "no such column: owner".
+
 ## Context Usage
 
 Functions that execute external commands or perform I/O should accept `context.Context` as their first parameter:
