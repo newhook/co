@@ -1,12 +1,13 @@
 [tools]
 go = "1.25"
 "aqua:steveyegge/beads" = "v0.49.0"
-"go:golang.org/x/tools/cmd/deadcode" = "latest"
+"go:golang.org/x/tools/cmd/deadcode" = "0.40.0"
 "aqua:sqlc-dev/sqlc" = "1.28.0"
 "aqua:golangci/golangci-lint" = "v2.8.0"
-"aqua:evilmartians/lefthook" = "latest"
-"aqua:mikefarah/yq" = "latest"
-"go:github.com/matryer/moq" = "latest"
+"aqua:evilmartians/lefthook" = "2.0.15"
+"aqua:mikefarah/yq" = "4.50.1"
+"aqua:matryer/moq" = "0.6.0"
+"aqua:goreleaser/goreleaser" = "2.5.1"
 
 [env]
 GOPATH = "{{env.HOME}}/go"
