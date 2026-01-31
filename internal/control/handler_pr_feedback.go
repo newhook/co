@@ -3,9 +3,11 @@ package control
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 )
@@ -38,6 +40,12 @@ func (cp *ControlPlane) HandlePRFeedbackTask(ctx context.Context, proj *project.
 		logging.Debug("No new PR feedback found", "work_id", workID)
 	}
 
+	// Spawn watchers for in-progress workflow runs
+	if err := spawnWorkflowWatchers(ctx, proj, work); err != nil {
+		// Log but don't fail the task - watchers are an optimization
+		logging.Warn("failed to spawn workflow watchers", "error", err, "work_id", workID)
+	}
+
 	// Schedule next check using configured interval
 	nextInterval := proj.Config.Scheduler.GetPRFeedbackInterval()
 	nextCheck := time.Now().Add(nextInterval)
@@ -49,4 +57,65 @@ func (cp *ControlPlane) HandlePRFeedbackTask(ctx context.Context, proj *project.
 	}
 
 	return nil
+}
+
+// spawnWorkflowWatchers checks for in-progress workflow runs and spawns watchers for them.
+// This enables immediate notification when CI completes instead of waiting for the next poll.
+func spawnWorkflowWatchers(ctx context.Context, proj *project.Project, work *db.Work) error {
+	// Fetch PR status to get workflow run information
+	client := github.NewClient()
+	status, err := client.GetPRStatus(ctx, work.PRURL)
+	if err != nil {
+		return fmt.Errorf("failed to get PR status: %w", err)
+	}
+
+	// Extract repo from PR URL
+	repo, err := extractRepoFromPRURL(work.PRURL)
+	if err != nil {
+		return fmt.Errorf("failed to extract repo from PR URL: %w", err)
+	}
+
+	// Check each workflow run for in-progress status
+	watcherCount := 0
+	for _, workflow := range status.Workflows {
+		// Only watch runs that are in progress or queued
+		if workflow.Status != "in_progress" && workflow.Status != "queued" {
+			continue
+		}
+
+		// Schedule a watcher for this run
+		err := ScheduleWatchWorkflowRun(ctx, proj, work.ID, workflow.ID, repo)
+		if err != nil {
+			// Log but continue - idempotency key prevents duplicates
+			logging.Debug("failed to schedule workflow watcher",
+				"run_id", workflow.ID,
+				"error", err)
+			continue
+		}
+		watcherCount++
+	}
+
+	if watcherCount > 0 {
+		logging.Info("Spawned workflow watchers",
+			"count", watcherCount,
+			"work_id", work.ID)
+	}
+
+	return nil
+}
+
+// extractRepoFromPRURL extracts the owner/repo from a GitHub PR URL.
+// Expected format: https://github.com/owner/repo/pull/123
+func extractRepoFromPRURL(prURL string) (string, error) {
+	parts := strings.Split(prURL, "/")
+	if len(parts) < 5 {
+		return "", fmt.Errorf("invalid PR URL format: %s", prURL)
+	}
+	// Find github.com in the URL and extract owner/repo
+	for i, part := range parts {
+		if part == "github.com" && i+2 < len(parts) {
+			return fmt.Sprintf("%s/%s", parts[i+1], parts[i+2]), nil
+		}
+	}
+	return "", fmt.Errorf("could not extract repo from PR URL: %s", prURL)
 }
