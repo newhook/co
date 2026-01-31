@@ -55,6 +55,18 @@ func InstallHooks(ctx context.Context, repoDir string) error {
 	return nil
 }
 
+// Reinit regenerates the beads database from existing JSONL files.
+// repoDir should be the path to the repository containing .beads/ directory.
+// This is used when the .beads directory already exists and we just need to rebuild the database.
+func Reinit(ctx context.Context, repoDir string) error {
+	cmd := exec.CommandContext(ctx, "bd", "init")
+	cmd.Dir = repoDir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("bd init failed: %w\n%s", err, output)
+	}
+	return nil
+}
+
 // CloseEligibleParents closes any parent beads where all children are complete.
 // Uses cached bead data to find eligible parents, then closes them via bd CLI.
 // Works for any parent-child relationship, not just epics.

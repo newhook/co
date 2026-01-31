@@ -11,26 +11,6 @@ import (
 // SpinnerFrames for animated waiting display
 var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// UpdateWorkTaskActivity updates the last_activity timestamp for all processing tasks of a work.
-func UpdateWorkTaskActivity(ctx context.Context, database *db.DB, workID string) error {
-	// Get all processing tasks for this work
-	tasks, err := database.GetWorkTasks(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work tasks: %w", err)
-	}
-
-	// Update activity for each processing task
-	for _, task := range tasks {
-		if task.Status == db.StatusProcessing {
-			if err := database.UpdateTaskActivity(ctx, task.ID, time.Now()); err != nil {
-				// Log but don't fail on individual task updates
-				fmt.Printf("Warning: failed to update activity for task %s: %v\n", task.ID, err)
-			}
-		}
-	}
-	return nil
-}
-
 // SpinnerWait displays an animated spinner with a message for the specified duration.
 // The spinner updates every 100ms to create a smooth animation effect.
 // Does not print a newline so the spinner can continue on the same line.

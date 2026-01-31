@@ -114,29 +114,3 @@ func collectChildrenAndBlocked(ctx context.Context, beadID string, beadsClient *
 
 	return orderedIDs, nil
 }
-
-// CollectIssuesForMultipleIDs collects all issues to include for multiple bead IDs.
-// It collects transitive dependencies for each bead and deduplicates the results.
-func CollectIssuesForMultipleIDs(ctx context.Context, beadIDList []string, beadsClient *beads.Client) (*beads.BeadsWithDepsResult, error) {
-	// Use a map to deduplicate issue IDs
-	issueIDSet := make(map[string]bool)
-
-	for _, beadID := range beadIDList {
-		issueIDs, err := CollectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
-		if err != nil {
-			return nil, err
-		}
-		for _, id := range issueIDs {
-			issueIDSet[id] = true
-		}
-	}
-
-	// Convert set to slice
-	var issueIDs []string
-	for id := range issueIDSet {
-		issueIDs = append(issueIDs, id)
-	}
-
-	// Get all issues with dependencies in one call
-	return beadsClient.GetBeadsWithDeps(ctx, issueIDs)
-}
