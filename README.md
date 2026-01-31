@@ -19,11 +19,15 @@ CO is designed to manage an army of Claude agents, turning your issue tracker in
 
 ### Design Principles
 
-- **Autonomous execution** - Claude works independently, committing and pushing after each completed issue
+- **Autonomous execution** - Agents work independently, committing and pushing after each completed issue
 - **Continuous progress** - Work is never lost; every bead completion is immediately saved
 - **Feedback loops** - CI failures and review comments flow back as actionable issues
 - **Human oversight** - You control when to create work, when to merge, and can intervene at any point
 - **Isolation** - Each work unit has its own worktree, preventing conflicts between parallel efforts
+
+### Agent Support
+
+CO currently supports Claude Code as its agent backend. The architecture is designed to be agent-agnostic, and other agentic coding tools could be supported in the future.
 
 ## Prerequisites
 
