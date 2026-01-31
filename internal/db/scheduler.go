@@ -39,6 +39,7 @@ const (
 	TaskTypeImportPR            = "import_pr"
 	TaskTypeSpawnOrchestrator   = "spawn_orchestrator"
 	TaskTypeDestroyWorktree     = "destroy_worktree"
+	TaskTypeWatchWorkflowRun    = "watch_workflow_run"
 )
 
 // DefaultMaxAttempts is the default max attempts for retry tasks.

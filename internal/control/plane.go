@@ -99,6 +99,7 @@ func (cp *ControlPlane) GetTaskHandlers() map[string]TaskHandler {
 		db.TaskTypePRFeedback:          cp.HandlePRFeedbackTask,
 		db.TaskTypeGitPush:             cp.HandleGitPushTask,
 		db.TaskTypeDestroyWorktree:     cp.HandleDestroyWorktreeTask,
+		db.TaskTypeWatchWorkflowRun:    cp.HandleWatchWorkflowRunTask,
 		// These handlers don't need ControlPlane dependencies - keep as standalone functions
 		db.TaskTypeImportPR:            HandleImportPRTask,
 		db.TaskTypeCommentResolution:   HandleCommentResolutionTask,
