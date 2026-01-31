@@ -6,7 +6,7 @@ go = "1.25"
 "aqua:golangci/golangci-lint" = "v2.8.0"
 "aqua:evilmartians/lefthook" = "2.0.15"
 "aqua:mikefarah/yq" = "4.50.1"
-"go:github.com/matryer/moq" = "0.6.0"
+"aqua:matryer/moq" = "0.6.0"
 "aqua:goreleaser/goreleaser" = "2.5.1"
 
 [env]
