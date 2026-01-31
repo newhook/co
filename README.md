@@ -2,6 +2,29 @@
 
 A Go CLI tool that orchestrates Claude Code to process issues, creating PRs for each.
 
+## Philosophy
+
+CO is designed to manage an army of Claude agents, turning your issue tracker into a PR factory.
+
+### The Workflow
+
+1. **Create or import issues** - Define work in your issue tracker (beads), or import from Linear
+2. **Plan the implementation** - Use Claude Code interactively to break down complex issues into actionable tasks
+3. **Execute with a Work** - Create a work unit that represents a git worktree and feature branch
+4. **Automatic execution** - CO orchestrates Claude to solve all issues, commit changes, and push continuously
+5. **Code review** - Claude automatically reviews its own work, creating fix issues for any problems found
+6. **PR creation** - Once implementation and review pass, Claude creates a comprehensive PR
+7. **Handle feedback** - CI failures and review comments automatically become new issues, which can be planned or added to the existing work
+8. **Merge and cleanup** - After approval, merge the PR and destroy the work
+
+### Design Principles
+
+- **Autonomous execution** - Claude works independently, committing and pushing after each completed issue
+- **Continuous progress** - Work is never lost; every bead completion is immediately saved
+- **Feedback loops** - CI failures and review comments flow back as actionable issues
+- **Human oversight** - You control when to create work, when to merge, and can intervene at any point
+- **Isolation** - Each work unit has its own worktree, preventing conflicts between parallel efforts
+
 ## Prerequisites
 
 ### Tools (installed via mise)
