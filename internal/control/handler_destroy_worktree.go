@@ -20,6 +20,7 @@ func (cp *ControlPlane) HandleDestroyWorktreeTask(ctx context.Context, proj *pro
 	// Check if work still exists
 	workRecord, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
+		logging.Error("Failed to get work record", "work_id", workID, "error", err)
 		return err
 	}
 	if workRecord == nil {
@@ -28,8 +29,14 @@ func (cp *ControlPlane) HandleDestroyWorktreeTask(ctx context.Context, proj *pro
 		return nil
 	}
 
+	logging.Debug("Starting DestroyWork",
+		"work_id", workID,
+		"worktree_path", workRecord.WorktreePath,
+		"root_issue_id", workRecord.RootIssueID)
+
 	// Delegate to the shared DestroyWork function
 	if err := cp.WorkDestroyer.DestroyWork(ctx, proj, workID, io.Discard); err != nil {
+		logging.Error("DestroyWork failed", "work_id", workID, "error", err)
 		return err
 	}
 

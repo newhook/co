@@ -11,6 +11,7 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/worktree"
@@ -116,6 +117,8 @@ func ImportPRAsync(ctx context.Context, proj *project.Project, opts ImportPRAsyn
 // It does not perform interactive confirmation - that should be handled by the caller.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
 func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
+	logging.Debug("DestroyWork starting", "work_id", workID)
+
 	// Get work to verify it exists
 	work, err := proj.DB.GetWork(ctx, workID)
 	if err != nil {
@@ -127,9 +130,11 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 
 	// Close the root issue if it exists
 	if work.RootIssueID != "" {
+		logging.Debug("Closing root issue", "work_id", workID, "root_issue_id", work.RootIssueID)
 		fmt.Fprintf(w, "Closing root issue %s...\n", work.RootIssueID)
 		if err := beads.Close(ctx, work.RootIssueID, proj.BeadsPath()); err != nil {
 			// Warn but continue - issue might already be closed or deleted
+			logging.Warn("Failed to close root issue", "work_id", workID, "root_issue_id", work.RootIssueID, "error", err)
 			fmt.Fprintf(w, "Warning: failed to close root issue %s: %v\n", work.RootIssueID, err)
 		}
 	}
@@ -137,30 +142,39 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 	// Terminate any running zellij tabs (orchestrator, task, console, and claude tabs) for this work
 	// Only if configured to do so (defaults to true)
 	if proj.Config.Zellij.ShouldKillTabsOnDestroy() {
+		logging.Debug("Terminating work tabs", "work_id", workID, "project_name", proj.Config.Project.Name)
 		if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, w); err != nil {
 			// Warn but continue - tab termination is non-fatal
+			logging.Warn("Failed to terminate work tabs", "work_id", workID, "error", err)
 			fmt.Fprintf(w, "Warning: failed to terminate work tabs: %v\n", err)
 		}
+		logging.Debug("Work tabs terminated", "work_id", workID)
 	}
 
 	// Remove git worktree if it exists
 	if work.WorktreePath != "" {
+		logging.Debug("Removing worktree", "work_id", workID, "worktree_path", work.WorktreePath)
 		if err := worktree.NewOperations().RemoveForce(ctx, proj.MainRepoPath(), work.WorktreePath); err != nil {
+			logging.Warn("Failed to remove worktree", "work_id", workID, "worktree_path", work.WorktreePath, "error", err)
 			fmt.Fprintf(w, "Warning: failed to remove worktree: %v\n", err)
 		}
 	}
 
 	// Remove work directory
 	workDir := filepath.Join(proj.Root, workID)
+	logging.Debug("Removing work directory", "work_id", workID, "work_dir", workDir)
 	if err := os.RemoveAll(workDir); err != nil {
+		logging.Warn("Failed to remove work directory", "work_id", workID, "work_dir", workDir, "error", err)
 		fmt.Fprintf(w, "Warning: failed to remove work directory %s: %v\n", workDir, err)
 	}
 
 	// Delete work from database (also deletes associated tasks and relationships)
+	logging.Debug("Deleting work from database", "work_id", workID)
 	if err := proj.DB.DeleteWork(ctx, workID); err != nil {
 		return fmt.Errorf("failed to delete work from database: %w", err)
 	}
 
+	logging.Debug("DestroyWork completed", "work_id", workID)
 	return nil
 }
 

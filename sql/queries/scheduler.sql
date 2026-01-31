@@ -115,3 +115,11 @@ WHERE idempotency_key = ?;
 
 -- name: DeleteSchedulerForWork :execrows
 DELETE FROM scheduler WHERE work_id = ?;
+
+-- name: ResetExecutingTasksToPending :execrows
+-- Reset any tasks stuck in 'executing' status back to 'pending'.
+-- Used when the control plane starts up to recover from a crash.
+UPDATE scheduler
+SET status = 'pending',
+    updated_at = CURRENT_TIMESTAMP
+WHERE status = 'executing';

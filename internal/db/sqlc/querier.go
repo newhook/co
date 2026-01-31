@@ -142,6 +142,9 @@ type Querier interface {
 	RegisterProcess(ctx context.Context, arg RegisterProcessParams) error
 	RemoveWorkBead(ctx context.Context, arg RemoveWorkBeadParams) (int64, error)
 	RescheduleTask(ctx context.Context, arg RescheduleTaskParams) error
+	// Reset any tasks stuck in 'executing' status back to 'pending'.
+	// Used when the control plane starts up to recover from a crash.
+	ResetExecutingTasksToPending(ctx context.Context) (int64, error)
 	ResetTaskBeadStatus(ctx context.Context, arg ResetTaskBeadStatusParams) (int64, error)
 	ResetTaskBeadStatuses(ctx context.Context, taskID string) (int64, error)
 	ResetTaskStatus(ctx context.Context, id string) (int64, error)
