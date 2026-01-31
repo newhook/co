@@ -63,16 +63,14 @@ pacman -S ttf-hack-nerd
 ## Installation
 
 ```bash
-go install github.com/newhook/co@latest
+curl -fsSL https://raw.githubusercontent.com/newhook/co/main/scripts/install.sh | bash
 ```
 
-Or build from source:
+This downloads the latest release for your platform. Alternatively:
 
 ```bash
-git clone https://github.com/newhook/co.git
-cd co
-go build -o co .
-mv co /usr/local/bin/
+# With Go 1.25+
+go install github.com/newhook/co@latest
 ```
 
 ## Quick Start
