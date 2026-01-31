@@ -43,11 +43,6 @@ func CurrentSessionName() string {
 	return os.Getenv("ZELLIJ_SESSION_NAME")
 }
 
-// IsInsideSession returns true if we're running inside a zellij session.
-func IsInsideSession() bool {
-	return CurrentSessionName() != ""
-}
-
 // IsInsideTargetSession returns true if we're inside the specified session.
 func IsInsideTargetSession(session string) bool {
 	return CurrentSessionName() == session

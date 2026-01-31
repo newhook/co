@@ -30,17 +30,6 @@ type Integration struct {
 	processor *FeedbackProcessor
 }
 
-// NewIntegration creates a new feedback integration.
-func NewIntegration() *Integration {
-	client := github.NewClient()
-	processor := NewFeedbackProcessor(client)
-
-	return &Integration{
-		client:    client,
-		processor: processor,
-	}
-}
-
 // NewIntegrationWithProject creates a new feedback integration with project context.
 // This enables Claude-based log analysis when configured.
 func NewIntegrationWithProject(proj *project.Project, workID string) *Integration {

@@ -108,16 +108,6 @@ func EnsureControlPlane(ctx context.Context, proj *project.Project) error {
 	return nil
 }
 
-// IsControlPlaneRunning checks if the control plane is running using database heartbeat.
-// Deprecated: Use proj.DB.IsControlPlaneAlive directly instead.
-func IsControlPlaneRunning(ctx context.Context, proj *project.Project) (bool, error) {
-	alive, err := proj.DB.IsControlPlaneAlive(ctx, db.DefaultStalenessThreshold)
-	if err != nil {
-		return false, fmt.Errorf("failed to check control plane status: %w", err)
-	}
-	return alive, nil
-}
-
 // SessionInitResult contains information about session initialization
 type SessionInitResult struct {
 	// SessionCreated is true if a new zellij session was created

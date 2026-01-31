@@ -241,8 +241,7 @@ func cloneRepo(ctx context.Context, source, mainPath string) (repoType string, e
 
 // setupBeads initializes or connects to beads for the project.
 // Returns the beads path (relative to project root).
-// Uses mise exec to run bd commands since mise-managed tools may not be in PATH.
-func setupBeads(_ context.Context, source, projectRoot, mainPath string) (beadsPath string, err error) {
+func setupBeads(ctx context.Context, source, projectRoot, mainPath string) (beadsPath string, err error) {
 	// Check if repo already has beads
 	repoBeadsPath := filepath.Join(mainPath, ".beads")
 	if _, err := os.Stat(repoBeadsPath); err == nil {
@@ -250,13 +249,13 @@ func setupBeads(_ context.Context, source, projectRoot, mainPath string) (beadsP
 		fmt.Printf("Using existing beads in %s\n", repoBeadsPath)
 		beadsPath = BeadsPathRepo
 
-		// Run bd init to create/regenerate the database from JSONL files
-		if _, err := mise.Exec(mainPath, "bd", "init"); err != nil {
+		// Regenerate the database from existing JSONL files
+		if err := beads.Reinit(ctx, mainPath); err != nil {
 			return "", fmt.Errorf("failed to initialize beads: %w", err)
 		}
 
-		// Install hooks for repo-based beads using mise exec
-		if _, err := mise.Exec(mainPath, "bd", "hooks", "install"); err != nil {
+		// Install hooks for repo-based beads
+		if err := beads.InstallHooks(ctx, mainPath); err != nil {
 			return "", fmt.Errorf("failed to install beads hooks: %w", err)
 		}
 	} else {
@@ -268,10 +267,8 @@ func setupBeads(_ context.Context, source, projectRoot, mainPath string) (beadsP
 		// Derive prefix from repo name
 		prefix := repoNameFromSource(source)
 
-		// Initialize beads in project directory using mise exec (skip hooks - not synced to git)
-		// bd init creates .beads/ in the current working directory
-		parentDir := filepath.Dir(projectBeadsPath)
-		if _, err := mise.Exec(parentDir, "bd", "init", "--prefix", prefix); err != nil {
+		// Initialize beads in project directory (skip hooks - not synced to git)
+		if err := beads.Init(ctx, projectBeadsPath, prefix); err != nil {
 			return "", fmt.Errorf("failed to initialize beads: %w", err)
 		}
 	}

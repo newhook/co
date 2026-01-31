@@ -25,12 +25,6 @@ var defaultLister ProcessLister = &systemProcessLister{}
 // defaultKiller is the default implementation using system commands.
 var defaultKiller ProcessKiller = &systemProcessKiller{}
 
-// IsProcessRunning checks if a process with the given pattern is running.
-// The pattern is matched against the full command line of the process.
-func IsProcessRunning(ctx context.Context, pattern string) (bool, error) {
-	return IsProcessRunningWith(ctx, pattern, defaultLister)
-}
-
 // IsProcessRunningWith checks if a process is running using the provided lister.
 func IsProcessRunningWith(ctx context.Context, pattern string, lister ProcessLister) (bool, error) {
 	processes, err := lister.GetProcessList(ctx)

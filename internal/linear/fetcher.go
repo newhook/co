@@ -31,16 +31,6 @@ func NewFetcher(apiKey string, beadsDir string) (*Fetcher, error) {
 	}, nil
 }
 
-// NewFetcherWithClient creates a new fetcher with a provided client implementation.
-// This is useful for testing with a mock client.
-func NewFetcherWithClient(client ClientInterface, beadsDir string) *Fetcher {
-	return &Fetcher{
-		client:     client,
-		beadsDir:   beadsDir,
-		beadsCache: make(map[string]string),
-	}
-}
-
 // FetchAndImport fetches a Linear issue and imports it into Beads
 // Returns the created bead ID and any error
 func (f *Fetcher) FetchAndImport(ctx context.Context, linearIDOrURL string, opts *ImportOptions) (*ImportResult, error) {

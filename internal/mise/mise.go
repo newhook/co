@@ -86,11 +86,6 @@ func (c *cliOperations) Trust() error {
 	return nil
 }
 
-// Trust runs `mise trust` in the given directory.
-func Trust(dir string) error {
-	return NewOperations(dir).Trust()
-}
-
 // Install implements Operations.Install.
 func (c *cliOperations) Install() error {
 	cmd := exec.Command("mise", "install")
@@ -99,11 +94,6 @@ func (c *cliOperations) Install() error {
 		return fmt.Errorf("mise install failed: %w\n%s", err, output)
 	}
 	return nil
-}
-
-// Install runs `mise install` in the given directory.
-func Install(dir string) error {
-	return NewOperations(dir).Install()
 }
 
 // HasTask implements Operations.HasTask.
@@ -125,11 +115,6 @@ func (c *cliOperations) HasTask(taskName string) bool {
 	return false
 }
 
-// HasTask checks if a mise task exists in the given directory.
-func HasTask(dir, taskName string) bool {
-	return NewOperations(dir).HasTask(taskName)
-}
-
 // RunTask implements Operations.RunTask.
 func (c *cliOperations) RunTask(taskName string) error {
 	cmd := exec.Command("mise", "run", taskName)
@@ -138,11 +123,6 @@ func (c *cliOperations) RunTask(taskName string) error {
 		return fmt.Errorf("mise run %s failed: %w\n%s", taskName, err, output)
 	}
 	return nil
-}
-
-// RunTask runs a mise task in the given directory.
-func RunTask(dir, taskName string) error {
-	return NewOperations(dir).RunTask(taskName)
 }
 
 // Exec implements Operations.Exec.
