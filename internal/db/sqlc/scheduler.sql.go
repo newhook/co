@@ -418,6 +418,23 @@ func (q *Queries) RescheduleTask(ctx context.Context, arg RescheduleTaskParams) 
 	return err
 }
 
+const resetExecutingTasksToPending = `-- name: ResetExecutingTasksToPending :execrows
+UPDATE scheduler
+SET status = 'pending',
+    updated_at = CURRENT_TIMESTAMP
+WHERE status = 'executing'
+`
+
+// Reset any tasks stuck in 'executing' status back to 'pending'.
+// Used when the control plane starts up to recover from a crash.
+func (q *Queries) ResetExecutingTasksToPending(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resetExecutingTasksToPending)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateScheduledTaskTime = `-- name: UpdateScheduledTaskTime :exec
 UPDATE scheduler
 SET scheduled_at = ?,

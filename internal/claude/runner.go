@@ -114,19 +114,35 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w
 	sessionName := SessionNameForProject(projectName)
 	zc := zellij.New()
 
+	logging.Debug("TerminateWorkTabs starting",
+		"work_id", workID,
+		"session_name", sessionName)
+
 	// Check if session exists
 	exists, err := zc.SessionExists(ctx, sessionName)
 	if err != nil || !exists {
-		// Session doesn't exist, nothing to terminate
+		logging.Debug("Session does not exist, nothing to terminate",
+			"work_id", workID,
+			"session_name", sessionName,
+			"exists", exists,
+			"error", err)
 		return nil
 	}
 
 	// Get list of all tab names
 	tabNames, err := zc.QueryTabNames(ctx, sessionName)
 	if err != nil {
-		// Can't query tabs, maybe session is dead
+		logging.Warn("Failed to query tab names",
+			"work_id", workID,
+			"session_name", sessionName,
+			"error", err)
 		return nil
 	}
+
+	logging.Debug("Queried tab names",
+		"work_id", workID,
+		"tab_count", len(tabNames),
+		"tabs", tabNames)
 
 	// Find tabs to terminate
 	// Use prefix matching for all tab types to handle friendly names
@@ -153,20 +169,36 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w
 	}
 
 	if len(tabsToClose) == 0 {
+		logging.Debug("No matching tabs to close", "work_id", workID)
 		return nil
 	}
+
+	logging.Debug("Found tabs to close",
+		"work_id", workID,
+		"tabs_to_close", tabsToClose)
 
 	fmt.Fprintf(w, "Terminating %d zellij tab(s) for work %s...\n", len(tabsToClose), workID)
 
 	for _, tabName := range tabsToClose {
+		logging.Debug("Closing tab",
+			"work_id", workID,
+			"tab_name", tabName)
 		if err := zc.TerminateAndCloseTab(ctx, sessionName, tabName); err != nil {
+			logging.Warn("Failed to terminate tab",
+				"work_id", workID,
+				"tab_name", tabName,
+				"error", err)
 			fmt.Fprintf(w, "Warning: failed to terminate tab %s: %v\n", tabName, err)
 			// Continue with other tabs
 		} else {
+			logging.Debug("Tab closed successfully",
+				"work_id", workID,
+				"tab_name", tabName)
 			fmt.Fprintf(w, "  Terminated tab: %s\n", tabName)
 		}
 	}
 
+	logging.Debug("TerminateWorkTabs completed", "work_id", workID)
 	return nil
 }
 

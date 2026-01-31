@@ -22,6 +22,16 @@ func RunControlPlaneLoop(ctx context.Context, proj *project.Project, procManager
 // RunControlPlaneLoopWithControlPlane runs the main control plane event loop with provided dependencies.
 // This allows testing with mock dependencies.
 func RunControlPlaneLoopWithControlPlane(ctx context.Context, proj *project.Project, procManager *procmon.Manager, cp *ControlPlane) error {
+	// Reset any scheduled tasks stuck in 'executing' status from a previous crash.
+	// This must happen before we start processing tasks to avoid leaving them orphaned.
+	resetCount, err := proj.DB.ResetExecutingTasksToPending(ctx)
+	if err != nil {
+		logging.Warn("Failed to reset executing tasks on startup", "error", err)
+	} else if resetCount > 0 {
+		logging.Info("Reset stuck executing tasks to pending on startup", "count", resetCount)
+		fmt.Printf("Recovered %d task(s) stuck in executing state from previous crash\n", resetCount)
+	}
+
 	// Initialize tracking database watcher
 	trackingDBPath := filepath.Join(proj.Root, ".co", "tracking.db")
 	watcher, err := trackingwatcher.New(trackingwatcher.DefaultConfig(trackingDBPath))

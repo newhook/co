@@ -374,3 +374,13 @@ func (db *DB) MarkTaskCompletedByIdempotencyKey(ctx context.Context, idempotency
 	}
 	return nil
 }
+
+// ResetExecutingTasksToPending resets any scheduled tasks stuck in 'executing' status back to 'pending'.
+// This is used when the control plane starts up to recover from a crash that left tasks in an incomplete state.
+func (db *DB) ResetExecutingTasksToPending(ctx context.Context) (int64, error) {
+	count, err := db.queries.ResetExecutingTasksToPending(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to reset executing tasks: %w", err)
+	}
+	return count, nil
+}
