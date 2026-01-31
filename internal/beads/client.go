@@ -17,6 +17,7 @@ import (
 	"github.com/newhook/co/internal/beads/cachemanager"
 	"github.com/newhook/co/internal/beads/queries"
 	"github.com/newhook/co/internal/logging"
+	"github.com/newhook/co/internal/mise"
 )
 
 // bdCommand creates an exec.Cmd for running bd with BEADS_DIR set.
@@ -33,24 +34,22 @@ func bdCommand(ctx context.Context, beadsDir string, args ...string) *exec.Cmd {
 // beadsDir should be the path where .beads/ should be created (e.g., /path/to/.beads).
 // prefix is the issue ID prefix (e.g., "myproject" for myproject-1, myproject-2).
 // bd init runs in the parent directory and creates .beads/ there.
-func Init(ctx context.Context, beadsDir, prefix string) error {
+// Uses mise exec to run bd commands since mise-managed tools may not be in PATH.
+func Init(_ context.Context, beadsDir, prefix string) error {
 	// bd init creates .beads/ in the current working directory, not via BEADS_DIR
 	parentDir := filepath.Dir(beadsDir)
-	cmd := exec.CommandContext(ctx, "bd", "init", "--prefix", prefix)
-	cmd.Dir = parentDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("bd init failed: %w\n%s", err, output)
+	if _, err := mise.Exec(parentDir, "bd", "init", "--prefix", prefix); err != nil {
+		return fmt.Errorf("bd init failed: %w", err)
 	}
 	return nil
 }
 
 // InstallHooks installs beads hooks in the specified directory.
 // repoDir should be the path to the git repository (e.g., /path/to/repo).
-func InstallHooks(ctx context.Context, repoDir string) error {
-	cmd := exec.CommandContext(ctx, "bd", "hooks", "install")
-	cmd.Dir = repoDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("bd hooks install failed: %w\n%s", err, output)
+// Uses mise exec to run bd commands since mise-managed tools may not be in PATH.
+func InstallHooks(_ context.Context, repoDir string) error {
+	if _, err := mise.Exec(repoDir, "bd", "hooks", "install"); err != nil {
+		return fmt.Errorf("bd hooks install failed: %w", err)
 	}
 	return nil
 }
@@ -58,11 +57,10 @@ func InstallHooks(ctx context.Context, repoDir string) error {
 // Reinit regenerates the beads database from existing JSONL files.
 // repoDir should be the path to the repository containing .beads/ directory.
 // This is used when the .beads directory already exists and we just need to rebuild the database.
-func Reinit(ctx context.Context, repoDir string) error {
-	cmd := exec.CommandContext(ctx, "bd", "init")
-	cmd.Dir = repoDir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("bd init failed: %w\n%s", err, output)
+// Uses mise exec to run bd commands since mise-managed tools may not be in PATH.
+func Reinit(_ context.Context, repoDir string) error {
+	if _, err := mise.Exec(repoDir, "bd", "init"); err != nil {
+		return fmt.Errorf("bd init failed: %w", err)
 	}
 	return nil
 }
