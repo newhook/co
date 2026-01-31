@@ -3,7 +3,6 @@ package control
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/newhook/co/internal/db"
@@ -70,7 +69,7 @@ func spawnWorkflowWatchers(ctx context.Context, proj *project.Project, work *db.
 	}
 
 	// Extract repo from PR URL
-	repo, err := extractRepoFromPRURL(work.PRURL)
+	repo, err := github.ExtractRepoFromPRURL(work.PRURL)
 	if err != nil {
 		return fmt.Errorf("failed to extract repo from PR URL: %w", err)
 	}
@@ -102,20 +101,4 @@ func spawnWorkflowWatchers(ctx context.Context, proj *project.Project, work *db.
 	}
 
 	return nil
-}
-
-// extractRepoFromPRURL extracts the owner/repo from a GitHub PR URL.
-// Expected format: https://github.com/owner/repo/pull/123
-func extractRepoFromPRURL(prURL string) (string, error) {
-	parts := strings.Split(prURL, "/")
-	if len(parts) < 5 {
-		return "", fmt.Errorf("invalid PR URL format: %s", prURL)
-	}
-	// Find github.com in the URL and extract owner/repo
-	for i, part := range parts {
-		if part == "github.com" && i+2 < len(parts) {
-			return fmt.Sprintf("%s/%s", parts[i+1], parts[i+2]), nil
-		}
-	}
-	return "", fmt.Errorf("could not extract repo from PR URL: %s", prURL)
 }

@@ -39,6 +39,9 @@ var _ ClientInterface = &GitHubClientMock{}
 //			ResolveReviewThreadFunc: func(ctx context.Context, prURL string, commentID int) error {
 //				panic("mock out the ResolveReviewThread method")
 //			},
+//			WatchWorkflowRunFunc: func(ctx context.Context, repo string, runID int64) error {
+//				panic("mock out the WatchWorkflowRun method")
+//			},
 //		}
 //
 //		// use mockedClientInterface in code that requires ClientInterface
@@ -66,6 +69,9 @@ type GitHubClientMock struct {
 
 	// ResolveReviewThreadFunc mocks the ResolveReviewThread method.
 	ResolveReviewThreadFunc func(ctx context.Context, prURL string, commentID int) error
+
+	// WatchWorkflowRunFunc mocks the WatchWorkflowRun method.
+	WatchWorkflowRunFunc func(ctx context.Context, repo string, runID int64) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -134,6 +140,15 @@ type GitHubClientMock struct {
 			// CommentID is the commentID argument value.
 			CommentID int
 		}
+		// WatchWorkflowRun holds details about calls to the WatchWorkflowRun method.
+		WatchWorkflowRun []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Repo is the repo argument value.
+			Repo string
+			// RunID is the runID argument value.
+			RunID int64
+		}
 	}
 	lockGetJobLogs          sync.RWMutex
 	lockGetPRMetadata       sync.RWMutex
@@ -142,6 +157,7 @@ type GitHubClientMock struct {
 	lockPostReplyToComment  sync.RWMutex
 	lockPostReviewReply     sync.RWMutex
 	lockResolveReviewThread sync.RWMutex
+	lockWatchWorkflowRun    sync.RWMutex
 }
 
 // GetJobLogs calls GetJobLogsFunc.
@@ -449,5 +465,48 @@ func (mock *GitHubClientMock) ResolveReviewThreadCalls() []struct {
 	mock.lockResolveReviewThread.RLock()
 	calls = mock.calls.ResolveReviewThread
 	mock.lockResolveReviewThread.RUnlock()
+	return calls
+}
+
+// WatchWorkflowRun calls WatchWorkflowRunFunc.
+func (mock *GitHubClientMock) WatchWorkflowRun(ctx context.Context, repo string, runID int64) error {
+	callInfo := struct {
+		Ctx   context.Context
+		Repo  string
+		RunID int64
+	}{
+		Ctx:   ctx,
+		Repo:  repo,
+		RunID: runID,
+	}
+	mock.lockWatchWorkflowRun.Lock()
+	mock.calls.WatchWorkflowRun = append(mock.calls.WatchWorkflowRun, callInfo)
+	mock.lockWatchWorkflowRun.Unlock()
+	if mock.WatchWorkflowRunFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.WatchWorkflowRunFunc(ctx, repo, runID)
+}
+
+// WatchWorkflowRunCalls gets all the calls that were made to WatchWorkflowRun.
+// Check the length with:
+//
+//	len(mockedClientInterface.WatchWorkflowRunCalls())
+func (mock *GitHubClientMock) WatchWorkflowRunCalls() []struct {
+	Ctx   context.Context
+	Repo  string
+	RunID int64
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Repo  string
+		RunID int64
+	}
+	mock.lockWatchWorkflowRun.RLock()
+	calls = mock.calls.WatchWorkflowRun
+	mock.lockWatchWorkflowRun.RUnlock()
 	return calls
 }

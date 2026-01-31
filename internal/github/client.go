@@ -5,6 +5,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os/exec"
@@ -32,6 +33,10 @@ type ClientInterface interface {
 	ResolveReviewThread(ctx context.Context, prURL string, commentID int) error
 	// GetJobLogs fetches the logs for a specific job.
 	GetJobLogs(ctx context.Context, repo string, jobID int64) (string, error)
+	// WatchWorkflowRun blocks until a workflow run completes.
+	// Returns nil on success, error on failure. If the workflow run itself fails
+	// (non-zero exit status), the error will wrap an *exec.ExitError.
+	WatchWorkflowRun(ctx context.Context, repo string, runID int64) error
 }
 
 // Client wraps the gh CLI for GitHub API operations.
@@ -949,6 +954,56 @@ func (c *Client) GetJobLogs(ctx context.Context, repo string, jobID int64) (stri
 
 	logging.Debug("successfully fetched job logs", "repo", repo, "jobID", jobID, "logSize", len(output))
 	return string(output), nil
+}
+
+// WatchWorkflowRun blocks until a workflow run completes.
+// Returns nil on success, error on failure. If the workflow run itself fails
+// (non-zero exit status), the error will wrap an *exec.ExitError which the
+// caller can check using errors.As.
+func (c *Client) WatchWorkflowRun(ctx context.Context, repo string, runID int64) error {
+	logging.Debug("starting gh run watch", "repo", repo, "runID", runID)
+
+	runIDStr := strconv.FormatInt(runID, 10)
+	cmd := exec.CommandContext(ctx, "gh", "run", "watch", runIDStr,
+		"--repo", repo,
+		"--exit-status")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check if it's a context cancellation
+		if errors.Is(ctx.Err(), context.Canceled) {
+			logging.Info("workflow watch cancelled", "repo", repo, "runID", runID)
+			return ctx.Err()
+		}
+
+		// gh run watch returns non-zero when the run fails
+		// Wrap the error with output for debugging
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			logging.Debug("workflow run completed with failure",
+				"repo", repo,
+				"runID", runID,
+				"exitCode", exitErr.ExitCode(),
+				"output", string(output))
+		}
+		return fmt.Errorf("gh run watch failed: %w\nOutput: %s", err, output)
+	}
+
+	logging.Info("workflow run completed successfully", "repo", repo, "runID", runID)
+	return nil
+}
+
+// ParsePRURL extracts the repo and PR number from a GitHub PR URL.
+// Expected format: https://github.com/owner/repo/pull/123
+func ParsePRURL(prURL string) (prNumber, repo string, err error) {
+	return parsePRURL(prURL)
+}
+
+// ExtractRepoFromPRURL extracts just the owner/repo from a GitHub PR URL.
+// This is a convenience wrapper around ParsePRURL for callers that only need the repo.
+func ExtractRepoFromPRURL(prURL string) (string, error) {
+	_, repo, err := parsePRURL(prURL)
+	return repo, err
 }
 
 // parsePRURL extracts the repo and PR number from a GitHub PR URL.

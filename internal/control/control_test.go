@@ -11,6 +11,7 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback"
 	"github.com/newhook/co/internal/git"
+	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/worktree"
@@ -58,6 +59,7 @@ type testMocks struct {
 	Feedback  *feedback.FeedbackProcessorMock
 	Spawner   *OrchestratorSpawnerMock
 	Destroyer *WorkDestroyerMock
+	GitHub    *github.GitHubClientMock
 }
 
 // setupControlPlane creates a ControlPlane with all mocked dependencies.
@@ -68,6 +70,7 @@ func setupControlPlane() *testMocks {
 	feedbackMock := &feedback.FeedbackProcessorMock{}
 	spawnerMock := &OrchestratorSpawnerMock{}
 	destroyerMock := &WorkDestroyerMock{}
+	githubMock := &github.GitHubClientMock{}
 
 	cp := control.NewControlPlaneWithDeps(
 		gitMock,
@@ -77,6 +80,7 @@ func setupControlPlane() *testMocks {
 		feedbackMock,
 		spawnerMock,
 		destroyerMock,
+		githubMock,
 	)
 
 	return &testMocks{
@@ -86,6 +90,7 @@ func setupControlPlane() *testMocks {
 		Feedback:  feedbackMock,
 		Spawner:   spawnerMock,
 		Destroyer: destroyerMock,
+		GitHub:    githubMock,
 	}
 }
 

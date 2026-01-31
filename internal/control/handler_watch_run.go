@@ -39,15 +39,9 @@ func (cp *ControlPlane) HandleWatchWorkflowRunTask(ctx context.Context, proj *pr
 		"run_id", runID,
 		"repo", repo)
 
-	// Run gh run watch --exit-status
-	// This command blocks until the run completes and returns:
-	// - exit code 0 if the run succeeded
-	// - non-zero exit code if the run failed
-	cmd := exec.CommandContext(ctx, "gh", "run", "watch", runIDStr,
-		"--repo", repo,
-		"--exit-status")
-
-	output, err := cmd.CombinedOutput()
+	// Use the GitHub client to watch the workflow run
+	// This blocks until the run completes
+	err = cp.GitHubClient.WatchWorkflowRun(ctx, repo, runID)
 	if err != nil {
 		// Check if it's a context cancellation (work was destroyed)
 		if errors.Is(ctx.Err(), context.Canceled) {
@@ -64,11 +58,10 @@ func (cp *ControlPlane) HandleWatchWorkflowRunTask(ctx context.Context, proj *pr
 			logging.Info("Workflow run completed with failure",
 				"work_id", workID,
 				"run_id", runID,
-				"exit_code", exitErr.ExitCode(),
-				"output", string(output))
+				"exit_code", exitErr.ExitCode())
 		} else {
 			// Actual error (network, auth, invalid run, etc.)
-			return fmt.Errorf("gh run watch failed: %w\nOutput: %s", err, output)
+			return fmt.Errorf("workflow watch failed: %w", err)
 		}
 	} else {
 		logging.Info("Workflow run completed successfully",
