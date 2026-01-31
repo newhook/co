@@ -1,0 +1,167 @@
+# Configuration Reference
+
+Project configuration is stored in `.co/config.toml`.
+
+## Full Example
+
+```toml
+[project]
+  name = "my-project"
+  created_at = 2024-01-15T10:00:00-05:00
+
+[repo]
+  type = "github"  # or "local"
+  source = "https://github.com/user/repo"
+  path = "main"
+  base_branch = "main"
+
+[hooks]
+  env = [
+    "CLAUDE_CODE_USE_VERTEX=1",
+    "CLOUD_ML_REGION=us-east5",
+    "MY_VAR=value"
+  ]
+
+[linear]
+  api_key = "lin_api_..."
+
+[claude]
+  skip_permissions = true
+  time_limit = 30
+  task_timeout_minutes = 60
+
+[workflow]
+  max_review_iterations = 2
+
+[scheduler]
+  pr_feedback_interval_minutes = 5
+  comment_resolution_interval_minutes = 5
+  scheduler_poll_seconds = 1
+  activity_update_seconds = 30
+
+[log_parser]
+  use_claude = false
+  model = "haiku"
+```
+
+## Section Reference
+
+### `[project]`
+
+Basic project metadata. Set automatically during `co proj create`.
+
+| Key | Description |
+|-----|-------------|
+| `name` | Project name |
+| `created_at` | Creation timestamp |
+
+### `[repo]`
+
+Repository configuration.
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `type` | Repository type: `github` or `local` | - |
+| `source` | GitHub URL or local path | - |
+| `path` | Path to main worktree | `main` |
+| `base_branch` | Default base branch for PRs | `main` |
+
+### `[hooks]`
+
+Environment configuration for Claude sessions.
+
+| Key | Description |
+|-----|-------------|
+| `env` | Array of environment variables (supports `$VAR` expansion) |
+
+Useful for:
+- Configuring Claude Code to use Vertex AI
+- Setting custom PATH for tools
+- Any environment variables Claude needs
+
+### `[linear]`
+
+Linear integration settings.
+
+| Key | Description |
+|-----|-------------|
+| `api_key` | Linear API key for `co linear import` |
+
+### `[claude]`
+
+Claude Code execution settings.
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `skip_permissions` | Run with `--dangerously-skip-permissions` | `true` |
+| `time_limit` | Maximum minutes per Claude session (0 = unlimited) | `0` |
+| `task_timeout_minutes` | Maximum task execution time in minutes | `60` |
+
+**Notes:**
+- `skip_permissions`: Set to `false` to have Claude prompt for permission before running commands
+- `time_limit`: Tasks exceeding this limit are terminated and marked as failed
+- If `time_limit` is set and is less than `task_timeout_minutes`, `time_limit` takes precedence
+
+### `[workflow]`
+
+Automated workflow settings.
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `max_review_iterations` | Maximum review/fix cycles in `--auto` mode | `2` |
+
+### `[scheduler]`
+
+Background task timing.
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `pr_feedback_interval_minutes` | How often to check for PR feedback | `5` |
+| `comment_resolution_interval_minutes` | How often to check for resolved feedback | `5` |
+| `scheduler_poll_seconds` | Internal scheduler polling frequency | `1` |
+| `activity_update_seconds` | Task activity timestamp update interval | `30` |
+
+### `[log_parser]`
+
+CI log analysis settings.
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `use_claude` | Use Claude for log analysis instead of Go parser | `false` |
+| `model` | Claude model: `haiku`, `sonnet`, or `opus` | `haiku` |
+
+**When to use Claude for log parsing:**
+- Polyglot projects with multiple languages
+- Complex test frameworks (Jest, pytest, RSpec)
+- Custom CI output formats
+- When the native parser misses failures
+
+**Cost/Performance:**
+- Native parser: Zero cost, ~1ms per log
+- Claude haiku: ~$0.01 per log, ~2-5s
+- Claude sonnet: ~$0.03 per log, ~5-10s
+- Claude opus: ~$0.15 per log, ~10-20s
+
+## Mise Setup Task
+
+For JavaScript/Node.js projects, configure a mise `setup` task to install dependencies automatically.
+
+Add to your project's `.mise.toml`:
+
+```toml
+# npm
+[tasks]
+setup = "npm install"
+
+# pnpm
+[tasks]
+setup = "pnpm install"
+
+# yarn
+[tasks]
+setup = "yarn install"
+```
+
+The setup task runs automatically during:
+- Project creation (`co proj create`)
+- Work creation (`co work create`)

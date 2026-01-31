@@ -1,84 +1,158 @@
 # Claude Orchestrator (co)
 
-A Go CLI tool that orchestrates Claude Code to process issues, creating PRs for each.
+Orchestrate Claude Code to process issues and create PRs. Includes a TUI for interactive management and CLI for scripting.
+
+## Philosophy
+
+CO is designed to manage an army of Claude agents, turning your issue tracker into a PR factory.
+
+### The Workflow
+
+1. **Create or import issues** - Define work in your issue tracker (beads), or import from Linear
+2. **Plan the implementation** - Use Claude Code interactively to break down complex issues into actionable tasks
+3. **Execute with a Work** - Create a work unit that represents a git worktree and feature branch
+4. **Automatic execution** - CO orchestrates Claude to solve all issues, commit changes, and push continuously
+5. **Code review** - Claude automatically reviews its own work, creating fix issues for any problems found
+6. **PR creation** - Once implementation and review pass, Claude creates a comprehensive PR
+7. **Handle feedback** - CI failures and review comments automatically become new issues, which can be planned or added to the existing work
+8. **Merge and cleanup** - After approval, merge the PR and destroy the work
+
+### Design Principles
+
+- **Autonomous execution** - Agents work independently, committing and pushing after each completed issue
+- **Continuous progress** - Work is never lost; every bead completion is immediately saved
+- **Feedback loops** - CI failures and review comments flow back as actionable issues
+- **Human oversight** - You control when to create work, when to merge, and can intervene at any point
+- **Isolation** - Each work unit has its own worktree, preventing conflicts between parallel efforts
+
+### Agent Support
+
+CO currently supports Claude Code as its agent backend. The architecture is designed to be agent-agnostic, and other agentic coding tools could be supported in the future.
 
 ## Prerequisites
 
-The following CLI tools must be installed and available in your PATH:
+### Tools (installed via mise)
 
-| Tool | Purpose | Installation |
-|------|---------|--------------|
-| `bd` | Beads issue tracking | `curl -sSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh \| bash` |
-| `claude` | Claude Code CLI | [docs.anthropic.com/claude-code](https://docs.anthropic.com/en/docs/claude-code) |
-| `gh` | GitHub CLI | [cli.github.com](https://cli.github.com/) |
-| `git` | Version control | Usually pre-installed |
-| `zellij` | Terminal multiplexer | [zellij.dev](https://zellij.dev/) |
+The following CLI tools are required but are **automatically installed by mise** when you run `mise install`:
+
+| Tool | Purpose |
+|------|---------|
+| `bd` | Beads issue tracking |
+| `claude` | Claude Code CLI |
+| `gh` | GitHub CLI |
+| `zellij` | Terminal multiplexer |
+
+You only need `git` (usually pre-installed) and [mise](https://mise.jdx.dev/) itself:
+
+```bash
+curl https://mise.run | sh
+```
+
+### Claude Beads Skill
+
+After mise installs the tools, you must install the beads skill for Claude Code:
+
+```bash
+claude /plugin marketplace add steveyegge/beads
+claude /plugin install beads
+```
+
+This enables Claude to interact with the beads issue tracker.
+
+### Terminal Font (for zellij)
+
+Zellij uses a nerd font for icons. Install one and configure your terminal to use it:
+
+**macOS:**
+```bash
+brew install font-hack-nerd-font
+```
+
+Then update your terminal preferences to use "Hack Nerd Font" or "Hack Nerd Font Mono".
+
+**Linux (Debian/Ubuntu):**
+```bash
+mkdir -p ~/.local/share/fonts
+cd ~/.local/share/fonts
+curl -fLO https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.zip
+unzip Hack.zip -d Hack
+rm Hack.zip
+fc-cache -fv
+```
+
+Then configure your terminal emulator to use "Hack Nerd Font" or "Hack Nerd Font Mono".
+
+**Linux (Arch):**
+```bash
+pacman -S ttf-hack-nerd
+```
 
 ## Installation
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/newhook/co/main/scripts/install.sh | bash
+```
+
+This downloads the latest release for your platform. Alternatively:
+
+```bash
+# With Go 1.25+
 go install github.com/newhook/co@latest
 ```
 
-### Build from Source (Alternative)
+## Quick Start
+
+### 1. Create a Project
 
 ```bash
-git clone https://github.com/newhook/co.git
-cd co
-go build -o co .
-mv co /usr/local/bin/
-```
-
-### Verify Installation
-
-```bash
-co --help
-```
-
-## Project Setup
-
-Claude Orchestrator uses a project-based model with a 3-tier hierarchy: **Work → Tasks → Beads**
-
-```
-<project-dir>/
-├── .co/
-│   ├── config.toml      # Project configuration
-│   └── tracking.db      # SQLite coordination database
-├── main/                # Symlink to local repo OR clone from GitHub
-│   └── .beads/          # Beads issue tracker (in repo)
-├── w-8xa/               # Work unit directory
-│   └── tree/            # Git worktree for feature branch
-├── w-3kp/               # Another work unit
-│   └── tree/            # Git worktree for its feature branch
-└── ...
-```
-
-### Hierarchy
-
-- **Work**: A feature branch with its own worktree, groups related tasks (ID: `w-8xa`)
-- **Tasks**: Units of Claude execution within a work (ID: `w-8xa.1`, `w-8xa.2`)
-- **Beads**: Individual issues from the beads tracker (ID: `ac-pjw`)
-
-### Create a Project
-
-From a local repository:
-```bash
-co proj create ~/myproject ~/path/to/repo
-```
-
-From a GitHub repository:
-```bash
+# From a GitHub repository
 co proj create ~/myproject https://github.com/user/repo
+
+# From a local repository
+co proj create ~/myproject ~/path/to/repo
+
+cd ~/myproject
 ```
 
-This creates the project structure with `main/` pointing to your repository.
+### 2. Choose Your Interface
 
-Project creation also:
-- Initializes beads: `bd init` and `bd hooks install`
-- If mise enabled (`.mise.toml` or `.tool-versions`): runs `mise trust`, `mise install`
-- If mise `setup` task defined: runs `mise run setup` (use for npm/pnpm install)
+CO provides two ways to interact with your project:
 
-### Project Commands
+#### Option A: TUI (Recommended)
+
+The interactive terminal UI provides a lazygit-style interface:
+
+```bash
+co tui
+```
+
+Features:
+- Three-panel drill-down: Beads → Works → Tasks
+- Create/destroy works, run tasks
+- Bead filtering, search, multi-select
+- Press `?` for keyboard shortcuts
+
+#### Option B: CLI
+
+Use individual commands for scripting or when you prefer the command line:
+
+```bash
+# Create a work unit from a bead
+co work create bead-1
+
+# Navigate to the work directory
+cd w-abc
+
+# Execute tasks
+co run
+
+# Or use full automation
+co work create bead-1 --auto
+```
+
+## Project Commands
+
+These commands must be used via CLI (not available in TUI):
 
 | Command | Description |
 |---------|-------------|
@@ -86,258 +160,38 @@ Project creation also:
 | `co proj destroy [--force]` | Remove project and all worktrees |
 | `co proj status` | Show project info, worktrees, and task status |
 
-### Project Configuration
+### Project Structure
 
-The `.co/config.toml` file stores project settings:
-
-```toml
-[project]
-  name = "my-project"
-  created_at = 2024-01-15T10:00:00-05:00
-
-[repo]
-  type = "github"  # or "local"
-  source = "https://github.com/user/repo"
-  path = "main"
-
-[hooks]
-  # Environment variables set when spawning Claude
-  # Supports variable expansion (e.g., $PATH)
-  env = [
-    "CLAUDE_CODE_USE_VERTEX=1",
-    "CLOUD_ML_REGION=us-east5",
-    "MY_VAR=value"
-  ]
-
-[linear]
-  # Linear API key for importing issues
-  api_key = "lin_api_..."
-
-[claude]
-  # Whether to run Claude with --dangerously-skip-permissions flag.
-  # Defaults to true when not specified.
-  skip_permissions = true
-
-  # Maximum minutes for a Claude session (0 = no limit).
-  # When set, tasks that exceed this limit will be marked as failed.
-  time_limit = 30
-
-  # Maximum execution time for a task in minutes.
-  # Defaults to 60 minutes when not specified.
-  # If time_limit is set and is less than task_timeout_minutes, time_limit takes precedence.
-  task_timeout_minutes = 60
-
-[workflow]
-  # Maximum number of review/fix cycles before proceeding to PR.
-  # Defaults to 2 when not specified.
-  max_review_iterations = 2
-
-[scheduler]
-  # Interval between PR feedback checks in minutes.
-  # Defaults to 5 minutes when not specified.
-  pr_feedback_interval_minutes = 5
-
-  # Interval between comment resolution checks in minutes.
-  # Defaults to 5 minutes when not specified.
-  comment_resolution_interval_minutes = 5
-
-  # Scheduler polling interval in seconds.
-  # Defaults to 1 second when not specified.
-  scheduler_poll_seconds = 1
-
-  # Interval for updating task activity timestamps in seconds.
-  # Defaults to 30 seconds when not specified.
-  activity_update_seconds = 30
-
-[log_parser]
-  # Use Claude for log analysis instead of the Go-based parser.
-  # Enables multi-language support and better error extraction.
-  # Defaults to false.
-  use_claude = false
-
-  # Claude model for log analysis: "haiku", "sonnet", or "opus"
-  # Defaults to "haiku".
-  model = "haiku"
+```
+<project-dir>/
+├── .co/
+│   ├── config.toml      # Project configuration
+│   └── tracking.db      # SQLite coordination database
+├── main/                # Symlink to local repo OR clone from GitHub
+│   └── .beads/          # Beads issue tracker
+├── w-8xa/               # Work unit directory
+│   └── tree/            # Git worktree for feature branch
+└── ...
 ```
 
-#### Configuration Details
+## Concepts
 
-**`[hooks]`**
+### Why Beads?
 
-The `hooks.env` setting is useful for:
-- Configuring Claude Code to use Vertex AI
-- Setting custom PATH for tools
-- Any environment variables Claude needs
+CO uses [Beads](https://github.com/steveyegge/beads), a distributed git-backed issue tracker designed specifically for AI coding agents. Traditional markdown plans lack the sophistication needed for complex, multi-step workflows. Beads provides:
 
-**`[linear]`**
+- **Dependency tracking** - Agents understand task relationships and what's ready to work on
+- **Git-native persistence** - Tasks stored as JSONL in `.beads/`, versioned alongside code
+- **Collision-free IDs** - Hash-based IDs eliminate merge conflicts in multi-branch scenarios
+- **Semantic compaction** - Completed tasks are summarized to conserve AI context windows
 
-The `linear.api_key` setting provides authentication for Linear integration. This is used by `co linear import` to fetch issues from Linear.
+**You rarely need to use beads directly.** Claude Code (with the beads skill) and the TUI handle all issue management. The `bd` CLI is available if you need it, but most users interact with beads through `co tui` or let Claude manage issues automatically.
 
-**`[claude]`**
+### Three-Tier Hierarchy
 
-- `skip_permissions`: Controls whether Claude runs with `--dangerously-skip-permissions`. This flag allows Claude to execute commands without prompting for confirmation. Set to `false` if you want Claude to prompt for permission before running commands. Defaults to `true`.
-
-- `time_limit`: The maximum duration in minutes for a Claude session. When a task exceeds this limit, it is automatically terminated and marked as failed with a timeout error. This is useful for preventing runaway sessions. Set to `0` or omit to disable the time limit.
-
-- `task_timeout_minutes`: The maximum execution time for a task in minutes. Defaults to 60 minutes. If `time_limit` is set and is less than `task_timeout_minutes`, `time_limit` takes precedence.
-
-**`[workflow]`**
-
-The `max_review_iterations` setting limits the number of review/fix cycles in automated workflows. The default is 2 iterations. Increase this value if you want Claude to perform more review passes, or decrease it to limit iteration time.
-
-**`[scheduler]`**
-
-The scheduler section controls timing for background operations during orchestration:
-
-- `pr_feedback_interval_minutes`: How often to check for new PR feedback (CI failures, review comments). Defaults to 5 minutes.
-- `comment_resolution_interval_minutes`: How often to check for resolved feedback that needs GitHub comment updates. Defaults to 5 minutes.
-- `scheduler_poll_seconds`: Internal scheduler polling frequency. Defaults to 1 second.
-- `activity_update_seconds`: How often to update task activity timestamps. Defaults to 30 seconds.
-
-**`[log_parser]`**
-
-Controls how CI logs are analyzed to extract specific failures:
-
-- `use_claude`: When `true`, use Claude to analyze CI logs instead of the built-in Go parser. Claude can handle any programming language and provides more detailed error context. Defaults to `false`.
-- `model`: Which Claude model to use for log analysis (`haiku`, `sonnet`, or `opus`). Haiku is fastest and cheapest. Sonnet provides more detailed analysis. Opus is most capable but slower. Defaults to `haiku`.
-
-The native Go parser handles Go test failures and common lint output patterns. Use Claude for polyglot projects, complex test frameworks, or when the native parser misses failures.
-
-### Mise Setup Task for JavaScript Projects
-
-For JavaScript/Node.js projects that require dependency installation, configure the mise `setup` task. This task runs automatically during project creation and worktree creation.
-
-Add a `[tasks]` section to your project's `.mise.toml`:
-
-```toml
-# For npm projects
-[tasks]
-setup = "npm install"
-
-# For pnpm projects
-[tasks]
-setup = "pnpm install"
-
-# For yarn projects
-[tasks]
-setup = "yarn install"
-```
-
-When you create a project with `co proj create` or a work unit with `co work create`, the setup task runs automatically to install dependencies in each worktree.
-
-**Note:** The setup task is optional. If your project doesn't require dependency installation or other initialization, you can omit it.
-
-## Usage
-
-All commands must be run from within a project directory (or subdirectory).
-
-### Quick Start
-
-```bash
-# Create a project
-co proj create ~/myproject https://github.com/user/repo
-cd ~/myproject
-
-# Create a work unit from a bead (generates branch from bead title)
-co work create bead-1
-# → Creates w-8xa/tree/ worktree with the bead
-
-# Execute work
-cd w-8xa
-co run                  # Execute tasks sequentially
-co run --plan           # Use LLM to group beads intelligently
-```
-
-Claude Orchestrator uses a two-phase workflow: **work** → **run**.
-
-### Phase 1: Work - Create a Work Unit
-
-```bash
-co work create bead-1     # Create work with a single bead (or epic)
-```
-
-This creates:
-- A work directory (`w-abc/`)
-- A git worktree with a generated branch (`w-abc/tree/`)
-- A unique work ID using content-based hashing
-
-If the bead is an epic, all child beads are automatically included.
-Transitive dependencies are also included.
-
-The branch name is generated from bead titles and you're prompted for confirmation.
-
-### Phase 2: Run - Execute Pending Tasks
-
-```bash
-co run                               # Execute all pending tasks in current work
-co run --work w-abc                  # Execute all tasks in work w-abc
-```
-
-Tasks within a work are executed sequentially in the work's worktree.
-
-**Run command options:**
-- `--plan`: Use LLM complexity estimation to auto-group beads into tasks
-- `--auto`: Full automated workflow (implement, review/fix loop, PR creation)
-
-### Work Commands
-
-| Command | Description |
-|---------|-------------|
-| `co work create <bead-args...>` | Create a new work unit with beads (generates branch from titles) |
-| `co work add <bead-args...>` | Add beads to existing work |
-| `co work remove <bead-ids...>` | Remove beads from existing work |
-| `co work list` | List all work units with their status |
-| `co work show [<id>]` | Show detailed work information (current directory or specified) |
-| `co work pr [<id>]` | Create a PR task for Claude to generate pull request |
-| `co work review [<id>]` | Create a review task to examine code changes |
-| `co work feedback [<id>]` | Process PR feedback and create beads from actionable items |
-| `co work destroy <id>` | Delete work unit and all associated data |
-
-### Work Create Options
-
-| Flag | Description |
-|------|-------------|
-| `--auto` | Full automated workflow (implement, review/fix loop, PR) |
-
-Base branch is configured in `config.toml` under `[repo] base_branch` (default: main).
-
-### Run Command Flags
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--limit` | `-n` | Maximum number of tasks to process (0 = unlimited) |
-| `--dry-run` | | Show execution plan without running |
-| `--plan` | | Use LLM complexity estimation to auto-group beads |
-| `--auto` | | Full automated workflow (implement, review/fix loop, PR) |
-| `--project` | | Specify project directory (default: auto-detect from cwd) |
-| `--work` | | Specify work ID (default: auto-detect from current directory) |
-
-### Typical Workflow Example
-
-```bash
-# 1. Create a work unit from a bead
-co work create bead-1
-# Output: Generated work ID: w-8xa (from branch: feat/implement-feature-x)
-
-# 2. Navigate to the work directory
-cd w-8xa
-
-# 3. Execute tasks
-co run                  # Each bead becomes its own task
-co run --plan           # Or use LLM to group beads intelligently
-
-# 4. Create PR (Claude generates comprehensive description)
-co work pr
-co run                  # Execute the PR task
-
-# 5. Review and merge PR manually
-gh pr merge --squash
-
-# 6. Clean up
-co work destroy w-8xa
-```
-
-Each work has its own feature branch, and all tasks within the work are executed sequentially in the work's worktree.
+- **Work**: A feature branch with its own worktree, groups related tasks (ID: `w-8xa`)
+- **Tasks**: Units of Claude execution within a work (ID: `w-8xa.1`, `w-8xa.2`)
+- **Beads**: Individual issues from the beads tracker (ID: `ac-pjw`)
 
 ### Automated Workflow
 
@@ -350,298 +204,14 @@ co work create bead-1 bead-2 --auto
 This mode:
 1. Creates work unit and tasks from beads
 2. Executes all implementation tasks
-3. Runs review/fix loop until code is clean (default max 2 iterations, configurable)
+3. Runs review/fix loop until code is clean
 4. Creates PR automatically
 5. Returns PR URL when complete
 
-### PR Feedback Integration
+## Documentation
 
-Claude Orchestrator automatically monitors and integrates feedback from GitHub Pull Requests:
-
-#### Automatic Feedback Polling
-
-During orchestration, the system automatically:
-- Polls PR feedback every 5 minutes when a work has an associated PR
-- Creates beads from actionable feedback items (failed checks, test failures, review comments)
-- Adds new beads to the work for immediate execution
-- Resolves GitHub comments when feedback beads are closed
-
-#### Manual Feedback Trigger
-
-You can manually trigger PR feedback polling:
-
-```bash
-# From work directory (auto-detects work)
-co work feedback
-
-# With explicit work ID
-co work feedback w-8xa
-
-# Options
-co work feedback --dry-run       # Preview what beads would be created
-co work feedback --auto-add      # Automatically add beads to work
-co work feedback --min-priority 2 # Set minimum priority (0-4)
-```
-
-The feedback system processes:
-- **CI/Build Failures**: Failed status checks and workflow runs
-- **Test Failures**: Extracts specific test failures from logs
-- **Lint Errors**: Code style and quality issues
-- **Review Comments**: Actionable feedback from code reviews
-- **Security Issues**: Vulnerabilities and security concerns
-
-Each feedback item creates a bead under the work's root issue, allowing Claude to address the feedback in subsequent tasks.
-
-#### TUI Feedback Polling
-
-The TUI (`co tui`) provides a manual trigger button (F5) to poll PR feedback on-demand, with visual feedback showing the polling status.
-
-### Task Dependencies
-
-Task dependencies are derived automatically from bead dependencies:
-- If bead A depends on bead B, and they're in different tasks, task(A) depends on task(B)
-- `co run` executes tasks in the correct dependency order
-- Cycles are detected and reported as errors
-
-### Task Management
-
-Manage tasks with the `co task` command:
-
-```bash
-co task list                    # List all tasks
-co task list --status pending   # List pending tasks
-co task list --type estimate    # List estimation tasks
-co task show <task-id>          # Show detailed task information
-co task delete <task-id>        # Delete a task from database
-co task reset <task-id>         # Reset failed/stuck task to pending
-co task set-review-epic <epic>  # Associate review epic with review task
-```
-
-#### Error Handling and Retries
-
-When a task fails:
-- The task is automatically marked as failed in the database
-- Claude can signal failure using `co complete <task-id> --error "message"`
-- To retry a failed task:
-  ```bash
-  co task reset <task-id>    # Reset task status to pending
-  co run                     # Retry the task
-  ```
-- On retry, Claude only processes incomplete beads (already completed beads are skipped)
-
-### ID Generation
-
-CO uses a hierarchical ID system:
-
-- **Work IDs**: Content-based hash (e.g., `w-8xa`)
-  - Generated from branch name + project + timestamp
-  - 3-8 character base36 hash
-  - Collision-resistant with automatic lengthening
-
-- **Task IDs**: Hierarchical format (e.g., `w-8xa.1`, `w-8xa.2`)
-  - Format: `<work-id>.<sequence>`
-  - Sequential numbering within each work
-  - Shows clear task ownership
-
-- **Bead IDs**: Managed by beads system (e.g., `ac-pjw`)
-  - Project-specific prefixes
-  - Content-based hashing similar to works
-
-### Monitoring Commands
-
-| Command | Description |
-|---------|-------------|
-| `co tui` | Interactive TUI for managing works and beads (lazygit-style) |
-| `co poll [work-id\|task-id]` | Monitor work/task progress with text output |
-
-The TUI (`co tui`) provides a full management interface with:
-- Three-panel drill-down: Beads → Works → Tasks
-- Create/destroy works, run tasks
-- Bead filtering (ready/open/closed), search, multi-select. "Open" includes all non-closed statuses.
-- Keyboard shortcuts for all operations (press `?` for help)
-
-The poll command (`co poll`) provides simple text-based monitoring:
-- Use `--interval` to set polling interval (default: 2s)
-- Useful for scripting or when you don't need interactive features
-
-### Other Commands
-
-| Command | Description |
-|---------|-------------|
-| `co status [bead-id]` | Show tracking status for beads |
-| `co list [-s status]` | List tracked beads with optional status filter |
-| `co sync` | Pull from upstream in all repositories |
-| `co complete <bead-id> [--pr URL] [--error "message"]` | Mark a bead/task as completed or failed (called by Claude) |
-| `co estimate <bead-id> --score N --tokens N` | Report complexity estimate for a bead (called by Claude during estimation) |
-
-### Linear Integration
-
-Import issues from Linear into the beads issue tracker:
-
-```bash
-# Import single issue by ID or URL
-co linear import ENG-123
-co linear import https://linear.app/company/issue/ENG-123/title
-
-# Import multiple issues
-co linear import ENG-123 ENG-124 ENG-125
-
-# Import with dependencies (blocking issues)
-co linear import ENG-123 --create-deps --max-dep-depth=2
-
-# Update existing bead from Linear
-co linear import ENG-123 --update
-
-# Preview without creating
-co linear import ENG-123 --dry-run
-```
-
-| Flag | Description |
-|------|-------------|
-| `--api-key` | Linear API key (or use `[linear] api_key` in config.toml) |
-| `--create-deps` | Import blocking issues as dependencies |
-| `--max-dep-depth` | Maximum depth for dependency import (default: 1) |
-| `--update` | Update existing beads if already imported |
-| `--dry-run` | Preview import without creating beads |
-| `--status-filter` | Only import issues matching status |
-| `--priority-filter` | Only import issues matching priority |
-| `--assignee-filter` | Only import issues matching assignee |
-
-Linear metadata (ID, URL, assignee, labels) is preserved in the imported bead.
-
-## How It Works
-
-Claude Orchestrator uses a two-phase workflow with the Work → Tasks → Beads hierarchy:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      co work create                             │
-├─────────────────────────────────────────────────────────────────┤
-│  1. Parse bead argument                                         │
-│  2. Expand epics to include all child beads                     │
-│  3. Include transitive dependencies                             │
-│  4. Generate branch name from bead titles (prompt for confirm)  │
-│  5. Generate unique work ID using content-based hashing         │
-│  6. Create work directory: <project>/<work-id>/                 │
-│  7. Create git worktree: <work-id>/tree/                        │
-│     └─ git worktree add tree -b <branch-name>                   │
-│  8. Create zellij tab for the work                              │
-│  9. Push branch and set upstream                                │
-│  10. Store work in tracking database                            │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│                        co run                                   │
-├─────────────────────────────────────────────────────────────────┤
-│  1. Load work and its pending tasks from database               │
-│  2. (Optional with --plan) Estimate complexity and regroup      │
-│  3. Execute tasks sequentially in the work's worktree:          │
-│     │                                                           │
-│     ├─ For each task:                                           │
-│     │  ├─ Check for uncommitted changes:                        │
-│     │  │  • If related to task beads: complete implementation  │
-│     │  │  • If unrelated: stash with descriptive message       │
-│     │  │  • Fail-fast if can't handle cleanly                  │
-│     │  │                                                        │
-│     │  ├─ Run Claude Code in work's zellij tab                  │
-│     │  │  └─ zellij run -- claude --dangerously-skip-permissions│
-│     │  │     Claude receives prompt and autonomously:           │
-│     │  │     • Implements all beads in the task                 │
-│     │  │     • Commits after each bead completion               │
-│     │  │     • Pushes commits to remote immediately            │
-│     │  │     • Closes beads (bd close <id> --reason "...")      │
-│     │  │     • Signals completion (co complete <id>)            │
-│     │  │     • Or signals failure (co complete <id> --error)   │
-│     │  │                                                        │
-│     │  └─ Manager polls database for completion                 │
-│     │                                                           │
-│  4. After all tasks complete:                                   │
-│     ├─ Mark work as completed                                   │
-│     └─ (With --auto) Run review/fix loop, then create PR        │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│                      co work pr                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  1. Check work is completed and no PR exists                    │
-│  2. Create special PR task (w-abc.pr)                           │
-│  3. User runs: co run                                           │
-│  4. Claude analyzes all changes and completed work:             │
-│     ├─ Reviews git log and diff                                 │
-│     ├─ Summarizes completed tasks and beads                     │
-│     ├─ Generates comprehensive PR description                   │
-│     ├─ Creates PR using gh pr create                            │
-│     └─ Returns PR URL (does NOT auto-merge)                     │
-│  5. User reviews and merges PR manually                         │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│                      co work review                             │
-├─────────────────────────────────────────────────────────────────┤
-│  1. Create review task (w-abc.review-1, w-abc.review-2, etc.)   │
-│  2. Claude examines the work's branch for:                      │
-│     ├─ Code quality issues                                      │
-│     ├─ Security vulnerabilities                                 │
-│     └─ Potential bugs                                           │
-│  3. Creates beads for issues found (attached to review epic)    │
-│  4. (With --auto) Loops: review → fix → review until clean      │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Key Design Decisions
-
-- **Three-tier hierarchy**: Work → Tasks → Beads provides clear organization
-- **Work-based isolation**: Each work has its own worktree and feature branch
-- **Content-based IDs**: Works use hash-based IDs (w-abc), tasks use hierarchical IDs (w-abc.1)
-- **Two-phase workflow**: Work creation and execution are separate phases
-- **Sequential task execution**: Tasks within a work run sequentially in the same worktree
-- **Project isolation**: Each project has its own tracking database in `.co/`
-- **Claude handles implementation**: Claude autonomously implements, commits, and closes beads
-- **Zellij for terminal management**: Each work gets its own tab in the project's zellij session
-- **Database polling**: Manager polls SQLite database for completion signals from Claude
-- **Fail-fast for uncommitted changes**: Tasks verify clean working tree and handle partial work appropriately
-- **Continuous integration**: Each bead completion is committed and pushed immediately to prevent work loss
-- **Intelligent retries**: Failed tasks can be reset and retried, with Claude skipping already-completed beads
-- **Error signaling**: Claude can explicitly mark tasks as failed with error messages for better debugging
-- **Automated reviews**: Review tasks can find issues and create fix beads automatically
-
-## Project Structure
-
-```
-co/
-├── main.go              # CLI entry point
-├── cmd/
-│   ├── root.go          # Root command
-│   ├── complete.go      # Complete command (mark beads/tasks as done)
-│   ├── estimate.go      # Estimate command (report complexity)
-│   ├── list.go          # List command (list tracked beads)
-│   ├── migrate.go       # Database migration command
-│   ├── orchestrate.go   # Orchestrate command (internal, execute tasks)
-│   ├── poll.go          # Text-based progress monitoring
-│   ├── proj.go          # Project management commands
-│   ├── run.go           # Run command (execute pending tasks)
-│   ├── status.go        # Status command
-│   ├── sync.go          # Sync command (pull from upstream)
-│   ├── task.go          # Task management commands
-│   ├── task_processing.go # Task processing helpers
-│   ├── tui.go           # Interactive TUI (lazygit-style)
-│   ├── work.go          # Work management commands
-│   └── work_automated.go # Automated bead-to-PR workflow
-└── internal/
-    ├── beads/           # Beads client (bd CLI wrapper)
-    ├── claude/          # Claude Code invocation
-    ├── db/              # SQLite tracking database
-    │   ├── migrations/  # Schema migrations
-    │   ├── queries/     # SQL query definitions
-    │   └── sqlc/        # Generated SQL queries
-    ├── git/             # Git operations
-    ├── mise/            # Mise tool management
-    ├── project/         # Project discovery and config
-    ├── signal/          # Signal handling
-    ├── task/            # Task planning and complexity estimation
-    ├── worktree/        # Git worktree operations
-    └── zellij/          # Zellij terminal multiplexer integration
-```
+- [CLI Reference](docs/cli-reference.md) - Complete command documentation
+- [Configuration](docs/configuration.md) - Project configuration options
 
 ## Development
 
@@ -650,8 +220,6 @@ co/
 ```bash
 mise install && lefthook install
 ```
-
-This installs development tools and git hooks for linting.
 
 ### Run Tests
 
@@ -665,36 +233,24 @@ go test ./...
 go build -o co .
 ```
 
-### Generate SQL Queries
-
-After modifying SQL files in `internal/db/queries/`:
-
-```bash
-mise run sqlc-generate
-```
-
 ## Troubleshooting
 
 ### "not in a project directory"
 
-All commands must be run from within a project. Create one first:
+All commands must be run from within a project:
 ```bash
 co proj create ~/myproject ~/path/to/repo
 cd ~/myproject
 ```
 
-### "bd: command not found"
+### "bd: command not found" or "gh: command not found" or "zellij: command not found"
 
-Install beads:
+These tools are installed by mise:
 ```bash
-curl -sSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+mise install
 ```
 
-### "gh: command not found"
-
-Install GitHub CLI:
-- macOS: `brew install gh`
-- Linux: See [cli.github.com/manual/installation](https://cli.github.com/manual/installation)
+If mise isn't installed, see [mise.jdx.dev](https://mise.jdx.dev/).
 
 ### "not logged into any GitHub hosts"
 
@@ -705,24 +261,11 @@ gh auth login
 
 ### No beads found
 
-Ensure you have ready beads in your project's main repo:
+Create work items in your project's main repo:
 ```bash
 cd ~/myproject/main
-bd ready
-```
-
-If empty, create work items:
-```bash
 bd create --title "Your task" --type task
-```
-
-### "no work context found"
-
-You need to be in a work directory or specify the work ID:
-```bash
-co work create bead-1 bead-2
-cd w-abc  # Use the generated work ID
-co run
+bd ready  # View available beads
 ```
 
 ## License
