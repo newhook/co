@@ -6,6 +6,7 @@ import (
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
+	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/task"
@@ -19,6 +20,7 @@ type WorkService struct {
 	DB                  *db.DB
 	Git                 git.Operations
 	Worktree            worktree.Operations
+	GitHubClient        github.ClientInterface
 	BeadsReader         beads.Reader
 	BeadsCLI            beads.CLI
 	OrchestratorManager OrchestratorManager
@@ -27,6 +29,7 @@ type WorkService struct {
 	Config              *project.Config
 	ProjectRoot         string // Root directory of the project
 	MainRepoPath        string // Path to the main repository
+	BeadsDir            string // Path to beads directory
 }
 
 // NewWorkService creates a WorkService with production dependencies from a project.
@@ -38,6 +41,7 @@ func NewWorkService(proj *project.Project) *WorkService {
 		DB:                  proj.DB,
 		Git:                 git.NewOperations(),
 		Worktree:            worktree.NewOperations(),
+		GitHubClient:        github.NewClient(),
 		BeadsReader:         proj.Beads,
 		BeadsCLI:            beads.NewCLI(beadsDir),
 		OrchestratorManager: NewOrchestratorManager(proj.DB),
@@ -46,6 +50,7 @@ func NewWorkService(proj *project.Project) *WorkService {
 		Config:              proj.Config,
 		ProjectRoot:         proj.Root,
 		MainRepoPath:        proj.MainRepoPath(),
+		BeadsDir:            beadsDir,
 	}
 }
 
@@ -55,6 +60,7 @@ type WorkServiceDeps struct {
 	DB                  *db.DB
 	Git                 git.Operations
 	Worktree            worktree.Operations
+	GitHubClient        github.ClientInterface
 	BeadsReader         beads.Reader
 	BeadsCLI            beads.CLI
 	OrchestratorManager OrchestratorManager
@@ -63,6 +69,7 @@ type WorkServiceDeps struct {
 	Config              *project.Config
 	ProjectRoot         string
 	MainRepoPath        string
+	BeadsDir            string
 }
 
 // NewWorkServiceWithDeps creates a WorkService with explicitly provided dependencies.
@@ -72,6 +79,7 @@ func NewWorkServiceWithDeps(deps WorkServiceDeps) *WorkService {
 		DB:                  deps.DB,
 		Git:                 deps.Git,
 		Worktree:            deps.Worktree,
+		GitHubClient:        deps.GitHubClient,
 		BeadsReader:         deps.BeadsReader,
 		BeadsCLI:            deps.BeadsCLI,
 		OrchestratorManager: deps.OrchestratorManager,
@@ -80,5 +88,7 @@ func NewWorkServiceWithDeps(deps WorkServiceDeps) *WorkService {
 		Config:              deps.Config,
 		ProjectRoot:         deps.ProjectRoot,
 		MainRepoPath:        deps.MainRepoPath,
+		BeadsDir:            deps.BeadsDir,
 	}
 }
+

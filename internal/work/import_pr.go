@@ -2,44 +2,14 @@ package work
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/logging"
-	"github.com/newhook/co/internal/worktree"
 )
-
-// PRImporter handles importing PRs into work units.
-type PRImporter struct {
-	client      github.ClientInterface
-	gitOps      git.Operations
-	worktreeOps worktree.Operations
-}
-
-// NewPRImporter creates a new PR importer with default operations.
-func NewPRImporter(client github.ClientInterface) *PRImporter {
-	return &PRImporter{
-		client:      client,
-		gitOps:      git.NewOperations(),
-		worktreeOps: worktree.NewOperations(),
-	}
-}
-
-// NewPRImporterWithOps creates a new PR importer with custom operations (for testing).
-func NewPRImporterWithOps(client github.ClientInterface, gitOps git.Operations, worktreeOps worktree.Operations) *PRImporter {
-	return &PRImporter{
-		client:      client,
-		gitOps:      gitOps,
-		worktreeOps: worktreeOps,
-	}
-}
 
 // SetupWorktreeFromPR fetches a PR's branch and creates a worktree for it.
 // It returns the created worktree path and the PR metadata.
@@ -55,7 +25,7 @@ func NewPRImporterWithOps(client github.ClientInterface, gitOps git.Operations, 
 // 1. Fetches PR metadata to get branch information
 // 2. Fetches the PR's head ref using GitHub's refs/pull/<n>/head
 // 3. Creates a worktree at workDir/tree from the fetched branch
-func (p *PRImporter) SetupWorktreeFromPR(ctx context.Context, repoPath, prURLOrNumber, repo, workDir, branchName string) (*github.PRMetadata, string, error) {
+func (s *WorkService) SetupWorktreeFromPR(ctx context.Context, repoPath, prURLOrNumber, repo, workDir, branchName string) (*github.PRMetadata, string, error) {
 	logging.Info("setting up worktree from PR",
 		"repoPath", repoPath,
 		"prURLOrNumber", prURLOrNumber,
@@ -64,7 +34,7 @@ func (p *PRImporter) SetupWorktreeFromPR(ctx context.Context, repoPath, prURLOrN
 		"branchName", branchName)
 
 	// Fetch PR metadata
-	metadata, err := p.client.GetPRMetadata(ctx, prURLOrNumber, repo)
+	metadata, err := s.GitHubClient.GetPRMetadata(ctx, prURLOrNumber, repo)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get PR metadata: %w", err)
 	}
@@ -77,7 +47,7 @@ func (p *PRImporter) SetupWorktreeFromPR(ctx context.Context, repoPath, prURLOrN
 
 	// Fetch the PR's head ref
 	logging.Debug("fetching PR ref", "prNumber", metadata.Number, "localBranch", localBranch)
-	if err := p.gitOps.FetchPRRef(ctx, repoPath, metadata.Number, localBranch); err != nil {
+	if err := s.Git.FetchPRRef(ctx, repoPath, metadata.Number, localBranch); err != nil {
 		return metadata, "", fmt.Errorf("failed to fetch PR ref: %w", err)
 	}
 
@@ -86,7 +56,7 @@ func (p *PRImporter) SetupWorktreeFromPR(ctx context.Context, repoPath, prURLOrN
 
 	// Create worktree from the fetched branch
 	logging.Debug("creating worktree", "worktreePath", worktreePath, "branch", localBranch)
-	if err := p.worktreeOps.CreateFromExisting(ctx, repoPath, worktreePath, localBranch); err != nil {
+	if err := s.Worktree.CreateFromExisting(ctx, repoPath, worktreePath, localBranch); err != nil {
 		return metadata, "", fmt.Errorf("failed to create worktree: %w", err)
 	}
 
@@ -96,11 +66,6 @@ func (p *PRImporter) SetupWorktreeFromPR(ctx context.Context, repoPath, prURLOrN
 		"branch", localBranch)
 
 	return metadata, worktreePath, nil
-}
-
-// FetchPRMetadata is a convenience method that just fetches PR metadata without creating a worktree.
-func (p *PRImporter) FetchPRMetadata(ctx context.Context, prURLOrNumber, repo string) (*github.PRMetadata, error) {
-	return p.client.GetPRMetadata(ctx, prURLOrNumber, repo)
 }
 
 // CreateBeadOptions contains options for creating a bead from a PR.
@@ -126,7 +91,7 @@ type CreateBeadResult struct {
 
 // CreateBeadFromPR creates a bead from PR metadata.
 // This allows users to optionally track imported PRs in the beads system.
-func (p *PRImporter) CreateBeadFromPR(ctx context.Context, metadata *github.PRMetadata, opts *CreateBeadOptions) (*CreateBeadResult, error) {
+func (s *WorkService) CreateBeadFromPR(ctx context.Context, metadata *github.PRMetadata, opts *CreateBeadOptions) (*CreateBeadResult, error) {
 	logging.Info("creating bead from PR",
 		"prNumber", metadata.Number,
 		"prTitle", metadata.Title,
@@ -136,7 +101,7 @@ func (p *PRImporter) CreateBeadFromPR(ctx context.Context, metadata *github.PRMe
 
 	// Check for existing bead if requested
 	if opts.SkipIfExists {
-		existingID, err := findExistingPRBead(ctx, opts.BeadsDir, metadata.URL)
+		existingID, err := s.findBeadByExternalRef(ctx, metadata.URL)
 		if err != nil {
 			logging.Warn("failed to check for existing bead", "error", err)
 			// Continue anyway - we'll try to create
@@ -342,28 +307,15 @@ func formatBeadDescription(pr *github.PRMetadata) string {
 	return builder.String()
 }
 
-// findExistingPRBead checks if a bead already exists for the given PR URL.
-// Uses the bd CLI to list beads and find one with matching external_ref.
-func findExistingPRBead(ctx context.Context, beadsDir, prURL string) (string, error) {
-	cmd := exec.CommandContext(ctx, "bd", "list", "--json")
-	if beadsDir != "" {
-		cmd.Env = append(os.Environ(), "BEADS_DIR="+beadsDir)
-	}
-	output, err := cmd.Output()
+// findBeadByExternalRef checks if a bead already exists with the given external ref.
+func (s *WorkService) findBeadByExternalRef(ctx context.Context, externalRef string) (string, error) {
+	beadsList, err := s.BeadsReader.ListBeads(ctx, "")
 	if err != nil {
 		return "", fmt.Errorf("failed to list beads: %w", err)
 	}
 
-	var beadsList []struct {
-		ID          string `json:"id"`
-		ExternalRef string `json:"external_ref"`
-	}
-	if err := json.Unmarshal(output, &beadsList); err != nil {
-		return "", fmt.Errorf("failed to parse beads list: %w", err)
-	}
-
 	for _, bead := range beadsList {
-		if bead.ExternalRef == prURL {
+		if bead.ExternalRef == externalRef {
 			return bead.ID, nil
 		}
 	}

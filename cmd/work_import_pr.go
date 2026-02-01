@@ -3,9 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/newhook/co/internal/github"
-	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/control"
+	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/work"
 	"github.com/spf13/cobra"
 )
@@ -46,13 +45,12 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 
 	prURL := args[0]
 
-	// Create GitHub client and PR importer
-	ghClient := github.NewClient()
-	importer := work.NewPRImporter(ghClient)
+	// Create work service
+	workSvc := work.NewWorkService(proj)
 
 	// Fetch PR metadata first (user needs to see PR info)
 	fmt.Printf("Fetching PR metadata from %s...\n", prURL)
-	metadata, err := importer.FetchPRMetadata(ctx, prURL, "")
+	metadata, err := workSvc.GitHubClient.GetPRMetadata(ctx, prURL, "")
 	if err != nil {
 		return fmt.Errorf("failed to fetch PR metadata: %w", err)
 	}
@@ -75,7 +73,7 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 
 	// Create a bead from PR metadata (user needs feedback on bead creation)
 	fmt.Printf("\nCreating bead from PR metadata...\n")
-	beadResult, err := importer.CreateBeadFromPR(ctx, metadata, &work.CreateBeadOptions{
+	beadResult, err := workSvc.CreateBeadFromPR(ctx, metadata, &work.CreateBeadOptions{
 		BeadsDir:     proj.BeadsPath(),
 		SkipIfExists: true,
 	})
@@ -91,7 +89,6 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 
 	// Schedule PR import via control plane (handles worktree, git, mise)
 	fmt.Printf("\nScheduling PR import...\n")
-	workSvc := work.NewWorkService(proj)
 	result, err := workSvc.ImportPRAsync(ctx, work.ImportPRAsyncOptions{
 		PRURL:       prURL,
 		BranchName:  branchName,

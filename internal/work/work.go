@@ -138,7 +138,7 @@ func (s *WorkService) ImportPRAsync(ctx context.Context, opts ImportPRAsyncOptio
 
 	// Add root issue to work_beads immediately (before control plane runs)
 	if opts.RootIssueID != "" {
-		if err := s.AddBeadsInternal(ctx, workID, []string{opts.RootIssueID}); err != nil {
+		if err := s.addBeadsInternal(ctx, workID, []string{opts.RootIssueID}); err != nil {
 			_ = s.DB.DeleteWork(ctx, workID)
 			return nil, fmt.Errorf("failed to add bead to work: %w", err)
 		}
@@ -205,7 +205,7 @@ func (s *WorkService) CreateWorkAsyncWithOptions(ctx context.Context, opts Creat
 
 	// Add beads to work_beads (done immediately, not by control plane)
 	if len(opts.BeadIDs) > 0 {
-		if err := s.AddBeadsInternal(ctx, workID, opts.BeadIDs); err != nil {
+		if err := s.addBeadsInternal(ctx, workID, opts.BeadIDs); err != nil {
 			_ = s.DB.DeleteWork(ctx, workID)
 			return nil, fmt.Errorf("failed to add beads to work: %w", err)
 		}
@@ -243,8 +243,8 @@ func (s *WorkService) CreateWorkAsyncWithOptions(ctx context.Context, opts Creat
 	}, nil
 }
 
-// AddBeadsInternal adds beads to work_beads table without validation.
-func (s *WorkService) AddBeadsInternal(ctx context.Context, workID string, beadIDs []string) error {
+// addBeadsInternal adds beads to work_beads table without validation.
+func (s *WorkService) addBeadsInternal(ctx context.Context, workID string, beadIDs []string) error {
 	if len(beadIDs) == 0 {
 		return nil
 	}
