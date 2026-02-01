@@ -583,3 +583,107 @@ func TestFailedTaskBlocksDependents(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, ready, 0, "no tasks should be ready when dependency failed")
 }
+
+func TestGetPRTaskForWork(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create work
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main", "root-issue-1", false)
+	require.NoError(t, err)
+
+	// No PR task exists yet
+	prTask, err := db.GetPRTaskForWork(ctx, "work-1")
+	require.NoError(t, err)
+	assert.Nil(t, prTask, "expected nil when no PR task exists")
+
+	// Create a non-PR task
+	err = db.CreateTask(ctx, "task-1", "implement", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	// Still no PR task
+	prTask, err = db.GetPRTaskForWork(ctx, "work-1")
+	require.NoError(t, err)
+	assert.Nil(t, prTask, "expected nil when only non-PR tasks exist")
+
+	// Create a PR task (pending)
+	err = db.CreateTask(ctx, "task-2", "pr", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	prTask, err = db.GetPRTaskForWork(ctx, "work-1")
+	require.NoError(t, err)
+	require.NotNil(t, prTask, "expected PR task to be returned")
+	assert.Equal(t, "task-2", prTask.ID)
+	assert.Equal(t, "pr", prTask.TaskType)
+	assert.Equal(t, StatusPending, prTask.Status)
+
+	// Start the PR task (processing)
+	err = db.StartTask(ctx, "task-2", "")
+	require.NoError(t, err)
+
+	prTask, err = db.GetPRTaskForWork(ctx, "work-1")
+	require.NoError(t, err)
+	require.NotNil(t, prTask, "expected PR task to be returned when processing")
+	assert.Equal(t, StatusProcessing, prTask.Status)
+
+	// Complete the PR task
+	err = db.CompleteTask(ctx, "task-2", "https://github.com/example/pr/1")
+	require.NoError(t, err)
+
+	prTask, err = db.GetPRTaskForWork(ctx, "work-1")
+	require.NoError(t, err)
+	require.NotNil(t, prTask, "expected PR task to be returned when completed")
+	assert.Equal(t, StatusCompleted, prTask.Status)
+	assert.Equal(t, "https://github.com/example/pr/1", prTask.PRURL)
+}
+
+func TestGetPRTaskForWork_FailedNotReturned(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create work
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree", "feat/test", "main", "root-issue-1", false)
+	require.NoError(t, err)
+
+	// Create a PR task and fail it
+	err = db.CreateTask(ctx, "task-1", "pr", nil, 0, "work-1")
+	require.NoError(t, err)
+	err = db.StartTask(ctx, "task-1", "")
+	require.NoError(t, err)
+	err = db.FailTask(ctx, "task-1", "PR creation failed")
+	require.NoError(t, err)
+
+	// Failed PR task should not be returned
+	prTask, err := db.GetPRTaskForWork(ctx, "work-1")
+	require.NoError(t, err)
+	assert.Nil(t, prTask, "expected nil when PR task is failed")
+}
+
+func TestGetPRTaskForWork_MultipleWorks(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create two works
+	err := db.CreateWork(ctx, "work-1", "", "/tmp/worktree1", "feat/test1", "main", "root-issue-1", false)
+	require.NoError(t, err)
+	err = db.CreateWork(ctx, "work-2", "", "/tmp/worktree2", "feat/test2", "main", "root-issue-2", false)
+	require.NoError(t, err)
+
+	// Create PR task only for work-1
+	err = db.CreateTask(ctx, "task-1", "pr", nil, 0, "work-1")
+	require.NoError(t, err)
+
+	// work-1 should have a PR task
+	prTask, err := db.GetPRTaskForWork(ctx, "work-1")
+	require.NoError(t, err)
+	require.NotNil(t, prTask, "expected PR task for work-1")
+	assert.Equal(t, "task-1", prTask.ID)
+
+	// work-2 should not have a PR task
+	prTask, err = db.GetPRTaskForWork(ctx, "work-2")
+	require.NoError(t, err)
+	assert.Nil(t, prTask, "expected nil for work-2 which has no PR task")
+}

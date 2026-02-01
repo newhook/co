@@ -553,10 +553,32 @@ func handleReviewFixLoop(proj *project.Project, reviewTask *db.Task, work *db.Wo
 	return nil
 }
 
-// createPRTask creates the PR task that depends on a review task.
+// createPRTask creates the PR task (or update-pr-description task) that depends on a review task.
+// If a PR task already exists and is completed (PR was created), creates an update-pr-description task instead.
+// If a PR task exists but is pending/processing, skips creation.
 func createPRTask(proj *project.Project, work *db.Work, reviewTaskID string) error {
 	ctx := GetContext()
 
+	// Check if a PR task already exists for this work
+	existingPRTask, err := proj.DB.GetPRTaskForWork(ctx, work.ID)
+	if err != nil {
+		return fmt.Errorf("failed to check for existing PR task: %w", err)
+	}
+
+	if existingPRTask != nil {
+		switch existingPRTask.Status {
+		case db.StatusPending, db.StatusProcessing:
+			// PR task exists and is still pending/processing, skip creation
+			fmt.Printf("PR task %s already exists (status: %s), skipping creation\n",
+				existingPRTask.ID, existingPRTask.Status)
+			return nil
+		case db.StatusCompleted:
+			// PR was created, create an update-pr-description task instead
+			return createUpdatePRDescriptionTask(proj, work, reviewTaskID)
+		}
+	}
+
+	// No existing PR task, create one
 	prTaskNum, err := proj.DB.GetNextTaskNumber(ctx, work.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get next task number for PR: %w", err)
@@ -570,6 +592,28 @@ func createPRTask(proj *project.Project, work *db.Work, reviewTaskID string) err
 		return fmt.Errorf("failed to add dependency for PR: %w", err)
 	}
 	fmt.Printf("Created PR task: %s (depends on %s)\n", prTaskID, reviewTaskID)
+	return nil
+}
+
+// createUpdatePRDescriptionTask creates a task to update the PR description.
+// This is used when a PR already exists and we need to update it after subsequent reviews.
+func createUpdatePRDescriptionTask(proj *project.Project, work *db.Work, reviewTaskID string) error {
+	ctx := GetContext()
+
+	taskNum, err := proj.DB.GetNextTaskNumber(ctx, work.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get next task number for update-pr-description: %w", err)
+	}
+	taskID := fmt.Sprintf("%s.%d", work.ID, taskNum)
+
+	if err := proj.DB.CreateTask(ctx, taskID, "update-pr-description", nil, 0, work.ID); err != nil {
+		return fmt.Errorf("failed to create update-pr-description task: %w", err)
+	}
+	if err := proj.DB.AddTaskDependency(ctx, taskID, reviewTaskID); err != nil {
+		return fmt.Errorf("failed to add dependency for update-pr-description: %w", err)
+	}
+	fmt.Printf("Created update-pr-description task: %s (depends on %s)\n", taskID, reviewTaskID)
+	fmt.Printf("PR URL: %s\n", work.PRURL)
 	return nil
 }
 

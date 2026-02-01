@@ -189,3 +189,24 @@ SELECT id, status,
 FROM tasks
 WHERE status = 'processing'
 ORDER BY last_activity DESC;
+
+-- name: GetPRTaskForWork :one
+SELECT id, status,
+       COALESCE(task_type, 'implement') as task_type,
+       complexity_budget,
+       actual_complexity,
+       work_id,
+       worktree_path,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       spawned_at,
+       spawn_status
+FROM tasks
+WHERE work_id = ?
+  AND task_type = 'pr'
+  AND status IN ('pending', 'processing', 'completed')
+ORDER BY created_at DESC
+LIMIT 1;

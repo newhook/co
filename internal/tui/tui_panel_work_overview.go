@@ -491,6 +491,8 @@ func (p *WorkOverviewPanel) renderTaskLine(taskIdx int, _ int) string {
 		taskType = "rev"
 	case "pr":
 		taskType = "pr"
+	case "update-pr-description":
+		taskType = "pr-upd"
 	case "log_analysis":
 		taskType = "log"
 	}
