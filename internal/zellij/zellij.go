@@ -50,14 +50,15 @@ func IsInsideTargetSession(session string) bool {
 
 // SessionManager defines the interface for managing zellij sessions.
 // This abstraction enables testing without actual zellij commands.
+//
+// All session creation should go through EnsureSessionWithLayout to ensure
+// every session has a control plane tab. Direct session creation methods
+// are intentionally excluded from this interface.
 type SessionManager interface {
 	ListSessions(ctx context.Context) ([]string, error)
 	SessionExists(ctx context.Context, name string) (bool, error)
 	IsSessionActive(ctx context.Context, name string) (bool, error)
-	CreateSession(ctx context.Context, name string) error
-	CreateSessionWithLayout(ctx context.Context, name string, projectRoot string) error
 	DeleteSession(ctx context.Context, name string) error
-	EnsureSession(ctx context.Context, name string) (bool, error)
 	EnsureSessionWithLayout(ctx context.Context, name string, projectRoot string) (bool, error)
 
 	// Session returns a Session interface bound to the specified session name.

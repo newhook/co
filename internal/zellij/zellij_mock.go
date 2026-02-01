@@ -18,17 +18,8 @@ var _ SessionManager = &SessionManagerMock{}
 //
 //		// make and configure a mocked SessionManager
 //		mockedSessionManager := &SessionManagerMock{
-//			CreateSessionFunc: func(ctx context.Context, name string) error {
-//				panic("mock out the CreateSession method")
-//			},
-//			CreateSessionWithLayoutFunc: func(ctx context.Context, name string, projectRoot string) error {
-//				panic("mock out the CreateSessionWithLayout method")
-//			},
 //			DeleteSessionFunc: func(ctx context.Context, name string) error {
 //				panic("mock out the DeleteSession method")
-//			},
-//			EnsureSessionFunc: func(ctx context.Context, name string) (bool, error) {
-//				panic("mock out the EnsureSession method")
 //			},
 //			EnsureSessionWithLayoutFunc: func(ctx context.Context, name string, projectRoot string) (bool, error) {
 //				panic("mock out the EnsureSessionWithLayout method")
@@ -52,17 +43,8 @@ var _ SessionManager = &SessionManagerMock{}
 //
 //	}
 type SessionManagerMock struct {
-	// CreateSessionFunc mocks the CreateSession method.
-	CreateSessionFunc func(ctx context.Context, name string) error
-
-	// CreateSessionWithLayoutFunc mocks the CreateSessionWithLayout method.
-	CreateSessionWithLayoutFunc func(ctx context.Context, name string, projectRoot string) error
-
 	// DeleteSessionFunc mocks the DeleteSession method.
 	DeleteSessionFunc func(ctx context.Context, name string) error
-
-	// EnsureSessionFunc mocks the EnsureSession method.
-	EnsureSessionFunc func(ctx context.Context, name string) (bool, error)
 
 	// EnsureSessionWithLayoutFunc mocks the EnsureSessionWithLayout method.
 	EnsureSessionWithLayoutFunc func(ctx context.Context, name string, projectRoot string) (bool, error)
@@ -81,31 +63,8 @@ type SessionManagerMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// CreateSession holds details about calls to the CreateSession method.
-		CreateSession []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-		}
-		// CreateSessionWithLayout holds details about calls to the CreateSessionWithLayout method.
-		CreateSessionWithLayout []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// ProjectRoot is the projectRoot argument value.
-			ProjectRoot string
-		}
 		// DeleteSession holds details about calls to the DeleteSession method.
 		DeleteSession []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-		}
-		// EnsureSession holds details about calls to the EnsureSession method.
-		EnsureSession []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Name is the name argument value.
@@ -145,97 +104,12 @@ type SessionManagerMock struct {
 			Name string
 		}
 	}
-	lockCreateSession           sync.RWMutex
-	lockCreateSessionWithLayout sync.RWMutex
 	lockDeleteSession           sync.RWMutex
-	lockEnsureSession           sync.RWMutex
 	lockEnsureSessionWithLayout sync.RWMutex
 	lockIsSessionActive         sync.RWMutex
 	lockListSessions            sync.RWMutex
 	lockSession                 sync.RWMutex
 	lockSessionExists           sync.RWMutex
-}
-
-// CreateSession calls CreateSessionFunc.
-func (mock *SessionManagerMock) CreateSession(ctx context.Context, name string) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-	}{
-		Ctx:  ctx,
-		Name: name,
-	}
-	mock.lockCreateSession.Lock()
-	mock.calls.CreateSession = append(mock.calls.CreateSession, callInfo)
-	mock.lockCreateSession.Unlock()
-	if mock.CreateSessionFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.CreateSessionFunc(ctx, name)
-}
-
-// CreateSessionCalls gets all the calls that were made to CreateSession.
-// Check the length with:
-//
-//	len(mockedSessionManager.CreateSessionCalls())
-func (mock *SessionManagerMock) CreateSessionCalls() []struct {
-	Ctx  context.Context
-	Name string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-	}
-	mock.lockCreateSession.RLock()
-	calls = mock.calls.CreateSession
-	mock.lockCreateSession.RUnlock()
-	return calls
-}
-
-// CreateSessionWithLayout calls CreateSessionWithLayoutFunc.
-func (mock *SessionManagerMock) CreateSessionWithLayout(ctx context.Context, name string, projectRoot string) error {
-	callInfo := struct {
-		Ctx         context.Context
-		Name        string
-		ProjectRoot string
-	}{
-		Ctx:         ctx,
-		Name:        name,
-		ProjectRoot: projectRoot,
-	}
-	mock.lockCreateSessionWithLayout.Lock()
-	mock.calls.CreateSessionWithLayout = append(mock.calls.CreateSessionWithLayout, callInfo)
-	mock.lockCreateSessionWithLayout.Unlock()
-	if mock.CreateSessionWithLayoutFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.CreateSessionWithLayoutFunc(ctx, name, projectRoot)
-}
-
-// CreateSessionWithLayoutCalls gets all the calls that were made to CreateSessionWithLayout.
-// Check the length with:
-//
-//	len(mockedSessionManager.CreateSessionWithLayoutCalls())
-func (mock *SessionManagerMock) CreateSessionWithLayoutCalls() []struct {
-	Ctx         context.Context
-	Name        string
-	ProjectRoot string
-} {
-	var calls []struct {
-		Ctx         context.Context
-		Name        string
-		ProjectRoot string
-	}
-	mock.lockCreateSessionWithLayout.RLock()
-	calls = mock.calls.CreateSessionWithLayout
-	mock.lockCreateSessionWithLayout.RUnlock()
-	return calls
 }
 
 // DeleteSession calls DeleteSessionFunc.
@@ -274,46 +148,6 @@ func (mock *SessionManagerMock) DeleteSessionCalls() []struct {
 	mock.lockDeleteSession.RLock()
 	calls = mock.calls.DeleteSession
 	mock.lockDeleteSession.RUnlock()
-	return calls
-}
-
-// EnsureSession calls EnsureSessionFunc.
-func (mock *SessionManagerMock) EnsureSession(ctx context.Context, name string) (bool, error) {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-	}{
-		Ctx:  ctx,
-		Name: name,
-	}
-	mock.lockEnsureSession.Lock()
-	mock.calls.EnsureSession = append(mock.calls.EnsureSession, callInfo)
-	mock.lockEnsureSession.Unlock()
-	if mock.EnsureSessionFunc == nil {
-		var (
-			bOut   bool
-			errOut error
-		)
-		return bOut, errOut
-	}
-	return mock.EnsureSessionFunc(ctx, name)
-}
-
-// EnsureSessionCalls gets all the calls that were made to EnsureSession.
-// Check the length with:
-//
-//	len(mockedSessionManager.EnsureSessionCalls())
-func (mock *SessionManagerMock) EnsureSessionCalls() []struct {
-	Ctx  context.Context
-	Name string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-	}
-	mock.lockEnsureSession.RLock()
-	calls = mock.calls.EnsureSession
-	mock.lockEnsureSession.RUnlock()
 	return calls
 }
 

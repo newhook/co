@@ -14,7 +14,9 @@ import (
 // TabName is the name of the control plane tab in zellij
 const TabName = "control"
 
-// SpawnControlPlane spawns the control plane in a zellij tab
+// SpawnControlPlane spawns the control plane in a zellij tab.
+// The session must already exist (use InitializeSession or EnsureControlPlane instead
+// of calling this directly).
 func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 	projectName := proj.Config.Project.Name
 	projectRoot := proj.Root
@@ -22,13 +24,6 @@ func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 	zc := zellij.New()
 
 	logging.Debug("SpawnControlPlane started", "sessionName", sessionName, "projectRoot", projectRoot)
-
-	// Ensure session exists
-	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
-		logging.Error("SpawnControlPlane EnsureSession failed", "error", err)
-		return err
-	}
-	logging.Debug("SpawnControlPlane EnsureSession completed")
 
 	// Check if control plane tab already exists
 	tabExists, _ := zc.TabExists(ctx, sessionName, TabName)
