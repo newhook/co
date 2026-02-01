@@ -216,6 +216,67 @@ func (q *Queries) FailTaskBead(ctx context.Context, arg FailTaskBeadParams) (int
 	return result.RowsAffected()
 }
 
+const getPRTaskForWork = `-- name: GetPRTaskForWork :one
+SELECT id, status,
+       COALESCE(task_type, 'implement') as task_type,
+       complexity_budget,
+       actual_complexity,
+       work_id,
+       worktree_path,
+       pr_url,
+       error_message,
+       started_at,
+       completed_at,
+       created_at,
+       spawned_at,
+       spawn_status
+FROM tasks
+WHERE work_id = ?
+  AND task_type = 'pr'
+  AND status IN ('pending', 'processing', 'completed')
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type GetPRTaskForWorkRow struct {
+	ID               string       `json:"id"`
+	Status           string       `json:"status"`
+	TaskType         string       `json:"task_type"`
+	ComplexityBudget int64        `json:"complexity_budget"`
+	ActualComplexity int64        `json:"actual_complexity"`
+	WorkID           string       `json:"work_id"`
+	WorktreePath     string       `json:"worktree_path"`
+	PrUrl            string       `json:"pr_url"`
+	ErrorMessage     string       `json:"error_message"`
+	StartedAt        sql.NullTime `json:"started_at"`
+	CompletedAt      sql.NullTime `json:"completed_at"`
+	CreatedAt        time.Time    `json:"created_at"`
+	SpawnedAt        sql.NullTime `json:"spawned_at"`
+	SpawnStatus      string       `json:"spawn_status"`
+}
+
+func (q *Queries) GetPRTaskForWork(ctx context.Context, workID string) (GetPRTaskForWorkRow, error) {
+	row := q.db.QueryRowContext(ctx, getPRTaskForWork, workID)
+	var i GetPRTaskForWorkRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.TaskType,
+		&i.ComplexityBudget,
+		&i.ActualComplexity,
+		&i.WorkID,
+		&i.WorktreePath,
+		&i.PrUrl,
+		&i.ErrorMessage,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.SpawnedAt,
+		&i.SpawnStatus,
+	)
+	return i, err
+}
+
 const getTask = `-- name: GetTask :one
 SELECT id, status,
        COALESCE(task_type, 'implement') as task_type,

@@ -80,6 +80,7 @@ type Querier interface {
 	GetPRFeedback(ctx context.Context, id string) (PrFeedback, error)
 	GetPRFeedbackByBead(ctx context.Context, beadID sql.NullString) (PrFeedback, error)
 	GetPRFeedbackBySourceID(ctx context.Context, arg GetPRFeedbackBySourceIDParams) (PrFeedback, error)
+	GetPRTaskForWork(ctx context.Context, workID string) (GetPRTaskForWorkRow, error)
 	GetPendingTaskByType(ctx context.Context, arg GetPendingTaskByTypeParams) (Scheduler, error)
 	GetProcess(ctx context.Context, id string) (Process, error)
 	GetProcessByWorkID(ctx context.Context, workID sql.NullString) (Process, error)

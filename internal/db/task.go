@@ -482,3 +482,40 @@ func (db *DB) CheckAndCompleteTask(ctx context.Context, taskID string, prURL str
 
 	return false, nil
 }
+
+// GetPRTaskForWork returns the most recent PR task for a work, if one exists.
+// Only returns tasks with status pending, processing, or completed.
+// Returns nil if no PR task exists.
+func (db *DB) GetPRTaskForWork(ctx context.Context, workID string) (*Task, error) {
+	task, err := db.queries.GetPRTaskForWork(ctx, workID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get PR task for work: %w", err)
+	}
+
+	result := &Task{
+		ID:               task.ID,
+		Status:           task.Status,
+		TaskType:         task.TaskType,
+		ComplexityBudget: int(task.ComplexityBudget),
+		ActualComplexity: int(task.ActualComplexity),
+		WorkID:           task.WorkID,
+		WorktreePath:     task.WorktreePath,
+		PRURL:            task.PrUrl,
+		ErrorMessage:     task.ErrorMessage,
+		CreatedAt:        task.CreatedAt,
+		SpawnStatus:      task.SpawnStatus,
+	}
+	if task.StartedAt.Valid {
+		result.StartedAt = &task.StartedAt.Time
+	}
+	if task.CompletedAt.Valid {
+		result.CompletedAt = &task.CompletedAt.Time
+	}
+	if task.SpawnedAt.Valid {
+		result.SpawnedAt = &task.SpawnedAt.Time
+	}
+	return result, nil
+}
