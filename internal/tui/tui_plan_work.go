@@ -304,15 +304,15 @@ func (m *planModel) openConsole() tea.Cmd {
 			return workCommandMsg{action: "Open console", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
-		err = workpkg.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
-		if err != nil {
-			return workCommandMsg{action: "Open console", workID: workID, err: err}
-		}
-
-		// Ensure control plane is running
+		// Ensure control plane is running (creates session if needed)
 		err = control.EnsureControlPlane(m.ctx, m.proj)
 		if err != nil {
 			return workCommandMsg{action: "Control plane", workID: workID, err: err}
+		}
+
+		err = workpkg.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Open console", workID: workID, err: err}
 		}
 
 		return workCommandMsg{action: "Open console", workID: workID}
