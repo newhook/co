@@ -370,7 +370,7 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 	fmt.Fprintf(&content, "  Total Tasks: %d\n", len(p.focusedWork.Tasks))
 
 	// Count task types
-	var estimateTasks, implementTasks, reviewTasks int
+	var estimateTasks, implementTasks, reviewTasks, prTasks int
 	for _, task := range p.focusedWork.Tasks {
 		switch task.Task.TaskType {
 		case "estimate":
@@ -379,9 +379,11 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 			implementTasks++
 		case "review":
 			reviewTasks++
+		case "pr", "update-pr-description":
+			prTasks++
 		}
 	}
-	if estimateTasks > 0 || reviewTasks > 0 {
+	if estimateTasks > 0 || reviewTasks > 0 || prTasks > 0 {
 		content.WriteString("  Task Breakdown: ")
 		parts := []string{}
 		if estimateTasks > 0 {
@@ -392,6 +394,9 @@ func (p *WorkSummaryPanel) renderFullContent(panelWidth int) string {
 		}
 		if reviewTasks > 0 {
 			parts = append(parts, fmt.Sprintf("%d review", reviewTasks))
+		}
+		if prTasks > 0 {
+			parts = append(parts, fmt.Sprintf("%d pr", prTasks))
 		}
 		content.WriteString(strings.Join(parts, ", "))
 		content.WriteString("\n")
