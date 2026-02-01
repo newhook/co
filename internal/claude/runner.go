@@ -253,14 +253,22 @@ func RunPlanSession(ctx context.Context, beadID string, workDir string, stdin io
 // The tab is named "console-<work-id>" or "console-<work-id> (friendlyName)" for easy identification.
 // The hooksEnv parameter contains environment variables to export (format: "KEY=value").
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+//
+// IMPORTANT: The zellij session must already exist before calling this function.
+// Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
+// the session exists with the control plane running.
 func OpenConsole(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
 	tabName := FormatTabName("console", workID, friendlyName)
 	zc := zellij.New()
 
-	// Ensure session exists
-	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
-		return err
+	// Verify session exists - callers must initialize it with control plane
+	exists, err := zc.SessionExists(ctx, sessionName)
+	if err != nil {
+		return fmt.Errorf("failed to check session existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("zellij session %s does not exist - call control.InitializeSession first", sessionName)
 	}
 
 	// Check if tab already exists
@@ -309,14 +317,22 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 // The hooksEnv parameter contains environment variables to export (format: "KEY=value").
 // The config parameter controls Claude settings like --dangerously-skip-permissions.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+//
+// IMPORTANT: The zellij session must already exist before calling this function.
+// Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
+// the session exists with the control plane running.
 func OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, cfg *project.Config, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
 	tabName := FormatTabName("claude", workID, friendlyName)
 	zc := zellij.New()
 
-	// Ensure session exists
-	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
-		return err
+	// Verify session exists - callers must initialize it with control plane
+	exists, err := zc.SessionExists(ctx, sessionName)
+	if err != nil {
+		return fmt.Errorf("failed to check session existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("zellij session %s does not exist - call control.InitializeSession first", sessionName)
 	}
 
 	// Check if tab already exists
@@ -372,14 +388,22 @@ func PlanTabName(beadID string) string {
 // The tab is named "plan-<bead-id>" for easy identification.
 // The function returns immediately after spawning - the plan session runs in the tab.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+//
+// IMPORTANT: The zellij session must already exist before calling this function.
+// Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
+// the session exists with the control plane running.
 func SpawnPlanSession(ctx context.Context, beadID string, projectName string, mainRepoPath string, w io.Writer) error {
 	sessionName := SessionNameForProject(projectName)
 	tabName := PlanTabName(beadID)
 	zc := zellij.New()
 
-	// Ensure session exists
-	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
-		return err
+	// Verify session exists - callers must initialize it with control plane
+	exists, err := zc.SessionExists(ctx, sessionName)
+	if err != nil {
+		return fmt.Errorf("failed to check session existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("zellij session %s does not exist - call control.InitializeSession first", sessionName)
 	}
 
 	// Check if tab already exists

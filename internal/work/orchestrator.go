@@ -164,17 +164,26 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w
 // The tab is named "work-<work-id>" or "work-<work-id> (friendlyName)" for easy identification.
 // The function returns immediately after spawning - the orchestrator runs in the tab.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
+//
+// IMPORTANT: The zellij session must already exist before calling this function.
+// Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
+// the session exists with the control plane running.
 func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) error {
 	logging.Debug("SpawnWorkOrchestrator called", "workID", workID, "projectName", projectName, "workDir", workDir)
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := project.FormatTabName("work", workID, friendlyName)
 	zc := zellij.New()
 
-	// Ensure session exists
-	logging.Debug("SpawnWorkOrchestrator ensuring session exists", "sessionName", sessionName)
-	if _, err := zc.EnsureSession(ctx, sessionName); err != nil {
-		logging.Error("SpawnWorkOrchestrator EnsureSession failed", "sessionName", sessionName, "error", err)
-		return err
+	// Verify session exists - callers must initialize it with control plane
+	logging.Debug("SpawnWorkOrchestrator checking session exists", "sessionName", sessionName)
+	exists, err := zc.SessionExists(ctx, sessionName)
+	if err != nil {
+		logging.Error("SpawnWorkOrchestrator SessionExists check failed", "sessionName", sessionName, "error", err)
+		return fmt.Errorf("failed to check session existence: %w", err)
+	}
+	if !exists {
+		logging.Error("SpawnWorkOrchestrator session does not exist", "sessionName", sessionName)
+		return fmt.Errorf("zellij session %s does not exist - call control.InitializeSession first", sessionName)
 	}
 
 	// Check if tab already exists
