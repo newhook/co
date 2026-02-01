@@ -69,12 +69,25 @@ type Session interface {
 	TerminateProcess(ctx context.Context) error
 	ClearAndExecute(ctx context.Context, cmd string) error
 	TerminateAndCloseTab(ctx context.Context, tabName string) error
-
 }
 
-// client provides methods for interacting with zellij sessions, tabs, and panes.
+// ASCII codes for special keys
+const (
+	ASCIICtrlC = 3  // Ctrl+C (interrupt)
+	ASCIIEnter = 13 // Enter key
+)
+
+// client implements SessionManager and creates session instances.
 type client struct {
-	// Timeouts for various operations
+	TabCreateDelay   time.Duration
+	CtrlCDelay       time.Duration
+	CommandDelay     time.Duration
+	SessionStartWait time.Duration
+}
+
+// session implements the Session interface for a specific zellij session.
+type session struct {
+	name             string
 	TabCreateDelay   time.Duration
 	CtrlCDelay       time.Duration
 	CommandDelay     time.Duration
@@ -97,53 +110,15 @@ func New() SessionManager {
 	}
 }
 
-// session implements the Session interface for a specific zellij session.
-type session struct {
-	client *client
-	name   string
-}
-
 // Session returns a Session interface bound to the specified session name.
 func (c *client) Session(name string) Session {
-	return &session{client: c, name: name}
-}
-
-// Session interface implementations for session struct
-
-func (s *session) CreateTab(ctx context.Context, name, cwd string) error {
-	return s.client.CreateTab(ctx, s.name, name, cwd)
-}
-
-func (s *session) CreateTabWithCommand(ctx context.Context, name, cwd, command string, args []string, paneName string) error {
-	return s.client.CreateTabWithCommand(ctx, s.name, name, cwd, command, args, paneName)
-}
-
-func (s *session) SwitchToTab(ctx context.Context, name string) error {
-	return s.client.SwitchToTab(ctx, s.name, name)
-}
-
-func (s *session) QueryTabNames(ctx context.Context) ([]string, error) {
-	return s.client.QueryTabNames(ctx, s.name)
-}
-
-func (s *session) TabExists(ctx context.Context, name string) (bool, error) {
-	return s.client.TabExists(ctx, s.name, name)
-}
-
-func (s *session) CloseTab(ctx context.Context) error {
-	return s.client.CloseTab(ctx, s.name)
-}
-
-func (s *session) TerminateProcess(ctx context.Context) error {
-	return s.client.TerminateProcess(ctx, s.name)
-}
-
-func (s *session) ClearAndExecute(ctx context.Context, cmd string) error {
-	return s.client.ClearAndExecute(ctx, s.name, cmd)
-}
-
-func (s *session) TerminateAndCloseTab(ctx context.Context, tabName string) error {
-	return s.client.TerminateAndCloseTab(ctx, s.name, tabName)
+	return &session{
+		name:             name,
+		TabCreateDelay:   c.TabCreateDelay,
+		CtrlCDelay:       c.CtrlCDelay,
+		CommandDelay:     c.CommandDelay,
+		SessionStartWait: c.SessionStartWait,
+	}
 }
 
 // sessionArgs returns the appropriate session arguments for zellij commands.
@@ -156,13 +131,9 @@ func sessionArgs(session string) []string {
 	return []string{"-s", session}
 }
 
-// ASCII codes for special keys
-const (
-	ASCIICtrlC = 3  // Ctrl+C (interrupt)
-	ASCIIEnter = 13 // Enter key
-)
-
-// Session management
+// =============================================================================
+// SessionManager implementation (client)
+// =============================================================================
 
 // ListSessions returns a list of all zellij session names.
 func (c *client) ListSessions(ctx context.Context) ([]string, error) {
@@ -316,11 +287,13 @@ func (c *client) EnsureSessionWithCommand(ctx context.Context, sessionName, tabN
 	return true, nil
 }
 
-// Tab management
+// =============================================================================
+// Session implementation (session)
+// =============================================================================
 
-// CreateTab creates a new tab in the specified session.
-func (c *client) CreateTab(ctx context.Context, session, name, cwd string) error {
-	args := append(sessionArgs(session), "action", "new-tab", "--name", name)
+// CreateTab creates a new tab in the session.
+func (s *session) CreateTab(ctx context.Context, name, cwd string) error {
+	args := append(sessionArgs(s.name), "action", "new-tab", "--name", name)
 	if cwd != "" {
 		args = append(args, "--cwd", cwd)
 	}
@@ -328,7 +301,7 @@ func (c *client) CreateTab(ctx context.Context, session, name, cwd string) error
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
-	time.Sleep(c.TabCreateDelay)
+	time.Sleep(s.TabCreateDelay)
 	return nil
 }
 
@@ -336,7 +309,7 @@ func (c *client) CreateTab(ctx context.Context, session, name, cwd string) error
 // This uses a layout file to ensure the command runs correctly even when
 // called from outside the zellij session.
 // The paneName parameter sets the pane title (optional, empty string uses command as title).
-func (c *client) CreateTabWithCommand(ctx context.Context, session, name, cwd, command string, args []string, paneName string) error {
+func (s *session) CreateTabWithCommand(ctx context.Context, name, cwd, command string, args []string, paneName string) error {
 	// Parse and render the tab layout template
 	tmpl, err := template.New("tab").Parse(tabLayoutTemplate)
 	if err != nil {
@@ -370,18 +343,18 @@ func (c *client) CreateTabWithCommand(ctx context.Context, session, name, cwd, c
 	_ = tmpFile.Close()
 
 	// Create the tab using the layout
-	cmdArgs := append(sessionArgs(session), "action", "new-tab", "--layout", tmpFile.Name())
+	cmdArgs := append(sessionArgs(s.name), "action", "new-tab", "--layout", tmpFile.Name())
 	cmd := exec.CommandContext(ctx, "zellij", cmdArgs...)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create tab with command: %w", err)
 	}
-	time.Sleep(c.TabCreateDelay)
+	time.Sleep(s.TabCreateDelay)
 	return nil
 }
 
-// SwitchToTab switches to a tab by name in the specified session.
-func (c *client) SwitchToTab(ctx context.Context, session, name string) error {
-	args := append(sessionArgs(session), "action", "go-to-tab-name", name)
+// SwitchToTab switches to a tab by name.
+func (s *session) SwitchToTab(ctx context.Context, name string) error {
+	args := append(sessionArgs(s.name), "action", "go-to-tab-name", name)
 	cmd := exec.CommandContext(ctx, "zellij", args...)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to switch to tab: %w", err)
@@ -389,9 +362,9 @@ func (c *client) SwitchToTab(ctx context.Context, session, name string) error {
 	return nil
 }
 
-// QueryTabNames returns a list of all tab names in the specified session.
-func (c *client) QueryTabNames(ctx context.Context, session string) ([]string, error) {
-	args := append(sessionArgs(session), "action", "query-tab-names")
+// QueryTabNames returns a list of all tab names in the session.
+func (s *session) QueryTabNames(ctx context.Context) ([]string, error) {
+	args := append(sessionArgs(s.name), "action", "query-tab-names")
 	cmd := exec.CommandContext(ctx, "zellij", args...)
 	output, err := cmd.Output()
 	if err != nil {
@@ -410,8 +383,8 @@ func (c *client) QueryTabNames(ctx context.Context, session string) ([]string, e
 }
 
 // TabExists checks if a tab with the given name exists in the session.
-func (c *client) TabExists(ctx context.Context, session, name string) (bool, error) {
-	tabs, err := c.QueryTabNames(ctx, session)
+func (s *session) TabExists(ctx context.Context, name string) (bool, error) {
+	tabs, err := s.QueryTabNames(ctx)
 	if err != nil {
 		// If we can't query tabs, assume it doesn't exist
 		return false, nil
@@ -419,9 +392,9 @@ func (c *client) TabExists(ctx context.Context, session, name string) (bool, err
 	return slices.Contains(tabs, name), nil
 }
 
-// CloseTab closes the current tab in the specified session.
-func (c *client) CloseTab(ctx context.Context, session string) error {
-	args := append(sessionArgs(session), "action", "close-tab")
+// CloseTab closes the current tab.
+func (s *session) CloseTab(ctx context.Context) error {
+	args := append(sessionArgs(s.name), "action", "close-tab")
 	cmd := exec.CommandContext(ctx, "zellij", args...)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to close tab: %w", err)
@@ -429,12 +402,10 @@ func (c *client) CloseTab(ctx context.Context, session string) error {
 	return nil
 }
 
-// Pane input control
-
-// WriteASCII writes an ASCII code to the current pane in the session.
+// writeASCII writes an ASCII code to the current pane.
 // Use this for control characters like Ctrl+C (3), Enter (13), etc.
-func (c *client) WriteASCII(ctx context.Context, session string, code int) error {
-	args := append(sessionArgs(session), "action", "write", fmt.Sprintf("%d", code))
+func (s *session) writeASCII(ctx context.Context, code int) error {
+	args := append(sessionArgs(s.name), "action", "write", fmt.Sprintf("%d", code))
 	cmd := exec.CommandContext(ctx, "zellij", args...)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to write ASCII code: %w", err)
@@ -442,9 +413,9 @@ func (c *client) WriteASCII(ctx context.Context, session string, code int) error
 	return nil
 }
 
-// WriteChars writes text to the current pane in the session.
-func (c *client) WriteChars(ctx context.Context, session, text string) error {
-	args := append(sessionArgs(session), "action", "write-chars", text)
+// writeChars writes text to the current pane.
+func (s *session) writeChars(ctx context.Context, text string) error {
+	args := append(sessionArgs(s.name), "action", "write-chars", text)
 	cmd := exec.CommandContext(ctx, "zellij", args...)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to write chars: %w", err)
@@ -452,119 +423,71 @@ func (c *client) WriteChars(ctx context.Context, session, text string) error {
 	return nil
 }
 
-// SendCtrlC sends Ctrl+C (interrupt signal) to the current pane.
-func (c *client) SendCtrlC(ctx context.Context, session string) error {
-	return c.WriteASCII(ctx, session, ASCIICtrlC)
+// sendCtrlC sends Ctrl+C (interrupt signal) to the current pane.
+func (s *session) sendCtrlC(ctx context.Context) error {
+	return s.writeASCII(ctx, ASCIICtrlC)
 }
 
-// SendEnter sends the Enter key to the current pane.
-func (c *client) SendEnter(ctx context.Context, session string) error {
-	return c.WriteASCII(ctx, session, ASCIIEnter)
+// sendEnter sends the Enter key to the current pane.
+func (s *session) sendEnter(ctx context.Context) error {
+	return s.writeASCII(ctx, ASCIIEnter)
 }
 
-// ExecuteCommand writes a command and sends Enter to execute it.
-func (c *client) ExecuteCommand(ctx context.Context, session, cmd string) error {
-	if err := c.WriteChars(ctx, session, cmd); err != nil {
+// executeCommand writes a command and sends Enter to execute it.
+func (s *session) executeCommand(ctx context.Context, cmd string) error {
+	if err := s.writeChars(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to write command: %w", err)
 	}
-	if err := c.SendEnter(ctx, session); err != nil {
+	if err := s.sendEnter(ctx); err != nil {
 		return fmt.Errorf("failed to send enter: %w", err)
 	}
 	return nil
 }
 
-// High-level operations
-
 // TerminateProcess sends Ctrl+C twice with a delay to ensure process termination.
 // This handles cases where the first Ctrl+C might be caught by a signal handler.
-func (c *client) TerminateProcess(ctx context.Context, session string) error {
-	if err := c.SendCtrlC(ctx, session); err != nil {
+func (s *session) TerminateProcess(ctx context.Context) error {
+	if err := s.sendCtrlC(ctx); err != nil {
 		return err
 	}
-	time.Sleep(c.CtrlCDelay)
-	if err := c.SendCtrlC(ctx, session); err != nil {
+	time.Sleep(s.CtrlCDelay)
+	if err := s.sendCtrlC(ctx); err != nil {
 		return err
 	}
-	time.Sleep(c.CtrlCDelay)
+	time.Sleep(s.CtrlCDelay)
 	return nil
 }
 
 // ClearAndExecute clears the current line and executes a command.
-func (c *client) ClearAndExecute(ctx context.Context, session, cmd string) error {
-	if err := c.WriteChars(ctx, session, "clear"); err != nil {
+func (s *session) ClearAndExecute(ctx context.Context, cmd string) error {
+	if err := s.writeChars(ctx, "clear"); err != nil {
 		return err
 	}
-	time.Sleep(c.CommandDelay)
-	if err := c.SendEnter(ctx, session); err != nil {
+	time.Sleep(s.CommandDelay)
+	if err := s.sendEnter(ctx); err != nil {
 		return err
 	}
-	time.Sleep(c.CommandDelay)
-	return c.ExecuteCommand(ctx, session, cmd)
+	time.Sleep(s.CommandDelay)
+	return s.executeCommand(ctx, cmd)
 }
 
 // TerminateAndCloseTab terminates any running process in a tab and closes it.
 // It first switches to the tab, sends Ctrl+C to terminate, then closes the tab.
-func (c *client) TerminateAndCloseTab(ctx context.Context, session, tabName string) error {
+func (s *session) TerminateAndCloseTab(ctx context.Context, tabName string) error {
 	// Switch to the tab
-	if err := c.SwitchToTab(ctx, session, tabName); err != nil {
+	if err := s.SwitchToTab(ctx, tabName); err != nil {
 		return fmt.Errorf("failed to switch to tab: %w", err)
 	}
 
 	// Terminate any running process
-	if err := c.TerminateProcess(ctx, session); err != nil {
+	if err := s.TerminateProcess(ctx); err != nil {
 		return fmt.Errorf("failed to terminate process: %w", err)
 	}
 
 	// Close the tab
-	if err := c.CloseTab(ctx, session); err != nil {
+	if err := s.CloseTab(ctx); err != nil {
 		return fmt.Errorf("failed to close tab: %w", err)
 	}
 
-	return nil
-}
-
-// Floating pane operations
-
-// RunFloating runs a command in a new floating pane in the specified session.
-// The name parameter sets the pane name for identification.
-// The cwd parameter sets the working directory.
-func (c *client) RunFloating(ctx context.Context, session, name, cwd string, command ...string) error {
-	args := append(sessionArgs(session), "run", "--floating", "--name", name)
-	if cwd != "" {
-		args = append(args, "--cwd", cwd)
-	}
-	args = append(args, "--")
-	args = append(args, command...)
-	cmd := exec.CommandContext(ctx, "zellij", args...)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to run floating pane: %w", err)
-	}
-	return nil
-}
-
-// ToggleFloatingPanes toggles the visibility of floating panes in the session.
-func (c *client) ToggleFloatingPanes(ctx context.Context, session string) error {
-	args := append(sessionArgs(session), "action", "toggle-floating-panes")
-	cmd := exec.CommandContext(ctx, "zellij", args...)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to toggle floating panes: %w", err)
-	}
-	return nil
-}
-
-// Run runs a command in a new pane in the specified session.
-// The name parameter sets the pane name for identification.
-// The cwd parameter sets the working directory.
-func (c *client) Run(ctx context.Context, session, name, cwd string, command ...string) error {
-	args := append(sessionArgs(session), "run", "--name", name)
-	if cwd != "" {
-		args = append(args, "--cwd", cwd)
-	}
-	args = append(args, "--")
-	args = append(args, command...)
-	cmd := exec.CommandContext(ctx, "zellij", args...)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to run pane: %w", err)
-	}
 	return nil
 }

@@ -41,3 +41,15 @@ func TestClientConfiguration(t *testing.T) {
 	require.Equal(t, 50*time.Millisecond, c.CommandDelay, "CommandDelay not updated correctly")
 	require.Equal(t, 2*time.Second, c.SessionStartWait, "SessionStartWait not updated correctly")
 }
+
+func TestSessionInheritsConfig(t *testing.T) {
+	c := New().(*client)
+	c.TabCreateDelay = 1 * time.Second
+	c.CtrlCDelay = 250 * time.Millisecond
+
+	sess := c.Session("test-session").(*session)
+
+	require.Equal(t, "test-session", sess.name)
+	require.Equal(t, 1*time.Second, sess.TabCreateDelay)
+	require.Equal(t, 250*time.Millisecond, sess.CtrlCDelay)
+}
