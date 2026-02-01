@@ -109,18 +109,12 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 	fmt.Printf("PR URL: %s\n", prURL)
 	fmt.Printf("\nWorktree setup is in progress via control plane.\n")
 
-	// Initialize zellij session and spawn control plane if new session
-	sessionResult, err := session.Initialize(ctx, proj)
+	// Ensure zellij session and control plane are running
+	sessionResult, err := session.EnsureControlPlane(ctx, proj)
 	if err != nil {
-		fmt.Printf("Warning: failed to initialize zellij session: %v\n", err)
-	} else if sessionResult.SessionCreated {
-		// Display notification for new session
-		printSessionCreatedNotification(sessionResult.SessionName)
-	}
-
-	// Ensure control plane is running to process the import task
-	if err := session.EnsureControlPlane(ctx, proj); err != nil {
 		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
+	} else if sessionResult.SessionCreated {
+		printSessionCreatedNotification(sessionResult.SessionName)
 	}
 
 	fmt.Printf("\nNext steps:\n")

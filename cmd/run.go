@@ -135,7 +135,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 			fmt.Println("Orchestrator spawned in zellij tab.")
 		}
 		// Ensure control plane is running (handles scheduled tasks like PR feedback polling)
-		if err := session.EnsureControlPlane(ctx, proj); err != nil {
+		if _, err := session.EnsureControlPlane(ctx, proj); err != nil {
 			fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
 		}
 		fmt.Println("Switch to the zellij session to monitor progress.")
@@ -159,7 +159,7 @@ func runTasks(cmd *cobra.Command, args []string) error {
 	}
 
 	// Ensure control plane is running (handles scheduled tasks like PR feedback polling)
-	if err := session.EnsureControlPlane(ctx, proj); err != nil {
+	if _, err := session.EnsureControlPlane(ctx, proj); err != nil {
 		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
 	}
 

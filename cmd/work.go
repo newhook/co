@@ -303,18 +303,12 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  - %s: %s\n", issue.ID, issue.Title)
 	}
 
-	// Initialize zellij session and spawn control plane if new session
-	sessionResult, err := session.Initialize(ctx, proj)
+	// Ensure zellij session and control plane are running
+	sessionResult, err := session.EnsureControlPlane(ctx, proj)
 	if err != nil {
-		fmt.Printf("Warning: failed to initialize zellij session: %v\n", err)
-	} else if sessionResult.SessionCreated {
-		// Display notification for new session
-		printSessionCreatedNotification(sessionResult.SessionName)
-	}
-
-	// Ensure control plane is running (handles worktree creation, orchestrator spawning, etc.)
-	if err := session.EnsureControlPlane(ctx, proj); err != nil {
 		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
+	} else if sessionResult.SessionCreated {
+		printSessionCreatedNotification(sessionResult.SessionName)
 	}
 
 	if flagAutoRun {

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/session"
 )
@@ -96,15 +95,8 @@ func (s *WorkService) CreateWorkFromBead(ctx context.Context, proj *project.Proj
 		return nil, fmt.Errorf("failed to create work: %w", err)
 	}
 
-	// 3. Initialize zellij session (spawns control plane if new session)
-	sessionResult, err := session.Initialize(ctx, proj)
-	if err != nil {
-		logging.Warn("CreateWorkFromBead session.Initialize failed", "error", err)
-		// Non-fatal: work was created, continue to ensure control plane
-	}
-
-	// 4. Ensure control plane is running to process the worktree creation task
-	err = session.EnsureControlPlane(ctx, proj)
+	// 3. Ensure zellij session and control plane are running
+	sessionResult, err := session.EnsureControlPlane(ctx, proj)
 	if err != nil {
 		// Non-fatal: work was created but control plane might need manual start
 		return &CreateWorkFromBeadResult{
