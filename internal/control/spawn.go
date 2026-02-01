@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
@@ -19,7 +18,7 @@ const TabName = "control"
 func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 	projectName := proj.Config.Project.Name
 	projectRoot := proj.Root
-	sessionName := claude.SessionNameForProject(projectName)
+	sessionName := project.SessionNameForProject(projectName)
 	zc := zellij.New()
 
 	logging.Debug("SpawnControlPlane started", "sessionName", sessionName, "projectRoot", projectRoot)
@@ -53,7 +52,7 @@ func SpawnControlPlane(ctx context.Context, proj *project.Project) error {
 // EnsureControlPlane ensures the control plane is running, spawning it if needed
 func EnsureControlPlane(ctx context.Context, proj *project.Project) error {
 	projectName := proj.Config.Project.Name
-	sessionName := claude.SessionNameForProject(projectName)
+	sessionName := project.SessionNameForProject(projectName)
 	zc := zellij.New()
 
 	// Check if session exists
@@ -121,7 +120,7 @@ type SessionInitResult struct {
 // Returns information about whether a new session was created.
 func InitializeSession(ctx context.Context, proj *project.Project) (*SessionInitResult, error) {
 	projectName := proj.Config.Project.Name
-	sessionName := claude.SessionNameForProject(projectName)
+	sessionName := project.SessionNameForProject(projectName)
 	zc := zellij.New()
 
 	// Ensure session exists with layout (control plane starts automatically)

@@ -52,18 +52,15 @@ var (
 )
 
 // SessionNameForProject returns the zellij session name for a specific project.
+// Deprecated: Use project.SessionNameForProject instead.
 func SessionNameForProject(projectName string) string {
-	return fmt.Sprintf("co-%s", projectName)
+	return project.SessionNameForProject(projectName)
 }
 
 // FormatTabName formats a tab name with an optional friendly name.
-// If friendlyName is not empty, formats as "prefix-workID (friendlyName)", otherwise just "prefix-workID".
+// Deprecated: Use project.FormatTabName instead.
 func FormatTabName(prefix, workID, friendlyName string) string {
-	baseName := fmt.Sprintf("%s-%s", prefix, workID)
-	if friendlyName != "" {
-		return fmt.Sprintf("%s (%s)", baseName, friendlyName)
-	}
-	return baseName
+	return project.FormatTabName(prefix, workID, friendlyName)
 }
 
 // BuildTaskPrompt builds a prompt for a task with multiple beads.

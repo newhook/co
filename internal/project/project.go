@@ -32,6 +32,22 @@ const (
 	RepoTypeGitHub = "github"
 )
 
+// SessionNameForProject returns the zellij session name for a specific project.
+// This is used consistently across the codebase for session management.
+func SessionNameForProject(projectName string) string {
+	return fmt.Sprintf("co-%s", projectName)
+}
+
+// FormatTabName formats a tab name with an optional friendly name.
+// If friendlyName is not empty, formats as "prefix-workID (friendlyName)", otherwise just "prefix-workID".
+func FormatTabName(prefix, workID, friendlyName string) string {
+	baseName := fmt.Sprintf("%s-%s", prefix, workID)
+	if friendlyName != "" {
+		return fmt.Sprintf("%s (%s)", baseName, friendlyName)
+	}
+	return baseName
+}
+
 // Project represents an orchestrator project.
 type Project struct {
 	Root   string        // Project directory path
