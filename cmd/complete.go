@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"github.com/newhook/co/internal/beads"
+	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/feedback"
+	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -110,6 +112,16 @@ func runComplete(cmd *cobra.Command, args []string) error {
 					fmt.Printf("Warning: failed to schedule PR feedback polling: %v\n", err)
 				} else {
 					fmt.Println("PR feedback polling scheduled")
+				}
+
+				// Spawn workflow watchers immediately to catch fast CI runs
+				// This avoids the race condition where CI completes before the first feedback poll
+				ghClient := github.NewClient()
+				watcherCount, err := control.SpawnWorkflowWatchers(ctx, proj, ghClient, workID, flagCompletePRURL)
+				if err != nil {
+					fmt.Printf("Warning: failed to spawn workflow watchers: %v\n", err)
+				} else if watcherCount > 0 {
+					fmt.Printf("Spawned %d workflow watcher(s)\n", watcherCount)
 				}
 			}
 		}

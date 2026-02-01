@@ -7,6 +7,7 @@ import (
 
 	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -214,5 +215,86 @@ func TestExtractRepoFromPRURL(t *testing.T) {
 		// We can't test it directly since it's package-private, but we verify
 		// through the handler that a properly formed PR URL works
 		assert.Equal(t, "https://github.com/owner/repo/pull/123", work.PRURL)
+	})
+}
+
+func TestSpawnWorkflowWatchers(t *testing.T) {
+	ctx := context.Background()
+	proj, cleanup := setupTestProject(t)
+	defer cleanup()
+
+	t.Run("spawns watchers for in_progress workflows", func(t *testing.T) {
+		createTestWork(ctx, t, proj.DB, "w-spawn-1", "branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-spawn-1")
+
+		mockClient := &github.GitHubClientMock{
+			GetPRStatusFunc: func(ctx context.Context, prURL string) (*github.PRStatus, error) {
+				return &github.PRStatus{
+					Workflows: []github.WorkflowRun{
+						{ID: 111111, Status: "in_progress", Name: "CI"},
+						{ID: 222222, Status: "queued", Name: "Deploy"},
+						{ID: 333333, Status: "completed", Name: "Done"},
+					},
+				}, nil
+			},
+		}
+
+		count, err := control.SpawnWorkflowWatchers(ctx, proj, mockClient, "w-spawn-1", "https://github.com/owner/repo/pull/123")
+		require.NoError(t, err)
+		assert.Equal(t, 2, count, "should spawn watchers for in_progress and queued workflows")
+
+		// Verify tasks were scheduled
+		task1, err := proj.DB.GetTaskByIdempotencyKey(ctx, "watch_run_111111")
+		require.NoError(t, err)
+		require.NotNil(t, task1)
+		assert.Equal(t, "111111", task1.Metadata["run_id"])
+
+		task2, err := proj.DB.GetTaskByIdempotencyKey(ctx, "watch_run_222222")
+		require.NoError(t, err)
+		require.NotNil(t, task2)
+		assert.Equal(t, "222222", task2.Metadata["run_id"])
+
+		// Completed workflow should not have a watcher
+		task3, err := proj.DB.GetTaskByIdempotencyKey(ctx, "watch_run_333333")
+		require.NoError(t, err)
+		assert.Nil(t, task3)
+	})
+
+	t.Run("returns zero when all workflows completed", func(t *testing.T) {
+		createTestWork(ctx, t, proj.DB, "w-spawn-2", "branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-spawn-2")
+
+		mockClient := &github.GitHubClientMock{
+			GetPRStatusFunc: func(ctx context.Context, prURL string) (*github.PRStatus, error) {
+				return &github.PRStatus{
+					Workflows: []github.WorkflowRun{
+						{ID: 444444, Status: "completed", Name: "CI"},
+					},
+				}, nil
+			},
+		}
+
+		count, err := control.SpawnWorkflowWatchers(ctx, proj, mockClient, "w-spawn-2", "https://github.com/owner/repo/pull/456")
+		require.NoError(t, err)
+		assert.Equal(t, 0, count)
+	})
+
+	t.Run("returns error on invalid PR URL", func(t *testing.T) {
+		createTestWork(ctx, t, proj.DB, "w-spawn-3", "branch", "root-1")
+		defer proj.DB.DeleteWork(ctx, "w-spawn-3")
+
+		mockClient := &github.GitHubClientMock{
+			GetPRStatusFunc: func(ctx context.Context, prURL string) (*github.PRStatus, error) {
+				return &github.PRStatus{
+					Workflows: []github.WorkflowRun{
+						{ID: 555555, Status: "in_progress", Name: "CI"},
+					},
+				}, nil
+			},
+		}
+
+		_, err := control.SpawnWorkflowWatchers(ctx, proj, mockClient, "w-spawn-3", "not-a-valid-url")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to extract repo")
 	})
 }
