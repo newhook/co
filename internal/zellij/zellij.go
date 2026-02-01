@@ -58,24 +58,17 @@ type SessionManager interface {
 // Each Session instance is bound to a specific session name.
 type Session interface {
 	// Tab management
-	CreateTab(ctx context.Context, name, cwd string) error
 	CreateTabWithCommand(ctx context.Context, name, cwd, command string, args []string, paneName string) error
 	SwitchToTab(ctx context.Context, name string) error
 	QueryTabNames(ctx context.Context) ([]string, error)
 	TabExists(ctx context.Context, name string) (bool, error)
-	CloseTab(ctx context.Context) error
 
 	// High-level operations
-	TerminateProcess(ctx context.Context) error
-	ClearAndExecute(ctx context.Context, cmd string) error
 	TerminateAndCloseTab(ctx context.Context, tabName string) error
 }
 
-// ASCII codes for special keys
-const (
-	ASCIICtrlC = 3  // Ctrl+C (interrupt)
-	ASCIIEnter = 13 // Enter key
-)
+// ASCIICtrlC is the ASCII code for Ctrl+C (interrupt)
+const ASCIICtrlC = 3
 
 // sessionManager implements SessionManager and creates session instances.
 type sessionManager struct {
@@ -87,11 +80,9 @@ type sessionManager struct {
 
 // session implements the Session interface for a specific zellij session.
 type session struct {
-	name             string
-	TabCreateDelay   time.Duration
-	CtrlCDelay       time.Duration
-	CommandDelay     time.Duration
-	SessionStartWait time.Duration
+	name           string
+	TabCreateDelay time.Duration
+	CtrlCDelay     time.Duration
 }
 
 // Compile-time checks.
@@ -113,11 +104,9 @@ func New() SessionManager {
 // Session returns a Session interface bound to the specified session name.
 func (m *sessionManager) Session(name string) Session {
 	return &session{
-		name:             name,
-		TabCreateDelay:   m.TabCreateDelay,
-		CtrlCDelay:       m.CtrlCDelay,
-		CommandDelay:     m.CommandDelay,
-		SessionStartWait: m.SessionStartWait,
+		name:           name,
+		TabCreateDelay: m.TabCreateDelay,
+		CtrlCDelay:     m.CtrlCDelay,
 	}
 }
 
@@ -291,20 +280,6 @@ func (m *sessionManager) EnsureSessionWithCommand(ctx context.Context, sessionNa
 // Session implementation (session)
 // =============================================================================
 
-// CreateTab creates a new tab in the session.
-func (s *session) CreateTab(ctx context.Context, name, cwd string) error {
-	args := append(sessionArgs(s.name), "action", "new-tab", "--name", name)
-	if cwd != "" {
-		args = append(args, "--cwd", cwd)
-	}
-	cmd := exec.CommandContext(ctx, "zellij", args...)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create tab: %w", err)
-	}
-	time.Sleep(s.TabCreateDelay)
-	return nil
-}
-
 // CreateTabWithCommand creates a new tab that runs a specific command.
 // This uses a layout file to ensure the command runs correctly even when
 // called from outside the zellij session.
@@ -392,8 +367,8 @@ func (s *session) TabExists(ctx context.Context, name string) (bool, error) {
 	return slices.Contains(tabs, name), nil
 }
 
-// CloseTab closes the current tab.
-func (s *session) CloseTab(ctx context.Context) error {
+// closeTab closes the current tab.
+func (s *session) closeTab(ctx context.Context) error {
 	args := append(sessionArgs(s.name), "action", "close-tab")
 	cmd := exec.CommandContext(ctx, "zellij", args...)
 	if err := cmd.Run(); err != nil {
@@ -402,51 +377,19 @@ func (s *session) CloseTab(ctx context.Context) error {
 	return nil
 }
 
-// writeASCII writes an ASCII code to the current pane.
-// Use this for control characters like Ctrl+C (3), Enter (13), etc.
-func (s *session) writeASCII(ctx context.Context, code int) error {
-	args := append(sessionArgs(s.name), "action", "write", fmt.Sprintf("%d", code))
-	cmd := exec.CommandContext(ctx, "zellij", args...)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to write ASCII code: %w", err)
-	}
-	return nil
-}
-
-// writeChars writes text to the current pane.
-func (s *session) writeChars(ctx context.Context, text string) error {
-	args := append(sessionArgs(s.name), "action", "write-chars", text)
-	cmd := exec.CommandContext(ctx, "zellij", args...)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to write chars: %w", err)
-	}
-	return nil
-}
-
 // sendCtrlC sends Ctrl+C (interrupt signal) to the current pane.
 func (s *session) sendCtrlC(ctx context.Context) error {
-	return s.writeASCII(ctx, ASCIICtrlC)
-}
-
-// sendEnter sends the Enter key to the current pane.
-func (s *session) sendEnter(ctx context.Context) error {
-	return s.writeASCII(ctx, ASCIIEnter)
-}
-
-// executeCommand writes a command and sends Enter to execute it.
-func (s *session) executeCommand(ctx context.Context, cmd string) error {
-	if err := s.writeChars(ctx, cmd); err != nil {
-		return fmt.Errorf("failed to write command: %w", err)
-	}
-	if err := s.sendEnter(ctx); err != nil {
-		return fmt.Errorf("failed to send enter: %w", err)
+	args := append(sessionArgs(s.name), "action", "write", fmt.Sprintf("%d", ASCIICtrlC))
+	cmd := exec.CommandContext(ctx, "zellij", args...)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to send ctrl+c: %w", err)
 	}
 	return nil
 }
 
-// TerminateProcess sends Ctrl+C twice with a delay to ensure process termination.
+// terminateProcess sends Ctrl+C twice with a delay to ensure process termination.
 // This handles cases where the first Ctrl+C might be caught by a signal handler.
-func (s *session) TerminateProcess(ctx context.Context) error {
+func (s *session) terminateProcess(ctx context.Context) error {
 	if err := s.sendCtrlC(ctx); err != nil {
 		return err
 	}
@@ -456,19 +399,6 @@ func (s *session) TerminateProcess(ctx context.Context) error {
 	}
 	time.Sleep(s.CtrlCDelay)
 	return nil
-}
-
-// ClearAndExecute clears the current line and executes a command.
-func (s *session) ClearAndExecute(ctx context.Context, cmd string) error {
-	if err := s.writeChars(ctx, "clear"); err != nil {
-		return err
-	}
-	time.Sleep(s.CommandDelay)
-	if err := s.sendEnter(ctx); err != nil {
-		return err
-	}
-	time.Sleep(s.CommandDelay)
-	return s.executeCommand(ctx, cmd)
 }
 
 // TerminateAndCloseTab terminates any running process in a tab and closes it.
@@ -480,12 +410,12 @@ func (s *session) TerminateAndCloseTab(ctx context.Context, tabName string) erro
 	}
 
 	// Terminate any running process
-	if err := s.TerminateProcess(ctx); err != nil {
+	if err := s.terminateProcess(ctx); err != nil {
 		return fmt.Errorf("failed to terminate process: %w", err)
 	}
 
 	// Close the tab
-	if err := s.CloseTab(ctx); err != nil {
+	if err := s.closeTab(ctx); err != nil {
 		return fmt.Errorf("failed to close tab: %w", err)
 	}
 

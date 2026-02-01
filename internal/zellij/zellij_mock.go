@@ -219,15 +219,6 @@ var _ Session = &SessionMock{}
 //
 //		// make and configure a mocked Session
 //		mockedSession := &SessionMock{
-//			ClearAndExecuteFunc: func(ctx context.Context, cmd string) error {
-//				panic("mock out the ClearAndExecute method")
-//			},
-//			CloseTabFunc: func(ctx context.Context) error {
-//				panic("mock out the CloseTab method")
-//			},
-//			CreateTabFunc: func(ctx context.Context, name string, cwd string) error {
-//				panic("mock out the CreateTab method")
-//			},
 //			CreateTabWithCommandFunc: func(ctx context.Context, name string, cwd string, command string, args []string, paneName string) error {
 //				panic("mock out the CreateTabWithCommand method")
 //			},
@@ -243,9 +234,6 @@ var _ Session = &SessionMock{}
 //			TerminateAndCloseTabFunc: func(ctx context.Context, tabName string) error {
 //				panic("mock out the TerminateAndCloseTab method")
 //			},
-//			TerminateProcessFunc: func(ctx context.Context) error {
-//				panic("mock out the TerminateProcess method")
-//			},
 //		}
 //
 //		// use mockedSession in code that requires Session
@@ -253,15 +241,6 @@ var _ Session = &SessionMock{}
 //
 //	}
 type SessionMock struct {
-	// ClearAndExecuteFunc mocks the ClearAndExecute method.
-	ClearAndExecuteFunc func(ctx context.Context, cmd string) error
-
-	// CloseTabFunc mocks the CloseTab method.
-	CloseTabFunc func(ctx context.Context) error
-
-	// CreateTabFunc mocks the CreateTab method.
-	CreateTabFunc func(ctx context.Context, name string, cwd string) error
-
 	// CreateTabWithCommandFunc mocks the CreateTabWithCommand method.
 	CreateTabWithCommandFunc func(ctx context.Context, name string, cwd string, command string, args []string, paneName string) error
 
@@ -277,32 +256,8 @@ type SessionMock struct {
 	// TerminateAndCloseTabFunc mocks the TerminateAndCloseTab method.
 	TerminateAndCloseTabFunc func(ctx context.Context, tabName string) error
 
-	// TerminateProcessFunc mocks the TerminateProcess method.
-	TerminateProcessFunc func(ctx context.Context) error
-
 	// calls tracks calls to the methods.
 	calls struct {
-		// ClearAndExecute holds details about calls to the ClearAndExecute method.
-		ClearAndExecute []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Cmd is the cmd argument value.
-			Cmd string
-		}
-		// CloseTab holds details about calls to the CloseTab method.
-		CloseTab []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
-		// CreateTab holds details about calls to the CreateTab method.
-		CreateTab []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// Cwd is the cwd argument value.
-			Cwd string
-		}
 		// CreateTabWithCommand holds details about calls to the CreateTabWithCommand method.
 		CreateTabWithCommand []struct {
 			// Ctx is the ctx argument value.
@@ -344,138 +299,12 @@ type SessionMock struct {
 			// TabName is the tabName argument value.
 			TabName string
 		}
-		// TerminateProcess holds details about calls to the TerminateProcess method.
-		TerminateProcess []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
 	}
-	lockClearAndExecute      sync.RWMutex
-	lockCloseTab             sync.RWMutex
-	lockCreateTab            sync.RWMutex
 	lockCreateTabWithCommand sync.RWMutex
 	lockQueryTabNames        sync.RWMutex
 	lockSwitchToTab          sync.RWMutex
 	lockTabExists            sync.RWMutex
 	lockTerminateAndCloseTab sync.RWMutex
-	lockTerminateProcess     sync.RWMutex
-}
-
-// ClearAndExecute calls ClearAndExecuteFunc.
-func (mock *SessionMock) ClearAndExecute(ctx context.Context, cmd string) error {
-	callInfo := struct {
-		Ctx context.Context
-		Cmd string
-	}{
-		Ctx: ctx,
-		Cmd: cmd,
-	}
-	mock.lockClearAndExecute.Lock()
-	mock.calls.ClearAndExecute = append(mock.calls.ClearAndExecute, callInfo)
-	mock.lockClearAndExecute.Unlock()
-	if mock.ClearAndExecuteFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.ClearAndExecuteFunc(ctx, cmd)
-}
-
-// ClearAndExecuteCalls gets all the calls that were made to ClearAndExecute.
-// Check the length with:
-//
-//	len(mockedSession.ClearAndExecuteCalls())
-func (mock *SessionMock) ClearAndExecuteCalls() []struct {
-	Ctx context.Context
-	Cmd string
-} {
-	var calls []struct {
-		Ctx context.Context
-		Cmd string
-	}
-	mock.lockClearAndExecute.RLock()
-	calls = mock.calls.ClearAndExecute
-	mock.lockClearAndExecute.RUnlock()
-	return calls
-}
-
-// CloseTab calls CloseTabFunc.
-func (mock *SessionMock) CloseTab(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockCloseTab.Lock()
-	mock.calls.CloseTab = append(mock.calls.CloseTab, callInfo)
-	mock.lockCloseTab.Unlock()
-	if mock.CloseTabFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.CloseTabFunc(ctx)
-}
-
-// CloseTabCalls gets all the calls that were made to CloseTab.
-// Check the length with:
-//
-//	len(mockedSession.CloseTabCalls())
-func (mock *SessionMock) CloseTabCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockCloseTab.RLock()
-	calls = mock.calls.CloseTab
-	mock.lockCloseTab.RUnlock()
-	return calls
-}
-
-// CreateTab calls CreateTabFunc.
-func (mock *SessionMock) CreateTab(ctx context.Context, name string, cwd string) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-		Cwd  string
-	}{
-		Ctx:  ctx,
-		Name: name,
-		Cwd:  cwd,
-	}
-	mock.lockCreateTab.Lock()
-	mock.calls.CreateTab = append(mock.calls.CreateTab, callInfo)
-	mock.lockCreateTab.Unlock()
-	if mock.CreateTabFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.CreateTabFunc(ctx, name, cwd)
-}
-
-// CreateTabCalls gets all the calls that were made to CreateTab.
-// Check the length with:
-//
-//	len(mockedSession.CreateTabCalls())
-func (mock *SessionMock) CreateTabCalls() []struct {
-	Ctx  context.Context
-	Name string
-	Cwd  string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-		Cwd  string
-	}
-	mock.lockCreateTab.RLock()
-	calls = mock.calls.CreateTab
-	mock.lockCreateTab.RUnlock()
-	return calls
 }
 
 // CreateTabWithCommand calls CreateTabWithCommandFunc.
@@ -684,40 +513,5 @@ func (mock *SessionMock) TerminateAndCloseTabCalls() []struct {
 	mock.lockTerminateAndCloseTab.RLock()
 	calls = mock.calls.TerminateAndCloseTab
 	mock.lockTerminateAndCloseTab.RUnlock()
-	return calls
-}
-
-// TerminateProcess calls TerminateProcessFunc.
-func (mock *SessionMock) TerminateProcess(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockTerminateProcess.Lock()
-	mock.calls.TerminateProcess = append(mock.calls.TerminateProcess, callInfo)
-	mock.lockTerminateProcess.Unlock()
-	if mock.TerminateProcessFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.TerminateProcessFunc(ctx)
-}
-
-// TerminateProcessCalls gets all the calls that were made to TerminateProcess.
-// Check the length with:
-//
-//	len(mockedSession.TerminateProcessCalls())
-func (mock *SessionMock) TerminateProcessCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockTerminateProcess.RLock()
-	calls = mock.calls.TerminateProcess
-	mock.lockTerminateProcess.RUnlock()
 	return calls
 }

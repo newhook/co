@@ -12,42 +12,40 @@ func TestNew(t *testing.T) {
 	require.NotNil(t, mgr, "New() returned nil")
 
 	// Type assert to access internal fields
-	c := mgr.(*sessionManager)
+	m := mgr.(*sessionManager)
 
 	// Check default values
-	require.Equal(t, 500*time.Millisecond, c.TabCreateDelay)
-	require.Equal(t, 500*time.Millisecond, c.CtrlCDelay)
-	require.Equal(t, 100*time.Millisecond, c.CommandDelay)
-	require.Equal(t, 1*time.Second, c.SessionStartWait)
+	require.Equal(t, 500*time.Millisecond, m.TabCreateDelay)
+	require.Equal(t, 500*time.Millisecond, m.CtrlCDelay)
+	require.Equal(t, 100*time.Millisecond, m.CommandDelay)
+	require.Equal(t, 1*time.Second, m.SessionStartWait)
 }
 
 func TestASCIIConstants(t *testing.T) {
-	// Verify ASCII constants are correct
 	require.Equal(t, 3, ASCIICtrlC)
-	require.Equal(t, 13, ASCIIEnter)
 }
 
-func TestClientConfiguration(t *testing.T) {
-	c := New().(*sessionManager)
+func TestSessionManagerConfiguration(t *testing.T) {
+	m := New().(*sessionManager)
 
 	// Test that we can modify configuration
-	c.TabCreateDelay = 1 * time.Second
-	c.CtrlCDelay = 250 * time.Millisecond
-	c.CommandDelay = 50 * time.Millisecond
-	c.SessionStartWait = 2 * time.Second
+	m.TabCreateDelay = 1 * time.Second
+	m.CtrlCDelay = 250 * time.Millisecond
+	m.CommandDelay = 50 * time.Millisecond
+	m.SessionStartWait = 2 * time.Second
 
-	require.Equal(t, 1*time.Second, c.TabCreateDelay, "TabCreateDelay not updated correctly")
-	require.Equal(t, 250*time.Millisecond, c.CtrlCDelay, "CtrlCDelay not updated correctly")
-	require.Equal(t, 50*time.Millisecond, c.CommandDelay, "CommandDelay not updated correctly")
-	require.Equal(t, 2*time.Second, c.SessionStartWait, "SessionStartWait not updated correctly")
+	require.Equal(t, 1*time.Second, m.TabCreateDelay)
+	require.Equal(t, 250*time.Millisecond, m.CtrlCDelay)
+	require.Equal(t, 50*time.Millisecond, m.CommandDelay)
+	require.Equal(t, 2*time.Second, m.SessionStartWait)
 }
 
 func TestSessionInheritsConfig(t *testing.T) {
-	c := New().(*sessionManager)
-	c.TabCreateDelay = 1 * time.Second
-	c.CtrlCDelay = 250 * time.Millisecond
+	m := New().(*sessionManager)
+	m.TabCreateDelay = 1 * time.Second
+	m.CtrlCDelay = 250 * time.Millisecond
 
-	sess := c.Session("test-session").(*session)
+	sess := m.Session("test-session").(*session)
 
 	require.Equal(t, "test-session", sess.name)
 	require.Equal(t, 1*time.Second, sess.TabCreateDelay)
