@@ -231,23 +231,8 @@ var _ Session = &SessionMock{}
 //			CreateTabWithCommandFunc: func(ctx context.Context, name string, cwd string, command string, args []string, paneName string) error {
 //				panic("mock out the CreateTabWithCommand method")
 //			},
-//			ExecuteCommandFunc: func(ctx context.Context, cmd string) error {
-//				panic("mock out the ExecuteCommand method")
-//			},
 //			QueryTabNamesFunc: func(ctx context.Context) ([]string, error) {
 //				panic("mock out the QueryTabNames method")
-//			},
-//			RunFunc: func(ctx context.Context, name string, cwd string, command ...string) error {
-//				panic("mock out the Run method")
-//			},
-//			RunFloatingFunc: func(ctx context.Context, name string, cwd string, command ...string) error {
-//				panic("mock out the RunFloating method")
-//			},
-//			SendCtrlCFunc: func(ctx context.Context) error {
-//				panic("mock out the SendCtrlC method")
-//			},
-//			SendEnterFunc: func(ctx context.Context) error {
-//				panic("mock out the SendEnter method")
 //			},
 //			SwitchToTabFunc: func(ctx context.Context, name string) error {
 //				panic("mock out the SwitchToTab method")
@@ -260,15 +245,6 @@ var _ Session = &SessionMock{}
 //			},
 //			TerminateProcessFunc: func(ctx context.Context) error {
 //				panic("mock out the TerminateProcess method")
-//			},
-//			ToggleFloatingPanesFunc: func(ctx context.Context) error {
-//				panic("mock out the ToggleFloatingPanes method")
-//			},
-//			WriteASCIIFunc: func(ctx context.Context, code int) error {
-//				panic("mock out the WriteASCII method")
-//			},
-//			WriteCharsFunc: func(ctx context.Context, text string) error {
-//				panic("mock out the WriteChars method")
 //			},
 //		}
 //
@@ -289,23 +265,8 @@ type SessionMock struct {
 	// CreateTabWithCommandFunc mocks the CreateTabWithCommand method.
 	CreateTabWithCommandFunc func(ctx context.Context, name string, cwd string, command string, args []string, paneName string) error
 
-	// ExecuteCommandFunc mocks the ExecuteCommand method.
-	ExecuteCommandFunc func(ctx context.Context, cmd string) error
-
 	// QueryTabNamesFunc mocks the QueryTabNames method.
 	QueryTabNamesFunc func(ctx context.Context) ([]string, error)
-
-	// RunFunc mocks the Run method.
-	RunFunc func(ctx context.Context, name string, cwd string, command ...string) error
-
-	// RunFloatingFunc mocks the RunFloating method.
-	RunFloatingFunc func(ctx context.Context, name string, cwd string, command ...string) error
-
-	// SendCtrlCFunc mocks the SendCtrlC method.
-	SendCtrlCFunc func(ctx context.Context) error
-
-	// SendEnterFunc mocks the SendEnter method.
-	SendEnterFunc func(ctx context.Context) error
 
 	// SwitchToTabFunc mocks the SwitchToTab method.
 	SwitchToTabFunc func(ctx context.Context, name string) error
@@ -318,15 +279,6 @@ type SessionMock struct {
 
 	// TerminateProcessFunc mocks the TerminateProcess method.
 	TerminateProcessFunc func(ctx context.Context) error
-
-	// ToggleFloatingPanesFunc mocks the ToggleFloatingPanes method.
-	ToggleFloatingPanesFunc func(ctx context.Context) error
-
-	// WriteASCIIFunc mocks the WriteASCII method.
-	WriteASCIIFunc func(ctx context.Context, code int) error
-
-	// WriteCharsFunc mocks the WriteChars method.
-	WriteCharsFunc func(ctx context.Context, text string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -366,47 +318,8 @@ type SessionMock struct {
 			// PaneName is the paneName argument value.
 			PaneName string
 		}
-		// ExecuteCommand holds details about calls to the ExecuteCommand method.
-		ExecuteCommand []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Cmd is the cmd argument value.
-			Cmd string
-		}
 		// QueryTabNames holds details about calls to the QueryTabNames method.
 		QueryTabNames []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
-		// Run holds details about calls to the Run method.
-		Run []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// Cwd is the cwd argument value.
-			Cwd string
-			// Command is the command argument value.
-			Command []string
-		}
-		// RunFloating holds details about calls to the RunFloating method.
-		RunFloating []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// Cwd is the cwd argument value.
-			Cwd string
-			// Command is the command argument value.
-			Command []string
-		}
-		// SendCtrlC holds details about calls to the SendCtrlC method.
-		SendCtrlC []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
-		// SendEnter holds details about calls to the SendEnter method.
-		SendEnter []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
@@ -436,43 +349,16 @@ type SessionMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
-		// ToggleFloatingPanes holds details about calls to the ToggleFloatingPanes method.
-		ToggleFloatingPanes []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
-		// WriteASCII holds details about calls to the WriteASCII method.
-		WriteASCII []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Code is the code argument value.
-			Code int
-		}
-		// WriteChars holds details about calls to the WriteChars method.
-		WriteChars []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Text is the text argument value.
-			Text string
-		}
 	}
 	lockClearAndExecute      sync.RWMutex
 	lockCloseTab             sync.RWMutex
 	lockCreateTab            sync.RWMutex
 	lockCreateTabWithCommand sync.RWMutex
-	lockExecuteCommand       sync.RWMutex
 	lockQueryTabNames        sync.RWMutex
-	lockRun                  sync.RWMutex
-	lockRunFloating          sync.RWMutex
-	lockSendCtrlC            sync.RWMutex
-	lockSendEnter            sync.RWMutex
 	lockSwitchToTab          sync.RWMutex
 	lockTabExists            sync.RWMutex
 	lockTerminateAndCloseTab sync.RWMutex
 	lockTerminateProcess     sync.RWMutex
-	lockToggleFloatingPanes  sync.RWMutex
-	lockWriteASCII           sync.RWMutex
-	lockWriteChars           sync.RWMutex
 }
 
 // ClearAndExecute calls ClearAndExecuteFunc.
@@ -647,45 +533,6 @@ func (mock *SessionMock) CreateTabWithCommandCalls() []struct {
 	return calls
 }
 
-// ExecuteCommand calls ExecuteCommandFunc.
-func (mock *SessionMock) ExecuteCommand(ctx context.Context, cmd string) error {
-	callInfo := struct {
-		Ctx context.Context
-		Cmd string
-	}{
-		Ctx: ctx,
-		Cmd: cmd,
-	}
-	mock.lockExecuteCommand.Lock()
-	mock.calls.ExecuteCommand = append(mock.calls.ExecuteCommand, callInfo)
-	mock.lockExecuteCommand.Unlock()
-	if mock.ExecuteCommandFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.ExecuteCommandFunc(ctx, cmd)
-}
-
-// ExecuteCommandCalls gets all the calls that were made to ExecuteCommand.
-// Check the length with:
-//
-//	len(mockedSession.ExecuteCommandCalls())
-func (mock *SessionMock) ExecuteCommandCalls() []struct {
-	Ctx context.Context
-	Cmd string
-} {
-	var calls []struct {
-		Ctx context.Context
-		Cmd string
-	}
-	mock.lockExecuteCommand.RLock()
-	calls = mock.calls.ExecuteCommand
-	mock.lockExecuteCommand.RUnlock()
-	return calls
-}
-
 // QueryTabNames calls QueryTabNamesFunc.
 func (mock *SessionMock) QueryTabNames(ctx context.Context) ([]string, error) {
 	callInfo := struct {
@@ -719,170 +566,6 @@ func (mock *SessionMock) QueryTabNamesCalls() []struct {
 	mock.lockQueryTabNames.RLock()
 	calls = mock.calls.QueryTabNames
 	mock.lockQueryTabNames.RUnlock()
-	return calls
-}
-
-// Run calls RunFunc.
-func (mock *SessionMock) Run(ctx context.Context, name string, cwd string, command ...string) error {
-	callInfo := struct {
-		Ctx     context.Context
-		Name    string
-		Cwd     string
-		Command []string
-	}{
-		Ctx:     ctx,
-		Name:    name,
-		Cwd:     cwd,
-		Command: command,
-	}
-	mock.lockRun.Lock()
-	mock.calls.Run = append(mock.calls.Run, callInfo)
-	mock.lockRun.Unlock()
-	if mock.RunFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.RunFunc(ctx, name, cwd, command...)
-}
-
-// RunCalls gets all the calls that were made to Run.
-// Check the length with:
-//
-//	len(mockedSession.RunCalls())
-func (mock *SessionMock) RunCalls() []struct {
-	Ctx     context.Context
-	Name    string
-	Cwd     string
-	Command []string
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Name    string
-		Cwd     string
-		Command []string
-	}
-	mock.lockRun.RLock()
-	calls = mock.calls.Run
-	mock.lockRun.RUnlock()
-	return calls
-}
-
-// RunFloating calls RunFloatingFunc.
-func (mock *SessionMock) RunFloating(ctx context.Context, name string, cwd string, command ...string) error {
-	callInfo := struct {
-		Ctx     context.Context
-		Name    string
-		Cwd     string
-		Command []string
-	}{
-		Ctx:     ctx,
-		Name:    name,
-		Cwd:     cwd,
-		Command: command,
-	}
-	mock.lockRunFloating.Lock()
-	mock.calls.RunFloating = append(mock.calls.RunFloating, callInfo)
-	mock.lockRunFloating.Unlock()
-	if mock.RunFloatingFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.RunFloatingFunc(ctx, name, cwd, command...)
-}
-
-// RunFloatingCalls gets all the calls that were made to RunFloating.
-// Check the length with:
-//
-//	len(mockedSession.RunFloatingCalls())
-func (mock *SessionMock) RunFloatingCalls() []struct {
-	Ctx     context.Context
-	Name    string
-	Cwd     string
-	Command []string
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Name    string
-		Cwd     string
-		Command []string
-	}
-	mock.lockRunFloating.RLock()
-	calls = mock.calls.RunFloating
-	mock.lockRunFloating.RUnlock()
-	return calls
-}
-
-// SendCtrlC calls SendCtrlCFunc.
-func (mock *SessionMock) SendCtrlC(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockSendCtrlC.Lock()
-	mock.calls.SendCtrlC = append(mock.calls.SendCtrlC, callInfo)
-	mock.lockSendCtrlC.Unlock()
-	if mock.SendCtrlCFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.SendCtrlCFunc(ctx)
-}
-
-// SendCtrlCCalls gets all the calls that were made to SendCtrlC.
-// Check the length with:
-//
-//	len(mockedSession.SendCtrlCCalls())
-func (mock *SessionMock) SendCtrlCCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockSendCtrlC.RLock()
-	calls = mock.calls.SendCtrlC
-	mock.lockSendCtrlC.RUnlock()
-	return calls
-}
-
-// SendEnter calls SendEnterFunc.
-func (mock *SessionMock) SendEnter(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockSendEnter.Lock()
-	mock.calls.SendEnter = append(mock.calls.SendEnter, callInfo)
-	mock.lockSendEnter.Unlock()
-	if mock.SendEnterFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.SendEnterFunc(ctx)
-}
-
-// SendEnterCalls gets all the calls that were made to SendEnter.
-// Check the length with:
-//
-//	len(mockedSession.SendEnterCalls())
-func (mock *SessionMock) SendEnterCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockSendEnter.RLock()
-	calls = mock.calls.SendEnter
-	mock.lockSendEnter.RUnlock()
 	return calls
 }
 
@@ -1036,118 +719,5 @@ func (mock *SessionMock) TerminateProcessCalls() []struct {
 	mock.lockTerminateProcess.RLock()
 	calls = mock.calls.TerminateProcess
 	mock.lockTerminateProcess.RUnlock()
-	return calls
-}
-
-// ToggleFloatingPanes calls ToggleFloatingPanesFunc.
-func (mock *SessionMock) ToggleFloatingPanes(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockToggleFloatingPanes.Lock()
-	mock.calls.ToggleFloatingPanes = append(mock.calls.ToggleFloatingPanes, callInfo)
-	mock.lockToggleFloatingPanes.Unlock()
-	if mock.ToggleFloatingPanesFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.ToggleFloatingPanesFunc(ctx)
-}
-
-// ToggleFloatingPanesCalls gets all the calls that were made to ToggleFloatingPanes.
-// Check the length with:
-//
-//	len(mockedSession.ToggleFloatingPanesCalls())
-func (mock *SessionMock) ToggleFloatingPanesCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockToggleFloatingPanes.RLock()
-	calls = mock.calls.ToggleFloatingPanes
-	mock.lockToggleFloatingPanes.RUnlock()
-	return calls
-}
-
-// WriteASCII calls WriteASCIIFunc.
-func (mock *SessionMock) WriteASCII(ctx context.Context, code int) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Code int
-	}{
-		Ctx:  ctx,
-		Code: code,
-	}
-	mock.lockWriteASCII.Lock()
-	mock.calls.WriteASCII = append(mock.calls.WriteASCII, callInfo)
-	mock.lockWriteASCII.Unlock()
-	if mock.WriteASCIIFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.WriteASCIIFunc(ctx, code)
-}
-
-// WriteASCIICalls gets all the calls that were made to WriteASCII.
-// Check the length with:
-//
-//	len(mockedSession.WriteASCIICalls())
-func (mock *SessionMock) WriteASCIICalls() []struct {
-	Ctx  context.Context
-	Code int
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Code int
-	}
-	mock.lockWriteASCII.RLock()
-	calls = mock.calls.WriteASCII
-	mock.lockWriteASCII.RUnlock()
-	return calls
-}
-
-// WriteChars calls WriteCharsFunc.
-func (mock *SessionMock) WriteChars(ctx context.Context, text string) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Text string
-	}{
-		Ctx:  ctx,
-		Text: text,
-	}
-	mock.lockWriteChars.Lock()
-	mock.calls.WriteChars = append(mock.calls.WriteChars, callInfo)
-	mock.lockWriteChars.Unlock()
-	if mock.WriteCharsFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.WriteCharsFunc(ctx, text)
-}
-
-// WriteCharsCalls gets all the calls that were made to WriteChars.
-// Check the length with:
-//
-//	len(mockedSession.WriteCharsCalls())
-func (mock *SessionMock) WriteCharsCalls() []struct {
-	Ctx  context.Context
-	Text string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Text string
-	}
-	mock.lockWriteChars.RLock()
-	calls = mock.calls.WriteChars
-	mock.lockWriteChars.RUnlock()
 	return calls
 }

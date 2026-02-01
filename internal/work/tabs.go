@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/project"
-	"github.com/newhook/co/internal/zellij"
 )
 
 // PlanTabName returns the zellij tab name for a bead's planning session.
@@ -30,10 +29,9 @@ func PlanTabName(beadID string) string {
 func (m *DefaultOrchestratorManager) OpenConsole(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := project.FormatTabName("console", workID, friendlyName)
-	zc := zellij.New()
 
 	// Verify session exists - callers must initialize it with control plane
-	exists, err := zc.SessionExists(ctx, sessionName)
+	exists, err := m.zellij.SessionExists(ctx, sessionName)
 	if err != nil {
 		return fmt.Errorf("failed to check session existence: %w", err)
 	}
@@ -42,7 +40,7 @@ func (m *DefaultOrchestratorManager) OpenConsole(ctx context.Context, workID str
 	}
 
 	// Check if tab already exists
-	session := zc.Session(sessionName)
+	session := m.zellij.Session(sessionName)
 	tabExists, _ := session.TabExists(ctx, tabName)
 	if tabExists {
 		fmt.Fprintf(w, "Console tab %s already exists\n", tabName)
@@ -95,10 +93,9 @@ func (m *DefaultOrchestratorManager) OpenConsole(ctx context.Context, workID str
 func (m *DefaultOrchestratorManager) OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, cfg *project.Config, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := project.FormatTabName("claude", workID, friendlyName)
-	zc := zellij.New()
 
 	// Verify session exists - callers must initialize it with control plane
-	exists, err := zc.SessionExists(ctx, sessionName)
+	exists, err := m.zellij.SessionExists(ctx, sessionName)
 	if err != nil {
 		return fmt.Errorf("failed to check session existence: %w", err)
 	}
@@ -107,7 +104,7 @@ func (m *DefaultOrchestratorManager) OpenClaudeSession(ctx context.Context, work
 	}
 
 	// Check if tab already exists
-	session := zc.Session(sessionName)
+	session := m.zellij.Session(sessionName)
 	tabExists, _ := session.TabExists(ctx, tabName)
 	if tabExists {
 		fmt.Fprintf(w, "Claude session tab %s already exists\n", tabName)
@@ -161,10 +158,9 @@ func (m *DefaultOrchestratorManager) OpenClaudeSession(ctx context.Context, work
 func (m *DefaultOrchestratorManager) SpawnPlanSession(ctx context.Context, beadID string, projectName string, mainRepoPath string, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := PlanTabName(beadID)
-	zc := zellij.New()
 
 	// Verify session exists - callers must initialize it with control plane
-	exists, err := zc.SessionExists(ctx, sessionName)
+	exists, err := m.zellij.SessionExists(ctx, sessionName)
 	if err != nil {
 		return fmt.Errorf("failed to check session existence: %w", err)
 	}
@@ -173,7 +169,7 @@ func (m *DefaultOrchestratorManager) SpawnPlanSession(ctx context.Context, beadI
 	}
 
 	// Check if tab already exists
-	session := zc.Session(sessionName)
+	session := m.zellij.Session(sessionName)
 	tabExists, _ := session.TabExists(ctx, tabName)
 	if tabExists {
 		fmt.Fprintf(w, "Tab %s already exists, terminating and recreating...\n", tabName)

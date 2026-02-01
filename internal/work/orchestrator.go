@@ -42,17 +42,29 @@ type OrchestratorManager interface {
 // It holds the database reference needed for orchestrator heartbeat checking.
 type DefaultOrchestratorManager struct {
 	database *db.DB
+	zellij   zellij.SessionManager
 }
 
 // NewOrchestratorManager creates a new DefaultOrchestratorManager with the given database.
 func NewOrchestratorManager(database *db.DB) OrchestratorManager {
-	return &DefaultOrchestratorManager{database: database}
+	return &DefaultOrchestratorManager{
+		database: database,
+		zellij:   zellij.New(),
+	}
+}
+
+// NewOrchestratorManagerWithDeps creates a new DefaultOrchestratorManager with explicit dependencies.
+// This is the preferred constructor for testing.
+func NewOrchestratorManagerWithDeps(database *db.DB, zc zellij.SessionManager) OrchestratorManager {
+	return &DefaultOrchestratorManager{
+		database: database,
+		zellij:   zc,
+	}
 }
 
 // tabExists checks if a tab with the given name exists in the session.
-func tabExists(ctx context.Context, sessionName, tabName string) bool {
-	zc := zellij.New()
-	exists, _ := zc.Session(sessionName).TabExists(ctx, tabName)
+func (m *DefaultOrchestratorManager) tabExists(ctx context.Context, sessionName, tabName string) bool {
+	exists, _ := m.zellij.Session(sessionName).TabExists(ctx, tabName)
 	return exists
 }
 
@@ -63,14 +75,13 @@ func tabExists(ctx context.Context, sessionName, tabName string) bool {
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
 func (m *DefaultOrchestratorManager) TerminateWorkTabs(ctx context.Context, workID string, projectName string, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
-	zc := zellij.New()
 
 	logging.Debug("TerminateWorkTabs starting",
 		"work_id", workID,
 		"session_name", sessionName)
 
 	// Check if session exists
-	exists, err := zc.SessionExists(ctx, sessionName)
+	exists, err := m.zellij.SessionExists(ctx, sessionName)
 	if err != nil || !exists {
 		logging.Debug("Session does not exist, nothing to terminate",
 			"work_id", workID,
@@ -81,7 +92,7 @@ func (m *DefaultOrchestratorManager) TerminateWorkTabs(ctx context.Context, work
 	}
 
 	// Get list of all tab names
-	session := zc.Session(sessionName)
+	session := m.zellij.Session(sessionName)
 	tabNames, err := session.QueryTabNames(ctx)
 	if err != nil {
 		logging.Warn("Failed to query tab names",
@@ -166,11 +177,10 @@ func (m *DefaultOrchestratorManager) SpawnWorkOrchestrator(ctx context.Context, 
 	logging.Debug("SpawnWorkOrchestrator called", "workID", workID, "projectName", projectName, "workDir", workDir)
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := project.FormatTabName("work", workID, friendlyName)
-	zc := zellij.New()
 
 	// Verify session exists - callers must initialize it with control plane
 	logging.Debug("SpawnWorkOrchestrator checking session exists", "sessionName", sessionName)
-	exists, err := zc.SessionExists(ctx, sessionName)
+	exists, err := m.zellij.SessionExists(ctx, sessionName)
 	if err != nil {
 		logging.Error("SpawnWorkOrchestrator SessionExists check failed", "sessionName", sessionName, "error", err)
 		return fmt.Errorf("failed to check session existence: %w", err)
@@ -181,7 +191,7 @@ func (m *DefaultOrchestratorManager) SpawnWorkOrchestrator(ctx context.Context, 
 	}
 
 	// Check if tab already exists
-	session := zc.Session(sessionName)
+	session := m.zellij.Session(sessionName)
 	tabExists, err := session.TabExists(ctx, tabName)
 	if err != nil {
 		return fmt.Errorf("failed to check if tab exists: %w", err)
@@ -216,7 +226,7 @@ func (m *DefaultOrchestratorManager) EnsureWorkOrchestrator(ctx context.Context,
 	tabName := project.FormatTabName("work", workID, friendlyName)
 
 	// Check if the orchestrator is alive via database heartbeat
-	if tabExists(ctx, sessionName, tabName) {
+	if m.tabExists(ctx, sessionName, tabName) {
 		if alive, err := m.database.IsOrchestratorAlive(ctx, workID, db.DefaultStalenessThreshold); err == nil && alive {
 			fmt.Fprintf(w, "Work orchestrator tab %s already exists and orchestrator is alive\n", tabName)
 			return false, nil

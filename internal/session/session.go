@@ -6,7 +6,6 @@ package session
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
@@ -96,12 +95,7 @@ func EnsureControlPlane(ctx context.Context, proj *project.Project) error {
 	logging.Debug("Control plane tab exists but process is dead - restarting...")
 
 	// Try to close the dead tab first
-	if err := session.SwitchToTab(ctx, ControlPlaneTabName); err == nil {
-		_ = session.SendCtrlC(ctx)
-		time.Sleep(zc.CtrlCDelay)
-		_ = session.CloseTab(ctx)
-		time.Sleep(500 * time.Millisecond)
-	}
+	_ = session.TerminateAndCloseTab(ctx, ControlPlaneTabName)
 
 	// Spawn a new one
 	if err := SpawnControlPlane(ctx, proj); err != nil {
