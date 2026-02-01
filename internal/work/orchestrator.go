@@ -13,7 +13,7 @@ import (
 	"github.com/newhook/co/internal/zellij"
 )
 
-// OrchestratorManager provides operations for managing work orchestrators.
+// OrchestratorManager provides operations for managing work orchestrators and related tabs.
 // This interface enables dependency injection and testing of orchestrator management.
 //
 //go:generate moq -stub -out orchestrator_mock.go . OrchestratorManager:OrchestratorManagerMock
@@ -27,11 +27,19 @@ type OrchestratorManager interface {
 
 	// TerminateWorkTabs terminates all zellij tabs associated with a work unit.
 	TerminateWorkTabs(ctx context.Context, workID, projName string, w io.Writer) error
+
+	// SpawnPlanSession creates a zellij tab and runs the plan command for a bead.
+	SpawnPlanSession(ctx context.Context, beadID, projName, mainRepoPath string, w io.Writer) error
+
+	// OpenConsole creates a zellij tab with a shell in the work's worktree.
+	OpenConsole(ctx context.Context, workID, projName, workDir, friendlyName string, hooksEnv []string, w io.Writer) error
+
+	// OpenClaudeSession creates a zellij tab with an interactive Claude Code session.
+	OpenClaudeSession(ctx context.Context, workID, projName, workDir, friendlyName string, hooksEnv []string, cfg *project.Config, w io.Writer) error
 }
 
 // DefaultOrchestratorManager is the default implementation of OrchestratorManager.
-// It wraps the package-level functions and holds the database reference needed
-// for orchestrator heartbeat checking.
+// It holds the database reference needed for orchestrator heartbeat checking.
 type DefaultOrchestratorManager struct {
 	database *db.DB
 }
@@ -41,23 +49,8 @@ func NewOrchestratorManager(database *db.DB) OrchestratorManager {
 	return &DefaultOrchestratorManager{database: database}
 }
 
-// EnsureWorkOrchestrator implements OrchestratorManager.
-func (m *DefaultOrchestratorManager) EnsureWorkOrchestrator(ctx context.Context, workID, projName, workDir, friendlyName string, w io.Writer) (bool, error) {
-	return EnsureWorkOrchestrator(ctx, m.database, workID, projName, workDir, friendlyName, w)
-}
-
-// SpawnWorkOrchestrator implements OrchestratorManager.
-func (m *DefaultOrchestratorManager) SpawnWorkOrchestrator(ctx context.Context, workID, projName, workDir, friendlyName string, w io.Writer) error {
-	return SpawnWorkOrchestrator(ctx, workID, projName, workDir, friendlyName, w)
-}
-
-// TerminateWorkTabs implements OrchestratorManager.
-func (m *DefaultOrchestratorManager) TerminateWorkTabs(ctx context.Context, workID, projName string, w io.Writer) error {
-	return TerminateWorkTabs(ctx, workID, projName, w)
-}
-
-// TabExists checks if a tab with the given name exists in the session.
-func TabExists(ctx context.Context, sessionName, tabName string) bool {
+// tabExists checks if a tab with the given name exists in the session.
+func tabExists(ctx context.Context, sessionName, tabName string) bool {
 	zc := zellij.New()
 	exists, _ := zc.TabExists(ctx, sessionName, tabName)
 	return exists
@@ -68,7 +61,7 @@ func TabExists(ctx context.Context, sessionName, tabName string) bool {
 // console tabs (console-<workID>*), and claude tabs (claude-<workID>*).
 // Each tab's running process is terminated with Ctrl+C before the tab is closed.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w io.Writer) error {
+func (m *DefaultOrchestratorManager) TerminateWorkTabs(ctx context.Context, workID string, projectName string, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
 	zc := zellij.New()
 
@@ -168,7 +161,7 @@ func TerminateWorkTabs(ctx context.Context, workID string, projectName string, w
 // IMPORTANT: The zellij session must already exist before calling this function.
 // Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
 // the session exists with the control plane running.
-func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) error {
+func (m *DefaultOrchestratorManager) SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) error {
 	logging.Debug("SpawnWorkOrchestrator called", "workID", workID, "projectName", projectName, "workDir", workDir)
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := project.FormatTabName("work", workID, friendlyName)
@@ -216,14 +209,13 @@ func SpawnWorkOrchestrator(ctx context.Context, workID string, projectName strin
 // This is used for resilience - if the orchestrator crashes or is killed, it can be restarted.
 // Returns true if the orchestrator was spawned, false if it was already running.
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-// The database parameter is used to check orchestrator heartbeat status.
-func EnsureWorkOrchestrator(ctx context.Context, database *db.DB, workID string, projectName string, workDir string, friendlyName string, w io.Writer) (bool, error) {
+func (m *DefaultOrchestratorManager) EnsureWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) (bool, error) {
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := project.FormatTabName("work", workID, friendlyName)
 
 	// Check if the orchestrator is alive via database heartbeat
-	if TabExists(ctx, sessionName, tabName) {
-		if alive, err := database.IsOrchestratorAlive(ctx, workID, db.DefaultStalenessThreshold); err == nil && alive {
+	if tabExists(ctx, sessionName, tabName) {
+		if alive, err := m.database.IsOrchestratorAlive(ctx, workID, db.DefaultStalenessThreshold); err == nil && alive {
 			fmt.Fprintf(w, "Work orchestrator tab %s already exists and orchestrator is alive\n", tabName)
 			return false, nil
 		}
@@ -232,7 +224,7 @@ func EnsureWorkOrchestrator(ctx context.Context, database *db.DB, workID string,
 	}
 
 	// Spawn the orchestrator (handles existing tab termination)
-	if err := SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w); err != nil {
+	if err := m.SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w); err != nil {
 		return false, err
 	}
 

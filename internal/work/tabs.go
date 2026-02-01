@@ -27,7 +27,7 @@ func PlanTabName(beadID string) string {
 // IMPORTANT: The zellij session must already exist before calling this function.
 // Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
 // the session exists with the control plane running.
-func OpenConsole(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
+func (m *DefaultOrchestratorManager) OpenConsole(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := project.FormatTabName("console", workID, friendlyName)
 	zc := zellij.New()
@@ -91,7 +91,7 @@ func OpenConsole(ctx context.Context, workID string, projectName string, workDir
 // IMPORTANT: The zellij session must already exist before calling this function.
 // Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
 // the session exists with the control plane running.
-func OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, cfg *project.Config, w io.Writer) error {
+func (m *DefaultOrchestratorManager) OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, cfg *project.Config, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := project.FormatTabName("claude", workID, friendlyName)
 	zc := zellij.New()
@@ -156,7 +156,7 @@ func OpenClaudeSession(ctx context.Context, workID string, projectName string, w
 // IMPORTANT: The zellij session must already exist before calling this function.
 // Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
 // the session exists with the control plane running.
-func SpawnPlanSession(ctx context.Context, beadID string, projectName string, mainRepoPath string, w io.Writer) error {
+func (m *DefaultOrchestratorManager) SpawnPlanSession(ctx context.Context, beadID string, projectName string, mainRepoPath string, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
 	tabName := PlanTabName(beadID)
 	zc := zellij.New()

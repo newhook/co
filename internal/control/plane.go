@@ -30,11 +30,20 @@ type WorkDestroyer interface {
 }
 
 // DefaultOrchestratorSpawner implements OrchestratorSpawner using the work package.
-type DefaultOrchestratorSpawner struct{}
+type DefaultOrchestratorSpawner struct {
+	orchestratorManager work.OrchestratorManager
+}
+
+// NewOrchestratorSpawner creates a new DefaultOrchestratorSpawner with the given database.
+func NewOrchestratorSpawner(database *db.DB) *DefaultOrchestratorSpawner {
+	return &DefaultOrchestratorSpawner{
+		orchestratorManager: work.NewOrchestratorManager(database),
+	}
+}
 
 // SpawnWorkOrchestrator implements OrchestratorSpawner.
 func (d *DefaultOrchestratorSpawner) SpawnWorkOrchestrator(ctx context.Context, workID, projectName, workDir, friendlyName string, w io.Writer) error {
-	return work.SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w)
+	return d.orchestratorManager.SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w)
 }
 
 // DefaultWorkDestroyer implements WorkDestroyer using the work package.
@@ -59,14 +68,14 @@ type ControlPlane struct {
 }
 
 // NewControlPlane creates a new ControlPlane with default production dependencies.
-func NewControlPlane() *ControlPlane {
+func NewControlPlane(database *db.DB) *ControlPlane {
 	return &ControlPlane{
 		Git:                 git.NewOperations(),
 		Worktree:            worktree.NewOperations(),
 		Zellij:              zellij.New(),
 		Mise:                mise.NewOperations,
 		FeedbackProcessor:   feedback.NewProcessor(),
-		OrchestratorSpawner: &DefaultOrchestratorSpawner{},
+		OrchestratorSpawner: NewOrchestratorSpawner(database),
 		WorkDestroyer:       &DefaultWorkDestroyer{},
 		GitHubClient:        github.NewClient(),
 	}

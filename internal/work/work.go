@@ -142,7 +142,8 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 	// Only if configured to do so (defaults to true)
 	if proj.Config.Zellij.ShouldKillTabsOnDestroy() {
 		logging.Debug("Terminating work tabs", "work_id", workID, "project_name", proj.Config.Project.Name)
-		if err := TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, w); err != nil {
+		orchestratorMgr := NewOrchestratorManager(proj.DB)
+		if err := orchestratorMgr.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, w); err != nil {
 			// Warn but continue - tab termination is non-fatal
 			logging.Warn("Failed to terminate work tabs", "work_id", workID, "error", err)
 			fmt.Fprintf(w, "Warning: failed to terminate work tabs: %v\n", err)

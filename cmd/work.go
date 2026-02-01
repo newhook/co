@@ -1019,7 +1019,8 @@ func runWorkConsole(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open console in the work's worktree
-	return workpkg.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, os.Stdout)
+	orchestratorMgr := workpkg.NewOrchestratorManager(proj.DB)
+	return orchestratorMgr.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, os.Stdout)
 }
 
 func runWorkClaude(cmd *cobra.Command, args []string) error {
@@ -1052,7 +1053,8 @@ func runWorkClaude(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open Claude Code session in the work's worktree
-	return workpkg.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, proj.Config, os.Stdout)
+	orchestratorMgr := workpkg.NewOrchestratorManager(proj.DB)
+	return orchestratorMgr.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, proj.Config, os.Stdout)
 }
 
 func runWorkRestart(cmd *cobra.Command, args []string) error {

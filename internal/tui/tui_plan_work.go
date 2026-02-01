@@ -57,8 +57,8 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 				return ""
 			}())
 
-		// Use the helper to spawn the plan session
-		if err := workpkg.SpawnPlanSession(m.ctx, beadID, m.proj.Config.Project.Name, mainRepoPath, io.Discard); err != nil {
+		// Use the orchestrator manager to spawn the plan session
+		if err := m.workService.OrchestratorManager.SpawnPlanSession(m.ctx, beadID, m.proj.Config.Project.Name, mainRepoPath, io.Discard); err != nil {
 			logging.Error("spawnPlanSession SpawnPlanSession failed", "beadID", beadID, "error", err)
 			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
@@ -310,7 +310,7 @@ func (m *planModel) openConsole() tea.Cmd {
 			return workCommandMsg{action: "Control plane", workID: workID, err: err}
 		}
 
-		err = workpkg.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
+		err = m.workService.OrchestratorManager.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open console", workID: workID, err: err}
 		}
@@ -332,7 +332,7 @@ func (m *planModel) openClaude() tea.Cmd {
 			return workCommandMsg{action: "Open Claude", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
-		err = workpkg.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
+		err = m.workService.OrchestratorManager.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open Claude", workID: workID, err: err}
 		}
@@ -379,9 +379,8 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 		}
 
 		// Spawn a new orchestrator
-		spawned, err := workpkg.EnsureWorkOrchestrator(
+		spawned, err := m.workService.OrchestratorManager.EnsureWorkOrchestrator(
 			m.ctx,
-			m.proj.DB,
 			workID,
 			m.proj.Config.Project.Name,
 			workRec.WorktreePath,

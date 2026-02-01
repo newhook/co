@@ -486,7 +486,7 @@ func TestGetTaskHandlers(t *testing.T) {
 }
 
 func TestNewControlPlane(t *testing.T) {
-	cp := control.NewControlPlane()
+	cp := control.NewControlPlane(nil)
 	require.NotNil(t, cp)
 
 	// Verify default dependencies are set
