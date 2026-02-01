@@ -391,6 +391,11 @@ func TestHandlePRFeedbackTask(t *testing.T) {
 			return 3, nil // Created 3 beads
 		}
 
+		// Mock GetPRStatus for spawnWorkflowWatchers - return empty workflows
+		mocks.GitHub.GetPRStatusFunc = func(ctx context.Context, prURL string) (*github.PRStatus, error) {
+			return &github.PRStatus{Workflows: nil}, nil
+		}
+
 		// Create work with PR URL
 		createTestWork(ctx, t, proj.DB, "w-feedback", "feedback-branch", "root-1")
 		err := proj.DB.SetWorkPRURLAndScheduleFeedback(ctx, "w-feedback", "https://github.com/org/repo/pull/123", 5*time.Minute, 5*time.Minute)

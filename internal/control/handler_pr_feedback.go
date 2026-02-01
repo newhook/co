@@ -40,7 +40,7 @@ func (cp *ControlPlane) HandlePRFeedbackTask(ctx context.Context, proj *project.
 	}
 
 	// Spawn watchers for in-progress workflow runs
-	if err := spawnWorkflowWatchers(ctx, proj, work); err != nil {
+	if err := cp.spawnWorkflowWatchers(ctx, proj, work); err != nil {
 		// Log but don't fail the task - watchers are an optimization
 		logging.Warn("failed to spawn workflow watchers", "error", err, "work_id", workID)
 	}
@@ -60,10 +60,9 @@ func (cp *ControlPlane) HandlePRFeedbackTask(ctx context.Context, proj *project.
 
 // spawnWorkflowWatchers checks for in-progress workflow runs and spawns watchers for them.
 // This enables immediate notification when CI completes instead of waiting for the next poll.
-func spawnWorkflowWatchers(ctx context.Context, proj *project.Project, work *db.Work) error {
+func (cp *ControlPlane) spawnWorkflowWatchers(ctx context.Context, proj *project.Project, work *db.Work) error {
 	// Fetch PR status to get workflow run information
-	client := github.NewClient()
-	status, err := client.GetPRStatus(ctx, work.PRURL)
+	status, err := cp.GitHubClient.GetPRStatus(ctx, work.PRURL)
 	if err != nil {
 		return fmt.Errorf("failed to get PR status: %w", err)
 	}
