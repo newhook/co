@@ -357,11 +357,11 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 	workID := m.focusedWorkID
 	return func() tea.Msg {
 		// Get work details
-		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		workRec, err := m.proj.DB.GetWork(m.ctx, workID)
 		if err != nil {
 			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
 		}
-		if work == nil {
+		if workRec == nil {
 			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
@@ -380,13 +380,13 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 		}
 
 		// Spawn a new orchestrator
-		spawned, err := claude.EnsureWorkOrchestrator(
+		spawned, err := work.EnsureWorkOrchestrator(
 			m.ctx,
 			m.proj.DB,
 			workID,
 			m.proj.Config.Project.Name,
-			work.WorktreePath,
-			work.Name,
+			workRec.WorktreePath,
+			workRec.Name,
 			io.Discard,
 		)
 		if err != nil {

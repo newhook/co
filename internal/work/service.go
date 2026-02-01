@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/names"
@@ -22,7 +21,7 @@ type WorkService struct {
 	Worktree            worktree.Operations
 	BeadsReader         beads.Reader
 	BeadsCLI            beads.CLI
-	OrchestratorManager claude.OrchestratorManager
+	OrchestratorManager OrchestratorManager
 	TaskPlanner         task.Planner
 	NameGenerator       names.Generator
 	Config              *project.Config
@@ -41,7 +40,7 @@ func NewWorkService(proj *project.Project) *WorkService {
 		Worktree:            worktree.NewOperations(),
 		BeadsReader:         proj.Beads,
 		BeadsCLI:            beads.NewCLI(beadsDir),
-		OrchestratorManager: claude.NewOrchestratorManager(proj.DB),
+		OrchestratorManager: NewOrchestratorManager(proj.DB),
 		TaskPlanner:         nil, // Planner needs specific initialization, set separately if needed
 		NameGenerator:       names.NewGenerator(),
 		Config:              proj.Config,
@@ -58,7 +57,7 @@ type WorkServiceDeps struct {
 	Worktree            worktree.Operations
 	BeadsReader         beads.Reader
 	BeadsCLI            beads.CLI
-	OrchestratorManager claude.OrchestratorManager
+	OrchestratorManager OrchestratorManager
 	TaskPlanner         task.Planner
 	NameGenerator       names.Generator
 	Config              *project.Config

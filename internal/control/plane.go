@@ -6,7 +6,6 @@ import (
 	"context"
 	"io"
 
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback"
 	"github.com/newhook/co/internal/git"
@@ -30,12 +29,12 @@ type WorkDestroyer interface {
 	DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error
 }
 
-// DefaultOrchestratorSpawner implements OrchestratorSpawner using the claude package.
+// DefaultOrchestratorSpawner implements OrchestratorSpawner using the work package.
 type DefaultOrchestratorSpawner struct{}
 
 // SpawnWorkOrchestrator implements OrchestratorSpawner.
 func (d *DefaultOrchestratorSpawner) SpawnWorkOrchestrator(ctx context.Context, workID, projectName, workDir, friendlyName string, w io.Writer) error {
-	return claude.SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w)
+	return work.SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w)
 }
 
 // DefaultWorkDestroyer implements WorkDestroyer using the work package.

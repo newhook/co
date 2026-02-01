@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/names"
@@ -143,7 +142,7 @@ func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io
 	// Only if configured to do so (defaults to true)
 	if proj.Config.Zellij.ShouldKillTabsOnDestroy() {
 		logging.Debug("Terminating work tabs", "work_id", workID, "project_name", proj.Config.Project.Name)
-		if err := claude.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, w); err != nil {
+		if err := TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, w); err != nil {
 			// Warn but continue - tab termination is non-fatal
 			logging.Warn("Failed to terminate work tabs", "work_id", workID, "error", err)
 			fmt.Fprintf(w, "Warning: failed to terminate work tabs: %v\n", err)
