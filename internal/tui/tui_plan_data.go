@@ -7,10 +7,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/linear"
+	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/work"
 )
 
@@ -433,10 +433,9 @@ type prImportPreviewMsg struct {
 // previewPR fetches PR metadata for preview
 func (m *planModel) previewPR(prURL string) tea.Cmd {
 	return func() tea.Msg {
-		ghClient := github.NewClient()
-		importer := work.NewPRImporter(ghClient)
+		workSvc := work.NewWorkService(m.proj)
 
-		metadata, err := importer.FetchPRMetadata(m.ctx, prURL, "")
+		metadata, err := workSvc.GitHubClient.GetPRMetadata(m.ctx, prURL, "")
 		if err != nil {
 			return prImportPreviewMsg{err: fmt.Errorf("failed to fetch PR: %w", err)}
 		}
@@ -448,11 +447,10 @@ func (m *planModel) previewPR(prURL string) tea.Cmd {
 // importPR imports a PR into a work unit asynchronously via the control plane.
 func (m *planModel) importPR(prURL string) tea.Cmd {
 	return func() tea.Msg {
-		ghClient := github.NewClient()
-		importer := work.NewPRImporter(ghClient)
+		workSvc := work.NewWorkService(m.proj)
 
 		// Fetch PR metadata first
-		metadata, err := importer.FetchPRMetadata(m.ctx, prURL, "")
+		metadata, err := workSvc.GitHubClient.GetPRMetadata(m.ctx, prURL, "")
 		if err != nil {
 			return prImportCompleteMsg{err: fmt.Errorf("failed to fetch PR: %w", err)}
 		}
@@ -463,7 +461,7 @@ func (m *planModel) importPR(prURL string) tea.Cmd {
 		// Create bead from PR metadata (required for work to function)
 		// This is done in the TUI because we need the bead ID before scheduling
 		var rootIssueID string
-		beadResult, err := importer.CreateBeadFromPR(m.ctx, metadata, &work.CreateBeadOptions{
+		beadResult, err := workSvc.CreateBeadFromPR(m.ctx, metadata, &work.CreateBeadOptions{
 			BeadsDir:     m.proj.BeadsPath(),
 			SkipIfExists: true,
 		})
@@ -473,7 +471,7 @@ func (m *planModel) importPR(prURL string) tea.Cmd {
 		rootIssueID = beadResult.BeadID
 
 		// Schedule the PR import via the control plane
-		result, err := work.ImportPRAsync(m.ctx, m.proj, work.ImportPRAsyncOptions{
+		result, err := workSvc.ImportPRAsync(m.ctx, work.ImportPRAsyncOptions{
 			PRURL:       prURL,
 			BranchName:  branchName,
 			RootIssueID: rootIssueID,
@@ -483,7 +481,7 @@ func (m *planModel) importPR(prURL string) tea.Cmd {
 		}
 
 		// Ensure control plane is running to process the import task
-		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+		if _, err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
 			// Non-fatal: task was scheduled but control plane might need manual start
 			return prImportCompleteMsg{
 				workID:     result.WorkID,

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/newhook/co/internal/beads"
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/names"
@@ -28,7 +27,7 @@ type TestHarness struct {
 	Worktree            *worktree.WorktreeOperationsMock
 	Beads               *beads.BeadsCLIMock
 	BeadsReader         *beads.BeadsReaderMock
-	OrchestratorManager *claude.OrchestratorManagerMock
+	OrchestratorManager *work.OrchestratorManagerMock
 	NameGenerator       *names.GeneratorMock
 	TaskPlanner         *task.PlannerMock
 	WorkService         *work.WorkService
@@ -55,7 +54,7 @@ func NewTestHarness(t *testing.T) *TestHarness {
 	worktreeMock := &worktree.WorktreeOperationsMock{}
 	beadsMock := &beads.BeadsCLIMock{}
 	beadsReaderMock := &beads.BeadsReaderMock{}
-	orchestratorMock := &claude.OrchestratorManagerMock{}
+	orchestratorMock := &work.OrchestratorManagerMock{}
 	nameGenMock := &names.GeneratorMock{}
 	taskPlannerMock := &task.PlannerMock{}
 

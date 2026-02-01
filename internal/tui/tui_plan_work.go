@@ -8,13 +8,12 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/process"
 	"github.com/newhook/co/internal/progress"
-	"github.com/newhook/co/internal/work"
+	workpkg "github.com/newhook/co/internal/work"
 )
 
 // sessionName returns the zellij session name for this project
@@ -25,47 +24,42 @@ func (m *planModel) sessionName() string {
 // spawnPlanSession spawns or resumes a planning session for a specific bead
 func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		session := m.sessionName()
-		tabName := claude.PlanTabName(beadID)
+		zellijSession := m.sessionName()
+		tabName := workpkg.PlanTabName(beadID)
 		mainRepoPath := m.proj.MainRepoPath()
 
-		logging.Debug("spawnPlanSession started", "beadID", beadID, "session", session, "tabName", tabName)
+		logging.Debug("spawnPlanSession started", "beadID", beadID, "session", zellijSession, "tabName", tabName)
 
 		// Check if session already running for this bead
 		running, _ := m.proj.DB.IsPlanSessionRunning(m.ctx, beadID)
 		logging.Debug("spawnPlanSession checked if running", "beadID", beadID, "running", running)
 		if running {
 			// Session exists - just switch to it
-			if err := m.zj.Session(session).SwitchToTab(m.ctx, tabName); err != nil {
+			if err := m.zj.Session(zellijSession).SwitchToTab(m.ctx, tabName); err != nil {
 				return planSessionSpawnedMsg{beadID: beadID, err: err}
 			}
 			return planSessionSpawnedMsg{beadID: beadID, resumed: true}
 		}
 
-		// Initialize zellij session (spawns control plane if new session)
-		sessionResult, err := control.InitializeSession(m.ctx, m.proj)
+		// Ensure zellij session and control plane are running
+		sessionResult, err := control.EnsureControlPlane(m.ctx, m.proj)
 		if err != nil {
-			logging.Error("spawnPlanSession InitializeSession failed", "beadID", beadID, "error", err)
+			logging.Error("spawnPlanSession EnsureControlPlane failed", "beadID", beadID, "error", err)
 			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
-		logging.Debug("spawnPlanSession InitializeSession completed",
+		logging.Debug("spawnPlanSession EnsureControlPlane completed",
 			"beadID", beadID,
-			"sessionCreated", sessionResult != nil && sessionResult.SessionCreated,
-			"sessionName", func() string {
-				if sessionResult != nil {
-					return sessionResult.SessionName
-				}
-				return ""
-			}())
+			"sessionCreated", sessionResult.SessionCreated,
+			"sessionName", sessionResult.SessionName)
 
-		// Use the helper to spawn the plan session
-		if err := claude.SpawnPlanSession(m.ctx, beadID, m.proj.Config.Project.Name, mainRepoPath, io.Discard); err != nil {
+		// Use the orchestrator manager to spawn the plan session
+		if err := m.workService.OrchestratorManager.SpawnPlanSession(m.ctx, beadID, m.proj.Config.Project.Name, mainRepoPath, io.Discard); err != nil {
 			logging.Error("spawnPlanSession SpawnPlanSession failed", "beadID", beadID, "error", err)
 			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
 
 		msg := planSessionSpawnedMsg{beadID: beadID, resumed: false}
-		if sessionResult != nil && sessionResult.SessionCreated {
+		if sessionResult.SessionCreated {
 			msg.sessionCreated = true
 			msg.sessionName = sessionResult.SessionName
 		}
@@ -75,60 +69,39 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 }
 
 // executeCreateWork creates a work unit with the given branch name.
-// This uses the async control plane architecture:
-// 1. Creates work record in DB (with auto flag)
-// 2. Adds beads to work_beads
-// 3. Schedules TaskTypeCreateWorktree task
-// 4. Returns immediately (control plane handles worktree creation + orchestrator spawning)
+// This uses the shared CreateWorkFromBead method which handles:
+// 1. Expanding the bead to collect all issue IDs
+// 2. Creating work record in DB (with auto flag)
+// 3. Initializing the zellij session
+// 4. Ensuring control plane is running
 func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool, useExistingBranch bool) tea.Cmd {
 	return func() tea.Msg {
 		logging.Debug("executeCreateWork started", "beadID", beadID, "branchName", branchName, "auto", auto, "useExistingBranch", useExistingBranch)
 
-		// Collect the bead and any transitive dependencies (or children if it has parent-child relationships)
-		allIssueIDs, err := work.CollectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
-		if err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
-		}
-
-		if len(allIssueIDs) == 0 {
-			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("no beads found for %s", beadID)}
-		}
-
-		// Initialize zellij session (spawns control plane if new session)
-		sessionResult, err := control.InitializeSession(m.ctx, m.proj)
-		if err != nil {
-			logging.Warn("executeCreateWork InitializeSession failed", "error", err)
-		}
-
-		// Create work asynchronously using WorkService (DB operations only, schedules tasks for control plane)
-		opts := work.CreateWorkAsyncOptions{
+		opts := workpkg.CreateWorkFromBeadOptions{
+			BeadID:            beadID,
 			BranchName:        branchName,
 			BaseBranch:        m.proj.Config.Repo.GetBaseBranch(),
-			RootIssueID:       beadID,
 			Auto:              auto,
 			UseExistingBranch: useExistingBranch,
-			BeadIDs:           allIssueIDs, // Pass beads directly to CreateWorkAsyncWithOptions
 		}
-		result, err := m.workService.CreateWorkAsyncWithOptions(m.ctx, opts)
+		result, err := m.workService.CreateWorkFromBead(m.ctx, opts)
 		if err != nil {
-			logging.Error("executeCreateWork CreateWorkWithBranch failed", "beadID", beadID, "error", err)
-			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
-		}
-		logging.Debug("executeCreateWork CreateWorkWithBranch succeeded", "workID", result.WorkID)
-
-		// Ensure control plane is running to process the worktree creation task
-		// Note: InitializeSession spawns control plane for new sessions, but we call
-		// EnsureControlPlane for existing sessions that might have a dead control plane
-		err = control.EnsureControlPlane(m.ctx, m.proj)
-		if err != nil {
-			// Non-fatal: work was created but control plane might need manual start
-			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but control plane failed: %w", err)}
+			logging.Error("executeCreateWork CreateWorkFromBead failed", "beadID", beadID, "error", err)
+			return planWorkCreatedMsg{beadID: beadID, err: err}
 		}
 		logging.Debug("executeCreateWork completed successfully", "workID", result.WorkID)
 
-		// Include session creation info in the result
+		// Ensure control plane is running to process the work
+		sessionResult, err := control.EnsureControlPlane(m.ctx, m.proj)
+		if err != nil {
+			logging.Warn("executeCreateWork EnsureControlPlane failed", "error", err)
+			// Non-fatal: work was created but control plane might need manual start
+			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: err}
+		}
+
 		msg := planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}
-		if sessionResult != nil && sessionResult.SessionCreated {
+		if sessionResult.SessionCreated {
 			msg.sessionCreated = true
 			msg.sessionName = sessionResult.SessionName
 		}
@@ -187,7 +160,7 @@ func (m *planModel) destroyWork(workID string) tea.Cmd {
 		}
 
 		// Ensure control plane is running to process the destroy task
-		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+		if _, err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
 			// Non-fatal: task was scheduled but control plane might need manual start
 			return workCommandMsg{action: "Destroy work scheduled", workID: workID, err: fmt.Errorf("destroy scheduled but control plane failed: %w", err)}
 		}
@@ -305,15 +278,15 @@ func (m *planModel) openConsole() tea.Cmd {
 			return workCommandMsg{action: "Open console", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
-		err = claude.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
-		if err != nil {
-			return workCommandMsg{action: "Open console", workID: workID, err: err}
-		}
-
-		// Ensure control plane is running
-		err = control.EnsureControlPlane(m.ctx, m.proj)
+		// Ensure control plane is running (creates session if needed)
+		_, err = control.EnsureControlPlane(m.ctx, m.proj)
 		if err != nil {
 			return workCommandMsg{action: "Control plane", workID: workID, err: err}
+		}
+
+		err = m.workService.OrchestratorManager.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
+		if err != nil {
+			return workCommandMsg{action: "Open console", workID: workID, err: err}
 		}
 
 		return workCommandMsg{action: "Open console", workID: workID}
@@ -333,7 +306,13 @@ func (m *planModel) openClaude() tea.Cmd {
 			return workCommandMsg{action: "Open Claude", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
-		err = claude.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
+		// Ensure control plane is running (creates session if needed)
+		_, err = control.EnsureControlPlane(m.ctx, m.proj)
+		if err != nil {
+			return workCommandMsg{action: "Control plane", workID: workID, err: err}
+		}
+
+		err = m.workService.OrchestratorManager.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open Claude", workID: workID, err: err}
 		}
@@ -357,11 +336,11 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 	workID := m.focusedWorkID
 	return func() tea.Msg {
 		// Get work details
-		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		workRec, err := m.proj.DB.GetWork(m.ctx, workID)
 		if err != nil {
 			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
 		}
-		if work == nil {
+		if workRec == nil {
 			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
@@ -375,18 +354,17 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 		}
 
 		// Ensure control plane is running (may have been killed along with zellij)
-		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+		if _, err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
 			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("failed to ensure control plane: %w", err)}
 		}
 
 		// Spawn a new orchestrator
-		spawned, err := claude.EnsureWorkOrchestrator(
+		spawned, err := m.workService.OrchestratorManager.EnsureWorkOrchestrator(
 			m.ctx,
-			m.proj.DB,
 			workID,
 			m.proj.Config.Project.Name,
-			work.WorktreePath,
-			work.Name,
+			workRec.WorktreePath,
+			workRec.Name,
 			io.Discard,
 		)
 		if err != nil {
@@ -410,7 +388,7 @@ func (m *planModel) checkPRFeedback() tea.Cmd {
 		}
 
 		// Ensure control plane is running to process the feedback check
-		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+		if _, err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
 			return workCommandMsg{action: "PR feedback check triggered", workID: workID, err: fmt.Errorf("feedback check scheduled but control plane failed: %w", err)}
 		}
 

@@ -9,13 +9,10 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/git"
-	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/work"
-	"github.com/newhook/co/internal/worktree"
 )
 
 // HandleImportPRTask handles a scheduled PR import task.
@@ -42,15 +39,16 @@ func HandleImportPRTask(ctx context.Context, proj *project.Project, task *db.Sch
 		return nil
 	}
 
+	// Create work service for PR operations
+	workSvc := work.NewWorkService(proj)
+
 	// If worktree path is already set and exists, skip creation
-	if workRecord.WorktreePath != "" && worktree.NewOperations().ExistsPath(workRecord.WorktreePath) {
+	if workRecord.WorktreePath != "" && workSvc.Worktree.ExistsPath(workRecord.WorktreePath) {
 		logging.Info("Worktree already exists, skipping creation", "work_id", workID, "path", workRecord.WorktreePath)
 		return nil
 	}
 
 	mainRepoPath := proj.MainRepoPath()
-	gitOps := git.NewOperations()
-	wtOps := worktree.NewOperations()
 
 	// Create work subdirectory
 	workDir := filepath.Join(proj.Root, workID)
@@ -58,17 +56,16 @@ func HandleImportPRTask(ctx context.Context, proj *project.Project, task *db.Sch
 		return fmt.Errorf("failed to create work directory: %w", err)
 	}
 
-	// Set up worktree from PR using the PR importer
-	importer := work.NewPRImporter(github.NewClient())
-	_, worktreePath, err := importer.SetupWorktreeFromPR(ctx, mainRepoPath, prURL, "", workDir, branchName)
+	// Set up worktree from PR using the work service
+	_, worktreePath, err := workSvc.SetupWorktreeFromPR(ctx, mainRepoPath, prURL, "", workDir, branchName)
 	if err != nil {
 		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to set up worktree from PR: %w", err)
 	}
 
 	// Set up upstream tracking
-	if err := gitOps.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
-		_ = wtOps.RemoveForce(ctx, mainRepoPath, worktreePath)
+	if err := workSvc.Git.PushSetUpstream(ctx, branchName, worktreePath); err != nil {
+		_ = workSvc.Worktree.RemoveForce(ctx, mainRepoPath, worktreePath)
 		_ = os.RemoveAll(workDir)
 		return fmt.Errorf("failed to set upstream: %w", err)
 	}
@@ -99,8 +96,7 @@ func HandleImportPRTask(ctx context.Context, proj *project.Project, task *db.Sch
 				}
 			}
 			if !beadExists {
-				workSvc := work.NewWorkService(proj)
-				if err := workSvc.AddBeadsInternal(ctx, workID, []string{workRecord.RootIssueID}); err != nil {
+				if err := proj.DB.AddWorkBeads(ctx, workID, []string{workRecord.RootIssueID}); err != nil {
 					logging.Warn("failed to add bead to work", "error", err, "bead_id", workRecord.RootIssueID)
 				}
 			}

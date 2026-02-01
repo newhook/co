@@ -13,27 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewPRImporter(t *testing.T) {
-	client := &github.GitHubClientMock{}
-	importer := NewPRImporter(client)
-
-	require.NotNil(t, importer, "NewPRImporter returned nil")
-	require.Equal(t, client, importer.client, "client not set correctly")
-	require.NotNil(t, importer.gitOps, "gitOps should be initialized")
-	require.NotNil(t, importer.worktreeOps, "worktreeOps should be initialized")
-}
-
-func TestNewPRImporterWithOps(t *testing.T) {
-	client := &github.GitHubClientMock{}
-	gitOps := &git.GitOperationsMock{}
-	worktreeOps := &worktree.WorktreeOperationsMock{}
-
-	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
-
-	require.NotNil(t, importer, "NewPRImporterWithOps returned nil")
-	require.Equal(t, client, importer.client, "client not set correctly")
-	require.NotNil(t, importer.gitOps, "gitOps should be set")
-	require.NotNil(t, importer.worktreeOps, "worktreeOps should be set")
+// newTestWorkService creates a WorkService with mocked dependencies for testing.
+func newTestWorkService(client github.ClientInterface, gitOps git.Operations, worktreeOps worktree.Operations) *WorkService {
+	return NewWorkServiceWithDeps(WorkServiceDeps{
+		GitHubClient: client,
+		Git:          gitOps,
+		Worktree:     worktreeOps,
+	})
 }
 
 func TestSetupWorktreeFromPR_Success(t *testing.T) {
@@ -73,9 +59,9 @@ func TestSetupWorktreeFromPR_Success(t *testing.T) {
 		},
 	}
 
-	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
+	svc := newTestWorkService(client, gitOps, worktreeOps)
 
-	resultMetadata, worktreePath, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
+	resultMetadata, worktreePath, err := svc.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
 
 	require.NoError(t, err)
 	require.True(t, fetchPRRefCalled, "FetchPRRef was not called")
@@ -115,9 +101,9 @@ func TestSetupWorktreeFromPR_CustomBranchName(t *testing.T) {
 		},
 	}
 
-	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
+	svc := newTestWorkService(client, gitOps, worktreeOps)
 
-	_, _, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "custom-branch")
+	_, _, err := svc.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "custom-branch")
 
 	require.NoError(t, err)
 }
@@ -134,9 +120,9 @@ func TestSetupWorktreeFromPR_MetadataError(t *testing.T) {
 	gitOps := &git.GitOperationsMock{}
 	worktreeOps := &worktree.WorktreeOperationsMock{}
 
-	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
+	svc := newTestWorkService(client, gitOps, worktreeOps)
 
-	_, _, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
+	_, _, err := svc.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
 
 	require.Error(t, err)
 	require.Equal(t, "failed to get PR metadata: API error", err.Error())
@@ -164,9 +150,9 @@ func TestSetupWorktreeFromPR_FetchPRRefError(t *testing.T) {
 
 	worktreeOps := &worktree.WorktreeOperationsMock{}
 
-	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
+	svc := newTestWorkService(client, gitOps, worktreeOps)
 
-	resultMetadata, _, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
+	resultMetadata, _, err := svc.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
 
 	require.Error(t, err)
 	// Metadata should still be returned on fetch failure
@@ -199,37 +185,13 @@ func TestSetupWorktreeFromPR_WorktreeCreateError(t *testing.T) {
 		},
 	}
 
-	importer := NewPRImporterWithOps(client, gitOps, worktreeOps)
+	svc := newTestWorkService(client, gitOps, worktreeOps)
 
-	resultMetadata, _, err := importer.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
+	resultMetadata, _, err := svc.SetupWorktreeFromPR(ctx, "/repo/path", "https://github.com/owner/repo/pull/123", "", "/work/dir", "")
 
 	require.Error(t, err)
 	// Metadata should still be returned on worktree create failure
 	require.NotNil(t, resultMetadata, "metadata should be returned even on worktree create failure")
-}
-
-func TestFetchPRMetadata(t *testing.T) {
-	ctx := context.Background()
-
-	expectedMetadata := &github.PRMetadata{
-		Number: 456,
-		Title:  "Test PR",
-	}
-
-	client := &github.GitHubClientMock{
-		GetPRMetadataFunc: func(ctx context.Context, prURLOrNumber string, repo string) (*github.PRMetadata, error) {
-			require.Equal(t, "456", prURLOrNumber)
-			require.Equal(t, "owner/repo", repo)
-			return expectedMetadata, nil
-		},
-	}
-
-	importer := NewPRImporter(client)
-
-	metadata, err := importer.FetchPRMetadata(ctx, "456", "owner/repo")
-
-	require.NoError(t, err)
-	require.Equal(t, 456, metadata.Number)
 }
 
 func TestMapPRToBeadCreate(t *testing.T) {
@@ -636,11 +598,11 @@ func TestParsePriority(t *testing.T) {
 		{"P2", 2},
 		{"P3", 3},
 		{"P4", 4},
-		{"p0", 2},       // lowercase doesn't match, defaults to 2
-		{"", 2},         // empty defaults to 2
-		{"P5", 2},       // unknown P-level defaults to 2
+		{"p0", 2},        // lowercase doesn't match, defaults to 2
+		{"", 2},          // empty defaults to 2
+		{"P5", 2},        // unknown P-level defaults to 2
 		{"invalid", 2},
-		{"P", 2},        // just P defaults to 2
+		{"P", 2},         // just P defaults to 2
 		{"Priority1", 2}, // doesn't start with P followed by digit
 	}
 
@@ -688,4 +650,3 @@ func TestCreateBeadResult(t *testing.T) {
 	require.False(t, skipResult.Created, "Created should be false for skipped bead")
 	require.NotEmpty(t, skipResult.SkipReason, "SkipReason should be set for skipped bead")
 }
-

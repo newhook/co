@@ -18,26 +18,8 @@ var _ SessionManager = &SessionManagerMock{}
 //
 //		// make and configure a mocked SessionManager
 //		mockedSessionManager := &SessionManagerMock{
-//			CreateSessionFunc: func(ctx context.Context, name string) error {
-//				panic("mock out the CreateSession method")
-//			},
-//			CreateSessionWithLayoutFunc: func(ctx context.Context, name string, projectRoot string) error {
-//				panic("mock out the CreateSessionWithLayout method")
-//			},
-//			DeleteSessionFunc: func(ctx context.Context, name string) error {
-//				panic("mock out the DeleteSession method")
-//			},
-//			EnsureSessionFunc: func(ctx context.Context, name string) (bool, error) {
-//				panic("mock out the EnsureSession method")
-//			},
-//			EnsureSessionWithLayoutFunc: func(ctx context.Context, name string, projectRoot string) (bool, error) {
-//				panic("mock out the EnsureSessionWithLayout method")
-//			},
-//			IsSessionActiveFunc: func(ctx context.Context, name string) (bool, error) {
-//				panic("mock out the IsSessionActive method")
-//			},
-//			ListSessionsFunc: func(ctx context.Context) ([]string, error) {
-//				panic("mock out the ListSessions method")
+//			EnsureSessionWithCommandFunc: func(ctx context.Context, sessionName string, tabName string, cwd string, command string, args []string) (bool, error) {
+//				panic("mock out the EnsureSessionWithCommand method")
 //			},
 //			SessionFunc: func(name string) Session {
 //				panic("mock out the Session method")
@@ -52,26 +34,8 @@ var _ SessionManager = &SessionManagerMock{}
 //
 //	}
 type SessionManagerMock struct {
-	// CreateSessionFunc mocks the CreateSession method.
-	CreateSessionFunc func(ctx context.Context, name string) error
-
-	// CreateSessionWithLayoutFunc mocks the CreateSessionWithLayout method.
-	CreateSessionWithLayoutFunc func(ctx context.Context, name string, projectRoot string) error
-
-	// DeleteSessionFunc mocks the DeleteSession method.
-	DeleteSessionFunc func(ctx context.Context, name string) error
-
-	// EnsureSessionFunc mocks the EnsureSession method.
-	EnsureSessionFunc func(ctx context.Context, name string) (bool, error)
-
-	// EnsureSessionWithLayoutFunc mocks the EnsureSessionWithLayout method.
-	EnsureSessionWithLayoutFunc func(ctx context.Context, name string, projectRoot string) (bool, error)
-
-	// IsSessionActiveFunc mocks the IsSessionActive method.
-	IsSessionActiveFunc func(ctx context.Context, name string) (bool, error)
-
-	// ListSessionsFunc mocks the ListSessions method.
-	ListSessionsFunc func(ctx context.Context) ([]string, error)
+	// EnsureSessionWithCommandFunc mocks the EnsureSessionWithCommand method.
+	EnsureSessionWithCommandFunc func(ctx context.Context, sessionName string, tabName string, cwd string, command string, args []string) (bool, error)
 
 	// SessionFunc mocks the Session method.
 	SessionFunc func(name string) Session
@@ -81,56 +45,20 @@ type SessionManagerMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// CreateSession holds details about calls to the CreateSession method.
-		CreateSession []struct {
+		// EnsureSessionWithCommand holds details about calls to the EnsureSessionWithCommand method.
+		EnsureSessionWithCommand []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-		}
-		// CreateSessionWithLayout holds details about calls to the CreateSessionWithLayout method.
-		CreateSessionWithLayout []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// ProjectRoot is the projectRoot argument value.
-			ProjectRoot string
-		}
-		// DeleteSession holds details about calls to the DeleteSession method.
-		DeleteSession []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-		}
-		// EnsureSession holds details about calls to the EnsureSession method.
-		EnsureSession []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-		}
-		// EnsureSessionWithLayout holds details about calls to the EnsureSessionWithLayout method.
-		EnsureSessionWithLayout []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// ProjectRoot is the projectRoot argument value.
-			ProjectRoot string
-		}
-		// IsSessionActive holds details about calls to the IsSessionActive method.
-		IsSessionActive []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-		}
-		// ListSessions holds details about calls to the ListSessions method.
-		ListSessions []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
+			// SessionName is the sessionName argument value.
+			SessionName string
+			// TabName is the tabName argument value.
+			TabName string
+			// Cwd is the cwd argument value.
+			Cwd string
+			// Command is the command argument value.
+			Command string
+			// Args is the args argument value.
+			Args []string
 		}
 		// Session holds details about calls to the Session method.
 		Session []struct {
@@ -145,295 +73,64 @@ type SessionManagerMock struct {
 			Name string
 		}
 	}
-	lockCreateSession           sync.RWMutex
-	lockCreateSessionWithLayout sync.RWMutex
-	lockDeleteSession           sync.RWMutex
-	lockEnsureSession           sync.RWMutex
-	lockEnsureSessionWithLayout sync.RWMutex
-	lockIsSessionActive         sync.RWMutex
-	lockListSessions            sync.RWMutex
-	lockSession                 sync.RWMutex
-	lockSessionExists           sync.RWMutex
+	lockEnsureSessionWithCommand sync.RWMutex
+	lockSession                  sync.RWMutex
+	lockSessionExists            sync.RWMutex
 }
 
-// CreateSession calls CreateSessionFunc.
-func (mock *SessionManagerMock) CreateSession(ctx context.Context, name string) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-	}{
-		Ctx:  ctx,
-		Name: name,
-	}
-	mock.lockCreateSession.Lock()
-	mock.calls.CreateSession = append(mock.calls.CreateSession, callInfo)
-	mock.lockCreateSession.Unlock()
-	if mock.CreateSessionFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.CreateSessionFunc(ctx, name)
-}
-
-// CreateSessionCalls gets all the calls that were made to CreateSession.
-// Check the length with:
-//
-//	len(mockedSessionManager.CreateSessionCalls())
-func (mock *SessionManagerMock) CreateSessionCalls() []struct {
-	Ctx  context.Context
-	Name string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-	}
-	mock.lockCreateSession.RLock()
-	calls = mock.calls.CreateSession
-	mock.lockCreateSession.RUnlock()
-	return calls
-}
-
-// CreateSessionWithLayout calls CreateSessionWithLayoutFunc.
-func (mock *SessionManagerMock) CreateSessionWithLayout(ctx context.Context, name string, projectRoot string) error {
+// EnsureSessionWithCommand calls EnsureSessionWithCommandFunc.
+func (mock *SessionManagerMock) EnsureSessionWithCommand(ctx context.Context, sessionName string, tabName string, cwd string, command string, args []string) (bool, error) {
 	callInfo := struct {
 		Ctx         context.Context
-		Name        string
-		ProjectRoot string
+		SessionName string
+		TabName     string
+		Cwd         string
+		Command     string
+		Args        []string
 	}{
 		Ctx:         ctx,
-		Name:        name,
-		ProjectRoot: projectRoot,
+		SessionName: sessionName,
+		TabName:     tabName,
+		Cwd:         cwd,
+		Command:     command,
+		Args:        args,
 	}
-	mock.lockCreateSessionWithLayout.Lock()
-	mock.calls.CreateSessionWithLayout = append(mock.calls.CreateSessionWithLayout, callInfo)
-	mock.lockCreateSessionWithLayout.Unlock()
-	if mock.CreateSessionWithLayoutFunc == nil {
+	mock.lockEnsureSessionWithCommand.Lock()
+	mock.calls.EnsureSessionWithCommand = append(mock.calls.EnsureSessionWithCommand, callInfo)
+	mock.lockEnsureSessionWithCommand.Unlock()
+	if mock.EnsureSessionWithCommandFunc == nil {
 		var (
+			bOut   bool
 			errOut error
 		)
-		return errOut
+		return bOut, errOut
 	}
-	return mock.CreateSessionWithLayoutFunc(ctx, name, projectRoot)
+	return mock.EnsureSessionWithCommandFunc(ctx, sessionName, tabName, cwd, command, args)
 }
 
-// CreateSessionWithLayoutCalls gets all the calls that were made to CreateSessionWithLayout.
+// EnsureSessionWithCommandCalls gets all the calls that were made to EnsureSessionWithCommand.
 // Check the length with:
 //
-//	len(mockedSessionManager.CreateSessionWithLayoutCalls())
-func (mock *SessionManagerMock) CreateSessionWithLayoutCalls() []struct {
+//	len(mockedSessionManager.EnsureSessionWithCommandCalls())
+func (mock *SessionManagerMock) EnsureSessionWithCommandCalls() []struct {
 	Ctx         context.Context
-	Name        string
-	ProjectRoot string
+	SessionName string
+	TabName     string
+	Cwd         string
+	Command     string
+	Args        []string
 } {
 	var calls []struct {
 		Ctx         context.Context
-		Name        string
-		ProjectRoot string
+		SessionName string
+		TabName     string
+		Cwd         string
+		Command     string
+		Args        []string
 	}
-	mock.lockCreateSessionWithLayout.RLock()
-	calls = mock.calls.CreateSessionWithLayout
-	mock.lockCreateSessionWithLayout.RUnlock()
-	return calls
-}
-
-// DeleteSession calls DeleteSessionFunc.
-func (mock *SessionManagerMock) DeleteSession(ctx context.Context, name string) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-	}{
-		Ctx:  ctx,
-		Name: name,
-	}
-	mock.lockDeleteSession.Lock()
-	mock.calls.DeleteSession = append(mock.calls.DeleteSession, callInfo)
-	mock.lockDeleteSession.Unlock()
-	if mock.DeleteSessionFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.DeleteSessionFunc(ctx, name)
-}
-
-// DeleteSessionCalls gets all the calls that were made to DeleteSession.
-// Check the length with:
-//
-//	len(mockedSessionManager.DeleteSessionCalls())
-func (mock *SessionManagerMock) DeleteSessionCalls() []struct {
-	Ctx  context.Context
-	Name string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-	}
-	mock.lockDeleteSession.RLock()
-	calls = mock.calls.DeleteSession
-	mock.lockDeleteSession.RUnlock()
-	return calls
-}
-
-// EnsureSession calls EnsureSessionFunc.
-func (mock *SessionManagerMock) EnsureSession(ctx context.Context, name string) (bool, error) {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-	}{
-		Ctx:  ctx,
-		Name: name,
-	}
-	mock.lockEnsureSession.Lock()
-	mock.calls.EnsureSession = append(mock.calls.EnsureSession, callInfo)
-	mock.lockEnsureSession.Unlock()
-	if mock.EnsureSessionFunc == nil {
-		var (
-			bOut   bool
-			errOut error
-		)
-		return bOut, errOut
-	}
-	return mock.EnsureSessionFunc(ctx, name)
-}
-
-// EnsureSessionCalls gets all the calls that were made to EnsureSession.
-// Check the length with:
-//
-//	len(mockedSessionManager.EnsureSessionCalls())
-func (mock *SessionManagerMock) EnsureSessionCalls() []struct {
-	Ctx  context.Context
-	Name string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-	}
-	mock.lockEnsureSession.RLock()
-	calls = mock.calls.EnsureSession
-	mock.lockEnsureSession.RUnlock()
-	return calls
-}
-
-// EnsureSessionWithLayout calls EnsureSessionWithLayoutFunc.
-func (mock *SessionManagerMock) EnsureSessionWithLayout(ctx context.Context, name string, projectRoot string) (bool, error) {
-	callInfo := struct {
-		Ctx         context.Context
-		Name        string
-		ProjectRoot string
-	}{
-		Ctx:         ctx,
-		Name:        name,
-		ProjectRoot: projectRoot,
-	}
-	mock.lockEnsureSessionWithLayout.Lock()
-	mock.calls.EnsureSessionWithLayout = append(mock.calls.EnsureSessionWithLayout, callInfo)
-	mock.lockEnsureSessionWithLayout.Unlock()
-	if mock.EnsureSessionWithLayoutFunc == nil {
-		var (
-			bOut   bool
-			errOut error
-		)
-		return bOut, errOut
-	}
-	return mock.EnsureSessionWithLayoutFunc(ctx, name, projectRoot)
-}
-
-// EnsureSessionWithLayoutCalls gets all the calls that were made to EnsureSessionWithLayout.
-// Check the length with:
-//
-//	len(mockedSessionManager.EnsureSessionWithLayoutCalls())
-func (mock *SessionManagerMock) EnsureSessionWithLayoutCalls() []struct {
-	Ctx         context.Context
-	Name        string
-	ProjectRoot string
-} {
-	var calls []struct {
-		Ctx         context.Context
-		Name        string
-		ProjectRoot string
-	}
-	mock.lockEnsureSessionWithLayout.RLock()
-	calls = mock.calls.EnsureSessionWithLayout
-	mock.lockEnsureSessionWithLayout.RUnlock()
-	return calls
-}
-
-// IsSessionActive calls IsSessionActiveFunc.
-func (mock *SessionManagerMock) IsSessionActive(ctx context.Context, name string) (bool, error) {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-	}{
-		Ctx:  ctx,
-		Name: name,
-	}
-	mock.lockIsSessionActive.Lock()
-	mock.calls.IsSessionActive = append(mock.calls.IsSessionActive, callInfo)
-	mock.lockIsSessionActive.Unlock()
-	if mock.IsSessionActiveFunc == nil {
-		var (
-			bOut   bool
-			errOut error
-		)
-		return bOut, errOut
-	}
-	return mock.IsSessionActiveFunc(ctx, name)
-}
-
-// IsSessionActiveCalls gets all the calls that were made to IsSessionActive.
-// Check the length with:
-//
-//	len(mockedSessionManager.IsSessionActiveCalls())
-func (mock *SessionManagerMock) IsSessionActiveCalls() []struct {
-	Ctx  context.Context
-	Name string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-	}
-	mock.lockIsSessionActive.RLock()
-	calls = mock.calls.IsSessionActive
-	mock.lockIsSessionActive.RUnlock()
-	return calls
-}
-
-// ListSessions calls ListSessionsFunc.
-func (mock *SessionManagerMock) ListSessions(ctx context.Context) ([]string, error) {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockListSessions.Lock()
-	mock.calls.ListSessions = append(mock.calls.ListSessions, callInfo)
-	mock.lockListSessions.Unlock()
-	if mock.ListSessionsFunc == nil {
-		var (
-			stringsOut []string
-			errOut     error
-		)
-		return stringsOut, errOut
-	}
-	return mock.ListSessionsFunc(ctx)
-}
-
-// ListSessionsCalls gets all the calls that were made to ListSessions.
-// Check the length with:
-//
-//	len(mockedSessionManager.ListSessionsCalls())
-func (mock *SessionManagerMock) ListSessionsCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockListSessions.RLock()
-	calls = mock.calls.ListSessions
-	mock.lockListSessions.RUnlock()
+	mock.lockEnsureSessionWithCommand.RLock()
+	calls = mock.calls.EnsureSessionWithCommand
+	mock.lockEnsureSessionWithCommand.RUnlock()
 	return calls
 }
 
@@ -522,35 +219,11 @@ var _ Session = &SessionMock{}
 //
 //		// make and configure a mocked Session
 //		mockedSession := &SessionMock{
-//			ClearAndExecuteFunc: func(ctx context.Context, cmd string) error {
-//				panic("mock out the ClearAndExecute method")
-//			},
-//			CloseTabFunc: func(ctx context.Context) error {
-//				panic("mock out the CloseTab method")
-//			},
-//			CreateTabFunc: func(ctx context.Context, name string, cwd string) error {
-//				panic("mock out the CreateTab method")
-//			},
 //			CreateTabWithCommandFunc: func(ctx context.Context, name string, cwd string, command string, args []string, paneName string) error {
 //				panic("mock out the CreateTabWithCommand method")
 //			},
-//			ExecuteCommandFunc: func(ctx context.Context, cmd string) error {
-//				panic("mock out the ExecuteCommand method")
-//			},
 //			QueryTabNamesFunc: func(ctx context.Context) ([]string, error) {
 //				panic("mock out the QueryTabNames method")
-//			},
-//			RunFunc: func(ctx context.Context, name string, cwd string, command ...string) error {
-//				panic("mock out the Run method")
-//			},
-//			RunFloatingFunc: func(ctx context.Context, name string, cwd string, command ...string) error {
-//				panic("mock out the RunFloating method")
-//			},
-//			SendCtrlCFunc: func(ctx context.Context) error {
-//				panic("mock out the SendCtrlC method")
-//			},
-//			SendEnterFunc: func(ctx context.Context) error {
-//				panic("mock out the SendEnter method")
 //			},
 //			SwitchToTabFunc: func(ctx context.Context, name string) error {
 //				panic("mock out the SwitchToTab method")
@@ -561,18 +234,6 @@ var _ Session = &SessionMock{}
 //			TerminateAndCloseTabFunc: func(ctx context.Context, tabName string) error {
 //				panic("mock out the TerminateAndCloseTab method")
 //			},
-//			TerminateProcessFunc: func(ctx context.Context) error {
-//				panic("mock out the TerminateProcess method")
-//			},
-//			ToggleFloatingPanesFunc: func(ctx context.Context) error {
-//				panic("mock out the ToggleFloatingPanes method")
-//			},
-//			WriteASCIIFunc: func(ctx context.Context, code int) error {
-//				panic("mock out the WriteASCII method")
-//			},
-//			WriteCharsFunc: func(ctx context.Context, text string) error {
-//				panic("mock out the WriteChars method")
-//			},
 //		}
 //
 //		// use mockedSession in code that requires Session
@@ -580,35 +241,11 @@ var _ Session = &SessionMock{}
 //
 //	}
 type SessionMock struct {
-	// ClearAndExecuteFunc mocks the ClearAndExecute method.
-	ClearAndExecuteFunc func(ctx context.Context, cmd string) error
-
-	// CloseTabFunc mocks the CloseTab method.
-	CloseTabFunc func(ctx context.Context) error
-
-	// CreateTabFunc mocks the CreateTab method.
-	CreateTabFunc func(ctx context.Context, name string, cwd string) error
-
 	// CreateTabWithCommandFunc mocks the CreateTabWithCommand method.
 	CreateTabWithCommandFunc func(ctx context.Context, name string, cwd string, command string, args []string, paneName string) error
 
-	// ExecuteCommandFunc mocks the ExecuteCommand method.
-	ExecuteCommandFunc func(ctx context.Context, cmd string) error
-
 	// QueryTabNamesFunc mocks the QueryTabNames method.
 	QueryTabNamesFunc func(ctx context.Context) ([]string, error)
-
-	// RunFunc mocks the Run method.
-	RunFunc func(ctx context.Context, name string, cwd string, command ...string) error
-
-	// RunFloatingFunc mocks the RunFloating method.
-	RunFloatingFunc func(ctx context.Context, name string, cwd string, command ...string) error
-
-	// SendCtrlCFunc mocks the SendCtrlC method.
-	SendCtrlCFunc func(ctx context.Context) error
-
-	// SendEnterFunc mocks the SendEnter method.
-	SendEnterFunc func(ctx context.Context) error
 
 	// SwitchToTabFunc mocks the SwitchToTab method.
 	SwitchToTabFunc func(ctx context.Context, name string) error
@@ -619,41 +256,8 @@ type SessionMock struct {
 	// TerminateAndCloseTabFunc mocks the TerminateAndCloseTab method.
 	TerminateAndCloseTabFunc func(ctx context.Context, tabName string) error
 
-	// TerminateProcessFunc mocks the TerminateProcess method.
-	TerminateProcessFunc func(ctx context.Context) error
-
-	// ToggleFloatingPanesFunc mocks the ToggleFloatingPanes method.
-	ToggleFloatingPanesFunc func(ctx context.Context) error
-
-	// WriteASCIIFunc mocks the WriteASCII method.
-	WriteASCIIFunc func(ctx context.Context, code int) error
-
-	// WriteCharsFunc mocks the WriteChars method.
-	WriteCharsFunc func(ctx context.Context, text string) error
-
 	// calls tracks calls to the methods.
 	calls struct {
-		// ClearAndExecute holds details about calls to the ClearAndExecute method.
-		ClearAndExecute []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Cmd is the cmd argument value.
-			Cmd string
-		}
-		// CloseTab holds details about calls to the CloseTab method.
-		CloseTab []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
-		// CreateTab holds details about calls to the CreateTab method.
-		CreateTab []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// Cwd is the cwd argument value.
-			Cwd string
-		}
 		// CreateTabWithCommand holds details about calls to the CreateTabWithCommand method.
 		CreateTabWithCommand []struct {
 			// Ctx is the ctx argument value.
@@ -669,47 +273,8 @@ type SessionMock struct {
 			// PaneName is the paneName argument value.
 			PaneName string
 		}
-		// ExecuteCommand holds details about calls to the ExecuteCommand method.
-		ExecuteCommand []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Cmd is the cmd argument value.
-			Cmd string
-		}
 		// QueryTabNames holds details about calls to the QueryTabNames method.
 		QueryTabNames []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
-		// Run holds details about calls to the Run method.
-		Run []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// Cwd is the cwd argument value.
-			Cwd string
-			// Command is the command argument value.
-			Command []string
-		}
-		// RunFloating holds details about calls to the RunFloating method.
-		RunFloating []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// Cwd is the cwd argument value.
-			Cwd string
-			// Command is the command argument value.
-			Command []string
-		}
-		// SendCtrlC holds details about calls to the SendCtrlC method.
-		SendCtrlC []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
-		// SendEnter holds details about calls to the SendEnter method.
-		SendEnter []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
@@ -734,165 +299,12 @@ type SessionMock struct {
 			// TabName is the tabName argument value.
 			TabName string
 		}
-		// TerminateProcess holds details about calls to the TerminateProcess method.
-		TerminateProcess []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
-		// ToggleFloatingPanes holds details about calls to the ToggleFloatingPanes method.
-		ToggleFloatingPanes []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
-		// WriteASCII holds details about calls to the WriteASCII method.
-		WriteASCII []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Code is the code argument value.
-			Code int
-		}
-		// WriteChars holds details about calls to the WriteChars method.
-		WriteChars []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Text is the text argument value.
-			Text string
-		}
 	}
-	lockClearAndExecute      sync.RWMutex
-	lockCloseTab             sync.RWMutex
-	lockCreateTab            sync.RWMutex
 	lockCreateTabWithCommand sync.RWMutex
-	lockExecuteCommand       sync.RWMutex
 	lockQueryTabNames        sync.RWMutex
-	lockRun                  sync.RWMutex
-	lockRunFloating          sync.RWMutex
-	lockSendCtrlC            sync.RWMutex
-	lockSendEnter            sync.RWMutex
 	lockSwitchToTab          sync.RWMutex
 	lockTabExists            sync.RWMutex
 	lockTerminateAndCloseTab sync.RWMutex
-	lockTerminateProcess     sync.RWMutex
-	lockToggleFloatingPanes  sync.RWMutex
-	lockWriteASCII           sync.RWMutex
-	lockWriteChars           sync.RWMutex
-}
-
-// ClearAndExecute calls ClearAndExecuteFunc.
-func (mock *SessionMock) ClearAndExecute(ctx context.Context, cmd string) error {
-	callInfo := struct {
-		Ctx context.Context
-		Cmd string
-	}{
-		Ctx: ctx,
-		Cmd: cmd,
-	}
-	mock.lockClearAndExecute.Lock()
-	mock.calls.ClearAndExecute = append(mock.calls.ClearAndExecute, callInfo)
-	mock.lockClearAndExecute.Unlock()
-	if mock.ClearAndExecuteFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.ClearAndExecuteFunc(ctx, cmd)
-}
-
-// ClearAndExecuteCalls gets all the calls that were made to ClearAndExecute.
-// Check the length with:
-//
-//	len(mockedSession.ClearAndExecuteCalls())
-func (mock *SessionMock) ClearAndExecuteCalls() []struct {
-	Ctx context.Context
-	Cmd string
-} {
-	var calls []struct {
-		Ctx context.Context
-		Cmd string
-	}
-	mock.lockClearAndExecute.RLock()
-	calls = mock.calls.ClearAndExecute
-	mock.lockClearAndExecute.RUnlock()
-	return calls
-}
-
-// CloseTab calls CloseTabFunc.
-func (mock *SessionMock) CloseTab(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockCloseTab.Lock()
-	mock.calls.CloseTab = append(mock.calls.CloseTab, callInfo)
-	mock.lockCloseTab.Unlock()
-	if mock.CloseTabFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.CloseTabFunc(ctx)
-}
-
-// CloseTabCalls gets all the calls that were made to CloseTab.
-// Check the length with:
-//
-//	len(mockedSession.CloseTabCalls())
-func (mock *SessionMock) CloseTabCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockCloseTab.RLock()
-	calls = mock.calls.CloseTab
-	mock.lockCloseTab.RUnlock()
-	return calls
-}
-
-// CreateTab calls CreateTabFunc.
-func (mock *SessionMock) CreateTab(ctx context.Context, name string, cwd string) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-		Cwd  string
-	}{
-		Ctx:  ctx,
-		Name: name,
-		Cwd:  cwd,
-	}
-	mock.lockCreateTab.Lock()
-	mock.calls.CreateTab = append(mock.calls.CreateTab, callInfo)
-	mock.lockCreateTab.Unlock()
-	if mock.CreateTabFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.CreateTabFunc(ctx, name, cwd)
-}
-
-// CreateTabCalls gets all the calls that were made to CreateTab.
-// Check the length with:
-//
-//	len(mockedSession.CreateTabCalls())
-func (mock *SessionMock) CreateTabCalls() []struct {
-	Ctx  context.Context
-	Name string
-	Cwd  string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-		Cwd  string
-	}
-	mock.lockCreateTab.RLock()
-	calls = mock.calls.CreateTab
-	mock.lockCreateTab.RUnlock()
-	return calls
 }
 
 // CreateTabWithCommand calls CreateTabWithCommandFunc.
@@ -950,45 +362,6 @@ func (mock *SessionMock) CreateTabWithCommandCalls() []struct {
 	return calls
 }
 
-// ExecuteCommand calls ExecuteCommandFunc.
-func (mock *SessionMock) ExecuteCommand(ctx context.Context, cmd string) error {
-	callInfo := struct {
-		Ctx context.Context
-		Cmd string
-	}{
-		Ctx: ctx,
-		Cmd: cmd,
-	}
-	mock.lockExecuteCommand.Lock()
-	mock.calls.ExecuteCommand = append(mock.calls.ExecuteCommand, callInfo)
-	mock.lockExecuteCommand.Unlock()
-	if mock.ExecuteCommandFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.ExecuteCommandFunc(ctx, cmd)
-}
-
-// ExecuteCommandCalls gets all the calls that were made to ExecuteCommand.
-// Check the length with:
-//
-//	len(mockedSession.ExecuteCommandCalls())
-func (mock *SessionMock) ExecuteCommandCalls() []struct {
-	Ctx context.Context
-	Cmd string
-} {
-	var calls []struct {
-		Ctx context.Context
-		Cmd string
-	}
-	mock.lockExecuteCommand.RLock()
-	calls = mock.calls.ExecuteCommand
-	mock.lockExecuteCommand.RUnlock()
-	return calls
-}
-
 // QueryTabNames calls QueryTabNamesFunc.
 func (mock *SessionMock) QueryTabNames(ctx context.Context) ([]string, error) {
 	callInfo := struct {
@@ -1022,170 +395,6 @@ func (mock *SessionMock) QueryTabNamesCalls() []struct {
 	mock.lockQueryTabNames.RLock()
 	calls = mock.calls.QueryTabNames
 	mock.lockQueryTabNames.RUnlock()
-	return calls
-}
-
-// Run calls RunFunc.
-func (mock *SessionMock) Run(ctx context.Context, name string, cwd string, command ...string) error {
-	callInfo := struct {
-		Ctx     context.Context
-		Name    string
-		Cwd     string
-		Command []string
-	}{
-		Ctx:     ctx,
-		Name:    name,
-		Cwd:     cwd,
-		Command: command,
-	}
-	mock.lockRun.Lock()
-	mock.calls.Run = append(mock.calls.Run, callInfo)
-	mock.lockRun.Unlock()
-	if mock.RunFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.RunFunc(ctx, name, cwd, command...)
-}
-
-// RunCalls gets all the calls that were made to Run.
-// Check the length with:
-//
-//	len(mockedSession.RunCalls())
-func (mock *SessionMock) RunCalls() []struct {
-	Ctx     context.Context
-	Name    string
-	Cwd     string
-	Command []string
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Name    string
-		Cwd     string
-		Command []string
-	}
-	mock.lockRun.RLock()
-	calls = mock.calls.Run
-	mock.lockRun.RUnlock()
-	return calls
-}
-
-// RunFloating calls RunFloatingFunc.
-func (mock *SessionMock) RunFloating(ctx context.Context, name string, cwd string, command ...string) error {
-	callInfo := struct {
-		Ctx     context.Context
-		Name    string
-		Cwd     string
-		Command []string
-	}{
-		Ctx:     ctx,
-		Name:    name,
-		Cwd:     cwd,
-		Command: command,
-	}
-	mock.lockRunFloating.Lock()
-	mock.calls.RunFloating = append(mock.calls.RunFloating, callInfo)
-	mock.lockRunFloating.Unlock()
-	if mock.RunFloatingFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.RunFloatingFunc(ctx, name, cwd, command...)
-}
-
-// RunFloatingCalls gets all the calls that were made to RunFloating.
-// Check the length with:
-//
-//	len(mockedSession.RunFloatingCalls())
-func (mock *SessionMock) RunFloatingCalls() []struct {
-	Ctx     context.Context
-	Name    string
-	Cwd     string
-	Command []string
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Name    string
-		Cwd     string
-		Command []string
-	}
-	mock.lockRunFloating.RLock()
-	calls = mock.calls.RunFloating
-	mock.lockRunFloating.RUnlock()
-	return calls
-}
-
-// SendCtrlC calls SendCtrlCFunc.
-func (mock *SessionMock) SendCtrlC(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockSendCtrlC.Lock()
-	mock.calls.SendCtrlC = append(mock.calls.SendCtrlC, callInfo)
-	mock.lockSendCtrlC.Unlock()
-	if mock.SendCtrlCFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.SendCtrlCFunc(ctx)
-}
-
-// SendCtrlCCalls gets all the calls that were made to SendCtrlC.
-// Check the length with:
-//
-//	len(mockedSession.SendCtrlCCalls())
-func (mock *SessionMock) SendCtrlCCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockSendCtrlC.RLock()
-	calls = mock.calls.SendCtrlC
-	mock.lockSendCtrlC.RUnlock()
-	return calls
-}
-
-// SendEnter calls SendEnterFunc.
-func (mock *SessionMock) SendEnter(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockSendEnter.Lock()
-	mock.calls.SendEnter = append(mock.calls.SendEnter, callInfo)
-	mock.lockSendEnter.Unlock()
-	if mock.SendEnterFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.SendEnterFunc(ctx)
-}
-
-// SendEnterCalls gets all the calls that were made to SendEnter.
-// Check the length with:
-//
-//	len(mockedSession.SendEnterCalls())
-func (mock *SessionMock) SendEnterCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockSendEnter.RLock()
-	calls = mock.calls.SendEnter
-	mock.lockSendEnter.RUnlock()
 	return calls
 }
 
@@ -1304,153 +513,5 @@ func (mock *SessionMock) TerminateAndCloseTabCalls() []struct {
 	mock.lockTerminateAndCloseTab.RLock()
 	calls = mock.calls.TerminateAndCloseTab
 	mock.lockTerminateAndCloseTab.RUnlock()
-	return calls
-}
-
-// TerminateProcess calls TerminateProcessFunc.
-func (mock *SessionMock) TerminateProcess(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockTerminateProcess.Lock()
-	mock.calls.TerminateProcess = append(mock.calls.TerminateProcess, callInfo)
-	mock.lockTerminateProcess.Unlock()
-	if mock.TerminateProcessFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.TerminateProcessFunc(ctx)
-}
-
-// TerminateProcessCalls gets all the calls that were made to TerminateProcess.
-// Check the length with:
-//
-//	len(mockedSession.TerminateProcessCalls())
-func (mock *SessionMock) TerminateProcessCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockTerminateProcess.RLock()
-	calls = mock.calls.TerminateProcess
-	mock.lockTerminateProcess.RUnlock()
-	return calls
-}
-
-// ToggleFloatingPanes calls ToggleFloatingPanesFunc.
-func (mock *SessionMock) ToggleFloatingPanes(ctx context.Context) error {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockToggleFloatingPanes.Lock()
-	mock.calls.ToggleFloatingPanes = append(mock.calls.ToggleFloatingPanes, callInfo)
-	mock.lockToggleFloatingPanes.Unlock()
-	if mock.ToggleFloatingPanesFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.ToggleFloatingPanesFunc(ctx)
-}
-
-// ToggleFloatingPanesCalls gets all the calls that were made to ToggleFloatingPanes.
-// Check the length with:
-//
-//	len(mockedSession.ToggleFloatingPanesCalls())
-func (mock *SessionMock) ToggleFloatingPanesCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockToggleFloatingPanes.RLock()
-	calls = mock.calls.ToggleFloatingPanes
-	mock.lockToggleFloatingPanes.RUnlock()
-	return calls
-}
-
-// WriteASCII calls WriteASCIIFunc.
-func (mock *SessionMock) WriteASCII(ctx context.Context, code int) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Code int
-	}{
-		Ctx:  ctx,
-		Code: code,
-	}
-	mock.lockWriteASCII.Lock()
-	mock.calls.WriteASCII = append(mock.calls.WriteASCII, callInfo)
-	mock.lockWriteASCII.Unlock()
-	if mock.WriteASCIIFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.WriteASCIIFunc(ctx, code)
-}
-
-// WriteASCIICalls gets all the calls that were made to WriteASCII.
-// Check the length with:
-//
-//	len(mockedSession.WriteASCIICalls())
-func (mock *SessionMock) WriteASCIICalls() []struct {
-	Ctx  context.Context
-	Code int
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Code int
-	}
-	mock.lockWriteASCII.RLock()
-	calls = mock.calls.WriteASCII
-	mock.lockWriteASCII.RUnlock()
-	return calls
-}
-
-// WriteChars calls WriteCharsFunc.
-func (mock *SessionMock) WriteChars(ctx context.Context, text string) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Text string
-	}{
-		Ctx:  ctx,
-		Text: text,
-	}
-	mock.lockWriteChars.Lock()
-	mock.calls.WriteChars = append(mock.calls.WriteChars, callInfo)
-	mock.lockWriteChars.Unlock()
-	if mock.WriteCharsFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.WriteCharsFunc(ctx, text)
-}
-
-// WriteCharsCalls gets all the calls that were made to WriteChars.
-// Check the length with:
-//
-//	len(mockedSession.WriteCharsCalls())
-func (mock *SessionMock) WriteCharsCalls() []struct {
-	Ctx  context.Context
-	Text string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Text string
-	}
-	mock.lockWriteChars.RLock()
-	calls = mock.calls.WriteChars
-	mock.lockWriteChars.RUnlock()
 	return calls
 }

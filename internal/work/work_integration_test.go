@@ -22,7 +22,11 @@ func TestWorkCreation_Success(t *testing.T) {
 	h.CreateBead("bead-1", "Implement feature X")
 
 	// Create work asynchronously
-	result, err := h.WorkService.CreateWorkAsync(ctx, "feat/implement-feature-x", "main", "bead-1", false)
+	result, err := h.WorkService.CreateWorkAsyncWithOptions(ctx, work.CreateWorkAsyncOptions{
+		BranchName:  "feat/implement-feature-x",
+		BaseBranch:  "main",
+		RootIssueID: "bead-1",
+	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -99,7 +103,10 @@ func TestWorkCreation_BranchNameCollision(t *testing.T) {
 	h.MockBranchExists("feat/existing-branch", true, false)
 
 	// Create work with a branch name that exists
-	result, err := h.WorkService.CreateWorkAsync(ctx, "feat/existing-branch", "main", "", false)
+	result, err := h.WorkService.CreateWorkAsyncWithOptions(ctx, work.CreateWorkAsyncOptions{
+		BranchName: "feat/existing-branch",
+		BaseBranch: "main",
+	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -124,7 +131,10 @@ func TestWorkCreation_GitPushFailure(t *testing.T) {
 	h.MockGitPushFails(errors.New("push failed: remote rejected"))
 
 	// Work creation should succeed (it schedules tasks, doesn't push directly)
-	result, err := h.WorkService.CreateWorkAsync(ctx, "feat/will-fail-push", "main", "", false)
+	result, err := h.WorkService.CreateWorkAsyncWithOptions(ctx, work.CreateWorkAsyncOptions{
+		BranchName: "feat/will-fail-push",
+		BaseBranch: "main",
+	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -144,7 +154,12 @@ func TestWorkCreation_SchedulesControlPlaneTask(t *testing.T) {
 	ctx := context.Background()
 
 	// Create work with auto mode enabled
-	result, err := h.WorkService.CreateWorkAsync(ctx, "feat/auto-work", "main", "root-issue", true)
+	result, err := h.WorkService.CreateWorkAsyncWithOptions(ctx, work.CreateWorkAsyncOptions{
+		BranchName:  "feat/auto-work",
+		BaseBranch:  "main",
+		RootIssueID: "root-issue",
+		Auto:        true,
+	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -245,10 +260,16 @@ func TestWorkCreation_GeneratesWorkerName(t *testing.T) {
 	ctx := context.Background()
 
 	// Create multiple works and verify they get unique worker names
-	result1, err := h.WorkService.CreateWorkAsync(ctx, "feat/work-1", "main", "", false)
+	result1, err := h.WorkService.CreateWorkAsyncWithOptions(ctx, work.CreateWorkAsyncOptions{
+		BranchName: "feat/work-1",
+		BaseBranch: "main",
+	})
 	require.NoError(t, err)
 
-	result2, err := h.WorkService.CreateWorkAsync(ctx, "feat/work-2", "main", "", false)
+	result2, err := h.WorkService.CreateWorkAsyncWithOptions(ctx, work.CreateWorkAsyncOptions{
+		BranchName: "feat/work-2",
+		BaseBranch: "main",
+	})
 	require.NoError(t, err)
 
 	// Worker names should be different

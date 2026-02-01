@@ -316,7 +316,7 @@ func TestHandleDestroyWorktreeTask(t *testing.T) {
 	t.Run("succeeds when work exists", func(t *testing.T) {
 		mocks := setupControlPlane()
 
-		mocks.Destroyer.DestroyWorkFunc = func(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
+		mocks.Destroyer.DestroyWorkFunc = func(ctx context.Context, workID string, w io.Writer) error {
 			return nil
 		}
 
@@ -360,7 +360,7 @@ func TestHandleDestroyWorktreeTask(t *testing.T) {
 	t.Run("returns error when destroyer fails", func(t *testing.T) {
 		mocks := setupControlPlane()
 
-		mocks.Destroyer.DestroyWorkFunc = func(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
+		mocks.Destroyer.DestroyWorkFunc = func(ctx context.Context, workID string, w io.Writer) error {
 			return errors.New("filesystem error")
 		}
 
@@ -486,7 +486,10 @@ func TestGetTaskHandlers(t *testing.T) {
 }
 
 func TestNewControlPlane(t *testing.T) {
-	cp := control.NewControlPlane()
+	proj, cleanup := setupTestProject(t)
+	defer cleanup()
+
+	cp := control.NewControlPlane(proj)
 	require.NotNil(t, cp)
 
 	// Verify default dependencies are set

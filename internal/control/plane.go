@@ -6,7 +6,6 @@ import (
 	"context"
 	"io"
 
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback"
 	"github.com/newhook/co/internal/git"
@@ -27,23 +26,41 @@ type OrchestratorSpawner interface {
 // WorkDestroyer defines the interface for destroying work units.
 // This abstraction enables testing without actual file system operations.
 type WorkDestroyer interface {
-	DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error
+	DestroyWork(ctx context.Context, workID string, w io.Writer) error
 }
 
-// DefaultOrchestratorSpawner implements OrchestratorSpawner using the claude package.
-type DefaultOrchestratorSpawner struct{}
+// DefaultOrchestratorSpawner implements OrchestratorSpawner using the work package.
+type DefaultOrchestratorSpawner struct {
+	orchestratorManager work.OrchestratorManager
+}
+
+// NewOrchestratorSpawner creates a new DefaultOrchestratorSpawner with the given database.
+func NewOrchestratorSpawner(database *db.DB) *DefaultOrchestratorSpawner {
+	return &DefaultOrchestratorSpawner{
+		orchestratorManager: work.NewOrchestratorManager(database),
+	}
+}
 
 // SpawnWorkOrchestrator implements OrchestratorSpawner.
 func (d *DefaultOrchestratorSpawner) SpawnWorkOrchestrator(ctx context.Context, workID, projectName, workDir, friendlyName string, w io.Writer) error {
-	return claude.SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w)
+	return d.orchestratorManager.SpawnWorkOrchestrator(ctx, workID, projectName, workDir, friendlyName, w)
 }
 
 // DefaultWorkDestroyer implements WorkDestroyer using the work package.
-type DefaultWorkDestroyer struct{}
+type DefaultWorkDestroyer struct {
+	workService *work.WorkService
+}
+
+// NewWorkDestroyer creates a new DefaultWorkDestroyer with a WorkService.
+func NewWorkDestroyer(proj *project.Project) *DefaultWorkDestroyer {
+	return &DefaultWorkDestroyer{
+		workService: work.NewWorkService(proj),
+	}
+}
 
 // DestroyWork implements WorkDestroyer.
-func (d *DefaultWorkDestroyer) DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
-	return work.DestroyWork(ctx, proj, workID, w)
+func (d *DefaultWorkDestroyer) DestroyWork(ctx context.Context, workID string, w io.Writer) error {
+	return d.workService.DestroyWork(ctx, workID, w)
 }
 
 // ControlPlane manages the execution of scheduled tasks with injectable dependencies.
@@ -60,15 +77,15 @@ type ControlPlane struct {
 }
 
 // NewControlPlane creates a new ControlPlane with default production dependencies.
-func NewControlPlane() *ControlPlane {
+func NewControlPlane(proj *project.Project) *ControlPlane {
 	return &ControlPlane{
 		Git:                 git.NewOperations(),
 		Worktree:            worktree.NewOperations(),
 		Zellij:              zellij.New(),
 		Mise:                mise.NewOperations,
 		FeedbackProcessor:   feedback.NewProcessor(),
-		OrchestratorSpawner: &DefaultOrchestratorSpawner{},
-		WorkDestroyer:       &DefaultWorkDestroyer{},
+		OrchestratorSpawner: NewOrchestratorSpawner(proj.DB),
+		WorkDestroyer:       NewWorkDestroyer(proj),
 		GitHubClient:        github.NewClient(),
 	}
 }

@@ -12,8 +12,7 @@ import (
 )
 
 // ControlPlaneTabName is the name of the control plane tab in zellij
-// Deprecated: Use control.TabName instead
-const ControlPlaneTabName = control.TabName
+const ControlPlaneTabName = control.ControlPlaneTabName
 
 var controlCmd = &cobra.Command{
 	Use:   "control",
