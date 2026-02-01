@@ -10,6 +10,7 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/feedback"
 	"github.com/newhook/co/internal/git"
+	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/mise"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/work"
@@ -55,6 +56,7 @@ type ControlPlane struct {
 	FeedbackProcessor   feedback.Processor
 	OrchestratorSpawner OrchestratorSpawner
 	WorkDestroyer       WorkDestroyer
+	GitHubClient        github.ClientInterface
 }
 
 // NewControlPlane creates a new ControlPlane with default production dependencies.
@@ -67,6 +69,7 @@ func NewControlPlane() *ControlPlane {
 		FeedbackProcessor:   feedback.NewProcessor(),
 		OrchestratorSpawner: &DefaultOrchestratorSpawner{},
 		WorkDestroyer:       &DefaultWorkDestroyer{},
+		GitHubClient:        github.NewClient(),
 	}
 }
 
@@ -79,6 +82,7 @@ func NewControlPlaneWithDeps(
 	feedbackProc feedback.Processor,
 	orchestratorSpawner OrchestratorSpawner,
 	workDestroyer WorkDestroyer,
+	githubClient github.ClientInterface,
 ) *ControlPlane {
 	return &ControlPlane{
 		Git:                 gitOps,
@@ -88,6 +92,7 @@ func NewControlPlaneWithDeps(
 		FeedbackProcessor:   feedbackProc,
 		OrchestratorSpawner: orchestratorSpawner,
 		WorkDestroyer:       workDestroyer,
+		GitHubClient:        githubClient,
 	}
 }
 
@@ -99,6 +104,7 @@ func (cp *ControlPlane) GetTaskHandlers() map[string]TaskHandler {
 		db.TaskTypePRFeedback:          cp.HandlePRFeedbackTask,
 		db.TaskTypeGitPush:             cp.HandleGitPushTask,
 		db.TaskTypeDestroyWorktree:     cp.HandleDestroyWorktreeTask,
+		db.TaskTypeWatchWorkflowRun:    cp.HandleWatchWorkflowRunTask,
 		// These handlers don't need ControlPlane dependencies - keep as standalone functions
 		db.TaskTypeImportPR:            HandleImportPRTask,
 		db.TaskTypeCommentResolution:   HandleCommentResolutionTask,
