@@ -171,7 +171,7 @@ func (m *DefaultOrchestratorManager) TerminateWorkTabs(ctx context.Context, work
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
 //
 // IMPORTANT: The zellij session must already exist before calling this function.
-// Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
+// Callers should use session.Initialize or session.EnsureControlPlane to ensure
 // the session exists with the control plane running.
 func (m *DefaultOrchestratorManager) SpawnWorkOrchestrator(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, w io.Writer) error {
 	logging.Debug("SpawnWorkOrchestrator called", "workID", workID, "projectName", projectName, "workDir", workDir)
@@ -187,7 +187,7 @@ func (m *DefaultOrchestratorManager) SpawnWorkOrchestrator(ctx context.Context, 
 	}
 	if !exists {
 		logging.Error("SpawnWorkOrchestrator session does not exist", "sessionName", sessionName)
-		return fmt.Errorf("zellij session %s does not exist - call control.InitializeSession first", sessionName)
+		return fmt.Errorf("zellij session %s does not exist - call session.Initialize first", sessionName)
 	}
 
 	// Check if tab already exists

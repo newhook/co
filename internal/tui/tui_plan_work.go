@@ -13,6 +13,7 @@ import (
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/process"
 	"github.com/newhook/co/internal/progress"
+	"github.com/newhook/co/internal/session"
 	workpkg "github.com/newhook/co/internal/work"
 )
 
@@ -24,25 +25,25 @@ func (m *planModel) sessionName() string {
 // spawnPlanSession spawns or resumes a planning session for a specific bead
 func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 	return func() tea.Msg {
-		session := m.sessionName()
+		zellijSession := m.sessionName()
 		tabName := workpkg.PlanTabName(beadID)
 		mainRepoPath := m.proj.MainRepoPath()
 
-		logging.Debug("spawnPlanSession started", "beadID", beadID, "session", session, "tabName", tabName)
+		logging.Debug("spawnPlanSession started", "beadID", beadID, "session", zellijSession, "tabName", tabName)
 
 		// Check if session already running for this bead
 		running, _ := m.proj.DB.IsPlanSessionRunning(m.ctx, beadID)
 		logging.Debug("spawnPlanSession checked if running", "beadID", beadID, "running", running)
 		if running {
 			// Session exists - just switch to it
-			if err := m.zj.Session(session).SwitchToTab(m.ctx, tabName); err != nil {
+			if err := m.zj.Session(zellijSession).SwitchToTab(m.ctx, tabName); err != nil {
 				return planSessionSpawnedMsg{beadID: beadID, err: err}
 			}
 			return planSessionSpawnedMsg{beadID: beadID, resumed: true}
 		}
 
 		// Initialize zellij session (spawns control plane if new session)
-		sessionResult, err := control.InitializeSession(m.ctx, m.proj)
+		sessionResult, err := session.Initialize(m.ctx, m.proj)
 		if err != nil {
 			logging.Error("spawnPlanSession InitializeSession failed", "beadID", beadID, "error", err)
 			return planSessionSpawnedMsg{beadID: beadID, err: err}
@@ -161,7 +162,7 @@ func (m *planModel) destroyWork(workID string) tea.Cmd {
 		}
 
 		// Ensure control plane is running to process the destroy task
-		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+		if err := session.EnsureControlPlane(m.ctx, m.proj); err != nil {
 			// Non-fatal: task was scheduled but control plane might need manual start
 			return workCommandMsg{action: "Destroy work scheduled", workID: workID, err: fmt.Errorf("destroy scheduled but control plane failed: %w", err)}
 		}
@@ -280,7 +281,7 @@ func (m *planModel) openConsole() tea.Cmd {
 		}
 
 		// Ensure control plane is running (creates session if needed)
-		err = control.EnsureControlPlane(m.ctx, m.proj)
+		err = session.EnsureControlPlane(m.ctx, m.proj)
 		if err != nil {
 			return workCommandMsg{action: "Control plane", workID: workID, err: err}
 		}
@@ -349,7 +350,7 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 		}
 
 		// Ensure control plane is running (may have been killed along with zellij)
-		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+		if err := session.EnsureControlPlane(m.ctx, m.proj); err != nil {
 			return workCommandMsg{action: "Restart orchestrator", workID: workID, err: fmt.Errorf("failed to ensure control plane: %w", err)}
 		}
 
@@ -383,7 +384,7 @@ func (m *planModel) checkPRFeedback() tea.Cmd {
 		}
 
 		// Ensure control plane is running to process the feedback check
-		if err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
+		if err := session.EnsureControlPlane(m.ctx, m.proj); err != nil {
 			return workCommandMsg{action: "PR feedback check triggered", workID: workID, err: fmt.Errorf("feedback check scheduled but control plane failed: %w", err)}
 		}
 

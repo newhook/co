@@ -1,6 +1,6 @@
 // Package session provides zellij session management for the co orchestrator.
-// This package is separate from control to avoid import cycles - work can import
-// session without creating a cycle with control (which imports work).
+// This package is separate from control to avoid import cycles - both work and
+// control can import session without creating a cycle (control imports work).
 package session
 
 import (

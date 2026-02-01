@@ -24,7 +24,7 @@ func PlanTabName(beadID string) string {
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
 //
 // IMPORTANT: The zellij session must already exist before calling this function.
-// Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
+// Callers should use session.Initialize or session.EnsureControlPlane to ensure
 // the session exists with the control plane running.
 func (m *DefaultOrchestratorManager) OpenConsole(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
@@ -36,7 +36,7 @@ func (m *DefaultOrchestratorManager) OpenConsole(ctx context.Context, workID str
 		return fmt.Errorf("failed to check session existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("zellij session %s does not exist - call control.InitializeSession first", sessionName)
+		return fmt.Errorf("zellij session %s does not exist - call session.Initialize first", sessionName)
 	}
 
 	// Check if tab already exists
@@ -88,7 +88,7 @@ func (m *DefaultOrchestratorManager) OpenConsole(ctx context.Context, workID str
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
 //
 // IMPORTANT: The zellij session must already exist before calling this function.
-// Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
+// Callers should use session.Initialize or session.EnsureControlPlane to ensure
 // the session exists with the control plane running.
 func (m *DefaultOrchestratorManager) OpenClaudeSession(ctx context.Context, workID string, projectName string, workDir string, friendlyName string, hooksEnv []string, cfg *project.Config, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
@@ -100,7 +100,7 @@ func (m *DefaultOrchestratorManager) OpenClaudeSession(ctx context.Context, work
 		return fmt.Errorf("failed to check session existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("zellij session %s does not exist - call control.InitializeSession first", sessionName)
+		return fmt.Errorf("zellij session %s does not exist - call session.Initialize first", sessionName)
 	}
 
 	// Check if tab already exists
@@ -153,7 +153,7 @@ func (m *DefaultOrchestratorManager) OpenClaudeSession(ctx context.Context, work
 // Progress messages are written to the provided writer. Pass io.Discard to suppress output.
 //
 // IMPORTANT: The zellij session must already exist before calling this function.
-// Callers should use control.InitializeSession or control.EnsureControlPlane to ensure
+// Callers should use session.Initialize or session.EnsureControlPlane to ensure
 // the session exists with the control plane running.
 func (m *DefaultOrchestratorManager) SpawnPlanSession(ctx context.Context, beadID string, projectName string, mainRepoPath string, w io.Writer) error {
 	sessionName := project.SessionNameForProject(projectName)
@@ -165,7 +165,7 @@ func (m *DefaultOrchestratorManager) SpawnPlanSession(ctx context.Context, beadI
 		return fmt.Errorf("failed to check session existence: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("zellij session %s does not exist - call control.InitializeSession first", sessionName)
+		return fmt.Errorf("zellij session %s does not exist - call session.Initialize first", sessionName)
 	}
 
 	// Check if tab already exists
