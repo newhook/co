@@ -77,8 +77,8 @@ const (
 	ASCIIEnter = 13 // Enter key
 )
 
-// client implements SessionManager and creates session instances.
-type client struct {
+// sessionManager implements SessionManager and creates session instances.
+type sessionManager struct {
 	TabCreateDelay   time.Duration
 	CtrlCDelay       time.Duration
 	CommandDelay     time.Duration
@@ -96,13 +96,13 @@ type session struct {
 
 // Compile-time checks.
 var (
-	_ SessionManager = (*client)(nil)
+	_ SessionManager = (*sessionManager)(nil)
 	_ Session        = (*session)(nil)
 )
 
 // New creates a new zellij client with default configuration.
 func New() SessionManager {
-	return &client{
+	return &sessionManager{
 		TabCreateDelay:   500 * time.Millisecond,
 		CtrlCDelay:       500 * time.Millisecond,
 		CommandDelay:     100 * time.Millisecond,
@@ -111,13 +111,13 @@ func New() SessionManager {
 }
 
 // Session returns a Session interface bound to the specified session name.
-func (c *client) Session(name string) Session {
+func (m *sessionManager) Session(name string) Session {
 	return &session{
 		name:             name,
-		TabCreateDelay:   c.TabCreateDelay,
-		CtrlCDelay:       c.CtrlCDelay,
-		CommandDelay:     c.CommandDelay,
-		SessionStartWait: c.SessionStartWait,
+		TabCreateDelay:   m.TabCreateDelay,
+		CtrlCDelay:       m.CtrlCDelay,
+		CommandDelay:     m.CommandDelay,
+		SessionStartWait: m.SessionStartWait,
 	}
 }
 
@@ -136,7 +136,7 @@ func sessionArgs(session string) []string {
 // =============================================================================
 
 // ListSessions returns a list of all zellij session names.
-func (c *client) ListSessions(ctx context.Context) ([]string, error) {
+func (m *sessionManager) ListSessions(ctx context.Context) ([]string, error) {
 	cmd := exec.CommandContext(ctx, "zellij", "list-sessions", "-s")
 	output, err := cmd.Output()
 	if err != nil {
@@ -160,8 +160,8 @@ func (c *client) ListSessions(ctx context.Context) ([]string, error) {
 }
 
 // SessionExists checks if a session with the given name exists.
-func (c *client) SessionExists(ctx context.Context, name string) (bool, error) {
-	sessions, err := c.ListSessions(ctx)
+func (m *sessionManager) SessionExists(ctx context.Context, name string) (bool, error) {
+	sessions, err := m.ListSessions(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -169,7 +169,7 @@ func (c *client) SessionExists(ctx context.Context, name string) (bool, error) {
 }
 
 // IsSessionActive checks if a session exists and is active (not exited).
-func (c *client) IsSessionActive(ctx context.Context, name string) (bool, error) {
+func (m *sessionManager) IsSessionActive(ctx context.Context, name string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "zellij", "list-sessions", "-n")
 	output, err := cmd.Output()
 	if err != nil {
@@ -196,7 +196,7 @@ func (c *client) IsSessionActive(ctx context.Context, name string) (bool, error)
 
 // createSessionWithCommand creates a new zellij session with an initial tab running a command.
 // Uses the same layout template as CreateTabWithCommand for consistency.
-func (c *client) createSessionWithCommand(ctx context.Context, sessionName, tabName, cwd, command string, args []string) error {
+func (m *sessionManager) createSessionWithCommand(ctx context.Context, sessionName, tabName, cwd, command string, args []string) error {
 	// Render the tab layout template (same as CreateTabWithCommand)
 	tmpl, err := template.New("tab").Parse(tabLayoutTemplate)
 	if err != nil {
@@ -244,12 +244,12 @@ func (c *client) createSessionWithCommand(ctx context.Context, sessionName, tabN
 	go func() { _ = cmd.Wait() }()
 
 	// Give it time to start
-	time.Sleep(c.SessionStartWait)
+	time.Sleep(m.SessionStartWait)
 	return nil
 }
 
 // DeleteSession deletes a zellij session by name.
-func (c *client) DeleteSession(ctx context.Context, name string) error {
+func (m *sessionManager) DeleteSession(ctx context.Context, name string) error {
 	cmd := exec.CommandContext(ctx, "zellij", "delete-session", name)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to delete zellij session: %w", err)
@@ -260,8 +260,8 @@ func (c *client) DeleteSession(ctx context.Context, name string) error {
 // EnsureSessionWithCommand creates a session with an initial tab running a command if it doesn't exist,
 // or deletes and recreates it if exited.
 // Returns true if a new session was created, false if an existing session was reused.
-func (c *client) EnsureSessionWithCommand(ctx context.Context, sessionName, tabName, cwd, command string, args []string) (bool, error) {
-	active, err := c.IsSessionActive(ctx, sessionName)
+func (m *sessionManager) EnsureSessionWithCommand(ctx context.Context, sessionName, tabName, cwd, command string, args []string) (bool, error) {
+	active, err := m.IsSessionActive(ctx, sessionName)
 	if err != nil {
 		return false, err
 	}
@@ -270,18 +270,18 @@ func (c *client) EnsureSessionWithCommand(ctx context.Context, sessionName, tabN
 	}
 
 	// Check if session exists but is exited
-	exists, err := c.SessionExists(ctx, sessionName)
+	exists, err := m.SessionExists(ctx, sessionName)
 	if err != nil {
 		return false, err
 	}
 	if exists {
 		// Session is exited - delete it first
-		if err := c.DeleteSession(ctx, sessionName); err != nil {
+		if err := m.DeleteSession(ctx, sessionName); err != nil {
 			return false, fmt.Errorf("failed to delete exited session: %w", err)
 		}
 	}
 
-	if err := c.createSessionWithCommand(ctx, sessionName, tabName, cwd, command, args); err != nil {
+	if err := m.createSessionWithCommand(ctx, sessionName, tabName, cwd, command, args); err != nil {
 		return false, err
 	}
 	return true, nil

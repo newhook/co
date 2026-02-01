@@ -12,7 +12,7 @@ func TestNew(t *testing.T) {
 	require.NotNil(t, mgr, "New() returned nil")
 
 	// Type assert to access internal fields
-	c := mgr.(*client)
+	c := mgr.(*sessionManager)
 
 	// Check default values
 	require.Equal(t, 500*time.Millisecond, c.TabCreateDelay)
@@ -28,7 +28,7 @@ func TestASCIIConstants(t *testing.T) {
 }
 
 func TestClientConfiguration(t *testing.T) {
-	c := New().(*client)
+	c := New().(*sessionManager)
 
 	// Test that we can modify configuration
 	c.TabCreateDelay = 1 * time.Second
@@ -43,7 +43,7 @@ func TestClientConfiguration(t *testing.T) {
 }
 
 func TestSessionInheritsConfig(t *testing.T) {
-	c := New().(*client)
+	c := New().(*sessionManager)
 	c.TabCreateDelay = 1 * time.Second
 	c.CtrlCDelay = 250 * time.Millisecond
 
