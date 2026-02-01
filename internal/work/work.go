@@ -8,13 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
-	"github.com/newhook/co/internal/names"
 	"github.com/newhook/co/internal/project"
 	"github.com/newhook/co/internal/session"
-	"github.com/newhook/co/internal/worktree"
 )
 
 // AddBeadsToWorkResult contains the result of adding beads to a work.
@@ -153,140 +150,11 @@ type ImportPRAsyncResult struct {
 // ImportPRAsync imports a PR asynchronously by scheduling a control plane task.
 // This creates the work record and schedules the import task - the actual
 // worktree setup happens in the control plane.
-func ImportPRAsync(ctx context.Context, proj *project.Project, opts ImportPRAsyncOptions) (*ImportPRAsyncResult, error) {
-	baseBranch := proj.Config.Repo.GetBaseBranch()
+func (s *WorkService) ImportPRAsync(ctx context.Context, opts ImportPRAsyncOptions) (*ImportPRAsyncResult, error) {
+	baseBranch := s.Config.Repo.GetBaseBranch()
 
 	// Generate work ID
-	workID, err := proj.DB.GenerateWorkID(ctx, opts.BranchName, proj.Config.Project.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate work ID: %w", err)
-	}
-
-	// Get a human-readable name for this worker
-	workerName, err := names.GetNextAvailableName(ctx, proj.DB.DB)
-	if err != nil {
-		workerName = "" // Non-fatal
-	}
-
-	// Create work record in DB (without worktree path - control plane will set it)
-	if err := proj.DB.CreateWork(ctx, workID, workerName, "", opts.BranchName, baseBranch, opts.RootIssueID, false); err != nil {
-		return nil, fmt.Errorf("failed to create work record: %w", err)
-	}
-
-	// Add root issue to work_beads immediately (before control plane runs)
-	if opts.RootIssueID != "" {
-		if err := proj.DB.AddWorkBeads(ctx, workID, []string{opts.RootIssueID}); err != nil {
-			_ = proj.DB.DeleteWork(ctx, workID)
-			return nil, fmt.Errorf("failed to add bead to work: %w", err)
-		}
-	}
-
-	// Schedule the PR import task for the control plane
-	err = proj.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeImportPR, time.Now(), map[string]string{
-		"pr_url":      opts.PRURL,
-		"branch":      opts.BranchName,
-		"worker_name": workerName,
-	}, fmt.Sprintf("import-pr-%s", workID), db.DefaultMaxAttempts)
-	if err != nil {
-		// Work record created but task scheduling failed - cleanup
-		_ = proj.DB.DeleteWork(ctx, workID)
-		return nil, fmt.Errorf("failed to schedule PR import: %w", err)
-	}
-
-	return &ImportPRAsyncResult{
-		WorkID:      workID,
-		WorkerName:  workerName,
-		BranchName:  opts.BranchName,
-		RootIssueID: opts.RootIssueID,
-	}, nil
-}
-
-// DestroyWork destroys a work unit and all its resources.
-// This is the core work destruction logic that can be called from both the CLI and TUI.
-// It does not perform interactive confirmation - that should be handled by the caller.
-// Progress messages are written to the provided writer. Pass io.Discard to suppress output.
-func DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
-	logging.Debug("DestroyWork starting", "work_id", workID)
-
-	// Get work to verify it exists
-	work, err := proj.DB.GetWork(ctx, workID)
-	if err != nil {
-		return fmt.Errorf("failed to get work: %w", err)
-	}
-	if work == nil {
-		return fmt.Errorf("work %s not found", workID)
-	}
-
-	// Close the root issue if it exists
-	if work.RootIssueID != "" {
-		logging.Debug("Closing root issue", "work_id", workID, "root_issue_id", work.RootIssueID)
-		fmt.Fprintf(w, "Closing root issue %s...\n", work.RootIssueID)
-		if err := beads.Close(ctx, work.RootIssueID, proj.BeadsPath()); err != nil {
-			// Warn but continue - issue might already be closed or deleted
-			logging.Warn("Failed to close root issue", "work_id", workID, "root_issue_id", work.RootIssueID, "error", err)
-			fmt.Fprintf(w, "Warning: failed to close root issue %s: %v\n", work.RootIssueID, err)
-		}
-	}
-
-	// Terminate any running zellij tabs (orchestrator, task, console, and claude tabs) for this work
-	// Only if configured to do so (defaults to true)
-	if proj.Config.Zellij.ShouldKillTabsOnDestroy() {
-		logging.Debug("Terminating work tabs", "work_id", workID, "project_name", proj.Config.Project.Name)
-		orchestratorMgr := NewOrchestratorManager(proj.DB)
-		if err := orchestratorMgr.TerminateWorkTabs(ctx, workID, proj.Config.Project.Name, w); err != nil {
-			// Warn but continue - tab termination is non-fatal
-			logging.Warn("Failed to terminate work tabs", "work_id", workID, "error", err)
-			fmt.Fprintf(w, "Warning: failed to terminate work tabs: %v\n", err)
-		}
-		logging.Debug("Work tabs terminated", "work_id", workID)
-	}
-
-	// Remove git worktree if it exists
-	if work.WorktreePath != "" {
-		logging.Debug("Removing worktree", "work_id", workID, "worktree_path", work.WorktreePath)
-		if err := worktree.NewOperations().RemoveForce(ctx, proj.MainRepoPath(), work.WorktreePath); err != nil {
-			logging.Warn("Failed to remove worktree", "work_id", workID, "worktree_path", work.WorktreePath, "error", err)
-			fmt.Fprintf(w, "Warning: failed to remove worktree: %v\n", err)
-		}
-	}
-
-	// Remove work directory
-	workDir := filepath.Join(proj.Root, workID)
-	logging.Debug("Removing work directory", "work_id", workID, "work_dir", workDir)
-	if err := os.RemoveAll(workDir); err != nil {
-		logging.Warn("Failed to remove work directory", "work_id", workID, "work_dir", workDir, "error", err)
-		fmt.Fprintf(w, "Warning: failed to remove work directory %s: %v\n", workDir, err)
-	}
-
-	// Delete work from database (also deletes associated tasks and relationships)
-	logging.Debug("Deleting work from database", "work_id", workID)
-	if err := proj.DB.DeleteWork(ctx, workID); err != nil {
-		return fmt.Errorf("failed to delete work from database: %w", err)
-	}
-
-	logging.Debug("DestroyWork completed", "work_id", workID)
-	return nil
-}
-
-// CreateWorkAsync creates a work unit asynchronously by scheduling tasks.
-// This is the async work creation for the control plane architecture:
-// 1. Creates work record in DB (without worktree path)
-// 2. Schedules TaskTypeCreateWorktree task for the control plane
-// The control plane will handle worktree creation, git push, and orchestrator spawning.
-func (s *WorkService) CreateWorkAsync(ctx context.Context, branchName, baseBranch, rootIssueID string, auto bool) (*CreateWorkAsyncResult, error) {
-	if baseBranch == "" {
-		baseBranch = s.Config.Repo.GetBaseBranch()
-	}
-
-	// Ensure unique branch name
-	var err error
-	branchName, err = EnsureUniqueBranchName(ctx, s.Git, s.MainRepoPath, branchName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find unique branch name: %w", err)
-	}
-
-	// Generate work ID
-	workID, err := s.DB.GenerateWorkID(ctx, branchName, s.Config.Project.Name)
+	workID, err := s.DB.GenerateWorkID(ctx, opts.BranchName, s.Config.Project.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate work ID: %w", err)
 	}
@@ -298,39 +166,43 @@ func (s *WorkService) CreateWorkAsync(ctx context.Context, branchName, baseBranc
 	}
 
 	// Create work record in DB (without worktree path - control plane will set it)
-	if err := s.DB.CreateWork(ctx, workID, workerName, "", branchName, baseBranch, rootIssueID, auto); err != nil {
+	if err := s.DB.CreateWork(ctx, workID, workerName, "", opts.BranchName, baseBranch, opts.RootIssueID, false); err != nil {
 		return nil, fmt.Errorf("failed to create work record: %w", err)
 	}
 
-	// Schedule the worktree creation task for the control plane
-	autoStr := "false"
-	if auto {
-		autoStr = "true"
+	// Add root issue to work_beads immediately (before control plane runs)
+	if opts.RootIssueID != "" {
+		if err := s.AddBeadsInternal(ctx, workID, []string{opts.RootIssueID}); err != nil {
+			_ = s.DB.DeleteWork(ctx, workID)
+			return nil, fmt.Errorf("failed to add bead to work: %w", err)
+		}
 	}
-	err = s.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeCreateWorktree, time.Now(), map[string]string{
-		"branch":        branchName,
-		"base_branch":   baseBranch,
-		"root_issue_id": rootIssueID,
-		"worker_name":   workerName,
-		"auto":          autoStr,
-	}, fmt.Sprintf("create-worktree-%s", workID), db.DefaultMaxAttempts)
+
+	// Schedule the PR import task for the control plane
+	err = s.DB.ScheduleTaskWithRetry(ctx, workID, db.TaskTypeImportPR, time.Now(), map[string]string{
+		"pr_url":      opts.PRURL,
+		"branch":      opts.BranchName,
+		"worker_name": workerName,
+	}, fmt.Sprintf("import-pr-%s", workID), db.DefaultMaxAttempts)
 	if err != nil {
 		// Work record created but task scheduling failed - cleanup
 		_ = s.DB.DeleteWork(ctx, workID)
-		return nil, fmt.Errorf("failed to schedule worktree creation: %w", err)
+		return nil, fmt.Errorf("failed to schedule PR import: %w", err)
 	}
 
-	return &CreateWorkAsyncResult{
+	return &ImportPRAsyncResult{
 		WorkID:      workID,
 		WorkerName:  workerName,
-		BranchName:  branchName,
-		BaseBranch:  baseBranch,
-		RootIssueID: rootIssueID,
+		BranchName:  opts.BranchName,
+		RootIssueID: opts.RootIssueID,
 	}, nil
 }
 
-// CreateWorkAsyncWithOptions creates a work unit asynchronously with the given options.
-// This is similar to CreateWorkAsync but supports additional options like using an existing branch.
+// CreateWorkAsyncWithOptions creates a work unit asynchronously by scheduling tasks.
+// This is the async work creation for the control plane architecture:
+// 1. Creates work record in DB (without worktree path)
+// 2. Schedules TaskTypeCreateWorktree task for the control plane
+// The control plane will handle worktree creation, git push, and orchestrator spawning.
 func (s *WorkService) CreateWorkAsyncWithOptions(ctx context.Context, opts CreateWorkAsyncOptions) (*CreateWorkAsyncResult, error) {
 	baseBranch := opts.BaseBranch
 	if baseBranch == "" {

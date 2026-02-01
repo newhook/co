@@ -6,7 +6,6 @@ package control_test
 import (
 	"context"
 	"github.com/newhook/co/internal/control"
-	"github.com/newhook/co/internal/project"
 	"io"
 	"sync"
 )
@@ -120,7 +119,7 @@ var _ control.WorkDestroyer = &WorkDestroyerMock{}
 //
 //		// make and configure a mocked control.WorkDestroyer
 //		mockedWorkDestroyer := &WorkDestroyerMock{
-//			DestroyWorkFunc: func(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
+//			DestroyWorkFunc: func(ctx context.Context, workID string, w io.Writer) error {
 //				panic("mock out the DestroyWork method")
 //			},
 //		}
@@ -131,7 +130,7 @@ var _ control.WorkDestroyer = &WorkDestroyerMock{}
 //	}
 type WorkDestroyerMock struct {
 	// DestroyWorkFunc mocks the DestroyWork method.
-	DestroyWorkFunc func(ctx context.Context, proj *project.Project, workID string, w io.Writer) error
+	DestroyWorkFunc func(ctx context.Context, workID string, w io.Writer) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -139,8 +138,6 @@ type WorkDestroyerMock struct {
 		DestroyWork []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Proj is the proj argument value.
-			Proj *project.Project
 			// WorkID is the workID argument value.
 			WorkID string
 			// W is the w argument value.
@@ -151,15 +148,13 @@ type WorkDestroyerMock struct {
 }
 
 // DestroyWork calls DestroyWorkFunc.
-func (mock *WorkDestroyerMock) DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
+func (mock *WorkDestroyerMock) DestroyWork(ctx context.Context, workID string, w io.Writer) error {
 	callInfo := struct {
 		Ctx    context.Context
-		Proj   *project.Project
 		WorkID string
 		W      io.Writer
 	}{
 		Ctx:    ctx,
-		Proj:   proj,
 		WorkID: workID,
 		W:      w,
 	}
@@ -172,7 +167,7 @@ func (mock *WorkDestroyerMock) DestroyWork(ctx context.Context, proj *project.Pr
 		)
 		return errOut
 	}
-	return mock.DestroyWorkFunc(ctx, proj, workID, w)
+	return mock.DestroyWorkFunc(ctx, workID, w)
 }
 
 // DestroyWorkCalls gets all the calls that were made to DestroyWork.
@@ -181,13 +176,11 @@ func (mock *WorkDestroyerMock) DestroyWork(ctx context.Context, proj *project.Pr
 //	len(mockedWorkDestroyer.DestroyWorkCalls())
 func (mock *WorkDestroyerMock) DestroyWorkCalls() []struct {
 	Ctx    context.Context
-	Proj   *project.Project
 	WorkID string
 	W      io.Writer
 } {
 	var calls []struct {
 		Ctx    context.Context
-		Proj   *project.Project
 		WorkID string
 		W      io.Writer
 	}

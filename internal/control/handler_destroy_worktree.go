@@ -35,7 +35,7 @@ func (cp *ControlPlane) HandleDestroyWorktreeTask(ctx context.Context, proj *pro
 		"root_issue_id", workRecord.RootIssueID)
 
 	// Delegate to the shared DestroyWork function
-	if err := cp.WorkDestroyer.DestroyWork(ctx, proj, workID, io.Discard); err != nil {
+	if err := cp.WorkDestroyer.DestroyWork(ctx, workID, io.Discard); err != nil {
 		logging.Error("DestroyWork failed", "work_id", workID, "error", err)
 		return err
 	}

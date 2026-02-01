@@ -26,7 +26,7 @@ type OrchestratorSpawner interface {
 // WorkDestroyer defines the interface for destroying work units.
 // This abstraction enables testing without actual file system operations.
 type WorkDestroyer interface {
-	DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error
+	DestroyWork(ctx context.Context, workID string, w io.Writer) error
 }
 
 // DefaultOrchestratorSpawner implements OrchestratorSpawner using the work package.
@@ -47,11 +47,20 @@ func (d *DefaultOrchestratorSpawner) SpawnWorkOrchestrator(ctx context.Context, 
 }
 
 // DefaultWorkDestroyer implements WorkDestroyer using the work package.
-type DefaultWorkDestroyer struct{}
+type DefaultWorkDestroyer struct {
+	workService *work.WorkService
+}
+
+// NewWorkDestroyer creates a new DefaultWorkDestroyer with a WorkService.
+func NewWorkDestroyer(proj *project.Project) *DefaultWorkDestroyer {
+	return &DefaultWorkDestroyer{
+		workService: work.NewWorkService(proj),
+	}
+}
 
 // DestroyWork implements WorkDestroyer.
-func (d *DefaultWorkDestroyer) DestroyWork(ctx context.Context, proj *project.Project, workID string, w io.Writer) error {
-	return work.DestroyWork(ctx, proj, workID, w)
+func (d *DefaultWorkDestroyer) DestroyWork(ctx context.Context, workID string, w io.Writer) error {
+	return d.workService.DestroyWork(ctx, workID, w)
 }
 
 // ControlPlane manages the execution of scheduled tasks with injectable dependencies.
@@ -68,15 +77,15 @@ type ControlPlane struct {
 }
 
 // NewControlPlane creates a new ControlPlane with default production dependencies.
-func NewControlPlane(database *db.DB) *ControlPlane {
+func NewControlPlane(proj *project.Project) *ControlPlane {
 	return &ControlPlane{
 		Git:                 git.NewOperations(),
 		Worktree:            worktree.NewOperations(),
 		Zellij:              zellij.New(),
 		Mise:                mise.NewOperations,
 		FeedbackProcessor:   feedback.NewProcessor(),
-		OrchestratorSpawner: NewOrchestratorSpawner(database),
-		WorkDestroyer:       &DefaultWorkDestroyer{},
+		OrchestratorSpawner: NewOrchestratorSpawner(proj.DB),
+		WorkDestroyer:       NewWorkDestroyer(proj),
 		GitHubClient:        github.NewClient(),
 	}
 }

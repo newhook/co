@@ -473,7 +473,8 @@ func (m *planModel) importPR(prURL string) tea.Cmd {
 		rootIssueID = beadResult.BeadID
 
 		// Schedule the PR import via the control plane
-		result, err := work.ImportPRAsync(m.ctx, m.proj, work.ImportPRAsyncOptions{
+		workSvc := work.NewWorkService(m.proj)
+		result, err := workSvc.ImportPRAsync(m.ctx, work.ImportPRAsyncOptions{
 			PRURL:       prURL,
 			BranchName:  branchName,
 			RootIssueID: rootIssueID,

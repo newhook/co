@@ -91,7 +91,8 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 
 	// Schedule PR import via control plane (handles worktree, git, mise)
 	fmt.Printf("\nScheduling PR import...\n")
-	result, err := work.ImportPRAsync(ctx, proj, work.ImportPRAsyncOptions{
+	workSvc := work.NewWorkService(proj)
+	result, err := workSvc.ImportPRAsync(ctx, work.ImportPRAsyncOptions{
 		PRURL:       prURL,
 		BranchName:  branchName,
 		RootIssueID: rootIssueID,

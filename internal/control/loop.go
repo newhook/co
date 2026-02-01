@@ -15,7 +15,7 @@ import (
 
 // RunControlPlaneLoop runs the main control plane event loop with default dependencies.
 func RunControlPlaneLoop(ctx context.Context, proj *project.Project, procManager *procmon.Manager) error {
-	cp := NewControlPlane(proj.DB)
+	cp := NewControlPlane(proj)
 	return RunControlPlaneLoopWithControlPlane(ctx, proj, procManager, cp)
 }
 
@@ -102,7 +102,7 @@ type TaskHandler func(ctx context.Context, proj *project.Project, task *db.Sched
 // ProcessAllDueTasks checks for and executes any scheduled tasks that are due across all works.
 // This uses the default ControlPlane with production dependencies.
 func ProcessAllDueTasks(ctx context.Context, proj *project.Project) {
-	cp := NewControlPlane(proj.DB)
+	cp := NewControlPlane(proj)
 	ProcessAllDueTasksWithControlPlane(ctx, proj, cp)
 }
 
