@@ -52,7 +52,7 @@ func NewOrchestratorManager(database *db.DB) OrchestratorManager {
 // tabExists checks if a tab with the given name exists in the session.
 func tabExists(ctx context.Context, sessionName, tabName string) bool {
 	zc := zellij.New()
-	exists, _ := zc.TabExists(ctx, sessionName, tabName)
+	exists, _ := zc.Session(sessionName).TabExists(ctx, tabName)
 	return exists
 }
 
@@ -81,7 +81,8 @@ func (m *DefaultOrchestratorManager) TerminateWorkTabs(ctx context.Context, work
 	}
 
 	// Get list of all tab names
-	tabNames, err := zc.QueryTabNames(ctx, sessionName)
+	session := zc.Session(sessionName)
+	tabNames, err := session.QueryTabNames(ctx)
 	if err != nil {
 		logging.Warn("Failed to query tab names",
 			"work_id", workID,
@@ -134,7 +135,7 @@ func (m *DefaultOrchestratorManager) TerminateWorkTabs(ctx context.Context, work
 		logging.Debug("Closing tab",
 			"work_id", workID,
 			"tab_name", tabName)
-		if err := zc.TerminateAndCloseTab(ctx, sessionName, tabName); err != nil {
+		if err := session.TerminateAndCloseTab(ctx, tabName); err != nil {
 			logging.Warn("Failed to terminate tab",
 				"work_id", workID,
 				"tab_name", tabName,
@@ -180,7 +181,8 @@ func (m *DefaultOrchestratorManager) SpawnWorkOrchestrator(ctx context.Context, 
 	}
 
 	// Check if tab already exists
-	tabExists, err := zc.TabExists(ctx, sessionName, tabName)
+	session := zc.Session(sessionName)
+	tabExists, err := session.TabExists(ctx, tabName)
 	if err != nil {
 		return fmt.Errorf("failed to check if tab exists: %w", err)
 	}
@@ -188,7 +190,7 @@ func (m *DefaultOrchestratorManager) SpawnWorkOrchestrator(ctx context.Context, 
 		fmt.Fprintf(w, "Tab %s already exists, terminating and recreating...\n", tabName)
 
 		// Terminate and close the existing tab
-		if err := zc.TerminateAndCloseTab(ctx, sessionName, tabName); err != nil {
+		if err := session.TerminateAndCloseTab(ctx, tabName); err != nil {
 			fmt.Fprintf(w, "Warning: failed to terminate existing tab: %v\n", err)
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -196,7 +198,7 @@ func (m *DefaultOrchestratorManager) SpawnWorkOrchestrator(ctx context.Context, 
 
 	// Create a new tab with the orchestrate command using a layout
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, "co", []string{"orchestrate", "--work", workID}, "orchestrator"); err != nil {
+	if err := session.CreateTabWithCommand(ctx, tabName, workDir, "co", []string{"orchestrate", "--work", workID}, "orchestrator"); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 

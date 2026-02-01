@@ -9,10 +9,10 @@ import (
 
 	"github.com/newhook/co/internal/beads"
 	"github.com/newhook/co/internal/claude"
-	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/project"
+	"github.com/newhook/co/internal/session"
 	workpkg "github.com/newhook/co/internal/work"
 	"github.com/spf13/cobra"
 )
@@ -304,7 +304,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize zellij session and spawn control plane if new session
-	sessionResult, err := control.InitializeSession(ctx, proj)
+	sessionResult, err := session.Initialize(ctx, proj)
 	if err != nil {
 		fmt.Printf("Warning: failed to initialize zellij session: %v\n", err)
 	} else if sessionResult.SessionCreated {
@@ -313,7 +313,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Ensure control plane is running (handles worktree creation, orchestrator spawning, etc.)
-	if err := control.EnsureControlPlane(ctx, proj); err != nil {
+	if err := session.EnsureControlPlane(ctx, proj); err != nil {
 		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
 	}
 

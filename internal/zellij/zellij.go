@@ -17,16 +17,8 @@ import (
 	"time"
 )
 
-//go:embed layout.kdl.tmpl
-var layoutTemplate string
-
 //go:embed tab.kdl.tmpl
 var tabLayoutTemplate string
-
-// LayoutData contains the data for rendering the zellij layout template.
-type LayoutData struct {
-	ProjectRoot string
-}
 
 // TabLayoutData contains the data for rendering a tab layout template.
 type TabLayoutData struct {
@@ -51,15 +43,12 @@ func IsInsideTargetSession(session string) bool {
 // SessionManager defines the interface for managing zellij sessions.
 // This abstraction enables testing without actual zellij commands.
 //
-// All session creation should go through EnsureSessionWithLayout to ensure
-// every session has a control plane tab. Direct session creation methods
+// All session creation should go through EnsureSessionWithCommand to ensure
+// every session starts with an initial tab. Direct session creation methods
 // are intentionally excluded from this interface.
 type SessionManager interface {
-	ListSessions(ctx context.Context) ([]string, error)
 	SessionExists(ctx context.Context, name string) (bool, error)
-	IsSessionActive(ctx context.Context, name string) (bool, error)
-	DeleteSession(ctx context.Context, name string) error
-	EnsureSessionWithLayout(ctx context.Context, name string, projectRoot string) (bool, error)
+	EnsureSessionWithCommand(ctx context.Context, sessionName, tabName, cwd, command string, args []string) (bool, error)
 
 	// Session returns a Session interface bound to the specified session name.
 	Session(name string) Session
@@ -277,43 +266,44 @@ func (c *Client) IsSessionActive(ctx context.Context, name string) (bool, error)
 	return false, nil
 }
 
-// CreateSession creates a new zellij session with the given name.
-// The session is started in the background (detached) using zellij attach -b.
-func (c *Client) CreateSession(ctx context.Context, name string) error {
-	cmd := exec.CommandContext(ctx, "zellij", "attach", "-b", name)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create zellij session: %w", err)
-	}
-	// Give it time to start
-	time.Sleep(c.SessionStartWait)
-	return nil
-}
-
-// CreateSessionWithLayout creates a new zellij session with a layout that starts
-// the control plane automatically. The layout file is written to .co/layout.kdl
-// for persistence and debugging.
-func (c *Client) CreateSessionWithLayout(ctx context.Context, name string, projectRoot string) error {
-	// Render the layout template
-	tmpl, err := template.New("layout").Parse(layoutTemplate)
+// createSessionWithCommand creates a new zellij session with an initial tab running a command.
+// Uses the same layout template as CreateTabWithCommand for consistency.
+func (c *Client) createSessionWithCommand(ctx context.Context, sessionName, tabName, cwd, command string, args []string) error {
+	// Render the tab layout template (same as CreateTabWithCommand)
+	tmpl, err := template.New("tab").Parse(tabLayoutTemplate)
 	if err != nil {
-		return fmt.Errorf("failed to parse layout template: %w", err)
+		return fmt.Errorf("failed to parse tab layout template: %w", err)
+	}
+
+	data := TabLayoutData{
+		TabName:  tabName,
+		PaneName: tabName,
+		Command:  command,
+		Args:     args,
+		Cwd:      cwd,
 	}
 
 	var buf bytes.Buffer
-	data := LayoutData{ProjectRoot: projectRoot}
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return fmt.Errorf("failed to render layout template: %w", err)
+		return fmt.Errorf("failed to render tab layout template: %w", err)
 	}
 
-	// Write to .co/layout.kdl
-	layoutPath := fmt.Sprintf("%s/.co/layout.kdl", projectRoot)
-	if err := os.WriteFile(layoutPath, buf.Bytes(), 0600); err != nil {
-		return fmt.Errorf("failed to write layout file: %w", err)
+	// Write layout to temp file
+	tmpFile, err := os.CreateTemp("", "zellij-session-*.kdl")
+	if err != nil {
+		return fmt.Errorf("failed to create temp layout file: %w", err)
 	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+	if _, err := tmpFile.WriteString(buf.String()); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("failed to write session layout file: %w", err)
+	}
+	_ = tmpFile.Close()
 
 	// Create session with the layout
 	// Use --new-session-with-layout for detached session creation
-	cmd := exec.CommandContext(ctx, "zellij", "-s", name, "--new-session-with-layout", layoutPath)
+	cmd := exec.CommandContext(ctx, "zellij", "-s", sessionName, "--new-session-with-layout", tmpFile.Name())
 	// Detach immediately by not connecting stdin/stdout
 	cmd.Stdin = nil
 	cmd.Stdout = nil
@@ -339,10 +329,11 @@ func (c *Client) DeleteSession(ctx context.Context, name string) error {
 	return nil
 }
 
-// EnsureSession creates a session if it doesn't exist, or deletes and recreates it if exited.
+// EnsureSessionWithCommand creates a session with an initial tab running a command if it doesn't exist,
+// or deletes and recreates it if exited.
 // Returns true if a new session was created, false if an existing session was reused.
-func (c *Client) EnsureSession(ctx context.Context, name string) (bool, error) {
-	active, err := c.IsSessionActive(ctx, name)
+func (c *Client) EnsureSessionWithCommand(ctx context.Context, sessionName, tabName, cwd, command string, args []string) (bool, error) {
+	active, err := c.IsSessionActive(ctx, sessionName)
 	if err != nil {
 		return false, err
 	}
@@ -351,48 +342,18 @@ func (c *Client) EnsureSession(ctx context.Context, name string) (bool, error) {
 	}
 
 	// Check if session exists but is exited
-	exists, err := c.SessionExists(ctx, name)
+	exists, err := c.SessionExists(ctx, sessionName)
 	if err != nil {
 		return false, err
 	}
 	if exists {
 		// Session is exited - delete it first
-		if err := c.DeleteSession(ctx, name); err != nil {
+		if err := c.DeleteSession(ctx, sessionName); err != nil {
 			return false, fmt.Errorf("failed to delete exited session: %w", err)
 		}
 	}
 
-	if err := c.CreateSession(ctx, name); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// EnsureSessionWithLayout creates a session with a layout if it doesn't exist,
-// or deletes and recreates it if exited. The layout starts the control plane automatically.
-// Returns true if a new session was created, false if an existing session was reused.
-func (c *Client) EnsureSessionWithLayout(ctx context.Context, name string, projectRoot string) (bool, error) {
-	active, err := c.IsSessionActive(ctx, name)
-	if err != nil {
-		return false, err
-	}
-	if active {
-		return false, nil
-	}
-
-	// Check if session exists but is exited
-	exists, err := c.SessionExists(ctx, name)
-	if err != nil {
-		return false, err
-	}
-	if exists {
-		// Session is exited - delete it first
-		if err := c.DeleteSession(ctx, name); err != nil {
-			return false, fmt.Errorf("failed to delete exited session: %w", err)
-		}
-	}
-
-	if err := c.CreateSessionWithLayout(ctx, name, projectRoot); err != nil {
+	if err := c.createSessionWithCommand(ctx, sessionName, tabName, cwd, command, args); err != nil {
 		return false, err
 	}
 	return true, nil

@@ -18,17 +18,8 @@ var _ SessionManager = &SessionManagerMock{}
 //
 //		// make and configure a mocked SessionManager
 //		mockedSessionManager := &SessionManagerMock{
-//			DeleteSessionFunc: func(ctx context.Context, name string) error {
-//				panic("mock out the DeleteSession method")
-//			},
-//			EnsureSessionWithLayoutFunc: func(ctx context.Context, name string, projectRoot string) (bool, error) {
-//				panic("mock out the EnsureSessionWithLayout method")
-//			},
-//			IsSessionActiveFunc: func(ctx context.Context, name string) (bool, error) {
-//				panic("mock out the IsSessionActive method")
-//			},
-//			ListSessionsFunc: func(ctx context.Context) ([]string, error) {
-//				panic("mock out the ListSessions method")
+//			EnsureSessionWithCommandFunc: func(ctx context.Context, sessionName string, tabName string, cwd string, command string, args []string) (bool, error) {
+//				panic("mock out the EnsureSessionWithCommand method")
 //			},
 //			SessionFunc: func(name string) Session {
 //				panic("mock out the Session method")
@@ -43,17 +34,8 @@ var _ SessionManager = &SessionManagerMock{}
 //
 //	}
 type SessionManagerMock struct {
-	// DeleteSessionFunc mocks the DeleteSession method.
-	DeleteSessionFunc func(ctx context.Context, name string) error
-
-	// EnsureSessionWithLayoutFunc mocks the EnsureSessionWithLayout method.
-	EnsureSessionWithLayoutFunc func(ctx context.Context, name string, projectRoot string) (bool, error)
-
-	// IsSessionActiveFunc mocks the IsSessionActive method.
-	IsSessionActiveFunc func(ctx context.Context, name string) (bool, error)
-
-	// ListSessionsFunc mocks the ListSessions method.
-	ListSessionsFunc func(ctx context.Context) ([]string, error)
+	// EnsureSessionWithCommandFunc mocks the EnsureSessionWithCommand method.
+	EnsureSessionWithCommandFunc func(ctx context.Context, sessionName string, tabName string, cwd string, command string, args []string) (bool, error)
 
 	// SessionFunc mocks the Session method.
 	SessionFunc func(name string) Session
@@ -63,33 +45,20 @@ type SessionManagerMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// DeleteSession holds details about calls to the DeleteSession method.
-		DeleteSession []struct {
+		// EnsureSessionWithCommand holds details about calls to the EnsureSessionWithCommand method.
+		EnsureSessionWithCommand []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-		}
-		// EnsureSessionWithLayout holds details about calls to the EnsureSessionWithLayout method.
-		EnsureSessionWithLayout []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-			// ProjectRoot is the projectRoot argument value.
-			ProjectRoot string
-		}
-		// IsSessionActive holds details about calls to the IsSessionActive method.
-		IsSessionActive []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Name is the name argument value.
-			Name string
-		}
-		// ListSessions holds details about calls to the ListSessions method.
-		ListSessions []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
+			// SessionName is the sessionName argument value.
+			SessionName string
+			// TabName is the tabName argument value.
+			TabName string
+			// Cwd is the cwd argument value.
+			Cwd string
+			// Command is the command argument value.
+			Command string
+			// Args is the args argument value.
+			Args []string
 		}
 		// Session holds details about calls to the Session method.
 		Session []struct {
@@ -104,170 +73,64 @@ type SessionManagerMock struct {
 			Name string
 		}
 	}
-	lockDeleteSession           sync.RWMutex
-	lockEnsureSessionWithLayout sync.RWMutex
-	lockIsSessionActive         sync.RWMutex
-	lockListSessions            sync.RWMutex
-	lockSession                 sync.RWMutex
-	lockSessionExists           sync.RWMutex
+	lockEnsureSessionWithCommand sync.RWMutex
+	lockSession                  sync.RWMutex
+	lockSessionExists            sync.RWMutex
 }
 
-// DeleteSession calls DeleteSessionFunc.
-func (mock *SessionManagerMock) DeleteSession(ctx context.Context, name string) error {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-	}{
-		Ctx:  ctx,
-		Name: name,
-	}
-	mock.lockDeleteSession.Lock()
-	mock.calls.DeleteSession = append(mock.calls.DeleteSession, callInfo)
-	mock.lockDeleteSession.Unlock()
-	if mock.DeleteSessionFunc == nil {
-		var (
-			errOut error
-		)
-		return errOut
-	}
-	return mock.DeleteSessionFunc(ctx, name)
-}
-
-// DeleteSessionCalls gets all the calls that were made to DeleteSession.
-// Check the length with:
-//
-//	len(mockedSessionManager.DeleteSessionCalls())
-func (mock *SessionManagerMock) DeleteSessionCalls() []struct {
-	Ctx  context.Context
-	Name string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-	}
-	mock.lockDeleteSession.RLock()
-	calls = mock.calls.DeleteSession
-	mock.lockDeleteSession.RUnlock()
-	return calls
-}
-
-// EnsureSessionWithLayout calls EnsureSessionWithLayoutFunc.
-func (mock *SessionManagerMock) EnsureSessionWithLayout(ctx context.Context, name string, projectRoot string) (bool, error) {
+// EnsureSessionWithCommand calls EnsureSessionWithCommandFunc.
+func (mock *SessionManagerMock) EnsureSessionWithCommand(ctx context.Context, sessionName string, tabName string, cwd string, command string, args []string) (bool, error) {
 	callInfo := struct {
 		Ctx         context.Context
-		Name        string
-		ProjectRoot string
+		SessionName string
+		TabName     string
+		Cwd         string
+		Command     string
+		Args        []string
 	}{
 		Ctx:         ctx,
-		Name:        name,
-		ProjectRoot: projectRoot,
+		SessionName: sessionName,
+		TabName:     tabName,
+		Cwd:         cwd,
+		Command:     command,
+		Args:        args,
 	}
-	mock.lockEnsureSessionWithLayout.Lock()
-	mock.calls.EnsureSessionWithLayout = append(mock.calls.EnsureSessionWithLayout, callInfo)
-	mock.lockEnsureSessionWithLayout.Unlock()
-	if mock.EnsureSessionWithLayoutFunc == nil {
+	mock.lockEnsureSessionWithCommand.Lock()
+	mock.calls.EnsureSessionWithCommand = append(mock.calls.EnsureSessionWithCommand, callInfo)
+	mock.lockEnsureSessionWithCommand.Unlock()
+	if mock.EnsureSessionWithCommandFunc == nil {
 		var (
 			bOut   bool
 			errOut error
 		)
 		return bOut, errOut
 	}
-	return mock.EnsureSessionWithLayoutFunc(ctx, name, projectRoot)
+	return mock.EnsureSessionWithCommandFunc(ctx, sessionName, tabName, cwd, command, args)
 }
 
-// EnsureSessionWithLayoutCalls gets all the calls that were made to EnsureSessionWithLayout.
+// EnsureSessionWithCommandCalls gets all the calls that were made to EnsureSessionWithCommand.
 // Check the length with:
 //
-//	len(mockedSessionManager.EnsureSessionWithLayoutCalls())
-func (mock *SessionManagerMock) EnsureSessionWithLayoutCalls() []struct {
+//	len(mockedSessionManager.EnsureSessionWithCommandCalls())
+func (mock *SessionManagerMock) EnsureSessionWithCommandCalls() []struct {
 	Ctx         context.Context
-	Name        string
-	ProjectRoot string
+	SessionName string
+	TabName     string
+	Cwd         string
+	Command     string
+	Args        []string
 } {
 	var calls []struct {
 		Ctx         context.Context
-		Name        string
-		ProjectRoot string
+		SessionName string
+		TabName     string
+		Cwd         string
+		Command     string
+		Args        []string
 	}
-	mock.lockEnsureSessionWithLayout.RLock()
-	calls = mock.calls.EnsureSessionWithLayout
-	mock.lockEnsureSessionWithLayout.RUnlock()
-	return calls
-}
-
-// IsSessionActive calls IsSessionActiveFunc.
-func (mock *SessionManagerMock) IsSessionActive(ctx context.Context, name string) (bool, error) {
-	callInfo := struct {
-		Ctx  context.Context
-		Name string
-	}{
-		Ctx:  ctx,
-		Name: name,
-	}
-	mock.lockIsSessionActive.Lock()
-	mock.calls.IsSessionActive = append(mock.calls.IsSessionActive, callInfo)
-	mock.lockIsSessionActive.Unlock()
-	if mock.IsSessionActiveFunc == nil {
-		var (
-			bOut   bool
-			errOut error
-		)
-		return bOut, errOut
-	}
-	return mock.IsSessionActiveFunc(ctx, name)
-}
-
-// IsSessionActiveCalls gets all the calls that were made to IsSessionActive.
-// Check the length with:
-//
-//	len(mockedSessionManager.IsSessionActiveCalls())
-func (mock *SessionManagerMock) IsSessionActiveCalls() []struct {
-	Ctx  context.Context
-	Name string
-} {
-	var calls []struct {
-		Ctx  context.Context
-		Name string
-	}
-	mock.lockIsSessionActive.RLock()
-	calls = mock.calls.IsSessionActive
-	mock.lockIsSessionActive.RUnlock()
-	return calls
-}
-
-// ListSessions calls ListSessionsFunc.
-func (mock *SessionManagerMock) ListSessions(ctx context.Context) ([]string, error) {
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockListSessions.Lock()
-	mock.calls.ListSessions = append(mock.calls.ListSessions, callInfo)
-	mock.lockListSessions.Unlock()
-	if mock.ListSessionsFunc == nil {
-		var (
-			stringsOut []string
-			errOut     error
-		)
-		return stringsOut, errOut
-	}
-	return mock.ListSessionsFunc(ctx)
-}
-
-// ListSessionsCalls gets all the calls that were made to ListSessions.
-// Check the length with:
-//
-//	len(mockedSessionManager.ListSessionsCalls())
-func (mock *SessionManagerMock) ListSessionsCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockListSessions.RLock()
-	calls = mock.calls.ListSessions
-	mock.lockListSessions.RUnlock()
+	mock.lockEnsureSessionWithCommand.RLock()
+	calls = mock.calls.EnsureSessionWithCommand
+	mock.lockEnsureSessionWithCommand.RUnlock()
 	return calls
 }
 

@@ -74,62 +74,37 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 }
 
 // executeCreateWork creates a work unit with the given branch name.
-// This uses the async control plane architecture:
-// 1. Creates work record in DB (with auto flag)
-// 2. Adds beads to work_beads
-// 3. Schedules TaskTypeCreateWorktree task
-// 4. Returns immediately (control plane handles worktree creation + orchestrator spawning)
+// This uses the shared CreateWorkFromBead method which handles:
+// 1. Expanding the bead to collect all issue IDs
+// 2. Creating work record in DB (with auto flag)
+// 3. Initializing the zellij session
+// 4. Ensuring control plane is running
 func (m *planModel) executeCreateWork(beadID string, branchName string, auto bool, useExistingBranch bool) tea.Cmd {
 	return func() tea.Msg {
 		logging.Debug("executeCreateWork started", "beadID", beadID, "branchName", branchName, "auto", auto, "useExistingBranch", useExistingBranch)
 
-		// Collect the bead and any transitive dependencies (or children if it has parent-child relationships)
-		allIssueIDs, err := workpkg.CollectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
-		if err != nil {
-			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
-		}
-
-		if len(allIssueIDs) == 0 {
-			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("no beads found for %s", beadID)}
-		}
-
-		// Initialize zellij session (spawns control plane if new session)
-		sessionResult, err := control.InitializeSession(m.ctx, m.proj)
-		if err != nil {
-			logging.Warn("executeCreateWork InitializeSession failed", "error", err)
-		}
-
-		// Create work asynchronously using WorkService (DB operations only, schedules tasks for control plane)
-		opts := workpkg.CreateWorkAsyncOptions{
+		opts := workpkg.CreateWorkFromBeadOptions{
+			BeadID:            beadID,
 			BranchName:        branchName,
 			BaseBranch:        m.proj.Config.Repo.GetBaseBranch(),
-			RootIssueID:       beadID,
 			Auto:              auto,
 			UseExistingBranch: useExistingBranch,
-			BeadIDs:           allIssueIDs, // Pass beads directly to CreateWorkAsyncWithOptions
 		}
-		result, err := m.workService.CreateWorkAsyncWithOptions(m.ctx, opts)
+		result, err := m.workService.CreateWorkFromBead(m.ctx, m.proj, opts)
 		if err != nil {
-			logging.Error("executeCreateWork CreateWorkWithBranch failed", "beadID", beadID, "error", err)
-			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to create work: %w", err)}
-		}
-		logging.Debug("executeCreateWork CreateWorkWithBranch succeeded", "workID", result.WorkID)
-
-		// Ensure control plane is running to process the worktree creation task
-		// Note: InitializeSession spawns control plane for new sessions, but we call
-		// EnsureControlPlane for existing sessions that might have a dead control plane
-		err = control.EnsureControlPlane(m.ctx, m.proj)
-		if err != nil {
-			// Non-fatal: work was created but control plane might need manual start
-			return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: fmt.Errorf("work created but control plane failed: %w", err)}
+			logging.Error("executeCreateWork CreateWorkFromBead failed", "beadID", beadID, "error", err)
+			// Check if work was partially created (control plane failure case)
+			if result != nil {
+				return planWorkCreatedMsg{beadID: beadID, workID: result.WorkID, err: err}
+			}
+			return planWorkCreatedMsg{beadID: beadID, err: err}
 		}
 		logging.Debug("executeCreateWork completed successfully", "workID", result.WorkID)
 
-		// Include session creation info in the result
 		msg := planWorkCreatedMsg{beadID: beadID, workID: result.WorkID}
-		if sessionResult != nil && sessionResult.SessionCreated {
+		if result.SessionCreated {
 			msg.sessionCreated = true
-			msg.sessionName = sessionResult.SessionName
+			msg.sessionName = result.SessionName
 		}
 		return msg
 	}

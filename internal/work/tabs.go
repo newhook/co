@@ -42,7 +42,8 @@ func (m *DefaultOrchestratorManager) OpenConsole(ctx context.Context, workID str
 	}
 
 	// Check if tab already exists
-	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
+	session := zc.Session(sessionName)
+	tabExists, _ := session.TabExists(ctx, tabName)
 	if tabExists {
 		fmt.Fprintf(w, "Console tab %s already exists\n", tabName)
 		return nil
@@ -74,7 +75,7 @@ func (m *DefaultOrchestratorManager) OpenConsole(ctx context.Context, workID str
 
 	// Create tab with shell using layout approach
 	fmt.Fprintf(w, "Creating console tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args, shellName); err != nil {
+	if err := session.CreateTabWithCommand(ctx, tabName, workDir, command, args, shellName); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
@@ -106,7 +107,8 @@ func (m *DefaultOrchestratorManager) OpenClaudeSession(ctx context.Context, work
 	}
 
 	// Check if tab already exists
-	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
+	session := zc.Session(sessionName)
+	tabExists, _ := session.TabExists(ctx, tabName)
 	if tabExists {
 		fmt.Fprintf(w, "Claude session tab %s already exists\n", tabName)
 		return nil
@@ -140,7 +142,7 @@ func (m *DefaultOrchestratorManager) OpenClaudeSession(ctx context.Context, work
 
 	// Create tab with command using layout approach
 	fmt.Fprintf(w, "Creating Claude session tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, workDir, command, args, "claude"); err != nil {
+	if err := session.CreateTabWithCommand(ctx, tabName, workDir, command, args, "claude"); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
@@ -171,12 +173,13 @@ func (m *DefaultOrchestratorManager) SpawnPlanSession(ctx context.Context, beadI
 	}
 
 	// Check if tab already exists
-	tabExists, _ := zc.TabExists(ctx, sessionName, tabName)
+	session := zc.Session(sessionName)
+	tabExists, _ := session.TabExists(ctx, tabName)
 	if tabExists {
 		fmt.Fprintf(w, "Tab %s already exists, terminating and recreating...\n", tabName)
 
 		// Terminate and close the existing tab
-		if err := zc.TerminateAndCloseTab(ctx, sessionName, tabName); err != nil {
+		if err := session.TerminateAndCloseTab(ctx, tabName); err != nil {
 			fmt.Fprintf(w, "Warning: failed to terminate existing tab: %v\n", err)
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -184,7 +187,7 @@ func (m *DefaultOrchestratorManager) SpawnPlanSession(ctx context.Context, beadI
 
 	// Create a new tab with the plan command using a layout
 	fmt.Fprintf(w, "Creating tab: %s in session %s\n", tabName, sessionName)
-	if err := zc.CreateTabWithCommand(ctx, sessionName, tabName, mainRepoPath, "co", []string{"plan", beadID}, "planning"); err != nil {
+	if err := session.CreateTabWithCommand(ctx, tabName, mainRepoPath, "co", []string{"plan", beadID}, "planning"); err != nil {
 		return fmt.Errorf("failed to create tab: %w", err)
 	}
 
