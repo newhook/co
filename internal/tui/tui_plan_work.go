@@ -8,13 +8,12 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/newhook/co/internal/claude"
 	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/process"
 	"github.com/newhook/co/internal/progress"
-	"github.com/newhook/co/internal/work"
+	workpkg "github.com/newhook/co/internal/work"
 )
 
 // sessionName returns the zellij session name for this project
@@ -26,7 +25,7 @@ func (m *planModel) sessionName() string {
 func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 	return func() tea.Msg {
 		session := m.sessionName()
-		tabName := claude.PlanTabName(beadID)
+		tabName := workpkg.PlanTabName(beadID)
 		mainRepoPath := m.proj.MainRepoPath()
 
 		logging.Debug("spawnPlanSession started", "beadID", beadID, "session", session, "tabName", tabName)
@@ -59,7 +58,7 @@ func (m *planModel) spawnPlanSession(beadID string) tea.Cmd {
 			}())
 
 		// Use the helper to spawn the plan session
-		if err := claude.SpawnPlanSession(m.ctx, beadID, m.proj.Config.Project.Name, mainRepoPath, io.Discard); err != nil {
+		if err := workpkg.SpawnPlanSession(m.ctx, beadID, m.proj.Config.Project.Name, mainRepoPath, io.Discard); err != nil {
 			logging.Error("spawnPlanSession SpawnPlanSession failed", "beadID", beadID, "error", err)
 			return planSessionSpawnedMsg{beadID: beadID, err: err}
 		}
@@ -85,7 +84,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		logging.Debug("executeCreateWork started", "beadID", beadID, "branchName", branchName, "auto", auto, "useExistingBranch", useExistingBranch)
 
 		// Collect the bead and any transitive dependencies (or children if it has parent-child relationships)
-		allIssueIDs, err := work.CollectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
+		allIssueIDs, err := workpkg.CollectIssueIDsForAutomatedWorkflow(m.ctx, beadID, m.proj.Beads)
 		if err != nil {
 			return planWorkCreatedMsg{beadID: beadID, err: fmt.Errorf("failed to expand bead %s: %w", beadID, err)}
 		}
@@ -101,7 +100,7 @@ func (m *planModel) executeCreateWork(beadID string, branchName string, auto boo
 		}
 
 		// Create work asynchronously using WorkService (DB operations only, schedules tasks for control plane)
-		opts := work.CreateWorkAsyncOptions{
+		opts := workpkg.CreateWorkAsyncOptions{
 			BranchName:        branchName,
 			BaseBranch:        m.proj.Config.Repo.GetBaseBranch(),
 			RootIssueID:       beadID,
@@ -305,7 +304,7 @@ func (m *planModel) openConsole() tea.Cmd {
 			return workCommandMsg{action: "Open console", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
-		err = claude.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
+		err = workpkg.OpenConsole(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open console", workID: workID, err: err}
 		}
@@ -333,7 +332,7 @@ func (m *planModel) openClaude() tea.Cmd {
 			return workCommandMsg{action: "Open Claude", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
-		err = claude.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
+		err = workpkg.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open Claude", workID: workID, err: err}
 		}
@@ -380,7 +379,7 @@ func (m *planModel) restartOrchestrator() tea.Cmd {
 		}
 
 		// Spawn a new orchestrator
-		spawned, err := work.EnsureWorkOrchestrator(
+		spawned, err := workpkg.EnsureWorkOrchestrator(
 			m.ctx,
 			m.proj.DB,
 			workID,

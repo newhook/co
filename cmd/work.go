@@ -13,7 +13,7 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/project"
-	"github.com/newhook/co/internal/work"
+	workpkg "github.com/newhook/co/internal/work"
 	"github.com/spf13/cobra"
 )
 
@@ -206,7 +206,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Create WorkService for this operation
-	svc := work.NewWorkService(proj)
+	svc := workpkg.NewWorkService(proj)
 
 	// Get base branch from project config
 	baseBranch := proj.Config.Repo.GetBaseBranch()
@@ -216,7 +216,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	beadID := args[0]
 
 	// Expand the bead (handles epics and transitive deps)
-	expandedIssueIDs, err := work.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
+	expandedIssueIDs, err := workpkg.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, proj.Beads)
 	if err != nil {
 		return fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 	}
@@ -262,8 +262,8 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 		branchName = flagBranchName
 	} else {
 		// Generate branch name from issue titles
-		branchName = work.GenerateBranchNameFromIssues(groupIssues)
-		branchName, err = work.EnsureUniqueBranchName(ctx, gitOps, mainRepoPath, branchName)
+		branchName = workpkg.GenerateBranchNameFromIssues(groupIssues)
+		branchName, err = workpkg.EnsureUniqueBranchName(ctx, gitOps, mainRepoPath, branchName)
 		if err != nil {
 			return fmt.Errorf("failed to find unique branch name: %w", err)
 		}
@@ -278,7 +278,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create work asynchronously (control plane handles worktree creation, git push, orchestrator spawn)
-	result, err := svc.CreateWorkAsyncWithOptions(ctx, work.CreateWorkAsyncOptions{
+	result, err := svc.CreateWorkAsyncWithOptions(ctx, workpkg.CreateWorkAsyncOptions{
 		BranchName:        branchName,
 		BaseBranch:        baseBranch,
 		RootIssueID:       beadID,
@@ -337,14 +337,14 @@ func parseBeadArgs(ctx context.Context, args []string, beadsClient *beads.Client
 
 	for _, arg := range args {
 		// Split comma-separated bead IDs (commas and spaces both work as separators)
-		beadIDs := work.ParseBeadIDs(arg)
+		beadIDs := workpkg.ParseBeadIDs(arg)
 		if len(beadIDs) == 0 {
 			continue
 		}
 
 		for _, beadID := range beadIDs {
 			// Expand this bead (handles epics and transitive deps)
-			expandedIDs, err := work.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
+			expandedIDs, err := workpkg.CollectIssueIDsForAutomatedWorkflow(ctx, beadID, beadsClient)
 			if err != nil {
 				return nil, fmt.Errorf("failed to expand bead %s: %w", beadID, err)
 			}
@@ -400,7 +400,7 @@ func runWorkAdd(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Create WorkService for this operation
-	svc := work.NewWorkService(proj)
+	svc := workpkg.NewWorkService(proj)
 
 	// Get work ID
 	workID := flagAddWork
@@ -442,7 +442,7 @@ func runWorkRemove(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Create WorkService for this operation
-	svc := work.NewWorkService(proj)
+	svc := workpkg.NewWorkService(proj)
 
 	// Get work ID
 	workID := flagRemoveWork
@@ -640,7 +640,7 @@ func runWorkDestroy(cmd *cobra.Command, args []string) error {
 	defer proj.Close()
 
 	// Create WorkService for this operation
-	svc := work.NewWorkService(proj)
+	svc := workpkg.NewWorkService(proj)
 
 	// Check if work has uncompleted tasks (for interactive confirmation)
 	tasks, err := proj.DB.GetWorkTasks(ctx, workID)
@@ -1019,7 +1019,7 @@ func runWorkConsole(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open console in the work's worktree
-	return claude.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, os.Stdout)
+	return workpkg.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, os.Stdout)
 }
 
 func runWorkClaude(cmd *cobra.Command, args []string) error {
@@ -1052,7 +1052,7 @@ func runWorkClaude(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open Claude Code session in the work's worktree
-	return claude.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, proj.Config, os.Stdout)
+	return workpkg.OpenClaudeSession(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, proj.Config, os.Stdout)
 }
 
 func runWorkRestart(cmd *cobra.Command, args []string) error {
