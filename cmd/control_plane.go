@@ -8,12 +8,11 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/procmon"
 	"github.com/newhook/co/internal/project"
-	"github.com/newhook/co/internal/session"
 	"github.com/spf13/cobra"
 )
 
 // ControlPlaneTabName is the name of the control plane tab in zellij
-const ControlPlaneTabName = session.ControlPlaneTabName
+const ControlPlaneTabName = control.ControlPlaneTabName
 
 var controlCmd = &cobra.Command{
 	Use:   "control",

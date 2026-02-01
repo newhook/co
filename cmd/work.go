@@ -12,7 +12,7 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/git"
 	"github.com/newhook/co/internal/project"
-	"github.com/newhook/co/internal/session"
+	"github.com/newhook/co/internal/control"
 	workpkg "github.com/newhook/co/internal/work"
 	"github.com/spf13/cobra"
 )
@@ -304,7 +304,7 @@ func runWorkCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Ensure zellij session and control plane are running
-	sessionResult, err := session.EnsureControlPlane(ctx, proj)
+	sessionResult, err := control.EnsureControlPlane(ctx, proj)
 	if err != nil {
 		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
 	} else if sessionResult.SessionCreated {

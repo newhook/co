@@ -5,7 +5,7 @@ import (
 
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/project"
-	"github.com/newhook/co/internal/session"
+	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/work"
 	"github.com/spf13/cobra"
 )
@@ -110,7 +110,7 @@ func runWorkImportPR(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nWorktree setup is in progress via control plane.\n")
 
 	// Ensure zellij session and control plane are running
-	sessionResult, err := session.EnsureControlPlane(ctx, proj)
+	sessionResult, err := control.EnsureControlPlane(ctx, proj)
 	if err != nil {
 		fmt.Printf("Warning: failed to ensure control plane: %v\n", err)
 	} else if sessionResult.SessionCreated {

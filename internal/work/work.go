@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/db"
-	"github.com/newhook/co/internal/project"
-	"github.com/newhook/co/internal/session"
 )
 
 // AddBeadsToWorkResult contains the result of adding beads to a work.
@@ -54,24 +52,20 @@ type CreateWorkFromBeadOptions struct {
 
 // CreateWorkFromBeadResult contains the result of creating a work from a bead.
 type CreateWorkFromBeadResult struct {
-	WorkID         string
-	WorkerName     string
-	BranchName     string
-	BaseBranch     string
-	BeadIDs        []string // All expanded bead IDs
-	SessionCreated bool     // True if a new zellij session was created
-	SessionName    string   // Name of the zellij session (if created)
+	WorkID     string
+	WorkerName string
+	BranchName string
+	BaseBranch string
+	BeadIDs    []string // All expanded bead IDs
 }
 
 // CreateWorkFromBead creates a work unit from a bead, handling all common steps:
 // 1. Expands the bead to collect all issue IDs (epics, transitive deps)
 // 2. Creates the work asynchronously via CreateWorkAsyncWithOptions
-// 3. Initializes the zellij session (spawns control plane if new session)
-// 4. Ensures the control plane is running
 //
 // This is the shared implementation used by both CLI and TUI.
-// The proj parameter is needed for control plane operations.
-func (s *WorkService) CreateWorkFromBead(ctx context.Context, proj *project.Project, opts CreateWorkFromBeadOptions) (*CreateWorkFromBeadResult, error) {
+// Callers are responsible for ensuring the control plane is running via control.EnsureControlPlane.
+func (s *WorkService) CreateWorkFromBead(ctx context.Context, opts CreateWorkFromBeadOptions) (*CreateWorkFromBeadResult, error) {
 	// 1. Collect issue IDs (handles epics and transitive deps)
 	allIssueIDs, err := CollectIssueIDsForAutomatedWorkflow(ctx, opts.BeadID, s.BeadsReader)
 	if err != nil {
@@ -95,33 +89,13 @@ func (s *WorkService) CreateWorkFromBead(ctx context.Context, proj *project.Proj
 		return nil, fmt.Errorf("failed to create work: %w", err)
 	}
 
-	// 3. Ensure zellij session and control plane are running
-	sessionResult, err := session.EnsureControlPlane(ctx, proj)
-	if err != nil {
-		// Non-fatal: work was created but control plane might need manual start
-		return &CreateWorkFromBeadResult{
-			WorkID:     result.WorkID,
-			WorkerName: result.WorkerName,
-			BranchName: result.BranchName,
-			BaseBranch: result.BaseBranch,
-			BeadIDs:    allIssueIDs,
-		}, fmt.Errorf("work created but control plane failed: %w", err)
-	}
-
-	// Build result with session info
-	res := &CreateWorkFromBeadResult{
+	return &CreateWorkFromBeadResult{
 		WorkID:     result.WorkID,
 		WorkerName: result.WorkerName,
 		BranchName: result.BranchName,
 		BaseBranch: result.BaseBranch,
 		BeadIDs:    allIssueIDs,
-	}
-	if sessionResult != nil && sessionResult.SessionCreated {
-		res.SessionCreated = true
-		res.SessionName = sessionResult.SessionName
-	}
-
-	return res, nil
+	}, nil
 }
 
 // ImportPRAsyncOptions contains options for importing a PR asynchronously.

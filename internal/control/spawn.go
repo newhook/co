@@ -1,7 +1,4 @@
-// Package session provides zellij session management for the co orchestrator.
-// This package is separate from control to avoid import cycles - both work and
-// control can import session without creating a cycle (control imports work).
-package session
+package control
 
 import (
 	"context"
@@ -86,8 +83,7 @@ func EnsureControlPlane(ctx context.Context, proj *project.Project) (*InitResult
 }
 
 // spawnControlPlane spawns the control plane in a zellij tab.
-// The session must already exist (use Initialize or EnsureControlPlane instead
-// of calling this directly).
+// The session must already exist.
 func spawnControlPlane(ctx context.Context, proj *project.Project) error {
 	projectName := proj.Config.Project.Name
 	projectRoot := proj.Root

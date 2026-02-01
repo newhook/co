@@ -10,7 +10,7 @@ import (
 	"github.com/newhook/co/internal/db"
 	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/linear"
-	"github.com/newhook/co/internal/session"
+	"github.com/newhook/co/internal/control"
 	"github.com/newhook/co/internal/work"
 )
 
@@ -484,7 +484,7 @@ func (m *planModel) importPR(prURL string) tea.Cmd {
 		}
 
 		// Ensure control plane is running to process the import task
-		if _, err := session.EnsureControlPlane(m.ctx, m.proj); err != nil {
+		if _, err := control.EnsureControlPlane(m.ctx, m.proj); err != nil {
 			// Non-fatal: task was scheduled but control plane might need manual start
 			return prImportCompleteMsg{
 				workID:     result.WorkID,
