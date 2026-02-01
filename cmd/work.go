@@ -1012,6 +1012,11 @@ func runWorkConsole(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("work %s not found", workID)
 	}
 
+	// Ensure control plane is running (creates session if needed)
+	if _, err := control.EnsureControlPlane(ctx, proj); err != nil {
+		return fmt.Errorf("failed to ensure control plane: %w", err)
+	}
+
 	// Open console in the work's worktree
 	orchestratorMgr := workpkg.NewOrchestratorManager(proj.DB)
 	return orchestratorMgr.OpenConsole(ctx, workID, proj.Config.Project.Name, work.WorktreePath, work.Name, proj.Config.Hooks.Env, os.Stdout)
@@ -1044,6 +1049,11 @@ func runWorkClaude(cmd *cobra.Command, args []string) error {
 	}
 	if work == nil {
 		return fmt.Errorf("work %s not found", workID)
+	}
+
+	// Ensure control plane is running (creates session if needed)
+	if _, err := control.EnsureControlPlane(ctx, proj); err != nil {
+		return fmt.Errorf("failed to ensure control plane: %w", err)
 	}
 
 	// Open Claude Code session in the work's worktree

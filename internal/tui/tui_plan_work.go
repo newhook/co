@@ -306,6 +306,12 @@ func (m *planModel) openClaude() tea.Cmd {
 			return workCommandMsg{action: "Open Claude", workID: workID, err: fmt.Errorf("work %s not found", workID)}
 		}
 
+		// Ensure control plane is running (creates session if needed)
+		_, err = control.EnsureControlPlane(m.ctx, m.proj)
+		if err != nil {
+			return workCommandMsg{action: "Control plane", workID: workID, err: err}
+		}
+
 		err = m.workService.OrchestratorManager.OpenClaudeSession(m.ctx, workID, m.proj.Config.Project.Name, work.WorktreePath, work.Name, m.proj.Config.Hooks.Env, m.proj.Config, io.Discard)
 		if err != nil {
 			return workCommandMsg{action: "Open Claude", workID: workID, err: err}
