@@ -178,6 +178,29 @@ func (p *WorkOverviewPanel) IsSelectedTaskFailed() bool {
 	return false
 }
 
+// IsUnassignedBeadSelected returns true if an unassigned bead is currently selected
+func (p *WorkOverviewPanel) IsUnassignedBeadSelected() bool {
+	if p.focusedWork == nil {
+		return false
+	}
+	tasksEndIdx := 1 + len(p.focusedWork.Tasks)
+	unassignedIdx := p.selectedIndex - tasksEndIdx
+	return unassignedIdx >= 0 && unassignedIdx < len(p.focusedWork.UnassignedBeads)
+}
+
+// GetSelectedUnassignedBeadID returns the ID of the selected unassigned bead, or empty if none selected
+func (p *WorkOverviewPanel) GetSelectedUnassignedBeadID() string {
+	if !p.IsUnassignedBeadSelected() {
+		return ""
+	}
+	tasksEndIdx := 1 + len(p.focusedWork.Tasks)
+	unassignedIdx := p.selectedIndex - tasksEndIdx
+	if unassignedIdx >= 0 && unassignedIdx < len(p.focusedWork.UnassignedBeads) {
+		return p.focusedWork.UnassignedBeads[unassignedIdx].ID
+	}
+	return ""
+}
+
 // SetSelectedTaskID sets selection to the task with given ID
 func (p *WorkOverviewPanel) SetSelectedTaskID(id string) {
 	if p.focusedWork == nil {
