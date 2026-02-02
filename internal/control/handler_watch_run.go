@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/newhook/co/internal/db"
+	"github.com/newhook/co/internal/github"
 	"github.com/newhook/co/internal/logging"
 	"github.com/newhook/co/internal/project"
 )
@@ -107,4 +108,50 @@ func ScheduleWatchWorkflowRun(ctx context.Context, proj *project.Project, workID
 		"repo", repo)
 
 	return nil
+}
+
+// SpawnWorkflowWatchers checks for in-progress workflow runs and spawns watchers for them.
+// This can be called immediately when a PR is created to catch fast CI runs that would
+// otherwise complete before the first PR feedback poll.
+// Returns the number of watchers spawned.
+func SpawnWorkflowWatchers(ctx context.Context, proj *project.Project, ghClient github.ClientInterface, workID, prURL string) (int, error) {
+	// Fetch PR status to get workflow run information
+	status, err := ghClient.GetPRStatus(ctx, prURL)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get PR status: %w", err)
+	}
+
+	// Extract repo from PR URL
+	repo, err := github.ExtractRepoFromPRURL(prURL)
+	if err != nil {
+		return 0, fmt.Errorf("failed to extract repo from PR URL: %w", err)
+	}
+
+	// Check each workflow run for in-progress status
+	watcherCount := 0
+	for _, workflow := range status.Workflows {
+		// Only watch runs that are in progress or queued
+		if workflow.Status != "in_progress" && workflow.Status != "queued" {
+			continue
+		}
+
+		// Schedule a watcher for this run
+		err := ScheduleWatchWorkflowRun(ctx, proj, workID, workflow.ID, repo)
+		if err != nil {
+			// Log but continue - idempotency key prevents duplicates
+			logging.Debug("failed to schedule workflow watcher",
+				"run_id", workflow.ID,
+				"error", err)
+			continue
+		}
+		watcherCount++
+	}
+
+	if watcherCount > 0 {
+		logging.Info("Spawned workflow watchers",
+			"count", watcherCount,
+			"work_id", workID)
+	}
+
+	return watcherCount, nil
 }
