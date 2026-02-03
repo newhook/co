@@ -16,6 +16,7 @@ const (
 	WorkDetailActionRun                                  // Run work (r)
 	WorkDetailActionReview                               // Create review task (v)
 	WorkDetailActionPR                                   // Create PR task (p)
+	WorkDetailActionPlan                                 // Start planning session for bead (p when unassigned bead selected)
 	WorkDetailActionNavigateUp                           // Navigate up (k/up)
 	WorkDetailActionNavigateDown                         // Navigate down (j/down)
 	WorkDetailActionRestartOrchestrator                  // Restart orchestrator (o)
@@ -234,6 +235,16 @@ func (p *WorkDetailsPanel) IsSelectedTaskFailed() bool {
 	return p.overviewPanel.IsSelectedTaskFailed()
 }
 
+// IsUnassignedBeadSelected returns true if an unassigned bead is currently selected
+func (p *WorkDetailsPanel) IsUnassignedBeadSelected() bool {
+	return p.overviewPanel.IsUnassignedBeadSelected()
+}
+
+// GetSelectedUnassignedBeadID returns the ID of the selected unassigned bead
+func (p *WorkDetailsPanel) GetSelectedUnassignedBeadID() string {
+	return p.overviewPanel.GetSelectedUnassignedBeadID()
+}
+
 // SetSelectedTaskID sets selection to the task with given ID
 func (p *WorkDetailsPanel) SetSelectedTaskID(id string) {
 	p.overviewPanel.SetSelectedTaskID(id)
@@ -372,6 +383,10 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 		case "v":
 			return cmd, WorkDetailActionReview
 		case "p":
+			// 'p' = plan when unassigned bead selected, PR otherwise
+			if p.IsUnassignedBeadSelected() {
+				return cmd, WorkDetailActionPlan
+			}
 			return cmd, WorkDetailActionPR
 		case "o":
 			return cmd, WorkDetailActionRestartOrchestrator
@@ -415,6 +430,10 @@ func (p *WorkDetailsPanel) Update(msg tea.KeyMsg) (tea.Cmd, WorkDetailAction) {
 	case "v":
 		return nil, WorkDetailActionReview
 	case "p":
+		// 'p' = plan when unassigned bead selected, PR otherwise
+		if p.IsUnassignedBeadSelected() {
+			return nil, WorkDetailActionPlan
+		}
 		return nil, WorkDetailActionPR
 	case "o":
 		return nil, WorkDetailActionRestartOrchestrator

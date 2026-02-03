@@ -178,6 +178,18 @@ func (m *planModel) destroyFocusedWork() tea.Cmd {
 func (m *planModel) runFocusedWork(autoGroup bool) tea.Cmd {
 	workID := m.focusedWorkID
 	return func() tea.Msg {
+		// Check if worktree is ready (it's created asynchronously by control plane)
+		work, err := m.proj.DB.GetWork(m.ctx, workID)
+		if err != nil {
+			return workCommandMsg{action: "Run work", workID: workID, err: fmt.Errorf("failed to get work: %w", err)}
+		}
+		if work == nil {
+			return workCommandMsg{action: "Run work", workID: workID, err: fmt.Errorf("work %s not found", workID)}
+		}
+		if work.WorktreePath == "" {
+			return workCommandMsg{action: "Run work", workID: workID, err: fmt.Errorf("worktree is still being created, please wait a moment")}
+		}
+
 		if autoGroup {
 			// Use auto mode - creates estimate task and lets orchestrator handle grouping
 			_, err := m.workService.RunWorkAuto(m.ctx, workID, io.Discard)

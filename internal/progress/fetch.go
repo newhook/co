@@ -213,9 +213,12 @@ func FetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 		}
 	}
 
-	// Populate unassigned beads
-	wp.UnassignedBeadCount = len(unassignedWorkBeads)
+	// Populate unassigned beads (excluding root issue which is displayed separately)
 	for _, wb := range unassignedWorkBeads {
+		// Skip root issue - it's displayed separately in the UI
+		if wb.BeadID == work.RootIssueID {
+			continue
+		}
 		bp := BeadProgress{ID: wb.BeadID}
 		if bead := beadsResult.GetBead(wb.BeadID); bead != nil {
 			bp.Title = bead.Title
@@ -226,6 +229,7 @@ func FetchWorkProgress(ctx context.Context, proj *project.Project, work *db.Work
 		}
 		wp.UnassignedBeads = append(wp.UnassignedBeads, bp)
 	}
+	wp.UnassignedBeadCount = len(wp.UnassignedBeads)
 
 	// Get unassigned feedback bead IDs for this work
 	feedbackBeadIDs, err := proj.DB.GetUnassignedFeedbackBeadIDs(ctx, work.ID)
